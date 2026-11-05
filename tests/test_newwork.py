@@ -388,7 +388,7 @@ def test_a_planner_session_gets_no_shell_and_no_write_tool():
         if action["object"] == "repo":
             assert action["checkout"] == "default" and not action.get("access")
             assert not {"Bash", "Write", "Edit", "Agent"} & set(action["tools"])
-            assert not set(action["hub_tools"]) - {"get_issue", "list_issues", "list_prs", "get_pr", "docs_search", "work_search", "roadmap", "submit_drafts", "request_repository", "map_overview", "map_definition", "map_usages", "map_string"}
+            assert not set(action["hub_tools"]) - {"get_issue", "list_issues", "list_prs", "get_pr", "docs_search", "work_search", "roadmap", "submit_drafts", "request_repository", "map_overview", "map_definition", "map_usages", "map_string", "code_search"}
 
 
 def test_a_repository_object_has_no_number(tmp_path):
