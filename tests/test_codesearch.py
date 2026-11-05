@@ -662,6 +662,65 @@ def test_a_reply_always_fits_and_each_repository_keeps_its_first_matches(org, tm
     assert all("more not shown" in g["more"] for g in reply["repos"])
 
 
+def _many_copies(s, seeds, tmp_path, monkeypatch, public: int, private: int = 0, refresh_error: str = "") -> None:
+    """`public` repositories that a search looks in and `private` ones it lists as left out, each with a frozen tree that's made in no time."""
+    records = {}
+    for kind, count, is_private in (("pub", public, False), ("priv", private, True)):
+        for n in range(count):
+            records[f"{kind}-repository-{n:03d}"] = {"private": is_private, "fork": False, **({"error": refresh_error, "tried": time.time()} if refresh_error else {})}
+    for name in records:
+        (tmp_path / "copies" / name / ".git").mkdir(parents=True)
+    monkeypatch.setattr(seeds, "status", lambda: {"repos": records})
+    monkeypatch.setattr(seeds, "path", lambda name: tmp_path / "copies" / name)
+
+    async def take(repo, place, read_only):
+        into = place("c" * 40)
+        into.mkdir(parents=True)
+        (into / "f.c").write_text("x")
+        return "c" * 40, into, False
+    monkeypatch.setattr(seeds, "take", take)
+
+
+def _files_with_too_many_matches(tmp_path, files: int = 25) -> str:
+    """Each file has one match more than is shown, so each is named under more_in_these_files."""
+    deep = "deeper/" * 8
+    return fake_rg(tmp_path, "".join(record(f"src/module-{n:02d}/{deep}file-{n:02d}.c", i, "x" * 100) for n in range(files) for i in range(1, codesearch.PER_FILE + 2)))
+
+
+def test_the_whole_reply_fits_and_not_only_its_matches(org, tmp_path, monkeypatch):
+    s, seeds, _remote = org  # a session that reads the whole project, a common word, and a long list of files with more matches than are shown in each
+    _many_copies(s, seeds, tmp_path, monkeypatch, public=14, private=30, refresh_error="e" * 300)
+    s.rg = _files_with_too_many_matches(tmp_path)
+    everything = find(s, "x", everything=True)  # all 44 are looked in
+    assert len(everything["repos"]) == 44 and "not_searched" not in everything and len(json.dumps(everything)) <= codesearch.MAX_REPLY
+    reply = find(s, "x")
+    assert len(reply["repos"]) == 14 and len(reply["not_searched"]) == 30 and "not_searched_cut" not in reply
+    assert len(json.dumps(reply)) <= codesearch.MAX_REPLY
+    assert reply["complete"] is False and "more matches than fit" in reply["cut"] and 0 < reply["matches"] == sum(len(g["rows"]) for g in reply["repos"])
+    assert all("more_in_these_files" in g and len(g["more_in_these_files"]) < 1500 and g["more"] for g in reply["repos"])  # each says what it left out
+
+
+def test_what_is_left_out_is_bounded_too_and_says_how_much_was_not_listed(org, tmp_path, monkeypatch):
+    s, seeds, _remote = org
+    _many_copies(s, seeds, tmp_path, monkeypatch, public=3, private=400)
+    s.rg = _files_with_too_many_matches(tmp_path, files=3)
+    reply = find(s, "x")
+    assert len(json.dumps(reply)) <= codesearch.MAX_REPLY
+    listed = len(reply["not_searched"])
+    assert 0 < listed < 400 and reply["not_searched_cut"].startswith(f"{400 - listed} more repositories weren't searched")
+    assert [g["repo"] for g in reply["repos"]] == [f"pub-repository-{n:03d}" for n in range(3)] and reply["matches"] > 0 and "note" not in reply
+
+
+def test_a_great_many_repositories_each_with_files_to_name_still_fit_and_say_what_was_dropped(org, tmp_path, monkeypatch):
+    s, seeds, _remote = org
+    _many_copies(s, seeds, tmp_path, monkeypatch, public=60)
+    s.rg = _files_with_too_many_matches(tmp_path)
+    reply = find(s, "x")
+    assert len(json.dumps(reply)) <= codesearch.MAX_REPLY and len(reply["repos"]) == 60
+    assert reply["complete"] is False and "more matches than fit" in reply["cut"] and "note" not in reply  # something was found, and not shown
+    assert all(g["more"] and "more_in_these_files" in g for g in reply["repos"])
+
+
 def test_a_line_longer_than_ripgrep_should_ever_print_is_a_problem_and_not_a_hang(org, tmp_path):
     s, _seeds, _remote = org
     s.rg = fake_rg(tmp_path, record("a.c", 1, "ok") + "sys.stdout.buffer.write(b'b.c\\0' + b'2:' + b'z' * (2 * 1024 * 1024) + b'\\n')\nsys.stdout.flush()\ntime.sleep(30)")

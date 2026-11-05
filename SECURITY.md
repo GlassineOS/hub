@@ -126,8 +126,10 @@ A new restriction has to name the threat it stops, or be listed here as a guard.
   so a subverted ripgrep can forge results, but only for the repository it was given, which hubd labels by process and not by what
   the output says. hubd limits its address space (2 GiB), file size, priority and core files, the same as for the map's builder (both start their program through `hubd/limits.py`), stops it after 20 s and says it timed out, runs
   at most two searches at once, and reads a bounded part of what it prints: a line of at most 300 bytes shown, 5 matches per
-  file, 200 matches from a named repository or 40 from each of several, and a reply of at most 40,000 characters, shared
-  between repositories. It keeps the end of what ripgrep says on stderr, 600 bytes, and reports it, even if matches were found: an
+  file, 200 matches from a named repository or 40 from each of several, and a reply of at most 40,000 characters in all: the
+  matches are shared between repositories in what's left after everything else in the reply, so a long `not_searched` (cut at 8,000 characters, with a count of
+  what it left out) or a long list of files with more matches than are shown doesn't push it over. What each repository says about itself is still in it,
+  so that holds for a few dozen repositories searched in one reply (the organization has twelve), and not beyond. It keeps the end of what ripgrep says on stderr, 600 bytes, and reports it, even if matches were found: an
   exit status of 2 is a problem the reply names, and a result that was cut, timed out or had a problem says so and isn't `complete`.
   What a query can do: it reaches ripgrep only as the value of `-e`, and a path only as the value of `--glob=`, so neither can
   be taken for an option, and a query is one line of at most 500 characters. A regular expression runs in ripgrep's default engine,
