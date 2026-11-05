@@ -701,6 +701,31 @@ def test_the_first_tick_sends_nothing_and_a_later_change_is_sent():
     assert len(hubd.feed_calls) == 1
 
 
+def test_a_write_refreshing_an_item_is_recorded_once_the_first_tick_is_done_and_not_before():
+    """`_wrote` upserts outside a tick. On a fresh store that is part of the first pass; after it, a change like any other."""
+    hubd, store, sync = feed_world()
+    store.upsert(pr(oid=OLD))                 # before the first tick: what is here
+    assert store.outbox_size() == 0
+    hubd.nodes = [pr(oid=OLD)]
+    asyncio.run(sync.tick())
+    assert store.outbox_size() == 0
+    store.upsert(pr(oid=NEW, state="MERGED", updated="2026-11-05T16:00:00Z"))   # between tick 1 and tick 2
+    assert {e["what"] for _, e in store.waiting(10)} == {"state", "head"}
+    hubd.nodes = [pr(oid=NEW, state="MERGED", updated="2026-11-05T16:00:00Z")]
+    asyncio.run(sync.tick())                  # tick 2 sees the same: the change was sent once
+    assert [e["what"] for batch in hubd.feed_calls for e in batch].count("state") == 1
+
+
+def test_a_first_tick_that_failed_is_still_the_first_pass():
+    hubd, store, sync = feed_world()
+    hubd.nodes = [pr(oid=OLD)]
+    hubd.fail = HubdError("down")
+    with pytest.raises(Exception):
+        asyncio.run(sync.tick())
+    store.upsert(pr(oid=NEW, updated="2026-11-05T16:00:00Z"))
+    assert store.outbox_size() == 0
+
+
 def test_changes_wait_for_hubd_and_survive_a_restart_of_the_app(tmp_path):
     path = tmp_path / "work.sqlite"
     hubd, store, sync = feed_world(WorkStore(path))

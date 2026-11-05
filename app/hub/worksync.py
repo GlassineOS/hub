@@ -100,6 +100,10 @@ class WorkSync:
         self.warning = None
         self.run_errors = {}
         self.feed_error = None
+        # The first pass of a fresh store finds everything new: that's what is here, not what changed. So nothing is recorded
+        # until a tick has finished, and from then on everything is, whoever's upsert saw it (a write refreshing one item too).
+        # Decided here and at the end of a tick, not at the start of one, so no window is left between a first tick and a second.
+        store.emit = store.get("synced_at") is not None
         self.rate_remaining = None
         self.running = False
 
@@ -134,8 +138,6 @@ class WorkSync:
         async with self._lock:
             self.running = True
             try:
-                # The first pass finds everything new: that's what's here, not what changed.
-                self.store.emit = self.store.get("synced_at") is not None
                 await self.github.overview(fresh=True)
                 changed = await self._pull_changes()
                 repos = [r["name"] for g in self.github._overview["groups"] for r in g["repos"]]
@@ -145,6 +147,7 @@ class WorkSync:
                     await self._pull("open-prs")
                     self.store.put("open_prs_owed", "")
                 self.store.put("synced_at", str(self._clock()))
+                self.store.emit = True
                 self.error = None
                 return {"items": changed, "runs": new_runs}
             except HubdError as e:
