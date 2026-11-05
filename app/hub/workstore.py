@@ -43,7 +43,13 @@ CREATE TABLE IF NOT EXISTS vectors (
     PRIMARY KEY (hash, model));
 CREATE TABLE IF NOT EXISTS answers (key TEXT PRIMARY KEY, stamp TEXT, value TEXT NOT NULL, kept_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS sync (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, event TEXT NOT NULL);
 """
+# Changes waiting to be sent to hubd are rows of `outbox`, written in the transaction of the upsert that saw them, so a tick that
+# fails afterwards or an app that restarts loses none. This file is a cache: a VERSION change drops the outbox with the rest, and
+# what was waiting in it is lost, so a bump should wait for it to be empty (`feed_waiting` in the work status says).
+MAX_EVENTS = 5000  # waiting to be sent to hubd: a feed that never drains mustn't grow this without end. The oldest go, and are counted.
+FRESH_RUN = 2 * 86400  # a run first seen finishing longer ago than this isn't news: it's one the window returns again after a prune
 _DECIDED = {"SUCCESS": "passing", "FAILURE": "failing", "ERROR": "failing", "PENDING": "pending", "EXPECTED": "pending"}
 
 
@@ -70,6 +76,49 @@ def run_row(repo: str, run: dict) -> dict:
             "workflowName": run.get("name") or "", "status": run.get("status"), "conclusion": run.get("conclusion"),
             "event": run.get("event"), "headBranch": run.get("head_branch"), "headSha": run.get("head_sha"),
             "createdAt": run.get("created_at"), "updatedAt": run.get("updated_at"), "url": run.get("html_url")}
+
+
+def _login(who) -> str | None:
+    return (who or {}).get("login") if isinstance(who, dict) else None
+
+
+def item_events(kind: str, old: dict | None, new: dict, old_comment: tuple | None, comments: list[dict]) -> list[dict]:
+    """The facts of what changed between two rows of one issue or pull request, for hubd's feed. Facts only: states, head
+    commits, counts and logins. A title, a body or a comment's text never goes in, as they can be an outsider's."""
+    base = {"kind": kind, "repo": new["repo"], "number": new["number"], "at": new["updatedAt"]}
+    heads = {}
+    if kind == "pr":
+        heads = {"old_head": (old or {}).get("headRefOid") or "", "new_head": new.get("headRefOid") or ""}
+    if old is None:
+        return [{**base, "what": "opened", "new": new["state"], "actor": _login(new.get("author")), **heads}]
+    out = []
+    if old["state"] != new["state"]:
+        out.append({**base, "what": "state", "old": old["state"], "new": new["state"], **heads})
+    if kind == "pr":
+        if heads["old_head"] != heads["new_head"]:
+            out.append({**base, "what": "head", **heads})
+        for what, field in (("review", "reviewDecision"), ("checks", "checks")):
+            if old.get(field) != new.get(field):
+                out.append({**base, "what": what, "old": old.get(field) or "", "new": new.get(field) or ""})
+    if {x["name"] for x in old.get("labels") or []} != {x["name"] for x in new.get("labels") or []}:
+        out.append({**base, "what": "labels", "old": str(len(old.get("labels") or [])), "new": str(len(new.get("labels") or []))})
+    newest = max(comments, key=lambda c: c.get("createdAt") or "", default=None)
+    # No comment kept before is "": the first one on an item is a new one. (An item seen for the first time returned above.)
+    if newest and (newest.get("createdAt") or "") > ((old_comment or ("", ""))[1] or ""):
+        out.append({**base, "what": "comments", "actor": _login(newest.get("author"))})
+    return out
+
+
+def run_events(old: dict | None, new: dict, now: float) -> list[dict]:
+    """A run that has finished: its conclusion, once. One still going says nothing, and neither does one this hub sees for
+    the first time that finished long ago: a pruned run the latest-runs window returns again isn't a new result."""
+    if new.get("status") != "completed" or (old is not None and old.get("status") == "completed"):
+        return []
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))
+    if old is None and new.get("updatedAt") and new["updatedAt"] < time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - FRESH_RUN)):
+        return []
+    return [{"kind": "run", "repo": new["repo"], "number": new["databaseId"], "what": "run", "at": new.get("updatedAt") or stamp,
+             "old": (old or {}).get("status") or "", "new": new.get("conclusion") or ""}]
 
 
 def chunks(text: str) -> list[str]:
@@ -101,6 +150,8 @@ class WorkStore:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.lock = threading.RLock()
         self._loaded = None  # the passages with vectors, in memory until they change
+        self.clock = time.time
+        self.emit = True  # off for the first pass: everything is new then, and that's no change
         self._generation = 0
 
     # --- small answers ------------------------------------------------------
@@ -136,6 +187,10 @@ class WorkStore:
         data = json.dumps(row, sort_keys=True)
         with self.lock, self.db:
             old = self.db.execute("SELECT data FROM items WHERE kind = ? AND repo = ? AND number = ?", key).fetchone()
+            if self.emit and (old is None or old["data"] != data):
+                last = self.db.execute("SELECT id, created_at FROM comments WHERE kind = ? AND repo = ? AND number = ? "
+                                       "ORDER BY created_at DESC LIMIT 1", key).fetchone()
+                self._note(item_events(kind, json.loads(old["data"]) if old else None, row, tuple(last) if last else ("", ""), comments))
             self.db.execute("INSERT OR REPLACE INTO items (kind, repo, number, state, updated_at, data) VALUES (?, ?, ?, ?, ?, ?)",
                             (*key, row["state"], row["updatedAt"], data))
             if total <= len(comments):  # all of them: this also drops the deleted ones
@@ -145,6 +200,49 @@ class WorkStore:
                                 (c["id"], *key, c.get("createdAt"), json.dumps(c)))
             self._set_passages(key, row)
         return old is None or old["data"] != data
+
+    def _note(self, events: list[dict]) -> None:
+        """Into the outbox, inside the transaction of the upsert that saw them (the caller holds it open)."""
+        for event in events:
+            self.db.execute("INSERT INTO outbox (event) VALUES (?)", (json.dumps(event),))
+        over = self.db.execute("SELECT count(*) FROM outbox").fetchone()[0] - MAX_EVENTS
+        if over > 0:
+            self.db.execute("DELETE FROM outbox WHERE id IN (SELECT id FROM outbox ORDER BY id LIMIT ?)", (over,))
+            self._count("feed_dropped", over)
+
+    def _count(self, key: str, n: int) -> None:
+        """A running total in the sync table, kept in whatever transaction is open."""
+        self.db.execute("INSERT INTO sync (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + ?",
+                        (key, str(n), n))
+
+    def waiting(self, limit: int) -> list[tuple[int, dict]]:
+        """The oldest changes not yet sent, with their ids. One that doesn't read back as a change is dropped, and counted."""
+        with self.lock, self.db:
+            rows = self.db.execute("SELECT id, event FROM outbox ORDER BY id LIMIT ?", (limit,)).fetchall()
+            out, bad = [], []
+            for r in rows:
+                try:
+                    event = json.loads(r["event"])
+                except ValueError:
+                    event = None
+                if isinstance(event, dict):
+                    out.append((r["id"], event))
+                else:
+                    bad.append(r["id"])
+            if bad:
+                self.db.executemany("DELETE FROM outbox WHERE id = ?", [(i,) for i in bad])
+                self._count("feed_dropped", len(bad))
+        return out
+
+    def sent(self, ids: list[int], refused: int = 0) -> None:
+        with self.lock, self.db:
+            self.db.executemany("DELETE FROM outbox WHERE id = ?", [(i,) for i in ids])
+            if refused:
+                self._count("feed_refused", refused)
+
+    def outbox_size(self) -> int:
+        with self.lock:
+            return self.db.execute("SELECT count(*) FROM outbox").fetchone()[0]
 
     def _set_passages(self, key: tuple, row: dict) -> None:
         rows = self.db.execute("SELECT data FROM comments WHERE kind = ? AND repo = ? AND number = ? ORDER BY created_at", key).fetchall()
@@ -245,6 +343,8 @@ class WorkStore:
         data = json.dumps(row, sort_keys=True)
         with self.lock, self.db:
             old = self.db.execute("SELECT data FROM items WHERE kind = ? AND repo = ? AND number = ?", key).fetchone()
+            if self.emit and (old is None or old["data"] != data):
+                self._note(run_events(json.loads(old["data"]) if old else None, row, self.clock()))
             self.db.execute("INSERT OR REPLACE INTO items (kind, repo, number, state, updated_at, data) VALUES (?, ?, ?, ?, ?, ?)",
                             (*key, row["conclusion"] or row["status"], row["updatedAt"] or "", data))
         return old is None or old["data"] != data

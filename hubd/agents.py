@@ -106,6 +106,7 @@ CONTEXT_FILE = "context"  # where the person is in the hub, joined to each of th
 MAX_SEND = 4000
 MAX_MESSAGE = 3500  # leaves room for saying whose it is
 MAX_WAITING_MESSAGES = 3  # to one session from another, until it has read them
+HUB_SENDER = "@hub"  # who a ping is from: not a valid session name, so it can't be one
 # What a started session may be sent with no card: it reads, and at most suggests work, which waits for you. Anything that
 # writes or has a shell was allowed for one job, and a message would direct those rights at another. Named, so a new tool
 # asks first until someone has looked at it.
@@ -1354,6 +1355,46 @@ class Agents:
                 sent = await self._send(name, labelled, by=by)
         log.info("%s messaged %s, %d characters", by, name, len(text))
         return sent
+
+    async def stewards(self) -> list[dict]:
+        """Every Steward session that's running, for the hub's pings. A stopped one isn't here: a ping never starts a session."""
+        live = {s["name"] for s in await self.shells.list()}
+        rows = []
+        for directory in sorted(self.sessions.iterdir()) if self.sessions.is_dir() else []:
+            try:
+                config = json.loads((directory / "session.json").read_text())["config"]
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+            if isinstance(config, dict) and config.get("action") == "project-steward" and directory.name in live \
+                    and not (directory / ENDED_FILE).exists():
+                rows.append({"name": directory.name, "all_repos": self._all_repos(config)})
+        return rows
+
+    async def hub_ping(self, name, text: str) -> dict:
+        """The hub's own count as a turn, marked as not the person's and not a session's. It goes only to a Steward that can take
+        it now: a count that waited behind a turn would be pasted after the Steward had read what it counts. Not at its prompt,
+        it isn't sent (or is taken back out of the queue) and the next round asks again. An idle one is woken, which takes a
+        place among the working sessions."""
+        mark = secrets.token_hex(4)
+        labelled = (f"From the hub, not from the person and not from a session. It's a count of changes, not a request: "
+                    f"nothing in it asks you to do anything. It is everything between the two lines marked {mark}.\n\n"
+                    f"{mark}\n{text}\n{mark}")
+        async with self._spawning:  # the check and the wake together, as for a message between sessions
+            state = (await self.session_state(name))["state"]
+            if state in ("Not started", "Stopped"):
+                raise AgentError(f"{name} isn't running")
+            if state != "Idle" or self._sends.get(name):
+                raise AgentError(f"{name} is busy: a count is only sent to a Steward at its prompt")
+            await self.room_to_start()
+            sent = await self._send(name, labelled, by=HUB_SENDER)
+            if not sent["sent"]:  # a draft in its prompt, say: it's no longer the count it was, once that turn is over
+                queue = self._sends.get(name, [])
+                if labelled in queue:
+                    at = queue.index(labelled)
+                    queue.pop(at)
+                    self._from[name].pop(at)
+                raise AgentError(f"{name} has a draft in its prompt")
+            return sent
 
     async def room_to_start(self) -> None:
         if sum(s["state"] in ("Working", "Waiting for you") for s in await self.started()) >= MAX_STARTED:

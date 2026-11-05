@@ -18,10 +18,13 @@ import logging
 import os
 import re
 import signal
+import sqlite3
 import sys
+import time
 from pathlib import Path
 
 from . import auth, decisions, devices, newwork, notes
+from . import feed as feedlib
 from .agents import MAX_NOTES, PLANNER_MODELS, AgentError, Agents, Library, load_environment, validate
 from .apps import AppError, Apps, is_write
 from .asks import GRANT_LIFE, MAX_INPUT, TOOL_PREFIX, AskError, Asks
@@ -51,6 +54,8 @@ def state_dir() -> Path:
 
 
 TIDY_FIRST, TIDY_EVERY = 600, 6 * 3600  # seconds
+PING_FIRST, PING_EVERY = 60, 30  # seconds: how often to look; the interval of a ping is its own setting
+PUBLIC_KNOWN, PUBLIC_UNSURE = 600, 60  # seconds a repository's visibility is kept, when GitHub said and when it didn't
 COPIES_EVERY = 1800  # seconds between refreshes of the repository copies
 WORK_TOOL_OPS = {"work.offer": "plan_work", "work.suggest": "suggest_session", "work.submit": "submit_drafts", "work.handed": "new_work_drafts"}
 STEWARD = "steward"
@@ -73,7 +78,11 @@ class Hubd:
     def __init__(self, gh: Gh, shells: Shells, sessions: auth.Sessions, agent_token: str,
                  authenticate=auth.pam_authenticate, pam_service: str = PAM_SERVICE, agents: Agents | None = None,
                  apps: Apps | None = None, work: newwork.NewWork | None = None, device_reports: devices.Devices | None = None,
-                 decision_store: decisions.Decisions | None = None, notes_search: notes.Notes | None = None):
+                 decision_store: decisions.Decisions | None = None, notes_search: notes.Notes | None = None,
+                 change_feed: feedlib.Feed | None = None, ping_seconds: float = feedlib.DEFAULT_PING):
+        self.feed = change_feed
+        self._visible: dict[str, tuple[bool, float]] = {}
+        self.pings = feedlib.Pings(change_feed, agents, self.public_among, ping_seconds) if change_feed and agents else None
         self.asks = Asks()
         self.notes = notes_search
         self.devices = device_reports
@@ -134,6 +143,12 @@ class Hubd:
             return {"ok": True, **self.decisions.holding_view()} if self.decisions else {"ok": False, "error": "decisions aren't set up"}
         if op in DECISION_TOOL_OPS:
             return await self.decision_tool(op, req)
+        if op == "feed.record":
+            return self.feed_record(req)
+        if op == "feed.changes":
+            return await self.feed_changes(req)
+        if op == "gh":
+            self._note_own(req)
         if op == "gh" and is_merge(req.get("argv")):
             return await self.merge(req)
         if op == "gh":
@@ -191,6 +206,75 @@ class Hubd:
                 reply["ignored"] = await self.agents.ignored_in(req.get("name"))
             return reply
         return {"ok": False, "error": f"unknown request: {op}"}
+
+    # --- the change feed ---------------------------------------------------------------
+    def feed_record(self, req: dict) -> dict:
+        """From the work sync. Facts of a fixed shape; the feed refuses the rest."""
+        if self.feed is None:
+            return {"ok": False, "error": "the change feed isn't set up"}
+        try:
+            kept, refused = self.feed.record(req.get("events"))
+        except feedlib.FeedError as e:
+            return {"ok": False, "error": str(e)}
+        except sqlite3.Error as e:
+            log.exception("the change feed failed")
+            return {"ok": False, "error": f"the change feed failed: {e}"}
+        return {"ok": True, "kept": kept, "refused": refused}
+
+    async def feed_changes(self, req: dict) -> dict:
+        """A login sees all of it and moves no cursor. A session needs the tool on its list, and has its own cursor: what it
+        may read is its own right to read private repositories, which decides the rows and the counts alike."""
+        if self.feed is None:
+            return {"ok": False, "error": "the change feed isn't set up"}
+        if self.sessions.check(req.get("token")):
+            session, all_repos = None, True
+        else:
+            scope = self._caller(req.get("agent_token"))
+            if not self._lists(scope, "changes_since"):
+                return {"ok": False, "refused": True, "denied": not req.get("agent_token"), "error": "this needs a login, or a session that has changes_since"}
+            session, all_repos = scope["session"], scope.get("all_repos") is True
+        limit = req.get("limit")
+        try:
+            cursor = feedlib.parse_cursor(req.get("cursor"))
+            public = None if all_repos else await self.public_among(self.feed.repos())
+            return {"ok": True, **self.feed.changes(session, cursor, limit if isinstance(limit, int) and not isinstance(limit, bool) else feedlib.DEFAULT_READ, public)}
+        except feedlib.FeedError as e:
+            return {"ok": False, "error": str(e)}
+        except sqlite3.Error as e:
+            log.exception("the change feed failed")
+            return {"ok": False, "error": f"the change feed failed: {e}"}
+
+    async def public_among(self, repos) -> set[str]:
+        """The repositories GitHub says are public. One it can't say anything about is treated as private."""
+        now = time.monotonic()
+        found = set()
+        for repo in sorted(repos):
+            known = self._visible.get(repo)
+            if known is None or known[1] < now:
+                public = await self._is_public(repo)
+                known = self._visible[repo] = (public, now + (PUBLIC_KNOWN if public is not None else PUBLIC_UNSURE))
+            if known[0]:
+                found.add(repo)
+        return found
+
+    async def _is_public(self, repo: str) -> bool | None:
+        try:
+            reply = await self.gh.run(["api", f"repos/{ORG}/{repo}"])
+            return json.loads(reply["stdout"]).get("private") is False if reply["code"] == 0 else None
+        except (Refused, ValueError, AttributeError, OSError):
+            return None
+
+    def _note_own(self, req: dict) -> None:
+        """A session's write to an item, so that what changes in it soon after is marked as that session's own."""
+        if self.feed is None or not self.agents or not is_write(req.get("argv")):
+            return
+        scope = self.agents.scope(req.get("agent_token"))
+        target = feedlib.target_of(req.get("argv"))
+        if scope and scope.get("session") and target:
+            try:
+                self.feed.mark(scope["session"], *target)
+            except sqlite3.Error:
+                log.exception("couldn't note a write")
 
     async def _persona_token(self, req: dict) -> str | None:
         """Who a write goes out as: the session behind the tool call says, by its own token."""
@@ -949,6 +1033,17 @@ async def _tidy(hubd: Hubd) -> None:
         await asyncio.sleep(TIDY_EVERY)
 
 
+async def _ping(hubd: Hubd) -> None:
+    """The Stewards' pings: a count, when something they haven't read has changed, at most once an interval each."""
+    await asyncio.sleep(PING_FIRST)
+    while hubd.pings:
+        try:
+            await hubd.pings.round()
+        except Exception:  # a fault in the feed mustn't stop the hub; the next round may go better
+            log.exception("pings didn't run")
+        await asyncio.sleep(PING_EVERY)
+
+
 async def _keep_copies(hubd: Hubd) -> None:
     """The hub's copies of the organization's repositories. Failures are written down for the page, and the last good copy stands."""
     if not hubd.agents:
@@ -974,12 +1069,14 @@ async def serve(hubd: Hubd, path: Path) -> None:
     log.info("listening on %s", path)
     tidying = asyncio.ensure_future(_tidy(hubd))
     copying = asyncio.ensure_future(_keep_copies(hubd))
+    pinging = asyncio.ensure_future(_ping(hubd))
     try:
         async with server:
             await server.serve_forever()
     finally:
         tidying.cancel()
         copying.cancel()
+        pinging.cancel()
 
 
 def main(argv=None) -> int:
@@ -1006,6 +1103,7 @@ def main(argv=None) -> int:
         keep = load_environment(config_dir() / "agents.env")
         claude = keep.pop("HUBD_CLAUDE", os.environ.get("HUBD_CLAUDE", "claude"))
         workspace = keep.pop("HUBD_WORKSPACE", os.environ.get("HUBD_WORKSPACE"))
+        ping_setting = keep.pop("HUBD_PING_SECONDS", os.environ.get("HUBD_PING_SECONDS"))
         # From before agents.env, until install.sh has moved it there.
         if "CLAUDE_CONFIG_DIR" in os.environ:
             keep.setdefault("CLAUDE_CONFIG_DIR", os.environ["CLAUDE_CONFIG_DIR"])
@@ -1017,7 +1115,13 @@ def main(argv=None) -> int:
                         claude=claude, mcp_url=a.agent_url, socket=a.socket,
                         agent_token=agent_token, environment=keep,
                         workspace=Path(workspace or Path.home() / "GlassineOS").expanduser().resolve())
+        try:
+            change_feed = feedlib.Feed(state_dir() / "feed.sqlite")
+        except (sqlite3.Error, OSError):  # the hub works without it: no pings, and the tool says so
+            log.exception("no change feed")
+            change_feed = None
         hubd = Hubd(gh, shells, auth.Sessions(), agent_token, pam_service=a.pam_service, agents=agents, apps=apps,
+                    change_feed=change_feed, ping_seconds=feedlib.ping_interval(ping_setting),
                     work=newwork.NewWork(state_dir() / "newwork"), device_reports=devices.Devices(state_dir() / "devices"),
                     decision_store=decisions.Decisions(state_dir() / "decisions"), notes_search=notes.Notes(agents.workspace))
         await serve(hubd, a.socket)

@@ -571,6 +571,17 @@ class GitHub:
             raise
         return {"work": record, "errors": errors, "warnings": warnings}
 
+    async def changes_since(self, cursor=None, limit=100, login=None) -> dict:
+        """What changed in the project after a cursor, as facts from hubd's feed: item, what, old and new state and head commit,
+        when, who, a link. A session's own cursor is kept by hubd, so it moves forward when this is read. Under a login it
+        moves nobody's. What the caller may read is hubd's to decide, for the rows and the counts alike."""
+        if cursor is not None and not isinstance(cursor, (str, int)):
+            raise BadRequest("a cursor is the one a previous answer gave")
+        reply = await self.hubd.call(op="feed.changes", agent_token=CALLER.get(), token=login,
+                                     cursor=None if cursor in (None, "") else str(cursor), limit=int(_limit(limit, 100, 500)))
+        reply.pop("ok", None)
+        return reply
+
     async def started_sessions(self) -> list[dict]:
         return (await self.hubd.call(op="started.list", agent_token=CALLER.get()))["sessions"]
 

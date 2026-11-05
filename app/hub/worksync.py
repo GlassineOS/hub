@@ -37,6 +37,8 @@ FULL_EVERY = 6 * 3600
 SEARCH_CAP = 1000
 RUNS_PER_REPO = 30
 EMBED_BATCH = 32
+# What hubd's feed is sent per request, and what may wait for a hubd that can't take it.
+FEED_BATCH = 200
 
 
 def interval_from(value: str | None) -> float:
@@ -97,6 +99,7 @@ class WorkSync:
         self.error = None
         self.warning = None
         self.run_errors = {}
+        self.feed_error = None
         self.rate_remaining = None
         self.running = False
 
@@ -105,7 +108,9 @@ class WorkSync:
         synced = self.store.get("synced_at")
         return {"enabled": True, "ready": self.ready(), "running": self.running, "error": self.error,
                 "synced_at": float(synced) if synced else None, "semantic": self.semantic, "counts": self.store.counts(),
-                "warning": self.warning, "run_errors": self.run_errors, "rate_remaining": self.rate_remaining}
+                "warning": self.warning, "run_errors": self.run_errors, "rate_remaining": self.rate_remaining,
+                "feed_error": self.feed_error, "feed_waiting": self.store.outbox_size(),
+                "feed_dropped": int(self.store.get("feed_dropped") or 0), "feed_refused": int(self.store.get("feed_refused") or 0)}
 
     def ready(self) -> bool:
         return self.store.get("synced_at") is not None
@@ -129,6 +134,8 @@ class WorkSync:
         async with self._lock:
             self.running = True
             try:
+                # The first pass finds everything new: that's what's here, not what changed.
+                self.store.emit = self.store.get("synced_at") is not None
                 await self.github.overview(fresh=True)
                 changed = await self._pull_changes()
                 repos = [r["name"] for g in self.github._overview["groups"] for r in g["repos"]]
@@ -149,6 +156,9 @@ class WorkSync:
                 log.exception("sync failed")
                 raise
             finally:
+                # What the upserts saw is already kept in the store's outbox, so a failed tick loses none of it: it goes on now,
+                # and what hubd can't take stays for the next tick.
+                await self._deliver()
                 self.running = False
                 self._ticked_at = self._clock()
                 self._embed_soon()
@@ -220,6 +230,22 @@ class WorkSync:
                 self.store.put(key, reply["etag"])
             return count
         return sum(await asyncio.gather(*(one(r) for r in repos)))
+
+    # --- the change feed -----------------------------------------------------------------
+    async def _deliver(self) -> None:
+        """Facts of what changed, on to hubd's feed. They stay in the store's outbox until hubd has taken them, and a feed
+        that fails mustn't fail the sync: the views go on, and the status says what's waiting, dropped and refused."""
+        try:
+            while batch := self.store.waiting(FEED_BATCH):
+                reply = await self.hubd.call(op="feed.record", events=[e for _, e in batch])
+                refused = reply.get("refused") or 0
+                if refused:
+                    log.warning("hubd's feed refused %s of %s events", refused, len(batch))
+                self.store.sent([i for i, _ in batch], refused if isinstance(refused, int) else 0)
+            self.feed_error = None
+        except Exception as e:  # HubdError, or a store that failed: the next tick sends what's left
+            self.feed_error = f"{type(e).__name__}: {e}"
+            log.warning("couldn't send changes to the feed: %s", e)
 
     # --- embeddings ---------------------------------------------------------------
     async def embedder(self):

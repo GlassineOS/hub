@@ -72,6 +72,15 @@ allowed for one job aren't the Steward's to direct at another. Either way it arr
 the session's next turn, labelled as not from you. Being a hub tool, it isn't tied to one model provider. Sessions can't
 message the Steward: they read untrusted text, and it can read private repositories and ask for writes.
 
+The Steward stays on top of what changes with `changes_since` and the hub's pings. The work sync records every change it sees to
+an issue, a pull request or a run in hubd's feed, as facts (item, what changed, old and new state and head commit, time, who,
+link), never text. Each running Steward has its own cursor in the feed, and `changes_since` returns what came after it, most
+important first (a merge, a moved head, a failing check or run) with nothing left out. A ping to the Steward is only a count,
+"12 changes since 15:02 UTC: 3 merged, 2 reviews", from the hub, at most once per interval (`HUBD_PING_SECONDS`, 300 by default)
+and never when nothing it hasn't read has changed: it is sent only to a Steward at its prompt, never queued behind a turn. It never starts a stopped session, and waking an idle one counts against the
+limit of 4. What the Steward did itself is in the feed marked as its own and doesn't count toward a ping. Not built yet:
+sessions changing state, decisions and device reports as feed rows.
+
 - The session gets a detached checkout of the default branch that isn't in the workspace, the read tools,
   and `submit_drafts`. It has no shell and no write tool, and it reads across the organization.
 - `submit_drafts` ends it: the drafts go on disk, and hubd ends the session a few seconds later. Nothing
