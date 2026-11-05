@@ -15,7 +15,7 @@ from starlette.testclient import TestClient  # noqa: E402
 
 from hub import main, tools  # noqa: E402
 from hub.github import BadRequest, GitHub, _version  # noqa: E402
-from hub.hubd_client import SESSION  # noqa: E402
+from hub.hubd_client import SESSION, HubdError  # noqa: E402
 from hub.workstore import WorkStore  # noqa: E402
 from hubd.ghpolicy import check  # noqa: E402
 from hubd.server import _edit_problem  # noqa: E402
@@ -36,9 +36,12 @@ class EditHubd(FakeHubd):
         self.comment = {"id": 77, "node_id": "IC_77", "issue_url": "https://api.github.com/repos/GlassineOS/hub/issues/5",
                         "body": "status: old", "html_url": "https://github.com/GlassineOS/hub/issues/5#issuecomment-77"}
         self.edited = []
+        self.rest_down = False
 
     async def gh(self, *argv, stdin=None, timeout=None, login=None):
         check(list(argv))  # whatever the app builds has to pass hubd's policy
+        if self.rest_down and argv[0] == "api":
+            raise HubdError("GitHub is not answering")
         if list(argv[:2]) == ["api", "repos/GlassineOS/hub/issues/5"]:
             self.commands.append((list(argv), stdin))
             return json.dumps(self.issue)
@@ -106,7 +109,7 @@ def test_edit_issue_refuses_a_bad_title(github, hubd, title):
 
 def test_a_stale_expected_is_refused_and_says_what_changed(github, hubd):
     hubd.answers["issue view 5"] = json.dumps({**hubd.issue, "comments": []})  # the Steward reads it with get_issue
-    read = run(github.issue("hub", 5))
+    read = run(github.agent_issue("hub", 5))
     assert read["version"] == version(hubd)
     # the person ticks a box on the page while the Steward thinks
     hubd.issue["body"] = BODY.replace("- [ ] ship it", "- [x] ship it")
@@ -254,7 +257,78 @@ def test_tick_item_is_refused_on_a_stale_version(github, hubd):
 
 def test_get_issue_gives_the_version_an_edit_asks_for(github, hubd):
     hubd.answers["issue view 5"] = json.dumps({**hubd.issue, "comments": []})
-    assert run(github.issue("hub", 5))["version"] == version(hubd)
+    assert run(github.agent_issue("hub", 5))["version"] == version(hubd)
+
+
+class Synced:
+    """A work sync that has run: the store serves reads."""
+    def ready(self):
+        return True
+
+    def wake(self):
+        pass
+
+
+def served(hubd, tmp_path, **row):
+    """A GitHub whose store holds the issue as of the last sync, which is behind hubd.issue."""
+    store = WorkStore(tmp_path / "work.db")
+    store.upsert({"__typename": "Issue", "repository": {"name": "hub"}, "number": 5, "title": "Parser", "body": BODY, "state": "OPEN",
+                  "updatedAt": "2026-11-05T09:00:00Z", "url": hubd.issue["html_url"], "labels": {"nodes": []}, "assignees": {"nodes": []},
+                  "comments": {"totalCount": 0, "nodes": []}, "author": {"login": "Biont"}, **row})
+    github = GitHub(hubd, CONFIG, store=store)
+    github.sync = Synced()
+    assert github._serving()
+    return github
+
+
+def test_with_the_store_serving_a_person_edit_after_the_last_sync_doesnt_lock_the_steward_out(hubd, tmp_path):
+    """The store is a sync behind. The version and the text get_issue gives are GitHub's, so the next edit can use them."""
+    github = served(hubd, tmp_path)
+    hubd.issue["body"] = BODY + "A line the person added on the page.\n"  # after the last sync
+    read = run(github.agent_issue("hub", 5))
+    assert read["version"] == version(hubd) and read["body"] == hubd.issue["body"], "the text and its version are from the same read"
+    assert run(github.agent_issue("hub", 5))["version"] == read["version"]
+    result = run(github.tick_item("hub", 5, "ship it", read["version"]))
+    assert result["changed"] and hubd.writes()[0][1] == hubd.issue["body"].replace("- [ ] ship it", "- [x] ship it")
+    assert result["previous_body"] == hubd.issue["body"], "what's put back is what the person had, not the store's older text"
+
+
+def test_the_dashboards_view_of_an_issue_still_asks_github_nothing_and_has_no_version(hubd, tmp_path):
+    """Only the read made for editing goes to GitHub: a view is the store's, as the work store's contract says."""
+    github = served(hubd, tmp_path)
+    hubd.issue["body"] = BODY + "Changed after the last sync.\n"
+    seen = run(github.issue("hub", 5))
+    assert seen["body"] == BODY and "version" not in seen
+    assert hubd.commands == [], "no call to GitHub for a view"
+
+
+def test_the_get_issue_tool_gives_the_version_of_githubs_text(hubd, tmp_path):
+    github = served(hubd, tmp_path)
+    hubd.issue["body"] = BODY + "Changed after the last sync.\n"
+    result = run(tools.build(github, FakeDocs())._tool_manager.call_tool("get_issue", {"repo": "hub", "number": 5}, None))
+    assert result["version"] == version(hubd) and result["body"] == hubd.issue["body"]
+
+
+def test_a_change_after_the_steward_read_is_still_refused_and_reading_again_fixes_it(hubd, tmp_path):
+    github = served(hubd, tmp_path)
+    read = run(github.agent_issue("hub", 5))
+    assert read["version"] == version(hubd)
+    hubd.issue["body"] = BODY.replace("- [ ] ship it", "- [ ] ship it, soon")  # the person, while the Steward thinks
+    with pytest.raises(BadRequest, match=r"(?s)has changed since you read it.*\+- \[ \] ship it, soon"):
+        run(github.tick_item("hub", 5, "write the parser", read["version"]))
+    again = run(github.agent_issue("hub", 5))  # the store still has the old row: nothing in it is what the retry rests on
+    assert again["version"] != read["version"] and again["version"] == version(hubd)
+    assert run(github.tick_item("hub", 5, "write the parser", again["version"]))["changed"]
+
+
+def test_with_the_store_serving_and_github_not_answering_there_is_no_version_to_edit_by(hubd, tmp_path):
+    github = served(hubd, tmp_path)
+    hubd.rest_down = True
+    read = run(github.agent_issue("hub", 5))
+    assert read["body"] == BODY and "version" not in read
+    with pytest.raises(HubdError):
+        run(github.tick_item("hub", 5, "ship it", version(hubd)))
+    assert hubd.writes() == []
 
 
 # --- edit_comment -----------------------------------------------------------------------
@@ -329,6 +403,9 @@ def test_an_unchanged_comment_writes_nothing(github, hubd):
 def test_the_web_api_edits_too(hubd, github):
     from hub import web
     client = signed_in(TestClient(web.build(hubd, github, FakeDocs(), secure_cookie=False, allowed_hosts={"testserver"})))
+    hubd.answers["issue view 5"] = json.dumps({**hubd.issue, "comments": []})
+    assert "version" not in client.get("/api/issues/hub/5").json()
+    assert client.get("/api/issues/hub/5?for=edit").json()["version"] == version(hubd)
     reply = client.post("/api/issues/hub/5/tick", json={"item": "ship it", "expected": version(hubd)}, headers=ORIGIN)
     assert reply.status_code == 200 and reply.json()["line"] == "- [x] ship it"
     reply = client.post("/api/issues/hub/5/edit", json={"expected": "0" * 16, "body": "x"}, headers=ORIGIN)

@@ -256,7 +256,9 @@ They are marked as hard to undo. What they refuse is checked in the app, on the 
 
 - **A guard on what was read.** `get_issue` returns a `version`, a hash of the title and body. `edit_issue` and `tick_item` need it as `expected`,
   and if the issue has changed since, nothing is written and the refusal shows what differs, from the text the hub gave out. The person edits these
-  bodies too. A restart of the app makes it forget what it gave out, and then the refusal says only to read again. The check and the write are two
+  bodies too. While the work store serves reads, `get_issue` (and the page's `?for=edit`) asks GitHub for the title and body as well (one more call; the
+  dashboard's own view still asks it nothing), and gives those and their version, not the store's, which can be a sync behind: a version of text the person had already changed would be refused again at every retry. If
+  GitHub doesn't answer then, there is no `version` and so nothing to edit by. A refusal for a change is found only after the person allowed the card. A restart of the app makes it forget what it gave out, and then the refusal says only to read again. The check and the write are two
   calls to GitHub, so a change in between isn't caught.
 - **Whose issues.** Only issues whose author GitHub marks as the organization's own (`OWNER` or `MEMBER`). Another person's is refused, and so is
   a pull request. That doesn't catch outside text pasted into an organization member's issue, or an issue filed by an App, which is refused too,

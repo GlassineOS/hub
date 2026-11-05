@@ -205,6 +205,9 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         return await github.issues(a["repo"], r.query_params.get("state", "open"), a["label"], a["assignee"], a["search"])
 
     async def issue(r, _b, _t):
+        # ?for=edit: the text and `version` an edit is made against, read from GitHub. The view asks GitHub nothing.
+        if r.query_params.get("for") == "edit":
+            return await github.agent_issue(p(r, "repo"), p(r, "n"))
         return await github.issue(p(r, "repo"), p(r, "n"))
 
     async def issue_create(r, b, _t):

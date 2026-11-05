@@ -401,15 +401,6 @@ class GitHub:
         return rows
 
     async def issue(self, repo, number) -> dict:
-        """One issue. Its `version` is what edit_issue and tick_item take as expected."""
-        result = await self._issue_view(repo, number)
-        if "body" in result and "title" in result:
-            version = _version(result["title"], result["body"])
-            self._know(repo, number, version, result["title"], result["body"])
-            return {**result, "version": version}
-        return result
-
-    async def _issue_view(self, repo, number) -> dict:
         if self._serving():
             _full(repo)
             row = self.store.item("issue", repo, int(_num(number)))
@@ -425,6 +416,26 @@ class GitHub:
         if self._serving() and (known := self.store.item("issue", repo, int(_num(number)))):
             self.store.keep(f"issue/{repo}/{_num(number)}", known["updatedAt"], result)
         return result
+
+    async def agent_issue(self, repo, number) -> dict:
+        """One issue for a session that may edit it: its `version` is what edit_issue and tick_item take as expected.
+
+        The view above is the store's and asks GitHub nothing. This one, while the store serves, also reads the title and body
+        from GitHub, since the store can be a sync behind and an edit is checked against the text GitHub has: the text given and its
+        version are then one read, and a version of text the person had already changed would be refused at every retry."""
+        result = await self.issue(repo, number)
+        if "body" not in result or "title" not in result:
+            return result
+        if self._serving():
+            try:
+                live = await self._issue_now(repo, number)
+            except (BadRequest, HubdError) as e:
+                log.warning("no version for %s#%s, as GitHub wasn't asked: %s", repo, number, e)
+                return result  # what the store has, with nothing to edit by
+            result = {**result, "title": live["title"], "body": live["body"]}
+        version = _version(result["title"], result["body"])
+        self._know(repo, number, version, result["title"], result["body"])
+        return {**result, "version": version}
 
     async def create_issue(self, repo, title, body="", labels=None, roadmap=False) -> dict:
         if not title or not str(title).strip():

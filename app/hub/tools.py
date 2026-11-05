@@ -137,7 +137,7 @@ def build(github: GitHub, docs: DocSearch) -> MCPServer:
     @_says_why
     async def get_issue(repo: str, number: int) -> dict:
         """One issue with its body and comments. `version` is what edit_issue and tick_item take as expected."""
-        return await github.issue(repo, number)
+        return await github.agent_issue(repo, number)
 
     @mcp.tool(annotations=WRITE)
     @_says_why
