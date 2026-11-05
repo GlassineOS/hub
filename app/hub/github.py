@@ -37,7 +37,7 @@ OUR_AUTHORS = ("OWNER", "MEMBER")
 _VERSION_RE = re.compile(r"[0-9a-f]{16}")
 _COMMENT_AT_RE = re.compile(r"#issuecomment-([0-9]{1,15})\s*$")
 _BOX_RE = re.compile(r"^(?P<lead>[ \t]*(?:[-*+]|[0-9]{1,9}[.)])[ \t]+\[)(?P<mark>[ xX])(?P<mid>\][ \t]+)(?P<text>.*?)[ \t]*$")
-_FENCE_RE = re.compile(r"^[ \t]{0,3}(```+|~~~+)")
+_FENCE_RE = re.compile(r"^ {0,3}(?P<run>`{3,}|~{3,})(?P<rest>.*)$")
 log = logging.getLogger("hub.github")
 
 
@@ -122,18 +122,22 @@ def _expected(value) -> str:
 
 
 def _boxes(body: str) -> list[tuple[int, re.Match]]:
-    """The checkboxes of a Markdown body, as (line, match), without those in a code block."""
+    """The checkboxes of a Markdown body, as (line, match), without those in a fenced code block.
+
+    A fence closes as CommonMark has it: the same character, a run at least as long as the opener's, and nothing after it.
+    A fence indented four or more spaces, as in a list item, isn't seen, so a box in one is counted."""
     found, fence = [], None
     for i, line in enumerate(body.split("\n")):
         line = line.rstrip("\r")
         mark = _FENCE_RE.match(line)
-        if mark:
-            if fence is None:
-                fence = mark.group(1)[0]
-            elif mark.group(1)[0] == fence:
+        if fence is not None:
+            if mark and mark["run"][0] == fence[0] and len(mark["run"]) >= len(fence) and not mark["rest"].strip():
                 fence = None
             continue
-        box = None if fence else _BOX_RE.match(line)
+        if mark and not (mark["run"][0] == "`" and "`" in mark["rest"]):  # a backtick fence's info string has no backtick
+            fence = mark["run"]
+            continue
+        box = _BOX_RE.match(line)
         if box:
             found.append((i, box))
     return found

@@ -265,7 +265,7 @@ They are marked as hard to undo. What they refuse is checked in the app, on the 
   as GitHub doesn't mark it as a member's. Edits go out as the Steward's persona, like its comments.
 - **Nothing is deleted or emptied.** A body, title or comment can't be blank, and a body that loses more than half its text needs a `reason`,
   which is part of the call and so on the card. There is no delete. `tick_item` changes one box named by its exact text and refuses none or two,
-  ignoring boxes in code blocks. GitHub keeps an edit's history, and each result carries the previous text so the edit can be put back.
+  ignoring boxes in fenced code blocks, closed as CommonMark closes them. A fence indented four or more spaces, in a list item, isn't seen, so a box in one counts. GitHub keeps an edit's history, and each result carries the previous text so the edit can be put back.
 - **Comments it posted itself.** `comment_issue` records the id, the session's name and its instance, in the work store. The instance is the session's
   own id from hubd (the Claude session id), which a name is not: the Steward is always `steward`, and a name is used again once its folder is gone. A
   resumed session keeps its id. `edit_comment` refuses any comment that isn't recorded, one posted by another session or by an earlier or later session of

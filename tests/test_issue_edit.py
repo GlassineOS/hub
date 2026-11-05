@@ -14,7 +14,7 @@ pytest.importorskip("starlette")
 from starlette.testclient import TestClient  # noqa: E402
 
 from hub import main, tools  # noqa: E402
-from hub.github import BadRequest, GitHub, _version  # noqa: E402
+from hub.github import BadRequest, GitHub, _boxes, _version  # noqa: E402
 from hub.hubd_client import INSTANCE, SESSION, HubdError  # noqa: E402
 from hub.workstore import WorkStore  # noqa: E402
 from hubd.ghpolicy import check  # noqa: E402
@@ -329,6 +329,31 @@ def test_with_the_store_serving_and_github_not_answering_there_is_no_version_to_
     with pytest.raises(HubdError):
         run(github.tick_item("hub", 5, "ship it", version(hubd)))
     assert hubd.writes() == []
+
+
+# --- fenced code ------------------------------------------------------------------------
+@pytest.mark.parametrize("body,boxes", [
+    # a longer fence isn't closed by a shorter run inside it
+    ("````\n```\n- [ ] in the example\n```\n````\n- [ ] real\n", ["real"]),
+    # a run with an info string doesn't close a fence
+    ("```\n```python\n- [ ] inside\n```\n- [ ] real\n", ["real"]),
+    # a closer may be longer, and may have trailing spaces; tildes are their own
+    ("```\n- [ ] a\n`````  \n- [ ] b\n~~~\n- [ ] c\n```\n- [ ] d\n~~~\n- [ ] e\n", ["b", "e"]),
+    # a different character doesn't close it
+    ("~~~\n- [ ] a\n```\n- [ ] b\n~~~\n- [ ] c\n", ["c"]),
+    # a backtick can't be in a backtick fence's info string, so that line opens nothing
+    ("``` `x`\n- [ ] a\n", ["a"]),
+    # an unclosed fence runs to the end
+    ("- [ ] a\n```\n- [ ] b\n", ["a"]),
+])
+def test_boxes_in_fenced_code_are_found_as_commonmark_closes_it(body, boxes):
+    assert [b["text"] for _, b in _boxes(body)] == boxes
+
+
+def test_a_box_in_an_example_cant_be_ticked_or_make_a_real_one_a_duplicate(github, hubd):
+    hubd.issue["body"] = "````\n```\n- [ ] ship it\n```\n````\n\n- [ ] ship it\n"
+    run(github.tick_item("hub", 5, "ship it", version(hubd)))
+    assert hubd.writes()[0][1] == "````\n```\n- [ ] ship it\n```\n````\n\n- [x] ship it\n"
 
 
 # --- edit_comment -----------------------------------------------------------------------
