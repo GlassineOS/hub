@@ -77,8 +77,9 @@ an issue, a pull request or a run in hubd's feed, as facts (item, what changed, 
 link), never text. Each running Steward has its own cursor in the feed, and `changes_since` returns what came after it, most
 important first (a merge, a moved head, a failing check or run) with nothing left out. A ping to the Steward is only a count,
 "12 changes since 15:02 UTC: 3 merged, 2 reviews", from the hub, at most once per interval (`HUBD_PING_SECONDS`, 300 by default)
-and never when nothing it hasn't read has changed: it is sent only to a Steward at its prompt, never queued behind a turn. It never starts a stopped session, and waking an idle one counts against the
-limit of 4. What the Steward did itself is in the feed marked as its own and doesn't count toward a ping. Not built yet:
+and never when nothing it hasn't read has changed: it is sent only to a Steward at its prompt, never queued behind a turn. It never starts a stopped session. Waking an idle Steward is refused
+while 4 sessions it started are working, as starting one is, but the Steward itself isn't one of the 4 (the person starts it): its pings
+pause while those 4 work, and the next round asks again. What the Steward did itself is in the feed marked as its own and doesn't count toward a ping. Not built yet:
 sessions changing state, decisions and device reports as feed rows.
 
 - The session gets a detached checkout of the default branch that isn't in the workspace, the read tools,

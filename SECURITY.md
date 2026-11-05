@@ -197,8 +197,9 @@ Steward with a count. The work sync records into it; the Steward reads it with `
   between two random lines, from `@hub`, which is no session's name. It uses the same paste as a message between sessions, and is not the
   Steward-to-session path, whose no-card rule is for read-only sessions. A count is only sent to a Steward that is idle, with nothing queued for
   it and an empty prompt: during a turn it isn't queued (it would be pasted after the Steward had read what it counts) and the next round, 30
-  seconds on, asks again. A stopped session is never pinged and never started. An idle one counts against the 4 working sessions, checked
-  under the same lock. Each item with new comments counts once per sync, however many comments it got.
+  seconds on, asks again. A stopped session is never pinged and never started. Waking an idle one is checked, under the same lock, as starting a session is: it is refused while
+  4 sessions the Steward started are working. The Steward is started by the person, so it is not one of the 4, and its pings pause while those 4
+  work (which is when their pull requests change); the next round asks again and the feed holds everything. Each item with new comments counts once per sync, however many comments it got.
 - **What a session may read decides the rows and the counts.** The Steward's action has `all_repos`; a session without it, or the general tool
   token, gets public repositories only, in the feed, in the counts and in the ping. Whether a repository is public is asked of GitHub and
   kept for 10 minutes (1 minute when it didn't say); if GitHub doesn't say, it's private. The cursor is a number over every change, and when
@@ -213,8 +214,9 @@ Steward with a count. The work sync records into it; the Steward reads it with `
   repositories was made before it, and if that read finds nothing else, its cursor passes the change.
 - **A cursor can't be past the end.** One a caller supplies must be one an answer gave: a number above the highest ever issued (counted by
   SQLite's sequence, which pruning doesn't lower) is refused, as the kept cursor only moves forward and one such would hide everything after it.
-  A session's first read with no cursor starts from the oldest change kept (up to 14 days or 20,000 rows), not from now: the ping loop starts a
-  Steward from now, a read asks for the past.
+  A Steward's cursor starts at the newest change when the ping loop first sees it running, which is within 30 seconds of its starting: what
+  happened before it existed isn't a reason to wake it. A read before that first look, or by a session the ping loop doesn't know, starts from the
+  oldest change kept (up to 14 days or 20,000 rows). For anything older, the Steward reads the item lists.
 - **Its own doing is marked, not hidden.** A write by a session's token (`gh` through hubd) marks the item for 15 minutes, and changes to it
   that arrive then are marked `own` for that session and left out of its counts. It can't tell a stranger's comment on the same item in
   that time from its own, so it errs toward calling it its own. Everything stays in the feed.
