@@ -167,6 +167,17 @@ def test_graphql_only_named_documents(tmp_path, fake_gh):
     run(go())
 
 
+def test_the_shared_agent_token_is_no_session(tmp_path, fake_gh):
+    """The token a hub shell holds names no session and no instance and has no tool list, so the app holds it to no session's
+    comments (edit_comment) and asks for no card. SECURITY.md says so: a test, so a change to it is seen."""
+    async def go():
+        async with Harness(tmp_path, fake_gh) as h:
+            reply = await h.call(op="auth.check_agent", token="agent-secret")
+            assert reply["ok"] and reply["scope"] == {"session": None, "tools": None, "persona": None}
+            assert not (await h.call(op="auth.check_agent", token="nope"))["ok"]
+    run(go())
+
+
 def test_the_owner_check_knows_comments():
     """commentId is checked by asking who owns the node, and that document has to ask about comments."""
     from hubd.ghrun import GRAPHQL_DIR

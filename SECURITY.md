@@ -266,9 +266,14 @@ They are marked as hard to undo. What they refuse is checked in the app, on the 
 - **Nothing is deleted or emptied.** A body, title or comment can't be blank, and a body that loses more than half its text needs a `reason`,
   which is part of the call and so on the card. There is no delete. `tick_item` changes one box named by its exact text and refuses none or two,
   ignoring boxes in code blocks. GitHub keeps an edit's history, and each result carries the previous text so the edit can be put back.
-- **Comments it posted itself.** `comment_issue` records the id and the session that posted it, in the work store. `edit_comment` refuses any other,
-  one posted by another session, and one that isn't on the issue named. The edit is a GraphQL document, and hubd checks that the comment's node is
+- **Comments it posted itself.** `comment_issue` records the id, the session's name and its instance, in the work store. The instance is the session's
+  own id from hubd (the Claude session id), which a name is not: the Steward is always `steward`, and a name is used again once its folder is gone. A
+  resumed session keeps its id. `edit_comment` refuses any comment that isn't recorded, one posted by another session or by an earlier or later session of
+  the same name, one for which hubd named no instance, and one that isn't on the issue named. The edit is a GraphQL document, and hubd checks that the comment's node is
   in the organization, as for review threads. A comment posted from the page can't be edited by a tool.
+  **A call with no session isn't held to one.** That is the page, which is your login, and the shared agent token that hub shells hold, which has no tool
+  list and so no card either: either can edit any comment the hub recorded, whichever session posted it. They have your rights, as for every other tool; a
+  test pins it.
 - **What the card shows is the call.** For `edit_issue` that is the whole new text, not its difference from the old. The Steward is told to say
   what it changes and why, but that is its word. `tick_item` is small enough to read. Before asking, hubd refuses a call the tool would refuse
   anyway: no `expected`, a blank body.

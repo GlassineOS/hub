@@ -15,7 +15,7 @@ from starlette.testclient import TestClient  # noqa: E402
 
 from hub import main, tools  # noqa: E402
 from hub.github import BadRequest, GitHub, _version  # noqa: E402
-from hub.hubd_client import SESSION, HubdError  # noqa: E402
+from hub.hubd_client import INSTANCE, SESSION, HubdError  # noqa: E402
 from hub.workstore import WorkStore  # noqa: E402
 from hubd.ghpolicy import check  # noqa: E402
 from hubd.server import _edit_problem  # noqa: E402
@@ -332,20 +332,22 @@ def test_with_the_store_serving_and_github_not_answering_there_is_no_version_to_
 
 
 # --- edit_comment -----------------------------------------------------------------------
-def post(github, session="steward"):
-    token = SESSION.set(session)
+def as_session(session, instance, call):
+    """The tool server sets who is calling from the scope hubd gives its token. None, None is the page or the shared token."""
+    tokens = SESSION.set(session), INSTANCE.set(instance)
     try:
-        return run(github.comment_issue("hub", 5, "status: old"))
+        return run(call())
     finally:
-        SESSION.reset(token)
+        INSTANCE.reset(tokens[1])
+        SESSION.reset(tokens[0])
 
 
-def edit(github, body="status: new", comment=77, number=5, session="steward"):
-    token = SESSION.set(session)
-    try:
-        return run(github.edit_comment("hub", number, comment, body))
-    finally:
-        SESSION.reset(token)
+def post(github, session="steward", instance="i-1"):
+    return as_session(session, instance, lambda: github.comment_issue("hub", 5, "status: old"))
+
+
+def edit(github, body="status: new", comment=77, number=5, session="steward", instance="i-1"):
+    return as_session(session, instance, lambda: github.edit_comment("hub", number, comment, body))
 
 
 def test_a_comment_the_session_posted_can_be_edited(github, hubd):
@@ -366,6 +368,53 @@ def test_a_comment_another_session_posted_is_refused(github, hubd):
     with pytest.raises(BadRequest, match="isn't one you posted"):
         edit(github, session="steward")
     assert hubd.edited == []
+
+
+def test_a_new_session_under_the_same_name_cant_edit_what_the_old_one_posted(github, hubd):
+    """The Steward is always called steward: what tells one from the next is its instance."""
+    post(github, session="steward", instance="i-1")
+    with pytest.raises(BadRequest, match="isn't one you posted"):
+        edit(github, session="steward", instance="i-2")
+    assert hubd.edited == []
+    assert edit(github, session="steward", instance="i-1")["changed"]
+
+
+def test_a_new_session_with_a_store_that_remembers_cant_either(hubd, tmp_path):
+    post(GitHub(hubd, CONFIG, store=WorkStore(tmp_path / "work.db")), instance="i-1")
+    with pytest.raises(BadRequest, match="isn't one you posted"):
+        edit(GitHub(hubd, CONFIG, store=WorkStore(tmp_path / "work.db")), instance="i-2")
+    assert hubd.edited == []
+
+
+@pytest.mark.parametrize("instance", [None, ""])
+def test_a_named_session_with_no_instance_is_refused(github, hubd, instance):
+    """Fail closed: a hubd that doesn't say which instance it is can't be matched to anything."""
+    post(github, instance="i-1")
+    with pytest.raises(BadRequest, match="isn't one you posted"):
+        edit(github, instance=instance)
+    post(github, instance=instance)  # recorded with none either, which never matches
+    with pytest.raises(BadRequest, match="isn't one you posted"):
+        edit(github, instance=instance)
+    assert hubd.edited == []
+
+
+def test_a_comment_recorded_without_an_instance_is_not_a_sessions(github, hubd):
+    github._posted["hub/77"] = {"number": "5", "session": "steward"}  # as before instances were recorded
+    with pytest.raises(BadRequest, match="isn't one you posted"):
+        edit(github)
+    assert hubd.edited == []
+
+
+def test_with_no_session_any_comment_the_hub_recorded_can_be_edited(github, hubd):
+    """Pins who is not held to a session: the page, and the shared agent token that a hub shell holds (tools is None, no card).
+    Both are the person's own rights. If SESSION's default ever changes, this is what widens or narrows."""
+    post(github, session="issue-triage-4", instance="i-9")
+    assert edit(github, session=None, instance=None)["changed"] is True
+    assert hubd.edited == [{"commentId": "IC_77", "body": "status: new"}]
+    # what the hub never recorded stays out of reach for them too
+    hubd.comment.update(id=78, node_id="IC_78")
+    with pytest.raises(BadRequest, match="isn't one you posted"):
+        edit(github, comment=78, session=None, instance=None)
 
 
 def test_a_comment_posted_on_another_issue_is_refused(github, hubd):
@@ -435,11 +484,11 @@ def test_the_edit_tools_are_hard_to_undo_and_say_so(github):
     assert listed["get_issue"].annotations.read_only_hint is True
 
 
-def steward_call(name, arguments, granted):
-    """The tool server with the Steward's own scope: a call has to have your yes, or there's no token for it."""
+def steward_call(name, arguments, granted, then=(), instance="i-1"):
+    """The tool server with the Steward's own scope: a call has to have your yes, or there's no token for it.
+    `then`: more (name, arguments) calls to the same server, each with your yes, whose replies come last."""
     action = tomllib.loads((ACTIONS / "project-steward.toml").read_text())
     plain = EditHubd()
-    ran = []
 
     async def call(**request):
         if request["op"] == "ask.grant_use":
@@ -447,16 +496,18 @@ def steward_call(name, arguments, granted):
         if request["op"] == "auth.check_agent":
             if request.get("token") != "steward-token":
                 return {"ok": False}
-            return {"ok": True, "scope": {"session": "steward", "tools": [*action["hub_tools"], *action["asks_first"]],
+            return {"ok": True, "scope": {"session": "steward", "instance": instance, "tools": [*action["hub_tools"], *action["asks_first"]],
                                           "persona": "steward", "asks_first": action["asks_first"]}}
         raise AssertionError(request["op"])
     plain.call = call
     headers = {"accept": "application/json, text/event-stream"}
-    message = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": arguments}}
+    message = lambda i, n, a: {"jsonrpc": "2.0", "id": i, "method": "tools/call", "params": {"name": n, "arguments": a}}
     with TestClient(main.agent_app(plain, GitHub(plain, CONFIG), FakeDocs(), 9095), base_url="http://127.0.0.1:9095") as client:
-        none = client.post("/mcp", json=message, headers=headers)
-        reply = client.post("/mcp", json=message, headers={**headers, "authorization": "Bearer steward-token"})
-    return none, reply, plain
+        none = client.post("/mcp", json=message(1, name, arguments), headers=headers)
+        reply = client.post("/mcp", json=message(1, name, arguments), headers={**headers, "authorization": "Bearer steward-token"})
+        later = [client.post("/mcp", json=message(i + 2, n, a), headers={**headers, "authorization": "Bearer steward-token"})
+                 for i, (n, a) in enumerate(then)]
+    return (none, reply, plain) if not then else (none, reply, plain, later)
 
 
 @pytest.mark.parametrize("name,arguments", [
@@ -479,6 +530,17 @@ def test_with_your_yes_the_steward_ticks_a_box_through_the_tool_server():
     said = json.loads(result["content"][0]["text"])
     assert said["previous_body"] == BODY and said["line"] == "- [x] ship it"
     assert hubd.writes()[0][1] == BODY.replace("- [ ] ship it", "- [x] ship it")
+
+
+def test_the_instance_hubd_names_in_the_scope_is_what_edit_comment_is_held_to():
+    """End to end through the auth layer: the comment is posted as one instance of the Steward and edited as it, and a new Steward can't."""
+    post_it = ("comment_issue", {"repo": "hub", "number": 5, "body": "status: old"})
+    edit_it = ("edit_comment", {"repo": "hub", "number": 5, "comment_id": 77, "body": "status: new"})
+    _none, _reply, hubd, (edited,) = steward_call(*post_it, granted=True, then=[edit_it], instance="i-1")
+    assert json.loads(edited.json()["result"]["content"][0]["text"])["changed"] is True and len(hubd.edited) == 1
+    # a new Steward (the name is the same) with the same store would be refused: here its server never recorded the comment
+    _none, _reply, hubd, (refused,) = steward_call(*edit_it, granted=True, then=[edit_it], instance="i-2")
+    assert refused.json()["result"]["isError"] is True and "isn't one you posted" in refused.text and hubd.edited == []
 
 
 # --- hubd's side: said before it asks you -----------------------------------------------

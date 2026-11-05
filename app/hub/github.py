@@ -15,7 +15,7 @@ from urllib.parse import quote
 
 from . import diffbudget
 from . import mergequeue
-from .hubd_client import ALL_REPOS, CALLER, SESSION, GhError, Hubd, HubdError
+from .hubd_client import ALL_REPOS, CALLER, INSTANCE, SESSION, GhError, Hubd, HubdError
 
 ORG = "GlassineOS"
 _REPO_RE = re.compile(r"[A-Za-z0-9._-]+")
@@ -502,8 +502,8 @@ class GitHub:
             self._known.pop(next(iter(self._known)))
 
     def _record_comment(self, repo, comment_id, number) -> None:
-        """Which session posted it: edit_comment is only for what the same session posted."""
-        record = {"number": number, "session": SESSION.get() or ""}
+        """Which session posted it, and which instance of that name: edit_comment is only for what the same one posted."""
+        record = {"number": number, "session": SESSION.get() or "", "instance": INSTANCE.get() or ""}
         self._posted[f"{repo}/{comment_id}"] = record
         if self.store:
             self.store.put(f"posted/{repo}/{comment_id}", json.dumps(record))
@@ -601,12 +601,18 @@ class GitHub:
         return {"url": row.get("html_url"), **done, "line": now, "previous_line": was, "previous_body": row["body"]}
 
     async def edit_comment(self, repo, number, comment_id, body) -> dict:
-        """Replaces a comment this hub posted through comment_issue for the same session. Any other is refused."""
+        """Replaces a comment this hub posted through comment_issue for the same session instance. Any other is refused.
+
+        A tool call from a named session must match both its name and its instance, and one with no instance is refused.
+        A call with no session at all is the page (the person's login) or a hub shell's shared token: both are the person's own
+        rights, and for them any comment the hub recorded will do."""
         body = _text(body, "a comment")
         n, cid = _num(number), _num(comment_id)
         posted = self._posted_comment(repo, cid)
-        session = SESSION.get()
-        if not posted or posted["number"] != n or (session is not None and posted["session"] != session):
+        session, instance = SESSION.get(), INSTANCE.get()
+        theirs = session is not None and (not instance or posted is None or posted.get("session") != session
+                                          or posted.get("instance") != instance)
+        if not posted or posted["number"] != n or theirs:
             raise BadRequest(f"comment {cid} on {repo}#{n} isn't one you posted with comment_issue. Only those can be edited here")
         row = await self.hubd.gh_json("api", f"repos/{_full(repo)}/issues/comments/{cid}")
         if not isinstance(row, dict) or not str(row.get("issue_url", "")).endswith(f"/{ORG}/{repo}/issues/{n}") \

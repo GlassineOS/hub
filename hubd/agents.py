@@ -182,10 +182,11 @@ def _full(action: dict) -> bool:
     return action.get("access") == "full"
 
 
-def _session_scope(name: str, config: dict, full: bool, all_repos: bool = False, asks_first=()) -> dict:
+def _session_scope(name: str, config: dict, full: bool, all_repos: bool = False, asks_first=(), instance=None) -> dict:
     # A full session has your rights, so a tool list wouldn't hold it to anything.
-    return {"session": name, "tools": None if full else [*config["hub_tools"], *asks_first], "persona": config["persona"],
-            "all_repos": all_repos, "asks_first": list(asks_first)}
+    # instance: this session and no other that gets its name later (the Steward's is always steward). The Claude session id.
+    return {"session": name, "instance": instance, "tools": None if full else [*config["hub_tools"], *asks_first],
+            "persona": config["persona"], "all_repos": all_repos, "asks_first": list(asks_first)}
 
 
 REMOVE_AFTER_DAYS = 7
@@ -465,7 +466,8 @@ class Agents:
             except (OSError, ValueError):
                 continue
             self._scopes[token] = _session_scope(directory.name, record["config"], record.get("full", False),
-                                                 self._all_repos(record["config"]), self._asks_first(record["config"]))
+                                                 self._all_repos(record["config"]), self._asks_first(record["config"]),
+                                                 record.get("session_id"))
 
     def _asks_first(self, config: dict) -> list[str]:
         """Read from the action, as it is now, like _all_repos."""
@@ -487,13 +489,13 @@ class Agents:
         """Read from the action, as it is now. An action that's gone has no such right."""
         return self.library.actions.get(config.get("action"), {}).get("all_repos") is True
 
-    def _session_token(self, directory: Path, config: dict, full: bool) -> None:
+    def _session_token(self, directory: Path, config: dict, full: bool, instance=None) -> None:
         token = secrets.token_urlsafe(32)
         fd = os.open(directory / TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w") as f:
             f.write(token + "\n")
         self._load_scopes()
-        self._scopes[token] = _session_scope(directory.name, config, full, self._all_repos(config), self._asks_first(config))
+        self._scopes[token] = _session_scope(directory.name, config, full, self._all_repos(config), self._asks_first(config), instance)
 
     def _drop_token(self, name: str) -> None:
         self._load_scopes()
@@ -1020,7 +1022,7 @@ class Agents:
             commit = (await self._git("rev-parse", "--short", "HEAD", cwd=checkout)).strip() if checkout else None
             script = self._script(config, action, directory, checkout, session_id, mcp, checkouts[1:], commit, beside)
             await self._probe_sandbox(directory, config, action)
-            self._session_token(directory, config, _full(action))
+            self._session_token(directory, config, _full(action), session_id)
             # A full session starts where you would: the workspace's rules and memory are there.
             cwd = self.workspace if _full(action) else self.home
             # Before the terminal: from when it's open, this is a session, not a shell in the way.
@@ -1106,11 +1108,12 @@ class Agents:
                 (directory / "session.json").write_text(json.dumps({**record, "config": config}))
                 self._load_scopes()
                 for token in [t for t, s in self._scopes.items() if s["session"] == name]:
-                    self._scopes[token] = _session_scope(name, config, _full(action), self._all_repos(config), self._asks_first(config))
+                    self._scopes[token] = _session_scope(name, config, _full(action), self._all_repos(config), self._asks_first(config),
+                                                         record.get("session_id"))
             if action.get("singleton"):  # what it's told has to match what it can do
                 self._write_persona(config, action, directory)
             if not (directory / TOKEN_FILE).exists():
-                self._session_token(directory, config, _full(action))
+                self._session_token(directory, config, _full(action), record.get("session_id"))
             (directory / REPOS_FOLDER).mkdir(exist_ok=True)  # one from before there were snapshots
             self._prepare_shell(directory, config, action)
             await self._probe_sandbox(directory, config, action)
