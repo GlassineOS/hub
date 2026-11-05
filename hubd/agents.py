@@ -1386,15 +1386,23 @@ class Agents:
             if state != "Idle" or self._sends.get(name):
                 raise AgentError(f"{name} is busy: a count is only sent to a Steward at its prompt")
             await self.room_to_start()
-            sent = await self._send(name, labelled, by=HUB_SENDER)
+            try:
+                sent = await self._send(name, labelled, by=HUB_SENDER)
+            except BaseException:  # tmux refusing the paste, say: _send has queued it, and it mustn't stay to block every later ping
+                self._unqueue(name, labelled)
+                raise
             if not sent["sent"]:  # a draft in its prompt, say: it's no longer the count it was, once that turn is over
-                queue = self._sends.get(name, [])
-                if labelled in queue:
-                    at = queue.index(labelled)
-                    queue.pop(at)
-                    self._from[name].pop(at)
+                self._unqueue(name, labelled)
                 raise AgentError(f"{name} has a draft in its prompt")
             return sent
+
+    def _unqueue(self, name, text: str) -> None:
+        """Takes one waiting message back out, with who it was from, if it is still waiting."""
+        queue = self._sends.get(name, [])
+        if text in queue:
+            at = queue.index(text)
+            queue.pop(at)
+            self._from[name].pop(at)
 
     async def room_to_start(self) -> None:
         if sum(s["state"] in ("Working", "Waiting for you") for s in await self.started()) >= MAX_STARTED:

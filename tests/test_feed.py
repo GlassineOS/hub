@@ -475,6 +475,20 @@ def test_a_ping_is_never_queued_behind_a_turn_where_it_would_be_stale(live):
     assert not a._sends.get(name) and not a._from.get(name) and not getattr(a.shells, "pasted", [])
 
 
+def test_a_ping_tmux_refuses_is_taken_back_out_and_the_next_one_can_go(live):
+    a, name = live
+    (a.sessions / name / IDLE_FILE).touch()
+    a.shells.refuse_paste = True
+    with pytest.raises(agents_module.ShellError):
+        run(a.hub_ping(name, "2 changes"))
+    assert not a._sends.get(name) and not a._from.get(name) and not getattr(a.shells, "pasted", [])
+    # Not "busy" afterwards, and nothing stale is pasted ahead of the next message.
+    a.shells.refuse_paste = False
+    assert run(a.hub_ping(name, "3 changes")) == {"sent": True, "queued": 0}
+    (_, text), = a.shells.pasted
+    assert "3 changes" in text and "2 changes" not in text
+
+
 def test_a_busy_steward_that_reads_meanwhile_gets_no_ping_afterwards():
     feed, clock, who = Feed(":memory:"), Clock(), FakeStewards("steward")
     p = pings(feed, who, clock)
