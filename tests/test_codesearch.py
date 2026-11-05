@@ -619,6 +619,28 @@ def test_a_frozen_copy_that_takes_longer_than_the_search_has_isnt_waited_for_and
     assert list((s.root / "trees").iterdir()) == []  # it came, and nothing was left of it
 
 
+def test_a_search_cancelled_while_its_copy_is_made_discards_the_tree_when_it_comes(org, tmp_path, monkeypatch):
+    s, seeds, _remote = org  # a tool client that goes away while a big repository is being copied
+    s.rg = fake_rg(tmp_path, record("a.c", 1, "found"))
+    real = seeds.take
+
+    async def slow(repo, place, read_only):
+        await asyncio.sleep(1.0)
+        return await real(repo, place, read_only)
+    monkeypatch.setattr(seeds, "take", slow)
+
+    async def go():
+        task = asyncio.ensure_future(s.search("x", repo="daemon"))
+        await asyncio.sleep(0.5)  # the check is done and the copy is under way
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        await asyncio.sleep(1.5)  # for the copy to be made, and gone
+        await s.settled()
+    asyncio.run(go())
+    assert list((s.root / "trees").iterdir()) == []
+
+
 def test_a_file_with_more_matches_than_are_shown_says_so(org, tmp_path):
     s, _seeds, _remote = org
     s.rg = fake_rg(tmp_path, "".join(record("big.c", n, f"hit {n}") for n in range(1, 7)) + record("small.c", 1, "one"))

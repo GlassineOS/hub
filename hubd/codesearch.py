@@ -316,6 +316,9 @@ class CodeSearch:
         except TimeoutError:
             task.add_done_callback(self._drop_late)
             return None
+        except asyncio.CancelledError:  # the search was cancelled meanwhile: the copy goes on, and its tree is no use to anyone
+            task.add_done_callback(self._drop_late)
+            raise
 
     def _drop_late(self, task: asyncio.Task) -> None:
         if not task.cancelled() and task.exception() is None:
