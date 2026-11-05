@@ -114,6 +114,17 @@ def test_only_facts_of_a_fixed_shape_get_in():
     assert kept == 1 and "title" not in stored and "body" not in stored and stored["link"].startswith("https://github.com/GlassineOS/")
 
 
+def test_a_time_is_ascii_digits_and_so_is_every_other_number():
+    feed = Feed(":memory:")
+    arabic = "٢٠٢٦-١١-٠٥T١٨:٤٩:٣٧Z"
+    assert feed.record([ev(at=arabic), ev(what="labels", kind="issue", old="٢", new="3", old_head="", new_head="")]) == (0, 2)
+    assert feed.record([ev(at="2026-11-05T18:49:37Z")]) == (1, 0)
+    # The ping reads its time from a stored one, and says nothing of one that isn't of the shape.
+    assert ping_text({"total": 1, "since": arabic, "phrases": {"merged": 1}}) == "1 change: 1 merged. changes_since returns them from your cursor."
+    # The longest login the pattern takes is the one the security notes name.
+    assert clean(ev(actor="a" * 39 + "[bot]")) and not clean(ev(actor="a" * 40 + "[bot]")) and not clean(ev(actor="a" * 40))
+
+
 def test_a_number_too_big_for_the_store_is_refused_and_does_not_stall_the_batch(monkeypatch):
     feed = Feed(":memory:")
     assert feed.record([ev(number=2**70), ev(number=2**53), ev(number=-1), ev(number=2**53 - 1), ev(number=7)]) == (2, 3)

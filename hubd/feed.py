@@ -42,7 +42,7 @@ WHATS = ("opened", "state", "head", "review", "checks", "labels", "comments", "r
 _REPO_RE = re.compile(r"\.?[A-Za-z0-9_][A-Za-z0-9._-]{0,99}")
 _HEAD_RE = re.compile(r"[0-9a-f]{40}|")
 _LOGIN_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\[bot\])?")
-_TIME_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+_TIME_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")  # [0-9]: \d takes every script's digits
 # One observation: the work store's own random name and the number of the outbox row that held it. A retry sends the same id.
 _ID_RE = re.compile(r"[0-9a-f]{8,32}-[0-9]{1,18}")
 _URL_RE = re.compile(rf"https://github\.com/{ORG}/(?P<repo>[A-Za-z0-9._-]+)/(?:issues|pull|actions/runs)/(?P<n>[0-9]{{1,15}})")

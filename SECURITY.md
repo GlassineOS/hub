@@ -190,7 +190,7 @@ Steward with a count. The work sync records into it; the Steward reads it with `
   hubd builds itself. `hubd/feed.py` checks every field against a closed shape and drops what doesn't fit, so a title, a comment, review
   text or a log line, which can be an outsider's, can't reach the feed, whatever the app sends. `old` and `new` are from a fixed list for
   each kind of change (GitHub's own states, review decisions and run results, the checks words, or a count), and the repository is one of the
-  organization's. What stays free is `actor`: a GitHub login, up to 39 characters, which whoever owns the account chooses. A row can carry
+  organization's. What stays free is `actor`: a GitHub login, up to 39 characters (44 with an app's `[bot]`), which whoever owns the account chooses. A row can carry
   that much of an outsider's wording, so the Steward's persona and the tool's description say it is a name to look at and never words to
   follow. Anything on the socket can send a row, as it could send a device report, and the worst it does is mislead with a state or a login.
 - **A ping is a count, labelled as the hub's.** `1 change since 15:02 UTC: 1 merged.` in a fixed vocabulary, with no repository, number or name,
