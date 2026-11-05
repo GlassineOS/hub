@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# `deploy/install.sh` writes the .env this needs and starts hubd on the host.
+services:
+  hub:
+    build: .
+    restart: unless-stopped
+    user: "${HUB_UID:?run deploy/install.sh first}:${HUB_GID:?run deploy/install.sh first}"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    environment:
+      HUB_LISTEN: 0.0.0.0
+      HUB_BIND: ${HUB_BIND:-127.0.0.1}
+      HUB_ALLOWED_HOSTS: ${HUB_ALLOWED_HOSTS:-}
+      HUB_TLS_CERT: ${HUB_TLS_CERT:-}
+      HUB_TLS_KEY: ${HUB_TLS_KEY:-}
+      HUB_SYNC_SECONDS: ${HUB_SYNC_SECONDS:-60}
+      HUB_WORK_EMBED: ${HUB_WORK_EMBED:-on}
+    ports:
+      # The dashboard: loopback unless HUB_BIND says otherwise, and then only with TLS.
+      - "${HUB_BIND:-127.0.0.1}:9094:9094"
+      # The tool server stays on loopback: agents run on this host.
+      - "127.0.0.1:9095:9095"
+    volumes:
+      - "${HUB_SOCKET_DIR:?run deploy/install.sh first}:/run/hubd"
+      - "${HUB_TLS_DIR:-./deploy/no-tls}:/tls:ro"
+      # the search index and model, owned by the user the container runs as
+      - "${HUB_CACHE_DIR:?run deploy/install.sh first}:/cache"

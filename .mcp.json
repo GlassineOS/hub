@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "glassine-hub": {
+      "type": "http",
+      "url": "${GLASSINE_HUB_MCP_URL:-http://127.0.0.1:9095/mcp}",
+      "headers": { "Authorization": "Bearer ${GLASSINE_HUB_MCP_TOKEN}" }
+    }
+  }
+}

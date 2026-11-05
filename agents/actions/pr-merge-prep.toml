@@ -1,0 +1,13 @@
+order = 2
+ceiling = "Read only."
+when = "not-failing"
+object = "pr"
+title = "Prepare for merge"
+summary = "Checks whether it's ready: checks, linked issues, changelog. Reports in the session."
+personas = ["reviewer"]
+prompt = "pr-merge-prep"
+models = ["sonnet", "opus"]
+efforts = ["low", "medium", "high"]
+tools = ["AskUserQuestion"]
+hub_tools = ["plan_work", "get_pr", "get_pr_diff", "get_pr_threads", "docs_search", "work_search"]
+checkout = false

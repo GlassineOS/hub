@@ -1,0 +1,35 @@
+# Where each repository sits in the project. The dashboard shows these groups in this
+# order, top down. An organization repository missing here shows up under "Unplaced",
+# so a new repository can't go unnoticed.
+
+project = "GlassineOS roadmap"   # the organization project that tracks strategy
+
+[[group]]
+key = "strategy"
+title = "Strategy"
+summary = "What we're building and why: the roadmap, and this dashboard."
+repos = ["hub"]
+
+[[group]]
+key = "knowledge"
+title = "Knowledge & rules"
+summary = "What everything else follows or looks up."
+repos = ["docs", "search", ".github"]
+
+[[group]]
+key = "distribution"
+title = "Distribution"
+summary = "What turns the sources into something installable."
+repos = ["packages", "builders", "workspace"]
+
+[[group]]
+key = "system"
+title = "System"
+summary = "What runs on the device once it has booted."
+repos = ["boot", "epd", "sway", "rnote"]
+
+[[group]]
+key = "enablement"
+title = "Hardware enablement"
+summary = "The kernel and the recovery, closest to the hardware."
+repos = ["linux", "android_bootable_recovery", "android_device_onyx_noteair"]

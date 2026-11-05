@@ -1,0 +1,10 @@
+query($org: String!, $query: String!, $cursor: String) {
+  rateLimit { cost remaining }
+  viewer { login }
+  organization(login: $org) { login }
+  search(query: $query, type: ISSUE, first: 50, after: $cursor) {
+    issueCount
+    pageInfo { hasNextPage endCursor }
+    nodes { __typename ...IssueFields ...PrFields }
+  }
+}

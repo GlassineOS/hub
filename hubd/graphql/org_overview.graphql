@@ -1,0 +1,22 @@
+query($org: String!) {
+  organization(login: $org) {
+    repositories(first: 100, orderBy: {field: NAME, direction: ASC}) {
+      nodes {
+        name description isPrivate isArchived url pushedAt
+        issues(states: OPEN) { totalCount }
+        pullRequests(states: OPEN) { totalCount }
+        latestRelease { tagName publishedAt url }
+        defaultBranchRef {
+          name
+          target {
+            ... on Commit {
+              oid committedDate messageHeadline
+              statusCheckRollup { state }
+              history(first: 0) { totalCount }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,343 @@
+# Security of the hub
+
+This repository's own threat model; the organization's reporting policy is in
+`GlassineOS/.github`.
+
+The hub puts a shell on your computer behind a web page, and can act on the organization
+with your GitHub login. Treat access to it as access to your account on the host.
+
+## Who this defends against
+
+Everything the hub does runs as the host user, with that user's GitHub login. Whoever logs in could do the same by hand,
+and Claude Code runs under the same account, so a full session is effectively that user. Nothing here limits that person.
+
+Two threats are left:
+
+- **Someone without the login** reaching the page, the socket or the token. The table below covers most of this.
+- **An agent steered by text it reads.** Anyone can write issues, comments and pull requests on the public repositories, and
+  sessions read them. The outsider has no access, but the agent does. The limits on planners and locked sessions exist
+  for this, and they're the only reason a session isn't simply your account. They hold through Claude Code's rules, hubd's
+  checks and the review sandbox, not through a separate OS user.
+
+A leak of private text needs one session to do three things: read an outsider's text, read something private, and post in
+public. A person's approval can't reliably break that chain, because a steered agent writes the reason on its card.
+
+## What protects what
+
+| Asset | Protection |
+|---|---|
+| Host shell | Needs a session token, issued only after a PAM login for the user `hubd` runs as. The token check is in `hubd`, not the app |
+| Password guessing | Failed logins delay the next attempt, doubling up to 30 s, one attempt at a time. The delay is global, so on a LAN someone guessing also slows your own login. The dedicated PAM service keeps failures from locking the account elsewhere. Sessions end after 12 h idle or 7 days, and when `hubd` restarts |
+| GitHub token | Stays in the host's `gh`. `hubd` passes a fixed set of variables to it, so `GH_TOKEN` or `GH_HOST` can't be injected |
+| GitHub reach | `hubd/ghpolicy.py`: an allowlist of exactly the commands the app runs, GlassineOS only, with search qualifiers that cross repositories refused. `gh api` is read-only. No repository deletion, `auth`, secrets, access changes, admin merges or pushing code. Raw GraphQL is refused: only the documents in `hubd/graphql/` run, and their project and content ids must belong to the organization |
+| Host files | The policy refuses every way `gh` reads or writes local files, except stdin |
+| Browser attacks | `SameSite=Strict`, `HttpOnly` session cookie. Host must be on the allowlist, against DNS rebinding. Origin must match for writes and for the terminal's WebSocket. Content-Security-Policy without inline or remote scripts |
+| Network | Loopback by default. The app won't start on another address without TLS, as long as `HUB_BIND` names the address; `HUB_LISTEN` is for the container and overrides what the app binds. The tool server stays on loopback under compose |
+| The container | Runs as your uid, read-only, no capabilities, no credentials. Its only way to the host is the socket |
+
+## Guards, not limits
+
+The table above lists limits: each one stops a threat named at the top. Guards are different. They catch mistakes and collisions, by making a session stop and ask or by leaving a trail. Anything running as your user can get past one, so none of them holds against a misled full session.
+
+- **The device lock and goes** (`workspace#6`) stop two sessions using a device at once, and device actions you didn't agree to.
+- **Merge decisions for full sessions and hub shells** stop a merge nobody asked you about. For sessions held to a tool list they're a limit.
+- **`art rm` retention** (`workspace#2`) stops a kept file being deleted by mistake.
+- **Ignored-file checks on removal** stop files being lost with a worktree.
+- **The prompt rule in `agents/private.md`** helps against a session posting private text by mistake. It isn't a limit on a steered one.
+
+A new restriction has to name the threat it stops, or be listed here as a guard.
+
+## What this does not protect against
+
+- **A compromised app container.** It sees passwords as you log in and session tokens as
+  you use them, so it could open a shell then. It can also use `gh` within the policy
+  without any login, and read the tool server's token as it passes through. The container
+  limits what a bug in the app can do while nobody is using it; it isn't a boundary against
+  malicious code in the image. Pinned dependencies and a small image are the defence.
+- **Other processes running as your user.** They can reach the socket and read the token
+  file, as they could read your `gh` login anyway.
+- **Text that agents read.** Issues and pull requests can be written by outsiders. The
+  planner and the locked actions only have the tools their action lists, enforced by the
+  command line `hubd` builds after checking the plan against the action, and they ignore a
+  pull request's own CLAUDE.md, MCP config and hooks. Their file tools reach only their
+  working directory, the checkout, and the snapshots of the organization's repositories below, so
+  an agent that can post can't be talked into posting your other files, though it can be talked
+  into posting from those repositories. This was tried with a real session: a snapshot added after
+  it started can be read, a file outside can't, and neither can one through a symlink pointing
+  outside. They can still be misled within those
+  tools, for example into posting a bad comment. A full session on an outsider's issue can be
+  misled with your full rights, as if you had pasted the issue into your own session; only
+  forks' pull requests are refused. Each session has its own tool server token, in a file only
+  your user can read, and the tool server refuses any tool outside that session's list, so a
+  locked session is held to it whatever Claude Code does. Shells keep the one general token, and
+  a full session could read that file, as it can anything of yours.
+- **Private text in a public post.** A locked session can read a private repository by naming it, and it can post, so
+  nothing technical stops a misled one from putting private text in a public comment. This is accepted, without an extra
+  card to ask first. The one measure is a rule in every agent's prompt, `agents/private.md`, which helps against
+  accidents and is exactly what an injection tries to override. The safety scan is no help here: it sees only what goes
+  into git, and it matches file types, keys, tokens, addresses and paths, so it can't recognise private code.
+- **The repository copies.** The hub keeps a clone of each repository in the organization under
+  `~/.local/state/glassine-hub/seeds`, private ones included. `request_repository` gives a session with
+  file tools a snapshot in its own folder, and `list_repo_files` and `read_repo_file` serve the Steward
+  and every planner, none of which have file tools. There's no question asked and no difference by repository, by your
+  decision, so what was said above about private text reaches all of them. Actions with neither those tools nor
+  file tools, such as `issue-triage` and the `run-*` actions, have no direct way in, but their planners do, and a
+  planner writes the session's brief, which you see before it starts.
+  The worst case is a review on an outsider's pull request: `pr-review` and `pr-security-audit` have a shell
+  with the internet as well as `request_repository`, so an injection there can read any private repository's files and send
+  them out with no visible post. The snapshots aren't mounted in the shell, but the session's file tools read them, and
+  it can type what it read into a command. This is accepted. Comments, drafts and tool arguments can all carry what a session
+  has read too, including drafts from the `new-*` actions, which you read before filing. The drafter has none of these
+  tools: that keeps a draft to the item it's about, and isn't a boundary the others share.
+  These are the hub's own clones, never main checkouts, so ignored files such as secrets
+  aren't in them. A read-only snapshot prevents accidents only: any process running as your user
+  can switch that off, and what keeps a locked session from doing so is having no shell outside
+  the sandbox. Full sessions get a worktree on their own branch, and what they write reaches neither
+  the copy nor another session. Only the organization's repositories are copied. Ended sessions keep
+  their snapshots until they're removed, which holds on to old data; the Overview lists them.
+- **The code map.** A map under `~/.local/state/glassine-hub/codemap` describes private repositories, and it reaches the
+  same sessions as the copies, through tools with the same list, so what's said above about private text applies. Everything in
+  it can be read from a copy by naming the repository, so it adds no access. It would add a way to find private code by
+  topic, so it keeps the line `work_search` keeps: with no repository named, hubd answers from public repositories only and
+  lists what it skipped, by the session's token, except for a session that reads the whole project. Every repository it names
+  says whether it's private. It's never indexed for the docs search.
+  tree-sitter's C parsers read whatever is committed, so hubd doesn't load them: `codemap/` runs as a separate process under
+  bubblewrap with no network, seeing the system's programs, its virtualenv, its own code, one frozen tree, the last map
+  read-only, and an empty scratch folder. It reads through git objects, so a link in a repository leads nowhere. hubd keeps a
+  bounded part of what it says, and limits its address space, file size, time and priority, because this host is someone's
+  desktop. Total disk has no hard limit: the scratch folder's size is checked each second and the build stopped past 1 GiB, so
+  a fast writer can overshoot by what the disk takes in a second. A subverted build can spoil its own repository's map and
+  no other's: it can't write where maps are kept, hubd moves the result there only if it's a regular file that says the right
+  commit, and hubd opens maps read-only with SQLite's defensive mode on and `trusted_schema` off. A map that can't be read is
+  listed as not searched, and takes no other repository's answers with it. Agents read a map as data.
+- **The review shell.** The two review actions list Bash, for running a pull request's code and tests. Bash is
+  left off their allowed list, so under dontAsk a command runs only when `hubd/shell_hook.py` allows it, and it allows
+  it only rewritten to run inside bubblewrap and pasta. On a failure the hook says deny. A hook that can't answer at all
+  is no opinion to Claude Code, which then still runs what it considers a read-only command. So every command also
+  passes `hubd/shell_guard.py`, Claude Code's shell prefix, which refuses anything but the hook's sandbox command, marked
+  with a secret from the session's folder, and the session's own hooks. Both were tried with a real session.
+  Inside: the system's programs, `/etc`, the checkout and its git store as overlays, its own home and `/tmp`, and no
+  environment. So no tool token, `gh` login, SSH key, other files, the hub's socket, or the host's loopback and abstract
+  sockets. Writes land in the session's folder and never in the real checkout, so nothing the hub's own git does can run
+  what a pull request planted, and the file tools still read the tree as it is. pasta's sockets are this host's, so without
+  more they would reach the hub's container, the docker gateway and your network. Routes set before bubblewrap starts,
+  which code inside can't change, refuse private, link-local and CGNAT ranges and this host's own addresses, and there's
+  no IPv6. So the login and tool server aren't reachable from a pull request's code.
+  Limits, accepted:
+  - It has the internet, so a misled session can send out what it can see, unlike its comments, which are visible and go
+    through the hub's policy. That's the checkout, the whole review clone with every pull request head fetched into it, a
+    private repository's code among it, whatever this user can read under `/etc`, and what its tools return: `work_search`
+    can name a private repository, so a session on a public pull request can read private text and send it. The snapshots
+    aren't mounted in the shell, but its file tools read them, so the same goes for the tree of any repository in the organization.
+  - It can fill the disk, as there's no quota.
+  - The git store under an overlay is the clone the hub fetches into, which the kernel leaves undefined: odd git results
+    inside, for the length of a command.
+  - A kernel or bubblewrap bug would be a way out; the hub is not a stronger boundary than those.
+- **Resuming a session.** A session that has stopped keeps its record, tool token and checkout until
+  you discard it, and Resume starts it again with its conversation. It needs a login, like starting
+  one. Its rights are checked again against its action as it is now, and it refuses if they don't
+  fit. The conversation itself comes back as it was, including any outsider's text it had read.
+- **Personas on GitHub.** A persona with a GitHub App (`apps.toml`, made by
+  `deploy/create-app.py`) makes its writes as that App: GitHub limits it to the App's
+  permissions and the repositories it's installed on, and its name shows it's an agent. Its
+  reads stay on the hub's login. hubd chooses the App from the session's tool token, and if it
+  can't get a token the write fails rather than going out as you. Private keys stay on this
+  computer, 0600. Full sessions and personas without an App post as you. The reviewer's App can
+  approve, so if an approval ever counts toward merging, a misled reviewer could give one.
+- **Trusted folders.** Trusting a folder covers everything below it. `~/GlassineOS` holds no
+  fork's tree: a pull request under a locked review is checked out in
+  `~/.local/state/glassine-hub/sessions`. Sessions start in the `home` folder beside it, and only
+  that one needs trusting. If you trust the parent, a `claude` you start by hand in a fork's
+  checkout there would load its project settings: don't.
+- **The workspace.** Full sessions share git objects and hooks with the main checkouts, and have
+  your rights, so they could change either. What the hub itself does there is limited: it fetches,
+  adds worktrees, and removes a session's own. A pull request under a locked review comes through
+  a bare clone of the hub's own in `~/.local/state/glassine-hub/repos`, with no hooks, so nothing
+  of a fork's touches the main checkouts or runs by being checked out. Filter drivers in your global
+  git config, git-lfs for one, still run on that tree.
+- **Agents in hub shells.** They have your user's rights by design. The tool annotations
+  are a hint to the agent's permission prompt, not an enforcement. `hubd`'s policy applies
+  to the tool server, not to what an agent does with `gh` in its own shell.
+- **Workflow starts within the organization.** The policy allows them because managing them is
+  the point.
+- **Workflow inputs.** Whoever reaches the socket can start a workflow with inputs of their
+  choice. Workflows must not put `inputs.*` directly into a `run:` step, or those inputs
+  become code running with the repository's `GITHUB_TOKEN`.
+
+## Device reports
+
+`dev` on the host sends hubd a snapshot of a device's lock and state at each lock move, and hubd keeps the last one per device,
+in its state folder, with the host's time. The hub never asks the device, runs no tests and doesn't take the lock. So:
+
+- Anything on the socket can send a report, with no token. A forged one can't take or free the lock, which only `mkdir` on
+  the device does, but it can mislead you and agents. So nothing says a bare "free" or "held": it's sentences with an age, and
+  each answer ends "Only `mkdir` on the device decides". A by-hand `mkdir` doesn't report at all.
+- What a report holds is capped and stripped of anything that draws nothing, by the same rule as a card. The hub keeps a small
+  number of devices, so a stream of names can't fill the disk. Past that the oldest report goes, so such a stream can push out a real
+  device's report until its next one, and a view without it says there's no report. A device's name can't leave the folder.
+- A report file that can't be shown is left out at start, with a warning, and the device's next report replaces it.
+- `purpose`, `notice` and the rest are free text, so the tool's answer marks them as data for agents. That's a hint to the
+  agent and no more.
+- `device_status` is by list, because a report's text is free. No locked action lists it, nor does the Steward, and hubd checks
+  the list as well as the tool server. Full sessions and hub shells can read it. The page needs a login.
+
+## The person's decisions
+
+Goes and merge approvals, each a file in hubd's state folder, on disk before anything acts on it.
+
+- **Only a login makes one current.** `decision.add`, `.approve`, `.deny`, `.end`, and "I've got the device" are behind the login check in
+  `Hubd.request`. A session's token can ask whether one covers it, spend a run of one that does, ask for one on a card, and end a go, as
+  that only narrows. A card can be narrowed by a go's actions and nothing else, and shows the session's reason as its words, not yours. A merge binds the head and base
+  GitHub says at that moment: if GitHub can't say, nothing is recorded or approved, and a card whose base has moved is refused.
+- **Who it answers to.** A decision for a named session answers only to that session's own token, and only for the conversation that
+  held the name when it was asked for or recorded, as names come back. One whose conversation isn't known answers to nobody, and can't be
+  recorded. A session can't choose who its card is for: it's always for itself. A hub shell's general token matches only `any`. Hubd knows that token from `auth.check_agent`'s check, and
+  no token at all gets nothing.
+- **`decision_check`, `decision_request` and `decision_end` are by list.** No locked action lists them, nor does the Steward, and hubd
+  checks the list too, as a go's words and a card's reason are free text.
+- **"I've got the device"** is one read with no token, so `dev` can ask from anywhere. Anything on the socket can read that, and can't
+  change it. It ends every recorded device go but an eye test, and survives a restart. It can't stop a running command.
+- **The limit.** Full sessions run as your user, so one could write these files directly. This stops mistakes, relayed quotes and misled
+  locked agents, not a session attacking its own user. With the hub down `dev take --go-said` is a rule with a trail in the lock record, not a
+  control: nothing proves you said the words.
+
+## Notes
+
+Notes and the archive search live on this host only, and much of what they search never passed the safety scan. The app's container
+mounts none of it.
+
+- **One query, by a login.** `notes.find` and `notes.status` are behind the login check in `Hubd.request`, with no path for a token: a
+  session's, the general one a hub shell holds, or a locked agent's. Unlike other capabilities it has no tool in `tools.py`, on purpose: a
+  session that reads this could post it. The Steward searching notes is future scope (Decision 4 in `docs/workspace.md`).
+- **The tool stays a program.** hubd runs `tools/notes find` from the workspace as a subprocess, never imports it, with a short
+  environment, and what you typed follows `--`, so it's only ever words. It creates nothing: if the tool or `notes/` isn't there, hubd says
+  so in words. The index is the tool's own 0700 cache, and hubd doesn't read it.
+- **What you look for stays out of addresses.** The page sends it in a POST body and keeps it out of the location, which the Steward's
+  panel reads, so it isn't in access logs or browser history. The answer isn't kept: not in the work store, not in the browser's storage.
+- **Every row says what it is,** in words, and a row without a state says so, so a retracted theory can't pass as a fact.
+- **The limit.** Anyone with the login reads everything the search covers. Full sessions run as your user and can read the same files, as
+  `docs/workspace.md` says. The tool runs with hubd's rights, so whoever can write `tools/notes` in the workspace runs code as you, which a
+  full session could do anyway.
+
+## Merges
+
+Every `pr merge` that goes through hubd needs one of two things, checked in `Hubd.request`, as the policy's `check()` sees only the arguments:
+
+- **A login token, from the page.** A click binds the head the page showed, so a pull request that moved since fails.
+- **An agent token with a matching decision:** repository, number and head, and for a decision made for one session, that session's. A locked session
+  without `merge_pr` on its list has no use for one. Allowing a `merge_pr` card records a decision for its head and that session, for as long as
+  the card's grant lasts. No answer from before counts: a grant alone doesn't merge, and neither does a yes in a conversation.
+
+Both need `--match-head-commit` with the head in full, and hubd compares it with the decision's. Only the form the app builds passes, so no `--auto`.
+hubd also reads the pull request before an agent's merge: a moved head ends the decision, and another base refuses it. The decision is marked on disk
+before the merge runs and then records how it went. A merge GitHub refuses, for red checks or a conflict, doesn't spend it. One whose outcome isn't known
+does, and says so, and that includes hubd stopping during it.
+
+The limits:
+
+- **A retarget between hubd's read and the merge isn't caught,** as `gh` can't name a base. A move of the head is, by GitHub.
+- **Full sessions run as your user,** so one could merge with its own `gh`, or write the decision's file. For sessions on a list this is a limit. For full
+  sessions and hub shells it's a guard: it makes them stop and ask, which catches mistakes and relayed quotes, and doesn't hold against a session attacking its own user.
+- **GitHub doesn't back this up on private repositories.** Branch protection isn't available to them on the organization's Free plan, so hubd is the
+  only check there, and only for what goes through it. On public repositories it could be added. With an admin login `gh` could bypass it, which the policy
+  refuses (`--admin`), but GitHub itself only holds admins to rules that are set to include them.
+- **A click has no read of its own,** so a retarget since the page loaded isn't caught, only a moved head.
+- **A card and a terminal differ.** A full session whose `merge_pr` prompts shows a card. Allowing that makes a decision, as on any card. Saying yes to
+  the same prompt in its terminal doesn't, so hubd refuses the merge until a decision exists.
+- **Both have to be restarted together.** Nothing enforces it. An old app with a new hubd is refused, and a new app with an old hubd merges unenforced.
+- **"Approved" means your decision,** never a GitHub review, which a reviewer App can give.
+
+## The queue view
+
+A page over the work store and your decisions. It merges, reviews and starts nothing, and has no tool: a session has `decision_request` to ask.
+
+- **Approving records a merge decision** through the same login-checked `decision.add` and `decision.approve` as the Decisions page, for the head the
+  page showed. hubd asks GitHub for the head at that moment and refuses if it has moved, so a stale page can't approve what you didn't see. If
+  GitHub can't say, nothing is recorded.
+- **A pull request's text can't approve anything.** Anyone who can open a pull request writes `Set:` and `Tested:`, and a stranger's can join a set by
+  name. So the page says they're what the text says, shows the author, and an approval binds one repository, number and head, never a set.
+- **Text from GitHub stays text:** titles, reasons and a blocker's words are shown escaped, and none of it reaches an agent from here.
+- **"Approved" is your decision.** GitHub's reviews sit in their own field and count for nothing here, as a reviewer App can give one.
+- **A blocker is shown, not enforced.** hubd doesn't refuse a merge or an approval over an open `blocks-merge` issue, the row shows it,
+  and only a link in the pull request's own text ties one to a row. A link with a closing word, as in `Fixes #2`, shows as "It says it fixes" and not as Blocked. That's the author's word too, so a stranger can lose the badge that way, and the issue stays listed at the top. Every open blocker is listed at the top whatever links to it. Labels are the
+  only thing that makes one, and only those who can triage set labels.
+- **What a current approval allows.** One from this page is for any session: a session with `merge_pr` can then merge that head, once. "Take it back" ends it. Approving a head again while one stands keeps the one you have, so there's only ever one to take back.
+
+## Past sessions and cleanup
+
+- The history tab shows transcripts to whoever is logged in, for sessions the hub ran only. A transcript can hold
+  anything the session read, an outsider's text included, and it's shown as plain text.
+- A resume reads the session's rights from its action as they are now. A restored checkout comes from GitHub:
+  uncommitted files from a removed worktree don't come back, so the hub doesn't remove one that has them. Ignored files
+  count too: a full session holding more than 1 MiB of them stays when it ends, and discarding it has to name them on a second card.
+- Cleanup looks at each row again when you confirm, whatever the page sent. It removes only what the hub started,
+  with no uncommitted, ignored or unpushed files, no open pull request and no running session. It doesn't use
+  `--force`, so git has the last word. If GitHub can't say, the row stays. Worktrees the hub didn't start are listed
+  and never removed. This check can't see files added between it and git's own, which git's refusal covers for
+  anything but ignored files.
+
+## The work store
+
+The text of issues, pull requests and comments the login can read, private repositories
+included, is kept on disk in the app's cache directory, readable by the user the hub runs as.
+A compromised app could already read this through hubd. Deleted items leave it at the next
+complete pass, kept answers included; other kept answers age out after 30 days.
+
+`work_search` hands this text to agents, and outsiders can write it. It's more exposed than
+`get_issue`, which returns the object you name: search returns whatever matches, so a comment
+worded to match a likely query can reach a run about something else. So:
+
+- Without a repository named, the tool server searches public repositories only: an agent that
+  can post in public doesn't get private text by asking about a topic. It can still name a
+  repository, so this limits finding text, not access to it, and the repository copies give any session a private
+  repository's files when it names one. The Steward is the exception: its token
+  reads every repository, and its rows say which are private. Each write it tries asks you first: see below.
+- Drafting with Claude runs `claude -p` with read tools only, and the text only fills a box you post from.
+  It reads outsiders' text, so a draft can be wrong or say what a comment asked it to: read it first. It has
+  no `work_search`, because a draft may go into a public repository.
+- A session held to a list sees only that list in `tools/list`, so it doesn't spend turns being refused. This is
+  a convenience: what enforces the list is the token check on each call and `--allowedTools`.
+- The hub types into a session only for a login: a preset button's text with a checked item name, or Esc. No tool call reaches
+  this. It pastes only once the session's turn has ended with its prompt empty, as Enter could answer a question or send a draft.
+- A session's prompts and questions reach the hub as cards through a hook, which holds a connection to hubd. Only a login can
+  answer: a session's token can add a card for itself, and close it, and nothing else. The hook prints what hubd worked out
+  from the prompt, never what a page sent, and a card that's closed, or a second answer, changes nothing. A card shows the
+  tool's real input and Claude's reason beneath it, and input too long to show can only be denied there, not allowed. Nothing
+  answers in bulk. "Always allow" uses only Claude Code's own offers of a rule or of accepting edits, kept to that session,
+  and says what it covers, wildcard included. When hubd stops waiting or restarts, nothing is approved, and the terminal's
+  prompt stays. A locked session's terminal has no prompt, so its question is refused then, and it sees that. Locked sessions
+  can ask, as a question only brings back text: it can't widen their tools or approve anything. Your answer is then something
+  a misled session gets to act on, within its limits, so a card's question is its words, not the hub's.
+- **New work: planner, session, drafts.** The planner and the session after it read text that can be an outsider's,
+  so a briefing or a draft can carry an injected instruction or a false claim. The session's prompt marks the briefing
+  as not yours. Neither has a shell or write tool and neither files anything. You read each
+  draft before filing: none is chosen for you, a body prints every link and image address in full, with images flagged, and filing waits until each target is known to be public or private. GitHub may fetch an image's address when the issue is shown, even from a private repository. The session reads across the organization, so a draft for a public repository could quote
+  something private: that's yours to catch when you read it. A suggestion from `plan_work` fills in the form,
+  and its notes reach the planner and the session as yours once you press Start, so read them first. The Steward gets drafts
+  only when you hand them over, by tool and marked as data, and each issue it files still asks you.
+- **The Steward's writes.** They're off its allowed list, so under dontAsk a write runs only when the hook allows it,
+  and the hook allows only after you press Allow on the card. That isn't the only check: Allow leaves hubd a grant for that session, that
+  tool and those exact arguments, good for one call and two minutes, and the tool server refuses the call without one. So a
+  yes is needed whatever Claude Code does, and it can't be stretched to other arguments. Only a login answers a card. No
+  answer in 10 minutes is a no. The card shows the call as it will run, which is all you approve; the Steward's reasons are
+  in its terminal, and it can be wrong in a way you allow. A merge has its own rule: see "Merges". With a Steward App set
+  up its writes go out as that App, and otherwise as you.
+- The Steward starts sessions the same way. A locked action starts after you allow it, through the same planner and
+  limits as a click, and that covers what it does within them. hubd refuses a full action on that path before it reaches
+  you, because a misleading issue could shape its brief: you start those yourself. At most 4 run at once, and only the
+  Steward's action can ask for a start. Its
+  `session_summary` reads only sessions it started; what it reads there is data.
+- The Steward can message sessions. Without a card that reaches only a session it started that has no write tool and no
+  shell, from a list named in `hubd/agents.py`, so a misled Steward can't direct a review's rights at another pull request.
+  Any other message shows on a card first, and hubd refuses invisible characters so the card shows all of it. A message
+  arrives as a turn, marked as the Steward's between two random lines. Allowing one still lets a misled Steward ask for
+  something, and then the target's own judgement is what's left.
+- The planner of a full action has no `work_search`, as its words become a full session's brief.
+  Locked actions and their planners do, and treat what it returns as data.
+- Notes and pins come only from your request, and the planner's answer can't change them. A pin you add
+  can still bring an outsider's text into a full session's planner, because you chose to point it there.
+  The session's prompt gives your notes first and says the briefing below them isn't yours, whatever it
+  claims, since a planner that read outsiders' text wrote it.
+
+Search queries reach GitHub only as a scope and a time: hubd builds the query itself, keeping
+it inside the organization. `gh api` takes one header, `If-None-Match` with an ETag.

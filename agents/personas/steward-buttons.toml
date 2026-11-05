@@ -1,0 +1,59 @@
+# Messages a person can send the Steward with one press, by screen. {selection} becomes the open item, like
+# "pull request hub#20", and a button that needs one shows only when there is one. `kinds` limits it to those
+# items. The page sends the id, never the words. Only people press these.
+[[button]]
+id = "needs-me"
+screen = "Overview"
+label = "What needs me?"
+text = "What needs my attention first across the project? Five lines, most urgent first."
+
+[[button]]
+id = "status"
+screen = "Overview"
+label = "Status"
+text = "Give me a five-line status of the project."
+
+[[button]]
+id = "replan"
+screen = "Roadmap"
+label = "Re-plan the week"
+text = "Re-plan this week against the current board. Suggest at most five changes, and ask before making them."
+
+[[button]]
+id = "roadmap-status"
+screen = "Roadmap"
+label = "Status"
+text = "Give me a five-line status of the roadmap."
+
+[[button]]
+id = "should-merge"
+screen = "Work"
+label = "Should this merge?"
+kinds = ["pull request"]
+text = "Is {selection} ready to merge? Check it against what it's for and its checks."
+
+[[button]]
+id = "who-else"
+screen = "Work"
+label = "Who else is affected?"
+kinds = ["issue", "pull request"]
+text = "Which other issues and pull requests does {selection} touch?"
+
+[[button]]
+id = "what-failed"
+screen = "Work"
+label = "What went wrong?"
+kinds = ["run"]
+text = "What went wrong in {selection}, and is it this change or something flaky?"
+
+[[button]]
+id = "review-queue"
+screen = "Work"
+label = "Review queue"
+text = "Start a review session for every pull request waiting on review, at most four. Each one asks me first."
+
+[[button]]
+id = "sessions"
+screen = "Sessions"
+label = "How are they doing?"
+text = "How are the sessions you started doing? One line each."

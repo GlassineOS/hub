@@ -1,0 +1,14 @@
+order = 3
+ceiling = "Reads, then hands in drafts. It can't file, comment, push or merge: filing is yours."
+object = "repo"
+title = "Architecture audit"
+summary = "Reads the repository as an architect and drafts issues for what's worth changing."
+all_repos = true
+personas = ["architect"]
+prompt = "new-architecture-audit"
+models = ["opus", "fable", "sonnet", "haiku"]
+efforts = ["high", "xhigh", "medium"]
+tools = ["Read", "Grep", "Glob", "AskUserQuestion"]
+hub_tools = ["request_repository", "map_overview", "map_definition", "map_usages", "map_string", "get_issue", "list_issues", "list_prs", "get_pr", "docs_search", "work_search", "submit_drafts"]
+checkout = "default"
+asks_paths = true

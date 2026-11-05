@@ -1,0 +1,6 @@
+#%PAM-1.0
+# The hub's login: password and account only. Not system-auth, whose pam_faillock would
+# let failed dashboard logins lock the account for the desktop too, and which can fail
+# outright for an unprivileged process. To add a second factor, add its module here.
+auth     required  pam_unix.so
+account  required  pam_unix.so

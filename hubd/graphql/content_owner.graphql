@@ -1,0 +1,7 @@
+query($id: ID!) {
+  node(id: $id) {
+    ... on Issue { repository { owner { login } } }
+    ... on PullRequest { repository { owner { login } } }
+    ... on PullRequestReviewThread { repository { owner { login } } }
+  }
+}

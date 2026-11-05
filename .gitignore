@@ -1,0 +1,7 @@
+/.venv/
+/.cache/
+__pycache__/
+*.egg-info/
+/app/hub/static/vendor/
+/.env
+/.pytest_cache/

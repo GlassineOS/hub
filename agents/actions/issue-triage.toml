@@ -1,0 +1,12 @@
+order = 1
+ceiling = "Labels and comments. Never closes, merges or writes code."
+object = "issue"
+title = "Triage"
+summary = "Looks for duplicates and answers, labels the issue and comments on it."
+personas = ["triager"]
+prompt = "issue-triage"
+models = ["sonnet", "opus"]
+efforts = ["low", "medium", "high"]
+tools = ["Skill", "AskUserQuestion"]
+hub_tools = ["plan_work", "get_issue", "list_issues", "label_issue", "comment_issue", "docs_search", "work_search"]
+checkout = false

@@ -1,0 +1,866 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Project management: one service, used by the web API and the tool server alike."""
+from __future__ import annotations
+
+import asyncio
+import logging
+import re
+import time
+import tomllib
+from pathlib import Path
+from urllib.parse import quote
+
+from . import diffbudget
+from . import mergequeue
+from .hubd_client import ALL_REPOS, CALLER, GhError, Hubd, HubdError
+
+ORG = "GlassineOS"
+_REPO_RE = re.compile(r"[A-Za-z0-9._-]+")
+_HEAD_RE = re.compile(r"[0-9a-f]{40}")
+_ISSUE_FIELDS = "number,title,state,labels,assignees,author,createdAt,updatedAt,url,comments"
+_PR_FIELDS = ("number,title,state,isDraft,labels,author,createdAt,updatedAt,url,headRefName,baseRefName,"
+              "reviewDecision,mergeable,statusCheckRollup")
+_RUN_FIELDS = "databaseId,displayTitle,workflowName,status,conclusion,event,headBranch,headSha,createdAt,updatedAt,url"
+OVERVIEW_TTL = 60.0
+BOARD_TTL = 120
+WORKFLOWS_TTL = 3600
+MAX_KEPT = 4 * 1024 * 1024  # a longer log or diff isn't worth keeping
+log = logging.getLogger("hub.github")
+
+
+class BadRequest(ValueError):
+    pass
+
+
+def _full(repo) -> str:
+    if not isinstance(repo, str) or not _REPO_RE.fullmatch(repo) or ".." in repo:
+        raise BadRequest(f"not a repository name: {repo}")
+    return f"{ORG}/{repo}"
+
+
+def _file_or_refuse(fn, diff, path, **kw) -> str:
+    if not isinstance(path, str) or not path:
+        raise BadRequest("path must be a file path from the pull request's file list")
+    try:
+        return fn(diff, path, **kw)
+    except diffbudget.Missing:
+        raise BadRequest("this pull request's diff has no file with that path; the file list in get_pr has the paths") from None
+
+
+def _num(value) -> str:
+    # Strictly: int() would read True as 1, 5.9 as 5 and "1_5" as 15.
+    if not (type(value) is int or (isinstance(value, str) and re.fullmatch(r"[0-9]+", value))) or int(value) <= 0:
+        raise BadRequest(f"not a number: {value}")
+    return str(int(value))
+
+
+def _thread(value) -> str:
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_=-]{1,200}", value):
+        raise BadRequest("not a review thread")
+    return value
+
+
+def _limit(value, default=30, top=200) -> str:
+    return str(max(1, min(int(value or default), top)))
+
+
+def _rollup(pr: dict) -> str:
+    """One word for a pull request's checks."""
+    checks = pr.pop("statusCheckRollup", None) or []
+    states = [(c.get("conclusion") or c.get("state") or c.get("status") or "").upper() for c in checks]
+    if not states:
+        return "none"
+    if any(s in ("FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED") for s in states):
+        return "failing"
+    if any(s in ("IN_PROGRESS", "QUEUED", "PENDING", "EXPECTED", "WAITING", "") for s in states):
+        return "pending"
+    return "passing"
+
+
+class GitHub:
+    def __init__(self, hubd: Hubd, config_path: Path, clock=time.monotonic, store=None):
+        self.hubd = hubd
+        # The work store and its sync. Without them, or before the first sync, everything asks gh.
+        self.store = store
+        self.sync = None
+        self._dirty = False
+        self.config = tomllib.loads(Path(config_path).read_text())
+        self._clock = clock
+        self._overview = None
+        self._overview_at = -OVERVIEW_TTL
+        self._overview_lock = asyncio.Lock()
+        self._strips = None
+        self._strips_at = -OVERVIEW_TTL
+        self._strips_lock = asyncio.Lock()
+
+    # --- the whole organization ------------------------------------------------
+    async def overview(self, fresh: bool = False) -> dict:
+        async with self._overview_lock:
+            if self._overview is None and self.store:
+                self._overview = self.store.answer("overview", "")
+            # With a sync running it refreshes this every tick, so a view never has to.
+            expired = not self._serving() and self._clock() - self._overview_at > OVERVIEW_TTL
+            if fresh or self._overview is None or self._dirty or expired:
+                data = await self.hubd.graphql("org_overview")
+                self._overview = self._arrange(data["organization"]["repositories"]["nodes"])
+                self._overview_at = self._clock()
+                self._dirty = False
+                if self.store:
+                    self.store.keep("overview", "", self._overview)
+            return self._overview
+
+    def _serving(self) -> bool:
+        return bool(self.store and self.sync and self.sync.ready())
+
+    async def _wrote(self, repo=None, number=None) -> None:
+        """After a write: what views read must show it now, not at the next tick."""
+        self._overview_at = -OVERVIEW_TTL
+        self._dirty = True
+        if not self.store:
+            return
+        self.store.forget("board")
+        if number is not None:
+            try:
+                data = await self.hubd.graphql("org_item", repo=repo, number=int(_num(number)))
+                node = data["repository"]["issueOrPullRequest"]
+                if node:
+                    self.store.upsert(node)
+            except HubdError as e:
+                log.warning("couldn't refresh %s#%s: %s", repo, number, e)
+        if self.sync:
+            self.sync.wake()
+
+    # --- the queue view: from the work store, and it asks GitHub nothing ----------------------------
+    def merge_queue(self, decisions: list[dict]) -> dict:
+        if not self._serving():
+            return {"ready": False, "says": "The work store hasn't synced yet, so there's no queue to show. Nothing is lost: pull requests are on the Work page."}
+        blockers = [i for i in self.store.with_bodies("issue", "OPEN") if any(x["name"] == mergequeue.BLOCKER_LABEL for x in i["labels"])]
+        return {"ready": True, "synced_at": self.sync.status()["synced_at"],
+                **mergequeue.arrange(self.store.with_bodies("pr", "OPEN"), self.store.with_bodies("pr", "MERGED"), blockers, decisions)}
+
+    def _kept(self, key: str, stamp: str):
+        return self.store.answer(key, stamp) if self._serving() else None
+
+    def _keep(self, key: str, stamp: str, value) -> None:
+        if self.store:
+            self.store.keep(key, stamp, value)
+
+    # --- devices ----------------------------------------------------------------
+    async def device_status(self, device=None) -> dict:
+        """Sentences with an age. The hub never asks the device, and hubd has what it last reported."""
+        reply = await self.hubd.call(op="device.status", agent_token=CALLER.get(), device=device)
+        return {"says": reply["says"]}
+
+    # --- decisions: the tools can ask about them and ask for them, and never make one -------------
+    async def decision_check(self, kind, action=None, target=None) -> dict:
+        reply = await self.hubd.call(op="decision.check", agent_token=CALLER.get(), kind=kind, actions=action, target=target)
+        return {"answer": reply["answer"], "words": reply["words"]}
+
+    async def decision_request(self, kind, scope, why, ends=None) -> dict:
+        reply = await self.hubd.call(op="decision.request", agent_token=CALLER.get(), kind=kind, scope=scope, why=why, ends=ends)
+        return {"id": reply["id"], "words": reply["words"]}
+
+    async def decision_end(self, decision_id, why=None) -> dict:
+        reply = await self.hubd.call(op="decision.end_go", agent_token=CALLER.get(), id=decision_id, why=why)
+        return {"words": reply["words"]}
+
+    # --- the work store's own answers -------------------------------------------
+    def work_status(self) -> dict:
+        return self.sync.status() if self.sync else {"enabled": False}
+
+    async def work_sync_now(self) -> dict:
+        if not self.sync:
+            raise BadRequest("the work store isn't set up")
+        return await self.sync.sync_now()
+
+    async def _public_repos(self) -> set[str]:
+        overview = await self.overview()
+        return {r["name"] for g in overview["groups"] for r in g["repos"] if not r["private"]}
+
+    async def _private_repos(self, fresh: bool = False) -> set[str]:
+        overview = await self.overview(fresh=fresh)
+        return {r["name"] for g in overview["groups"] for r in g["repos"] if r["private"]}
+
+    async def work_search(self, query, kind=None, repo=None, state=None, k=8, for_agent=False) -> dict:
+        """Issues, pull requests and their comments, by meaning and by words.
+
+        For an agent, private repositories only when it names one: an agent may be acting on an
+        outsider's text, and may be able to post in public."""
+        if not self._serving():
+            raise BadRequest("the work store isn't ready yet")
+        if not query or not str(query).strip():
+            raise BadRequest("a search needs a query")
+        if kind not in (None, "issue", "pr"):
+            raise BadRequest(f"bad kind: {kind}")
+        if state not in (None, "open", "closed", "merged", "all"):
+            raise BadRequest(f"bad state: {state}")
+        if repo:
+            _full(repo)
+        whole_project = for_agent and ALL_REPOS.get()
+        only = await self._public_repos() if for_agent and not repo and not whole_project else None
+        found = await self.sync.search(str(query), kind=kind, repo=repo, state=state, k=max(1, min(int(k), 50)), only_repos=only)
+        if whole_project:
+            await self._say_private(found["results"])
+        return found
+
+    async def _say_private(self, rows: list[dict]) -> list[dict]:
+        """A session that reads the whole project can't tell private rows apart by their names."""
+        public = await self._public_repos()
+        for row in rows:
+            row["private"] = row.get("repo") not in public
+        return rows
+
+    def _arrange(self, nodes: list[dict]) -> dict:
+        repos = {n["name"]: self._repo_row(n) for n in nodes if not n["isArchived"]}
+        groups, placed = [], set()
+        for g in self.config["group"]:
+            rows = [repos[name] for name in g["repos"] if name in repos]
+            placed.update(r["name"] for r in rows)
+            groups.append({"key": g["key"], "title": g["title"], "summary": g["summary"],
+                           "repos": rows, "totals": _totals(rows)})
+        rest = [r for name, r in sorted(repos.items()) if name not in placed]
+        if rest:
+            groups.append({"key": "unplaced", "title": "Unplaced",
+                           "summary": "Not in config/repos.toml yet.", "repos": rest, "totals": _totals(rest)})
+        return {"groups": groups, "totals": _totals(list(repos.values())), "fetched": time.time()}
+
+    @staticmethod
+    def _repo_row(n: dict) -> dict:
+        ref = n.get("defaultBranchRef") or {}
+        target = ref.get("target") or {}
+        rollup = target.get("statusCheckRollup") or {}
+        release = n.get("latestRelease") or {}
+        return {
+            "name": n["name"], "description": n.get("description") or "", "private": n["isPrivate"], "url": n["url"],
+            "pushed": n.get("pushedAt"), "issues": n["issues"]["totalCount"], "prs": n["pullRequests"]["totalCount"],
+            "branch": ref.get("name"), "commits": (target.get("history") or {}).get("totalCount"),
+            "head": target.get("oid"), "head_title": target.get("messageHeadline"),
+            "head_date": target.get("committedDate"),
+            "ci": (rollup.get("state") or "NONE").lower(), "release": release.get("tagName"),
+        }
+
+    async def rate_limit(self) -> dict:
+        """What's left of the host login's GitHub API budget."""
+        core = (await self.hubd.gh_json("api", "rate_limit"))["resources"]["core"]
+        return {"remaining": core["remaining"], "limit": core["limit"], "reset": core["reset"]}
+
+    async def run_strips(self) -> dict:
+        """The last 10 workflow runs on each default branch, oldest first: pass, fail or run."""
+        if self._serving():
+            view = await self.overview()
+            return {r["name"]: [_run_mark(run) for run in reversed(self.store.runs(r["name"], branch=r["branch"], limit=10))]
+                    for g in view["groups"] for r in g["repos"] if r.get("branch")}
+        async with self._strips_lock:
+            if self._strips is None or self._clock() - self._strips_at > OVERVIEW_TTL:
+                view = await self.overview()
+                repos = [r for g in view["groups"] for r in g["repos"] if r.get("branch")]
+
+                async def one(repo):
+                    path = f"repos/{ORG}/{repo['name']}/actions/runs?per_page=10&branch={quote(repo['branch'], safe='')}"
+                    try:
+                        runs = (await self.hubd.gh_json("api", path))["workflow_runs"]
+                    except HubdError:
+                        return repo["name"], None  # a repository's runs missing doesn't stop the rest
+                    return repo["name"], [_run_mark(r) for r in reversed(runs)]
+                self._strips = dict(await asyncio.gather(*(one(r) for r in repos)))
+                self._strips_at = self._clock()
+            return self._strips
+
+    async def repo_names(self) -> list[str]:
+        view = await self.overview()
+        return [r["name"] for g in view["groups"] for r in g["repos"]]
+
+    async def _across(self, repo, one) -> list[dict]:
+        """`one(repo)` for one repository, or for all of them at once."""
+        names = [repo] if repo else await self.repo_names()
+        results = await asyncio.gather(*(one(n) for n in names), return_exceptions=True)
+        rows = []
+        for name, result in zip(names, results):
+            if isinstance(result, Exception):
+                if repo or not isinstance(result, GhError):
+                    raise result
+                continue  # e.g. issues disabled on one repository: the others still count
+            rows.extend({**row, "repo": name} for row in result or [])
+        return rows
+
+    # --- issues ----------------------------------------------------------------
+    async def issues(self, repo=None, state="open", label=None, assignee=None, search=None, limit=50) -> list[dict]:
+        if state not in ("open", "closed", "all"):
+            raise BadRequest(f"bad state: {state}")
+        if repo:
+            _full(repo)
+        # A search with qualifiers (is:, author:…) is GitHub's to answer.
+        if self._serving() and not (search and ":" in search):
+            wanted = self.store.get("viewer") if assignee == "@me" else assignee
+            return self.store.issues(repo, state, label, wanted, search, int(_limit(limit)))
+        extra = []
+        if label:
+            extra += ["--label", label]
+        if assignee == "none":
+            search = f"{search or ''} no:assignee".strip()
+        elif assignee:
+            extra += ["--assignee", assignee]
+        if search:
+            extra += ["--search", search]
+
+        async def one(name):
+            return await self.hubd.gh_json("issue", "list", "-R", _full(name), "--state", state, "--limit",
+                                           _limit(limit), "--json", _ISSUE_FIELDS, *extra)
+        rows = await self._across(repo, one)
+        for r in rows:
+            r["comments"] = len(r.get("comments") or [])
+        rows.sort(key=lambda r: r["updatedAt"], reverse=True)
+        return rows
+
+    async def issue(self, repo, number) -> dict:
+        if self._serving():
+            _full(repo)
+            row = self.store.item("issue", repo, int(_num(number)))
+            comments = self.store.comments("issue", repo, int(_num(number))) if row else []
+            if row and len(comments) >= row["comments"]:
+                return {**row, "comments": comments}
+            # More comments than a sync carries: ask, once for each version of the issue.
+            if row and (kept := self.store.answer(f"issue/{repo}/{_num(number)}", row["updatedAt"])):
+                return kept
+        row = await self.hubd.gh_json("issue", "view", _num(number), "-R", _full(repo), "--json",
+                                      "number,title,state,body,labels,assignees,author,createdAt,updatedAt,url,comments,milestone")
+        result = {**row, "repo": repo}
+        if self._serving() and (known := self.store.item("issue", repo, int(_num(number)))):
+            self.store.keep(f"issue/{repo}/{_num(number)}", known["updatedAt"], result)
+        return result
+
+    async def create_issue(self, repo, title, body="", labels=None, roadmap=False) -> dict:
+        if not title or not str(title).strip():
+            raise BadRequest("an issue needs a title")
+        argv = ["issue", "create", "-R", _full(repo), "--title", str(title), "--body-file", "-"]
+        for label in labels or []:
+            argv += ["--label", str(label)]
+        url = (await self.hubd.gh(*argv, stdin=str(body or ""))).strip()
+        result = {"url": url, "repo": repo, "number": int(url.rsplit("/", 1)[-1])}
+        await self._wrote(repo, result["number"])
+        if roadmap:
+            # The issue exists either way: report a failure here rather than lose it.
+            try:
+                await self.add_to_project(repo, result["number"])
+                result["roadmap"] = True
+            except (BadRequest, HubdError) as e:
+                result["roadmap_error"] = str(e)
+        return result
+
+    async def comment_issue(self, repo, number, body) -> dict:
+        url = (await self._comment("issue", repo, number, body)).strip()
+        await self._wrote(repo, number)
+        return {"url": url}
+
+    async def _comment(self, kind, repo, number, body) -> str:
+        if not body or not str(body).strip():
+            raise BadRequest("a comment needs text")
+        return await self.hubd.gh(kind, "comment", _num(number), "-R", _full(repo), "--body-file", "-", stdin=str(body))
+
+    async def close_issue(self, repo, number, reason="completed", comment=None) -> dict:
+        if reason not in ("completed", "not planned"):
+            raise BadRequest(f"bad reason: {reason}")
+        argv = ["issue", "close", _num(number), "-R", _full(repo), "--reason", reason]
+        if comment:
+            argv += ["--comment", str(comment)]
+        await self.hubd.gh(*argv)
+        await self._wrote(repo, number)
+        return {"state": "closed"}
+
+    async def reopen_issue(self, repo, number) -> dict:
+        await self.hubd.gh("issue", "reopen", _num(number), "-R", _full(repo))
+        await self._wrote(repo, number)
+        return {"state": "open"}
+
+    async def label_issue(self, repo, number, add=None, remove=None) -> dict:
+        argv = ["issue", "edit", _num(number), "-R", _full(repo)]
+        for label in add or []:
+            argv += ["--add-label", str(label)]
+        for label in remove or []:
+            argv += ["--remove-label", str(label)]
+        if len(argv) == 5:
+            raise BadRequest("no labels given")
+        await self.hubd.gh(*argv)
+        await self._wrote(repo, number)
+        return {"ok": True}
+
+    # --- pull requests ---------------------------------------------------------
+    async def prs(self, repo=None, state="open", limit=50) -> list[dict]:
+        if state not in ("open", "closed", "merged", "all"):
+            raise BadRequest(f"bad state: {state}")
+        if repo:
+            _full(repo)
+        if self._serving():
+            return self.store.prs(repo, state, int(_limit(limit)))
+
+        async def one(name):
+            return await self.hubd.gh_json("pr", "list", "-R", _full(name), "--state", state, "--limit",
+                                           _limit(limit), "--json", _PR_FIELDS)
+        rows = await self._across(repo, one)
+        for r in rows:
+            r["checks"] = _rollup(r)
+        rows.sort(key=lambda r: r["updatedAt"], reverse=True)
+        return rows
+
+    def _pr_stamp(self, repo, number) -> str | None:
+        """What a pull request's kept answers depend on: its own changes and its repository's runs."""
+        row = self.store.item("pr", repo, int(number)) if self._serving() else None
+        return f"{row['updatedAt']}/{self.store.get(f'ci/{repo}')}" if row else None
+
+    async def pr(self, repo, number) -> dict:
+        _full(repo)
+        key, stamp = f"pr/{repo}/{_num(number)}", self._pr_stamp(repo, _num(number))
+        if stamp and (kept := self.store.answer(key, stamp)):
+            if kept.get("state") != "OPEN":
+                return kept
+            # Merging another pull request changes this one's merge state, and not its stamp.
+            return {**kept, **await self.hubd.gh_json("pr", "view", _num(number), "-R", _full(repo), "--json",
+                                                      "mergeable,mergeStateStatus,headRefOid")}
+        row = await self.hubd.gh_json(
+            "pr", "view", _num(number), "-R", _full(repo), "--json",
+            _PR_FIELDS + ",headRefOid,body,comments,reviews,files,additions,deletions,mergeStateStatus,mergedAt")
+        checks = [{"name": c.get("name") or c.get("context"), "workflow": c.get("workflowName"),
+                   "state": (c.get("conclusion") or c.get("state") or c.get("status") or "").lower(),
+                   "url": c.get("detailsUrl") or c.get("targetUrl")}
+                  for c in row.get("statusCheckRollup") or []]
+        row["checks"] = _rollup(row)
+        result = {**row, "check_list": checks, "repo": repo}
+        if stamp:
+            self.store.keep(key, stamp, result)
+        return result
+
+    async def pr_diff(self, repo, number, path=None) -> str:
+        """The whole diff, or with `path` the full diff of that one file."""
+        diff = await self._pr_diff(repo, number)
+        return diff if path is None else _file_or_refuse(diffbudget.one_file, diff, path)
+
+    async def pr_diff_summary(self, repo, number, path=None) -> str:
+        """The diff cut to a token budget, saying what was cut; with `path`, that one file, cut the same way."""
+        diff = await self._pr_diff(repo, number)
+        more = 'get_pr_diff_summary(repo, number, path="...") shows one file, cut to the same size.'
+        if path is None:
+            return diffbudget.compress(diff, more=more)
+        return _file_or_refuse(diffbudget.one_file_short, diff, path, more="This view cannot show the rest of the file.")
+
+    async def _pr_diff(self, repo, number) -> str:
+        row = self.store.item("pr", repo, int(_num(number))) if self._serving() else None
+        # Against the base too: retargeting a pull request changes its diff, and not its head.
+        key, stamp = f"diff/{repo}/{_num(number)}", row and f"{row.get('headRefOid')}/{row.get('baseRefName')}"
+        if stamp and (kept := self.store.answer(key, stamp)) is not None:
+            return kept
+        diff = await self.hubd.gh("pr", "diff", _num(number), "-R", _full(repo))
+        if stamp and len(diff) <= MAX_KEPT:
+            self.store.keep(key, stamp, diff)
+        return diff
+
+    async def review_pr(self, repo, number, event, body) -> dict:
+        """A review of a pull request: approve, comment or request-changes."""
+        if event not in ("approve", "comment", "request-changes"):
+            raise BadRequest(f"bad review: {event}")
+        if event != "approve" and (not body or not str(body).strip()):
+            raise BadRequest("this review needs text")
+        await self.hubd.gh("pr", "review", _num(number), "-R", _full(repo), f"--{event}", "--body-file", "-", stdin=str(body or ""))
+        await self._wrote(repo, number)
+        return {"ok": True, "review": event}
+
+    async def comment_pr(self, repo, number, body) -> dict:
+        url = (await self._comment("pr", repo, number, body)).strip()
+        await self._wrote(repo, number)
+        return {"url": url}
+
+    async def spawn_session(self, action, repo, number) -> dict:
+        """Under the calling session's token: hubd decides whether it may."""
+        started = await self.hubd.call(op="started.spawn", agent_token=CALLER.get(), action=action, repo=repo, number=number)
+        return {"started": started["name"]}
+
+    async def message_session(self, op, name, text) -> dict:
+        """Under the calling session's token: hubd decides whether it may."""
+        reply = await self.hubd.call(op=op, agent_token=CALLER.get(), name=name, text=text)
+        return {"sent": reply["sent"], "waiting": reply["queued"]}
+
+    async def plan_work(self, action, repo, why, notes="", describe="", paths="") -> dict:
+        """Under the calling session's token: a suggestion, which waits for the person."""
+        reply = await self.hubd.call(op="work.offer", agent_token=CALLER.get(), action=action, repo=repo, why=why,
+                                     notes=notes, describe=describe, paths=paths)
+        return {"waiting_for_the_person": reply["id"]}
+
+    async def suggest_session(self, action, repo, number, why, notes="", also_numbers=None) -> dict:
+        """Under the calling session's token: a full session the person may start. It starts nothing."""
+        reply = await self.hubd.call(op="work.suggest", agent_token=CALLER.get(), action=action, repo=repo, number=number, why=why,
+                                     notes=notes, also_numbers=also_numbers or [])
+        return {"waiting_for_the_person": reply["id"]}
+
+    async def submit_drafts(self, drafts) -> dict:
+        reply = await self.hubd.call(op="work.submit", agent_token=CALLER.get(), drafts=drafts)
+        return {"handed_in": reply["handed_in"]}
+
+    async def new_work_drafts(self) -> list[dict]:
+        return (await self.hubd.call(op="work.handed", agent_token=CALLER.get()))["work"]
+
+    async def file_drafts(self, token, work_id, indexes) -> dict:
+        """Under your login. One at a time and each on record, so a failure halfway leaves the rest to retry."""
+        record = (await self.hubd.call(op="work.claim", token=token, id=work_id, indexes=indexes))["work"]
+        drafts = record["drafts"]
+        titles = {}
+        for i, d in enumerate(drafts):
+            titles.setdefault(d["title"], i)
+
+        def depth(i):  # a child after its parent, however deep; a loop just ends here and is held below
+            seen = {i}
+            while (i := titles.get(drafts[i]["parent"])) is not None and i not in seen:
+                seen.add(i)
+            return len(seen)
+
+        def held(i):
+            """Why this one can't go yet, in words that say what you can do about it."""
+            name = drafts[i]["parent"]
+            seen = {i}
+            while (at := titles.get(name)) is not None:
+                if at in seen:
+                    return f"Not filed: its parent line, {drafts[i]['parent']}, leads back to itself, so this can't be filed from here. Drafts can't be edited: set it aside, or file it by hand."
+                seen.add(at)
+                name = drafts[at]["parent"]
+            parent = drafts[i]["parent"]
+            if parent not in titles or parent in urls:
+                return None
+            if drafts[titles[parent]]["state"] == "handed":
+                return f"Not filed: its parent, {parent}, is with the Steward. Send this one to the Steward too."
+            return f"Not filed: its parent, {parent}, isn't filed yet. File that first."
+
+        urls = {d["title"]: d["url"] for d in drafts if d["url"]}
+        errors, warnings = [], []
+        left = sorted(indexes, key=depth)
+
+        async def settle(i, url, note):
+            nonlocal record
+            record = (await self.hubd.call(op="work.filed", token=token, id=work_id, index=i, url=url, note=note))["work"]
+            left.remove(i)
+
+        try:
+            for i in list(left):
+                draft = drafts[i]
+                note = held(i)
+                if note:
+                    errors.append(note)
+                    await settle(i, None, note)
+                    continue
+                parent = urls.get(draft["parent"], draft["parent"])
+                body = f"Part of {parent}\n\n{draft['body']}" if parent else draft["body"]
+                roadmap = record["roadmap"] and not draft["parent"]
+                url, notes = None, []
+                try:
+                    try:
+                        made = await self.create_issue(draft["target"], draft["title"], body, draft["labels"], roadmap)
+                    except (BadRequest, HubdError) as e:
+                        if not draft["labels"] or "label" not in str(e).lower():
+                            raise
+                        made = await self.create_issue(draft["target"], draft["title"], body, None, roadmap)
+                        notes.append("Filed without its labels: the repository doesn't have them all.")
+                    url = made["url"]
+                    urls[draft["title"]] = url
+                    if made.get("roadmap_error"):
+                        notes.append(f"Filed, but it didn't reach the board: {made['roadmap_error']}")
+                        warnings.append(notes[-1])
+                except (BadRequest, HubdError) as e:
+                    notes.append(f"Not filed: {e}")
+                    errors.append(notes[-1])
+                await settle(i, url, " ".join(notes) or None)
+        except Exception:  # or they'd stay in filing, and look filed
+            for i in list(left):
+                await settle(i, None, "Filing stopped on an error: check GitHub before filing this again.")
+            raise
+        return {"work": record, "errors": errors, "warnings": warnings}
+
+    async def started_sessions(self) -> list[dict]:
+        return (await self.hubd.call(op="started.list", agent_token=CALLER.get()))["sessions"]
+
+    async def running_sessions(self) -> list[dict]:
+        return await self._say_private((await self.hubd.call(op="started.running", agent_token=CALLER.get()))["sessions"])
+
+    async def started_summary(self, name) -> dict:
+        reply = await self.hubd.call(op="started.summary", agent_token=CALLER.get(), name=name)
+        reply.pop("ok", None)
+        return reply
+
+    async def repo_files(self, repo, path="", recursive=False) -> dict:
+        reply = await self.hubd.call(op="repos.files", agent_token=CALLER.get(), repo=repo, path=path, recursive=recursive)
+        reply.pop("ok", None)
+        return reply
+
+    async def repo_read(self, repo, path, start_line=1, max_lines=None) -> dict:
+        reply = await self.hubd.call(op="repos.read", agent_token=CALLER.get(), repo=repo, path=path, start_line=start_line, max_lines=max_lines)
+        reply.pop("ok", None)
+        return reply
+
+    async def repo_map(self, tool, **args) -> dict:
+        reply = await self.hubd.call(op=f"repos.map_{tool}", agent_token=CALLER.get(), **args)
+        reply.pop("ok", None)
+        return reply
+
+    async def request_repository(self, repo) -> dict:
+        reply = await self.hubd.call(op="repos.request", agent_token=CALLER.get(), repo=repo)
+        reply.pop("ok", None)
+        return reply
+
+    async def pr_threads(self, repo, number) -> list[dict]:
+        """Asked of GitHub each time: gh has no view of these, and whether one is resolved has to be current."""
+        _full(repo)
+        data = await self.hubd.graphql("pr_threads", repo=repo, number=int(_num(number)))
+        pull = (data.get("repository") or {}).get("pullRequest") or {}
+        return [{"id": t["id"], "resolved": t["isResolved"], "outdated": t["isOutdated"], "path": t["path"], "line": t["line"],
+                 "comments": [{"author": (c.get("author") or {}).get("login"), "body": c["body"], "createdAt": c["createdAt"],
+                               "url": c["url"], "hunk": c.get("diffHunk") or ""} for c in t["comments"]["nodes"]]}
+                for t in pull["reviewThreads"]["nodes"]] if pull else []
+
+    async def resolve_thread(self, repo, number, thread, resolved=True) -> dict:
+        _full(repo)
+        await self.hubd.graphql("thread_resolve" if resolved else "thread_unresolve", threadId=_thread(thread))
+        await self._wrote(repo, number)
+        return {"resolved": resolved}
+
+    async def reply_thread(self, repo, number, thread, body) -> dict:
+        _full(repo)
+        if not isinstance(body, str) or not body.strip():
+            raise BadRequest("a reply needs text")
+        data = await self.hubd.graphql("thread_reply", threadId=_thread(thread), body=body)
+        await self._wrote(repo, number)
+        return {"url": data["addPullRequestReviewThreadReply"]["comment"]["url"]}
+
+    async def merge_pr(self, repo, number, method="squash", delete_branch=False, head=None, login=None) -> dict:
+        """hubd holds this to a login, or to a tool token with a decision for this head. Without a head it refuses both."""
+        if method not in ("merge", "squash", "rebase"):
+            raise BadRequest(f"bad merge method: {method}")
+        if not isinstance(head, str) or not _HEAD_RE.fullmatch(head):
+            raise BadRequest("name the head commit in full. If you pressed Merge, reload the page: it has to show the head it merges")
+        argv = ["pr", "merge", _num(number), "-R", _full(repo), f"--{method}"]
+        if delete_branch:
+            argv.append("--delete-branch")
+        argv += ["--match-head-commit", head]
+        await self.hubd.gh(*argv, timeout=120, login=login)
+        await self._wrote(repo, number)
+        return {"state": "merged"}
+
+    async def close_pr(self, repo, number, comment=None) -> dict:
+        argv = ["pr", "close", _num(number), "-R", _full(repo)]
+        if comment:
+            argv += ["--comment", str(comment)]
+        await self.hubd.gh(*argv)
+        await self._wrote(repo, number)
+        return {"state": "closed"}
+
+    async def ready_pr(self, repo, number) -> dict:
+        await self.hubd.gh("pr", "ready", _num(number), "-R", _full(repo))
+        await self._wrote(repo, number)
+        return {"ok": True}
+
+    async def update_pr_branch(self, repo, number) -> dict:
+        await self.hubd.gh("pr", "update-branch", _num(number), "-R", _full(repo))
+        await self._wrote(repo, number)
+        return {"ok": True}
+
+    # --- actions ---------------------------------------------------------------
+    async def agent_runs(self, repo=None, status=None, workflow=None, branch=None, limit=20) -> list[dict]:
+        """Runs for an agent: like work_search, private repositories only when it names one."""
+        rows = await self.runs(repo, status, workflow, branch, limit)
+        if ALL_REPOS.get():
+            return (await self._say_private(rows))[:int(_limit(limit))]
+        if repo:
+            return rows
+        public = await self._public_repos()
+        return [r for r in rows if r.get("repo") in public]
+
+    async def _agent_listing(self, repo, limit, listing) -> list[dict]:
+        """Like work_search, private repositories only when the agent names one. Asks repository by
+        repository, so private rows can't use up the limit."""
+        wanted = int(_limit(limit))
+        if ALL_REPOS.get():
+            rows = await listing(repo)
+            rows = sorted(rows, key=lambda r: r["updatedAt"], reverse=True)[:wanted]
+            return await self._say_private(rows)
+        if repo:
+            return await listing(repo)
+        results = await asyncio.gather(*(listing(name) for name in sorted(await self._public_repos())))
+        rows = [row for result in results for row in result]
+        rows.sort(key=lambda r: r["updatedAt"], reverse=True)
+        return rows[:wanted]
+
+    async def agent_issues(self, repo=None, state="open", label=None, assignee=None, search=None, limit=50) -> list[dict]:
+        return await self._agent_listing(repo, limit, lambda name: self.issues(name, state, label, assignee, search, limit))
+
+    async def agent_prs(self, repo=None, state="open", limit=50) -> list[dict]:
+        return await self._agent_listing(repo, limit, lambda name: self.prs(name, state, limit))
+
+    async def runs(self, repo=None, status=None, workflow=None, branch=None, limit=20) -> list[dict]:
+        if repo:
+            _full(repo)
+        # A workflow's file name is gh's to resolve: the store knows runs by the workflow's name.
+        by_file = str(workflow or "").endswith((".yml", ".yaml"))
+        if self._serving() and not by_file:
+            return self.store.runs(repo, status, workflow, branch, int(_limit(limit)))
+        extra = []
+        if status:
+            extra += ["--status", status]
+        if workflow:
+            extra += ["--workflow", workflow]
+        if branch:
+            extra += ["--branch", branch]
+
+        async def one(name):
+            return await self.hubd.gh_json("run", "list", "-R", _full(name), "--limit", _limit(limit),
+                                           "--json", _RUN_FIELDS, *extra)
+        rows = await self._across(repo, one)
+        rows.sort(key=lambda r: r["createdAt"], reverse=True)
+        return rows
+
+    async def run(self, repo, run_id, fresh=False) -> dict:
+        key = f"run/{repo}/{_num(run_id)}"
+        # A finished run stays as it is, until someone re-runs it.
+        known = self.store.item("run", repo, int(run_id)) if self._serving() else None
+        if not fresh and known and known["status"] == "completed" and (kept := self.store.answer(key, known["updatedAt"])):
+            return kept
+        row = await self.hubd.gh_json("run", "view", _num(run_id), "-R", _full(repo), "--json", _RUN_FIELDS + ",jobs")
+        result = {**row, "repo": repo}
+        if self.store:
+            self.store.upsert_run({k: result.get(k) for k in (*_RUN_FIELDS.split(","), "repo")})
+            if row["status"] == "completed":
+                self.store.keep(key, row["updatedAt"], result)
+        return result
+
+    async def run_log(self, repo, run_id, failed_only=True) -> str:
+        flag = "--log-failed" if failed_only else "--log"
+        known = self.store.item("run", repo, int(run_id)) if self._serving() else None
+        finished = known["updatedAt"] if known and known["status"] == "completed" else None
+        key = f"log/{repo}/{_num(run_id)}/{flag}"
+        if finished and (kept := self.store.answer(key, finished)) is not None:
+            return kept
+        log_text = await self.hubd.gh("run", "view", _num(run_id), "-R", _full(repo), flag, timeout=120)
+        if finished and len(log_text) <= MAX_KEPT:
+            self.store.keep(key, finished, log_text)
+        return log_text
+
+    async def rerun(self, repo, run_id, failed_only=True) -> dict:
+        argv = ["run", "rerun", _num(run_id), "-R", _full(repo)]
+        if failed_only:
+            argv.append("--failed")
+        await self.hubd.gh(*argv)
+        await self._run_wrote(repo, run_id)
+        return {"ok": True}
+
+    async def cancel_run(self, repo, run_id) -> dict:
+        await self.hubd.gh("run", "cancel", _num(run_id), "-R", _full(repo))
+        await self._run_wrote(repo, run_id)
+        return {"ok": True}
+
+    async def _run_wrote(self, repo, run_id) -> None:
+        if not self.store:
+            return
+        try:
+            await self.run(repo, run_id, fresh=True)
+        except HubdError as e:
+            log.warning("couldn't refresh run %s of %s: %s", run_id, repo, e)
+        if self.sync:
+            self.sync.wake()
+
+    async def workflows(self, repo) -> list[dict]:
+        key, stamp = f"workflows/{repo}", str(int(time.time() // WORKFLOWS_TTL))
+        if (kept := self._kept(key, stamp)) is not None:
+            return kept
+        rows = await self.hubd.gh_json("workflow", "list", "-R", _full(repo), "--json", "id,name,path,state") or []
+        self._keep(key, stamp, rows)
+        return rows
+
+    async def dispatch(self, repo, workflow, ref="main", inputs=None) -> dict:
+        if not workflow or "/" in str(workflow):
+            raise BadRequest("name the workflow file, e.g. docs.yml")
+        argv = ["workflow", "run", str(workflow), "-R", _full(repo), "--ref", str(ref)]
+        for key, value in (inputs or {}).items():
+            argv += ["-f", f"{key}={value}"]
+        await self.hubd.gh(*argv)
+        return {"ok": True}
+
+    # --- the strategic board ---------------------------------------------------
+    async def project(self) -> dict:
+        """The roadmap project with its items by status. Search doesn't see boards, so this one has a timer."""
+        stamp = str(int(time.time() // BOARD_TTL))
+        if kept := self._kept("board", stamp):
+            return kept
+        try:
+            data = await self.hubd.graphql("org_projects")
+        except GhError as e:
+            if "read:project" in str(e) or "scope" in str(e).lower():
+                return {"needs_scope": True, "command": "gh auth refresh -h github.com -s project"}
+            raise
+        nodes = data["organization"]["projectsV2"]["nodes"]
+        wanted = self.config.get("project")
+        match = next((n for n in nodes if n["title"] == wanted and not n["closed"]), None)
+        if match is None:
+            return {"missing": True, "title": wanted, "projects": nodes}
+        data = await self.hubd.graphql("project_items", number=match["number"])
+        board = _board(data["organization"]["projectV2"])
+        self._keep("board", stamp, board)
+        return board
+
+    async def add_to_project(self, repo, number) -> dict:
+        """Put an issue or pull request of the organization on the roadmap."""
+        _full(repo)
+        wanted = self.config.get("project")
+        projects = (await self.hubd.graphql("org_projects"))["organization"]["projectsV2"]["nodes"]
+        project = next((n for n in projects if n["title"] == wanted and not n["closed"]), None)
+        if project is None:
+            raise BadRequest(f'the organization has no open project called "{wanted}"')
+        data = await self.hubd.graphql("content_id", repo=repo, number=int(_num(number)))
+        content = data["repository"]["issueOrPullRequest"]
+        added = await self.hubd.graphql("project_add_item", projectId=project["id"], contentId=content["id"])
+        if self.store:
+            self.store.forget("board")
+        return {"item": added["addProjectV2ItemById"]["item"]["id"]}
+
+    async def move_item(self, project_id, item_id, field_id, option_id) -> dict:
+        await self.hubd.graphql("project_set_option", projectId=project_id, itemId=item_id,
+                                fieldId=field_id, optionId=option_id)
+        if self.store:
+            self.store.forget("board")
+        return {"ok": True}
+
+
+def _run_mark(run: dict) -> str:
+    if run.get("status") != "completed":
+        return "run"
+    return "pass" if run.get("conclusion") in ("success", "skipped", "neutral") else "fail"
+
+
+def _totals(rows: list[dict]) -> dict:
+    ci = [r["ci"] for r in rows]
+    return {"repos": len(rows), "issues": sum(r["issues"] for r in rows), "prs": sum(r["prs"] for r in rows),
+            "failing": sum(1 for s in ci if s in ("failure", "error"))}
+
+
+def _rollup_subs(nodes: list[dict]) -> list[dict]:
+    """Sub-issues closed and total, per repository."""
+    repos: dict[str, dict] = {}
+    for node in nodes:
+        row = repos.setdefault((node.get("repository") or {}).get("name") or "?", {"done": 0, "total": 0})
+        row["total"] += 1
+        row["done"] += node.get("state") == "CLOSED"
+    return [{"repo": name, **row} for name, row in repos.items()]
+
+
+def _board(project: dict) -> dict:
+    status = next((f for f in project["fields"]["nodes"] if f and f.get("name") == "Status"), None)
+    options = (status or {}).get("options") or []
+    columns = {o["id"]: {"id": o["id"], "name": o["name"], "items": []} for o in options}
+    loose = {"id": None, "name": "No status", "items": []}
+    for node in project["items"]["nodes"]:
+        content = node.get("content") or {}
+        option = next((v.get("optionId") for v in node["fieldValues"]["nodes"]
+                       if v and (v.get("field") or {}).get("name") == "Status"), None)
+        item = {"id": node["id"], "kind": content.get("__typename"), "title": content.get("title") or "(no title)",
+                "number": content.get("number"), "url": content.get("url"), "state": content.get("state"),
+                "repo": (content.get("repository") or {}).get("name"),
+                "labels": [x["name"] for x in (content.get("labels") or {}).get("nodes", [])],
+                "assignees": [x["login"] for x in (content.get("assignees") or {}).get("nodes", [])],
+                "sub_issues": _rollup_subs((content.get("subIssues") or {}).get("nodes", []))}
+        columns.get(option, loose)["items"].append(item)
+    ordered = ([loose] if loose["items"] else []) + list(columns.values())
+    return {"id": project["id"], "title": project["title"], "url": project["url"],
+            "status_field": status["id"] if status else None, "columns": ordered}

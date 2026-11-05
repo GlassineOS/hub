@@ -1,0 +1,14 @@
+# An action does what it says on the tin. Everything an agent may do is listed here, and
+# hubd holds the planner and the advanced form to it.
+order = 1
+ceiling = "Reads and posts one review, which may approve. Has a sandboxed shell with the internet, seeing the checkout, the repository's git history, and the system's programs and /etc. Never merges, closes or pushes."
+object = "pr"
+title = "Review this PR"
+summary = "Reviews the code and posts a review: approve, comment or request changes."
+personas = ["reviewer"]
+prompt = "pr-review"
+models = ["opus", "sonnet"]
+efforts = ["medium", "high", "xhigh"]
+tools = ["Read", "Grep", "Glob", "Skill", "AskUserQuestion", "Bash"]
+hub_tools = ["request_repository", "map_overview", "map_definition", "map_usages", "map_string", "plan_work", "get_pr", "get_pr_diff", "get_pr_threads", "review_pr", "docs_search", "work_search", "list_runs", "list_workflows", "work_status", "docs_index_status"]
+checkout = "pr"

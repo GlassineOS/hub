@@ -1,0 +1,13 @@
+order = 1
+ceiling = "Reads the run and its logs. Changes nothing."
+when = "failing"
+object = "run"
+title = "Investigate failure"
+summary = "Finds out why the run failed and reports in the session. Changes nothing."
+personas = ["ci-diagnostician"]
+prompt = "run-diagnose"
+models = ["sonnet", "opus"]
+efforts = ["low", "medium", "high"]
+tools = ["Skill", "AskUserQuestion"]
+hub_tools = ["plan_work", "get_run", "get_run_log", "docs_search", "work_search"]
+checkout = false

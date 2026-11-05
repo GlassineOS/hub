@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+[Unit]
+Description=GlassineOS hub host daemon
+
+[Service]
+ExecStart=/usr/bin/env python3 -m hubd.server
+WorkingDirectory=@REPO@
+EnvironmentFile=-%h/.config/glassine-hub/hubd.env
+Restart=on-failure
+# Only hubd itself: the tmux server it started must survive a restart, with every
+# session in it. Don't add NoNewPrivileges either: PAM's password check is a setuid helper.
+KillMode=process
+
+[Install]
+WantedBy=default.target

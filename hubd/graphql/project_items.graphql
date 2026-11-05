@@ -1,0 +1,35 @@
+query($org: String!, $number: Int!) {
+  organization(login: $org) {
+    projectV2(number: $number) {
+      id title url
+      fields(first: 30) {
+        nodes {
+          ... on ProjectV2SingleSelectField { id name options { id name } }
+        }
+      }
+      items(first: 100) {
+        nodes {
+          id
+          fieldValues(first: 20) {
+            nodes {
+              ... on ProjectV2ItemFieldSingleSelectValue {
+                name optionId
+                field { ... on ProjectV2SingleSelectField { id name } }
+              }
+            }
+          }
+          content {
+            __typename
+            ... on DraftIssue { title body }
+            ... on Issue {
+              number title url state repository { name } labels(first: 10) { nodes { name } }
+              assignees(first: 3) { nodes { login } }
+              subIssues(first: 50) { nodes { state repository { name } } }
+            }
+            ... on PullRequest { number title url state repository { name } }
+          }
+        }
+      }
+    }
+  }
+}

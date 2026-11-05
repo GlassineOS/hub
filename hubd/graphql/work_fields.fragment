@@ -1,0 +1,20 @@
+fragment IssueFields on Issue {
+  id number title body state stateReason url createdAt updatedAt closedAt
+  author { login }
+  repository { name }
+  milestone { title number }
+  labels(first: 30) { nodes { name color description } }
+  assignees(first: 10) { nodes { login } }
+  comments(last: 30) { totalCount nodes { id author { login } body createdAt updatedAt url } }
+}
+
+fragment PrFields on PullRequest {
+  id number title body state isDraft url createdAt updatedAt closedAt mergedAt
+  headRefName baseRefName headRefOid reviewDecision mergeable
+  author { login }
+  repository { name }
+  labels(first: 30) { nodes { name color description } }
+  assignees(first: 10) { nodes { login } }
+  comments(last: 30) { totalCount nodes { id author { login } body createdAt updatedAt url } }
+  commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+}

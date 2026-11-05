@@ -1,0 +1,13 @@
+order = 4
+ceiling = "Read only."
+when = "not-failing"
+object = "run"
+title = "Why was it slow?"
+summary = "Finds the slowest steps against recent runs. Reports in the session."
+personas = ["ci-diagnostician"]
+prompt = "run-slow"
+models = ["sonnet", "opus"]
+efforts = ["low", "medium", "high"]
+tools = ["AskUserQuestion"]
+hub_tools = ["plan_work", "get_run", "get_run_log", "list_runs", "docs_search", "work_search"]
+checkout = false

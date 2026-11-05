@@ -1,0 +1,5 @@
+query($org: String!, $repo: String!, $number: Int!) {
+  repository(owner: $org, name: $repo) {
+    issueOrPullRequest(number: $number) { __typename ...IssueFields ...PrFields }
+  }
+}

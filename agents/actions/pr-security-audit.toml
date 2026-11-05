@@ -1,0 +1,12 @@
+order = 5
+ceiling = "Reads and posts one comment. Never merges, closes or pushes. Has a sandboxed shell with the internet, seeing the checkout, the repository's git history, and the system's programs and /etc."
+object = "pr"
+title = "Security audit"
+summary = "Fable audits the change against the threat model and posts its findings as a comment."
+personas = ["security-auditor"]
+prompt = "pr-security-audit"
+models = ["fable"]
+efforts = ["high", "xhigh"]
+tools = ["Read", "Grep", "Glob", "Skill", "AskUserQuestion", "Bash"]
+hub_tools = ["request_repository", "map_overview", "map_definition", "map_usages", "map_string", "plan_work", "get_pr", "get_pr_diff", "comment_pr", "docs_search", "work_search"]
+checkout = "pr"

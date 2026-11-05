@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "presets": {
+    "glassine": {
+      "version": "0.1.0",
+      "source": "local",
+      "manifest_hash": "sha256:bf35bbd2796dcf863a76639539084e0636c565dcf14c517188841502b1254ba1",
+      "enabled": true,
+      "priority": 10,
+      "registered_commands": {},
+      "registered_skills": {},
+      "installed_at": "2026-11-02T17:57:38.347405+00:00"
+    }
+  }
+}

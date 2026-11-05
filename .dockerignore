@@ -1,0 +1,9 @@
+.git
+.venv
+.glassine
+tests
+agents
+hubd
+.env
+**/__pycache__
+app/hub/static/vendor

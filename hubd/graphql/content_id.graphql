@@ -1,0 +1,8 @@
+query($org: String!, $repo: String!, $number: Int!) {
+  repository(owner: $org, name: $repo) {
+    issueOrPullRequest(number: $number) {
+      ... on Issue { id }
+      ... on PullRequest { id }
+    }
+  }
+}
