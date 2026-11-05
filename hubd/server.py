@@ -147,13 +147,15 @@ class Hubd:
             return self.feed_record(req)
         if op == "feed.changes":
             return await self.feed_changes(req)
-        if op == "gh":
-            self._note_own(req)
         if op == "gh" and is_merge(req.get("argv")):
-            return await self.merge(req)
+            reply = await self.merge(req)
+            self._note_own(req, reply)
+            return reply
         if op == "gh":
             token = await self._persona_token(req)
-            return {"ok": True, **await self.gh.run(req.get("argv"), req.get("stdin"), req.get("timeout"), token)}
+            reply = {"ok": True, **await self.gh.run(req.get("argv"), req.get("stdin"), req.get("timeout"), token)}
+            self._note_own(req, reply)
+            return reply
         if op == "gh.graphql":
             scope = self.agents.scope(req.get("agent_token")) if self.agents and self.apps and self.gh.is_mutation(req.get("name")) else None
             token = await self.apps.token(scope["persona"]) if scope else None
@@ -264,17 +266,19 @@ class Hubd:
         except (Refused, ValueError, AttributeError, OSError):
             return None
 
-    def _note_own(self, req: dict) -> None:
-        """A session's write to an item, so that what changes in it soon after is marked as that session's own."""
-        if self.feed is None or not self.agents or not is_write(req.get("argv")):
-            return
-        scope = self.agents.scope(req.get("agent_token"))
-        target = feedlib.target_of(req.get("argv"))
-        if scope and scope.get("session") and target:
-            try:
+    def _note_own(self, req: dict, reply: dict) -> None:
+        """A session's write to an item, so that what changes in it soon after is marked as that session's own. Only once the
+        write went through: one the policy refused, a card declined or gh failed changed nothing. This is bookkeeping, and
+        whatever goes wrong in it mustn't turn a write that happened into an error."""
+        try:
+            if self.feed is None or not self.agents or not reply.get("ok") or reply.get("code") != 0 or not is_write(req.get("argv")):
+                return
+            scope = self.agents.scope(req.get("agent_token"))
+            target = feedlib.target_of(req.get("argv"))
+            if scope and scope.get("session") and target:
                 self.feed.mark(scope["session"], *target)
-            except sqlite3.Error:
-                log.exception("couldn't note a write")
+        except Exception:
+            log.exception("couldn't note a write")
 
     async def _persona_token(self, req: dict) -> str | None:
         """Who a write goes out as: the session behind the tool call says, by its own token."""

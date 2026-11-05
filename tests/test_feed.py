@@ -21,6 +21,7 @@ from hub.worksync import WorkSync  # noqa: E402
 from hubd import agents as agents_module, auth  # noqa: E402
 from hubd.agents import HUB_SENDER, IDLE_FILE, AgentError  # noqa: E402
 from hubd.feed import DEFAULT_PING, MAX_PING, MIN_PING, Feed, FeedError, Pings, clean, importance, parse_cursor, ping_interval, ping_text, target_of  # noqa: E402
+from hubd.ghpolicy import Refused  # noqa: E402
 from hubd.server import Hubd  # noqa: E402
 from hubd.shells import Shells  # noqa: E402
 from test_agents import RunningShells, steward  # noqa: E402
@@ -396,18 +397,68 @@ def test_what_a_gh_write_names(argv, target):
     assert target_of(argv) == target
 
 
-def test_hubd_marks_a_sessions_writes_and_not_its_reads():
-    class Scopes:
-        def scope(self, token):
-            return {"session": "steward", "tools": None} if token == "steward-token" else None
+@pytest.mark.parametrize("argv", [
+    ["issue", "comment", "²", "-R", "GlassineOS/boot"], ["issue", "comment", "٢", "-R", "GlassineOS/boot"],
+    ["pr", "comment", "9" * 5000, "-R", "GlassineOS/boot"], ["pr", "comment", "1" * 16, "-R", "GlassineOS/boot"],
+    ["issue", "close", "https://github.com/GlassineOS/boot/issues/" + "1" * 5000]])
+def test_a_number_that_is_not_a_number_names_no_item(argv):
+    assert target_of(argv) is None
 
+
+class Scopes:
+    def scope(self, token):
+        return {"session": "steward", "tools": None} if token == "steward-token" else None
+
+
+class FakeGh:
+    def __init__(self, code=0, refuse=False):
+        self.code, self.refuse = code, refuse
+
+    async def run(self, argv, stdin=None, timeout=None, token=None):
+        if self.refuse:
+            raise Refused("not allowed")
+        return {"code": self.code, "stdout": "", "stderr": ""}
+
+
+def test_hubd_marks_a_sessions_writes_and_not_its_reads():
     feed = Feed(":memory:")
     hubd = Hubd(None, None, auth.Sessions(), "tok", agents=Scopes(), change_feed=feed)
-    hubd._note_own({"argv": ["pr", "view", "2", "-R", "GlassineOS/boot"], "agent_token": "steward-token"})
-    hubd._note_own({"argv": ["pr", "comment", "3", "-R", "GlassineOS/boot"], "agent_token": "someone-else"})
-    hubd._note_own({"argv": ["pr", "comment", "4", "-R", "GlassineOS/boot"], "agent_token": "steward-token"})
+    done = {"ok": True, "code": 0}
+    hubd._note_own({"argv": ["pr", "view", "2", "-R", "GlassineOS/boot"], "agent_token": "steward-token"}, done)
+    hubd._note_own({"argv": ["pr", "comment", "3", "-R", "GlassineOS/boot"], "agent_token": "someone-else"}, done)
+    hubd._note_own({"argv": ["pr", "comment", "4", "-R", "GlassineOS/boot"], "agent_token": "steward-token"}, done)
     feed.record([ev(number=2), ev(number=3), ev(number=4)])
     assert {c["number"]: c["own"] for c in feed.changes("steward", 0, 10, None)["changes"]} == {2: False, 3: False, 4: True}
+
+
+@pytest.mark.parametrize("gh", [FakeGh(refuse=True), FakeGh(code=1)])
+def test_a_write_that_did_not_happen_marks_nothing(gh):
+    feed = Feed(":memory:")
+    hubd = Hubd(gh, None, auth.Sessions(), "tok", agents=Scopes(), change_feed=feed)
+    req = {"op": "gh", "argv": ["pr", "comment", "4", "-R", "GlassineOS/boot"], "agent_token": "steward-token"}
+    try:
+        run(hubd.request(req))
+    except Refused:
+        pass
+    feed.record([ev(number=4)])
+    assert feed.changes("steward", 0, 10, None)["changes"][0]["own"] is False
+    # The same write going through is marked.
+    hubd.gh = FakeGh()
+    assert run(hubd.request(req))["ok"]
+    feed.record([ev(number=4)])
+    assert all(c["own"] for c in feed.changes("steward", 0, 10, None)["changes"][-1:])
+
+
+@pytest.mark.parametrize("fault", [OverflowError("too big"), ValueError("no"), RuntimeError("x")])
+def test_noting_a_write_cannot_fail_it(fault):
+    feed = Feed(":memory:")
+
+    def broken(*_a):
+        raise fault
+    feed.mark = broken
+    hubd = Hubd(FakeGh(), None, auth.Sessions(), "tok", agents=Scopes(), change_feed=feed)
+    reply = run(hubd.request({"op": "gh", "argv": ["pr", "comment", "4", "-R", "GlassineOS/boot"], "agent_token": "steward-token"}))
+    assert reply["ok"] and reply["code"] == 0
 
 
 # --- a ping never starts a session ------------------------------------------------------------------------
