@@ -201,11 +201,16 @@ Steward with a count. The work sync records into it; the Steward reads it with `
   under the same lock. Each item with new comments counts once per sync, however many comments it got.
 - **What a session may read decides the rows and the counts.** The Steward's action has `all_repos`; a session without it, or the general tool
   token, gets public repositories only, in the feed, in the counts and in the ping. Whether a repository is public is asked of GitHub and
-  kept for 10 minutes (1 minute when it didn't say); if GitHub doesn't say, it's private. The cursor is a number over every change, so a
-  session that can't read some can see that numbers are skipped, and nothing else about them. The consequence of failing closed: a session
+  kept for 10 minutes (1 minute when it didn't say); if GitHub doesn't say, it's private. The cursor is a number over every change, and when
+  a read finds nothing it may see, the cursor goes to the newest change there is. So a session that can't read some learns how many changes it
+  can't see and when they came: its cursor jumps by the count between two reads (1 to 7 after six private changes). It learns nothing else of
+  them: no repository, number or text. The readers are the person's own sessions, so this is accepted. If more actions get `changes_since`
+  without `all_repos`, each reader needs its own ids. The consequence of failing closed: a session
   limited to public repositories that reads while GitHub can't be asked about a repository doesn't see that repository's changes, and its
   cursor moves past them, so it doesn't see them later either. The Steward has `all_repos`, so this is for the general tool token and
   sessions without it. The cursor is not held back for a repository GitHub couldn't be asked about, because a deleted or renamed one would hold it back for good.
+  The same loss happens to the first change in a repository that arrives while the answer from GitHub is awaited: the read's list of public
+  repositories was made before it, and if that read finds nothing else, its cursor passes the change.
 - **A cursor can't be past the end.** One a caller supplies must be one an answer gave: a number above the highest ever issued (counted by
   SQLite's sequence, which pruning doesn't lower) is refused, as the kept cursor only moves forward and one such would hide everything after it.
   A session's first read with no cursor starts from the oldest change kept (up to 14 days or 20,000 rows), not from now: the ping loop starts a
