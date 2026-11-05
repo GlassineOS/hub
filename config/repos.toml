@@ -20,16 +20,16 @@ repos = ["docs", "search", ".github"]
 key = "distribution"
 title = "Distribution"
 summary = "What turns the sources into something installable."
-repos = ["packages", "builders", "workspace"]
+repos = ["packages", "builders", "images", "workspace"]
 
 [[group]]
 key = "system"
 title = "System"
 summary = "What runs on the device once it has booted."
-repos = ["boot", "epd", "sway", "rnote"]
+repos = ["boot", "epd", "sway", "shell", "protocols", "wvkbd", "rnote"]
 
 [[group]]
 key = "enablement"
 title = "Hardware enablement"
 summary = "The kernel and the recovery, closest to the hardware."
-repos = ["linux", "android_bootable_recovery", "android_device_onyx_noteair"]
+repos = ["linux", "android_bootable_recovery", "android_device_onyx_noteair", "bootstrap-onyx-noteair"]
