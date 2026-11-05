@@ -264,7 +264,8 @@ They are marked as hard to undo. What they refuse is checked in the app, on the 
   a pull request. That doesn't catch outside text pasted into an organization member's issue, or an issue filed by an App, which is refused too,
   as GitHub doesn't mark it as a member's. Edits go out as the Steward's persona, like its comments.
 - **Nothing is deleted or emptied.** A body, title or comment can't be blank, and a body that loses more than half its text needs a `reason`,
-  which is part of the call and so on the card. There is no delete. `tick_item` changes one box named by its exact text and refuses none or two,
+  which is part of the call and so on the card. hubd can't know the old length, so that one is found after the person allowed the card: the tool's
+  text tells the Steward to always give a `reason` when it cuts. There is no delete. `tick_item` changes one box named by its exact text and refuses none or two,
   ignoring boxes in fenced code blocks, closed as CommonMark closes them. A fence indented four or more spaces, in a list item, isn't seen, so a box in one counts. GitHub keeps an edit's history, and each result carries the previous text so the edit can be put back.
 - **Comments it posted itself.** `comment_issue` records the id, the session's name and its instance, in the work store. The instance is the session's
   own id from hubd (the Claude session id), which a name is not: the Steward is always `steward`, and a name is used again once its folder is gone. A
@@ -276,7 +277,8 @@ They are marked as hard to undo. What they refuse is checked in the app, on the 
   test pins it.
 - **What the card shows is the call.** For `edit_issue` that is the whole new text, not its difference from the old. The Steward is told to say
   what it changes and why, but that is its word. `tick_item` is small enough to read. Before asking, hubd refuses a call the tool would refuse
-  anyway: no `expected`, a blank body.
+  anyway: no `expected`, a blank body, a `checked` that isn't true or false, and a title that the command policy refuses (one shaped like `owner/repo`, or
+  starting with a link outside the organization).
 - **Text read in a private repository in a public edit.** Nothing technical stops it, as for `comment_issue`: the rule in `agents/private.md`
   is the one measure. An issue's text and the comments an edit is based on may be an outsider's, so they are data, and an edit isn't made because
   one says to; here too that is a rule in a prompt and the card, and the tools would carry out an edit a misled Steward asks for and you allow.

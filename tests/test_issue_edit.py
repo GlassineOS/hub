@@ -17,7 +17,7 @@ from hub import main, tools  # noqa: E402
 from hub.github import BadRequest, GitHub, _boxes, _version  # noqa: E402
 from hub.hubd_client import INSTANCE, SESSION, HubdError  # noqa: E402
 from hub.workstore import WorkStore  # noqa: E402
-from hubd.ghpolicy import check  # noqa: E402
+from hubd.ghpolicy import Refused, check  # noqa: E402
 from hubd.server import _edit_problem  # noqa: E402
 from test_app import CONFIG, FakeDocs, FakeHubd, signed_in, ORIGIN  # noqa: E402
 
@@ -39,7 +39,10 @@ class EditHubd(FakeHubd):
         self.rest_down = False
 
     async def gh(self, *argv, stdin=None, timeout=None, login=None):
-        check(list(argv))  # whatever the app builds has to pass hubd's policy
+        try:
+            check(list(argv))  # whatever the app builds has to pass hubd's policy
+        except Refused as e:
+            raise HubdError(str(e), refused=True) from e
         if self.rest_down and argv[0] == "api":
             raise HubdError("GitHub is not answering")
         if list(argv[:2]) == ["api", "repos/GlassineOS/hub/issues/5"]:
@@ -356,6 +359,22 @@ def test_a_box_in_an_example_cant_be_ticked_or_make_a_real_one_a_duplicate(githu
     assert hubd.writes()[0][1] == "````\n```\n- [ ] ship it\n```\n````\n\n- [x] ship it\n"
 
 
+# --- a title hubd's policy would refuse -------------------------------------------------
+@pytest.mark.parametrize("title", ["docs/search", "https://evil.example/x is the plan", "other/repo#12"])
+def test_a_title_the_command_policy_refuses_is_said_to_be_one_and_asked_to_be_reworded(github, hubd, title):
+    with pytest.raises(BadRequest, match="can't go through as written.*Reword it"):
+        run(github.edit_issue("hub", 5, version(hubd), title=title))
+    assert hubd.writes() == []
+    assert _edit_problem("edit_issue", {"expected": GOOD, "title": title}), "and hubd says so before the card"
+
+
+def test_other_titles_go_through(github, hubd):
+    for title in ("docs: search", "Parser (see https://github.com/GlassineOS/hub/issues/5)", "a/b/c"):
+        assert _edit_problem("edit_issue", {"expected": GOOD, "title": title}) is None, title
+    assert run(github.edit_issue("hub", 5, version(hubd), title="docs: search"))["changed"]
+
+
+
 # --- edit_comment -----------------------------------------------------------------------
 def as_session(session, instance, call):
     """The tool server sets who is calling from the scope hubd gives its token. None, None is the page or the shared token."""
@@ -580,6 +599,10 @@ GOOD = "0" * 16
     ("edit_issue", {"repo": "hub", "number": 5, "expected": GOOD, "title": ""}),
     ("tick_item", {"repo": "hub", "number": 5, "item": "x"}),
     ("tick_item", {"repo": "hub", "number": 5, "item": " ", "expected": GOOD}),
+    ("tick_item", {"repo": "hub", "number": 5, "item": "x", "expected": GOOD, "checked": "false"}),
+    ("tick_item", {"repo": "hub", "number": 5, "item": "x", "expected": GOOD, "checked": 0}),
+    ("tick_item", {"repo": "hub", "number": 5, "item": "x", "expected": GOOD, "checked": None}),
+    ("edit_issue", {"repo": "hub", "number": 5, "expected": GOOD, "title": "docs/search"}),
     ("edit_comment", {"repo": "hub", "number": 5, "comment_id": 1, "body": ""}),
     ("edit_comment", {"repo": "hub", "number": 5, "comment_id": 1}),
 ])
@@ -591,6 +614,7 @@ def test_an_edit_that_would_be_refused_anyway_doesnt_ask_you(name, arguments):
     ("edit_issue", {"repo": "hub", "number": 5, "expected": GOOD, "body": "x"}),
     ("edit_issue", {"repo": "hub", "number": 5, "expected": GOOD, "title": "t"}),
     ("tick_item", {"repo": "hub", "number": 5, "item": "x", "expected": GOOD}),
+    ("tick_item", {"repo": "hub", "number": 5, "item": "x", "expected": GOOD, "checked": False}),
     ("edit_comment", {"repo": "hub", "number": 5, "comment_id": 1, "body": "x"}),
 ])
 def test_a_well_formed_edit_asks_you(name, arguments):

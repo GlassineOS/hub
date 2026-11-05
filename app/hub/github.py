@@ -564,7 +564,13 @@ class GitHub:
             sent = body
         if len(argv) == 5:
             return {"changed": False}
-        await self.hubd.gh(*argv, stdin=sent)
+        try:
+            await self.hubd.gh(*argv, stdin=sent)
+        except HubdError as e:
+            if e.refused and title is not None:  # the text of a title is all hubd's policy reads, so that's what it refused
+                raise BadRequest("the title can't go through as written: one shaped like owner/repo (\"docs/search\") or starting "
+                                 f"with a link outside the organization is refused ({e}). Reword it") from e
+            raise
         await self._wrote(repo, number)
         new_title, new_body = (title if title is not None else row["title"]), (body if body is not None else row["body"])
         version = _version(new_title, new_body)
