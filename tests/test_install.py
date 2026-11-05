@@ -8,6 +8,11 @@ REPO = Path(__file__).resolve().parents[1]
 
 
 def install(tmp_path, **env):
+    done = run_install(tmp_path, **env)
+    return done.stdout, (tmp_path / "config" / "glassine-hub" / "hubd.env").read_text().splitlines()
+
+
+def run_install(tmp_path, **env):
     repo = tmp_path / "workspace" / "hub"
     if not repo.exists():
         (repo / "deploy").mkdir(parents=True)
@@ -24,7 +29,7 @@ def install(tmp_path, **env):
         env={**base, "PATH": f"{stubs}:{base['PATH']}", "HOME": str(tmp_path),
              "XDG_CONFIG_HOME": str(tmp_path / "config"), "XDG_CACHE_HOME": str(tmp_path / "cache"),
              "XDG_STATE_HOME": str(tmp_path / "state"), "XDG_RUNTIME_DIR": str(tmp_path / "run"), **env})
-    return done.stdout, (tmp_path / "config" / "glassine-hub" / "hubd.env").read_text().splitlines()
+    return done
 
 
 def knob(tmp_path):
@@ -138,3 +143,25 @@ def test_the_parsers_folder_is_private(tmp_path):
     fake_venv(tmp_path, 0)
     install(tmp_path)
     assert (tmp_path / "state" / "glassine-hub" / "codemap").stat().st_mode & 0o777 == 0o700
+
+
+def only_these_programs(tmp_path, names):
+    """A PATH with the stubs and just the programs install.sh needs, so a host that has ripgrep can't hide it being missing."""
+    bin = tmp_path / "bin"
+    bin.mkdir(exist_ok=True)
+    for name in ("sh", "dirname", "id", "mkdir", "sed", "cat", "tail", "cmp", "rm", "chmod", "cp", *names):
+        found = shutil.which(name)
+        if found and not (bin / name).exists():
+            (bin / name).symlink_to(found)
+    return f"{tmp_path / 'stubs'}:{bin}"
+
+
+def test_a_host_without_ripgrep_is_told_so_and_one_with_it_isnt(tmp_path):
+    (tmp_path / "stubs").mkdir()
+    errors = run_install(tmp_path, PATH=only_these_programs(tmp_path, ())).stderr.splitlines()
+    assert "missing on this host: rg" in errors
+    assert all(f"missing on this host: {tool}" in errors for tool in ("python3", "gh", "tmux", "docker", "setsid", "openssl", "bwrap", "pasta", "ip", "flock"))  # the list it had
+    rg = tmp_path / "stubs" / "rg"
+    rg.write_text("#!/bin/sh\nexit 0\n")
+    rg.chmod(0o755)
+    assert "missing on this host: rg" not in run_install(tmp_path, PATH=only_these_programs(tmp_path, ())).stderr.splitlines()

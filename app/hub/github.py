@@ -608,6 +608,11 @@ class GitHub:
         reply.pop("ok", None)
         return reply
 
+    async def code_search(self, query, **args) -> dict:
+        reply = await self.hubd.call(op="repos.search", agent_token=CALLER.get(), query=query, **args)
+        reply.pop("ok", None)
+        return reply
+
     async def request_repository(self, repo) -> dict:
         reply = await self.hubd.call(op="repos.request", agent_token=CALLER.get(), repo=repo)
         reply.pop("ok", None)

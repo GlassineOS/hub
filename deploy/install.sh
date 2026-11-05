@@ -6,9 +6,10 @@ repo=$(cd "$(dirname "$0")/.." && pwd)
 units=${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user
 sockets=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/glassine-hub
 
-for tool in python3 gh tmux docker setsid openssl bwrap pasta ip flock; do
+for tool in python3 gh tmux docker setsid openssl bwrap pasta ip flock rg; do
     command -v "$tool" >/dev/null || echo "missing on this host: $tool" >&2
 done
+# Without ripgrep (the package is called ripgrep) code_search says so, and works as soon as it's installed: hubd looks for it at each search.
 
 cache=${XDG_CACHE_HOME:-$HOME/.cache}/glassine-hub
 mkdir -p "$units" "$cache"

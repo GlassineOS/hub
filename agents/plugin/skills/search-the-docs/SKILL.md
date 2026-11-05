@@ -11,3 +11,5 @@ The `docs_search` tool searches the GlassineOS documentation by keywords and by 
 - Results link to the page and heading. Cite the link when a finding rests on the docs.
 - `docs_index_status` says whether the index is behind the docs repository. If it is, a very
   recent change may be missing: say so rather than assume.
+- The docs say how things are meant to work, not where the code uses them. For that, if you have `code_search`, search the repositories' text:
+  a FIFO path, a config key or a function name finds its users across repositories, with the commit of each copy. Search the docs first for the why, then the code for what's there.

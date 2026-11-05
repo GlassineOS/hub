@@ -41,6 +41,7 @@ from urllib.parse import quote
 from . import auth, shell_hook
 from .asks import FOREVER, HOOK_MARGIN, QUESTION_TOOL, WAIT
 from .codemap import UNREADABLE, CodeMaps, MapError
+from .codesearch import CodeSearch, SearchError
 from .ghpolicy import ORG, Refused
 from .history import History
 from .seeds import SeedError, Seeds, remove_tree
@@ -59,7 +60,8 @@ MAX_ALSO = 5
 _OVER_HTTPS = ("-c", "url.https://github.com/.insteadOf=git@github.com:", "-c", "credential.helper=",
                "-c", "credential.helper=!gh auth git-credential")
 MAP_TOOLS = ("map_overview", "map_definition", "map_usages", "map_string")
-_REPO_READERS = ("list_repo_files", "read_repo_file", *MAP_TOOLS)
+SEARCH_TOOLS = ("code_search",)
+_REPO_READERS = ("list_repo_files", "read_repo_file", *MAP_TOOLS, *SEARCH_TOOLS)
 REPO_TOOLS = {"request_repository", *_REPO_READERS}
 # Planners and drafters read pull request diffs through the summary tool only. get_pr_diff
 # returns the whole diff with no limit, and it is not here, so one call can't flood the run.
@@ -381,6 +383,7 @@ class Agents:
         self.seeds = Seeds(state_dir / "seeds", self._git, gh, clone_base, _OVER_HTTPS, ORG)
         self.maps = CodeMaps(state_dir / "codemap", self.seeds)
         self.seeds.on_change = self.maps.kick
+        self.search = CodeSearch(state_dir / "search", self.seeds)
         self._resuming = asyncio.Lock()
         self._starting: set[str] = set()
         self._removing: set[str] = set()
@@ -1647,6 +1650,13 @@ class Agents:
             raise AgentError(str(e)) from e
         except UNREADABLE as e:  # queries over many repositories skip a bad map; what's left is one that was named
             raise AgentError(f"the map couldn't be read: {e}") from e
+
+    async def code_search(self, query, repo=None, path=None, regex=False, context=1, everything: bool = False) -> dict:
+        """Ripgrep runs in hubd's own sandbox, on a frozen copy: this only turns what goes wrong into words for the session."""
+        try:
+            return await self.search.search(query, repo=repo, path=path, regex=regex, context=context, everything=everything)
+        except SearchError as e:
+            raise AgentError(str(e)) from e
 
     def repo_copies(self) -> dict:
         """What the hub has, and what stopped and running sessions keep hold of: old snapshots hold on to old data as the copies move on."""

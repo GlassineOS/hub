@@ -120,7 +120,7 @@ def test_planner_is_read_only_and_keeps_the_token_off_the_command_line(tmp_path)
     allowed = args[args.index("--allowedTools") + 1:args.index("--disable-slash-commands")]
     assert allowed == ["mcp__glassine-hub__get_pr", "mcp__glassine-hub__get_pr_diff_summary", "mcp__glassine-hub__docs_search",
                            "mcp__glassine-hub__work_search", "mcp__glassine-hub__list_repo_files", "mcp__glassine-hub__read_repo_file", "mcp__glassine-hub__map_overview",
-                           "mcp__glassine-hub__map_definition", "mcp__glassine-hub__map_usages", "mcp__glassine-hub__map_string"]
+                           "mcp__glassine-hub__map_definition", "mcp__glassine-hub__map_usages", "mcp__glassine-hub__map_string", "mcp__glassine-hub__code_search"]
     assert args[args.index("--tools") + 1] == "" and "--strict-mcp-config" in args
     assert args[args.index("--permission-mode") + 1] == "dontAsk"
     assert "SECRET" not in " ".join(args)
