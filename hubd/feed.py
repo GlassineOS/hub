@@ -13,7 +13,6 @@ public is treated as private.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import math
@@ -43,6 +42,8 @@ _REPO_RE = re.compile(r"\.?[A-Za-z0-9_][A-Za-z0-9._-]{0,99}")
 _HEAD_RE = re.compile(r"[0-9a-f]{40}|")
 _LOGIN_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\[bot\])?")
 _TIME_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+# One observation: the work store's own random name and the number of the outbox row that held it. A retry sends the same id.
+_ID_RE = re.compile(r"[0-9a-f]{8,32}-[0-9]{1,18}")
 _URL_RE = re.compile(rf"https://github\.com/{ORG}/(?P<repo>[A-Za-z0-9._-]+)/(?:issues|pull|actions/runs)/(?P<n>\d+)")
 _LINKS = {"issue": "issues", "pr": "pull", "run": "actions/runs"}
 _FAILED_RUN = {"failure", "timed_out", "startup_failure", "cancelled_by_failure"}
@@ -103,7 +104,7 @@ def clean(event) -> dict | None:
         return None
     try:
         kind, repo, number, what = event["kind"], event["repo"], event["number"], event["what"]
-        at = event["at"]
+        at, event_id = event["at"], event["id"]
         old, new = event.get("old") or "", event.get("new") or ""
         old_head, new_head = event.get("old_head") or "", event.get("new_head") or ""
         actor = event.get("actor")
@@ -115,6 +116,8 @@ def clean(event) -> dict | None:
         return None
     if not isinstance(at, str) or not _TIME_RE.fullmatch(at):
         return None
+    if not isinstance(event_id, str) or not _ID_RE.fullmatch(event_id):
+        return None
     if (kind == "run") != (what == "run") or (what in _PR_ONLY and kind != "pr"):
         return None
     for value, allowed in zip((old, new), _VALUES[what]):
@@ -125,14 +128,8 @@ def clean(event) -> dict | None:
             return None
     if actor is not None and (not isinstance(actor, str) or not _LOGIN_RE.fullmatch(actor)):
         return None
-    return {"kind": kind, "repo": repo, "number": number, "what": what, "at": at, "old": old, "new": new,
+    return {"id": event_id, "kind": kind, "repo": repo, "number": number, "what": what, "at": at, "old": old, "new": new,
             "old_head": old_head, "new_head": new_head, "actor": actor}
-
-
-def _key(e: dict) -> str:
-    """The same change sent twice is one row: a retry after a failed answer mustn't count twice."""
-    fields = (e["kind"], e["repo"], e["number"], e["what"], e["at"], e["old"], e["new"], e["old_head"], e["new_head"])
-    return hashlib.sha256(json.dumps(fields).encode()).hexdigest()
 
 
 def link(kind: str, repo: str, number: int) -> str:
@@ -216,7 +213,7 @@ class Feed:
                 cursor = self.db.execute(
                     "INSERT OR IGNORE INTO events (key, at, recorded, kind, repo, number, what, old, new, old_head, new_head, actor, own) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (_key(e), e["at"], now, e["kind"], e["repo"], e["number"], e["what"], e["old"], e["new"],
+                    (e["id"], e["at"], now, e["kind"], e["repo"], e["number"], e["what"], e["old"], e["new"],
                      e["old_head"], e["new_head"], e["actor"], json.dumps(sorted(own))))
                 kept += cursor.rowcount
             self._prune(now)

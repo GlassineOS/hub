@@ -237,7 +237,7 @@ class WorkSync:
         that fails mustn't fail the sync: the views go on, and the status says what's waiting, dropped and refused."""
         try:
             while batch := self.store.waiting(FEED_BATCH):
-                reply = await self.hubd.call(op="feed.record", events=[e for _, e in batch])
+                reply = await self.hubd.call(op="feed.record", events=[{**e, "id": self.store.event_id(i)} for i, e in batch])
                 refused = reply.get("refused") or 0
                 if refused:
                     log.warning("hubd's feed refused %s of %s events", refused, len(batch))

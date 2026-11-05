@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import secrets
 import sqlite3
 import threading
 import time
@@ -214,6 +215,16 @@ class WorkStore:
         """A running total in the sync table, kept in whatever transaction is open."""
         self.db.execute("INSERT INTO sync (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + ?",
                         (key, str(n), n))
+
+    def event_id(self, row_id: int) -> str:
+        """Names one waiting change for hubd's feed, the same on every retry. The store's own random name is in it: this file is
+        dropped on a version change and its row numbers start again, and those must not meet an older change's."""
+        with self.lock:
+            origin = self.get("feed_origin")
+            if not origin:
+                origin = secrets.token_hex(8)
+                self.put("feed_origin", origin)
+        return f"{origin}-{row_id}"
 
     def waiting(self, limit: int) -> list[tuple[int, dict]]:
         """The oldest changes not yet sent, with their ids. One that doesn't read back as a change is dropped, and counted."""

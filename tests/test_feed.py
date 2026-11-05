@@ -32,8 +32,12 @@ OLD, NEW = "a" * 40, "b" * 40
 NOW = calendar.timegm((2026, 11, 5, 17, 0, 0))  # the sync's "now" in tests that look at how old a run is
 
 
+_ids = itertools.count(1)
+
+
 def ev(**over):
-    return {"kind": "pr", "repo": "boot", "number": 2, "what": "state", "at": "2026-11-05T15:02:00Z", "old": "OPEN", "new": "MERGED",
+    """One change as the app sends it. Each call is a new observation (a new id); pass `id=` to send the same one again."""
+    return {"id": f"{'c' * 16}-{next(_ids)}", "kind": "pr", "repo": "boot", "number": 2, "what": "state", "at": "2026-11-05T15:02:00Z", "old": "OPEN", "new": "MERGED",
             "old_head": OLD, "new_head": NEW, "actor": "alice", **over}
 
 
@@ -84,7 +88,7 @@ def taken(store):
     """What the sync would send now, and sent."""
     batch = store.waiting(10_000)
     store.sent([i for i, _ in batch])
-    return [e for _, e in batch]
+    return [{**e, "id": store.event_id(i)} for i, e in batch]
 
 
 # --- the shape of what's kept ---------------------------------------------------------------------
@@ -110,10 +114,45 @@ def test_only_facts_of_a_fixed_shape_get_in():
 
 def test_the_same_change_sent_twice_is_one_row():
     feed = Feed(":memory:")
-    assert feed.record([ev(), ev()]) == (1, 0)
-    assert feed.record([ev()]) == (0, 0)
+    first = ev()
+    assert feed.record([first, first]) == (1, 0)
+    assert feed.record([first]) == (0, 0)
     with pytest.raises(FeedError):
         feed.record([ev()] * 501)
+
+
+def test_two_transitions_with_the_same_time_are_two_rows_and_only_a_retry_is_one():
+    """The case a Steward most needs: checks fail, a re-run, fail again, and the item's updatedAt hasn't moved."""
+    feed = Feed(":memory:")
+    at = "2026-11-05T15:02:00Z"
+    steps = [ev(what="checks", old=a, new=b, at=at, old_head="", new_head="") for a, b in
+             (("pending", "failing"), ("failing", "pending"), ("pending", "failing"))]
+    assert feed.record(steps) == (3, 0)
+    assert feed.record(steps) == (0, 0)  # a retry of the same batch is nothing new
+    rows = feed.changes(None, None, 10, None)["changes"]
+    assert [(r["old"], r["new"]) for r in sorted(rows, key=lambda r: r["id"])] == [("pending", "failing"), ("failing", "pending"), ("pending", "failing")]
+    # What is sent says which observation it is: an event with no id, or a made-up one, is refused.
+    gone = {k: v for k, v in ev().items() if k != "id"}
+    assert feed.record([gone, ev(id="x"), ev(id="aaaaaaaa-١")]) == (0, 3)
+
+
+def test_the_sync_names_each_change_once_and_the_same_on_a_retry(tmp_path):
+    """Two real transitions with one updatedAt reach hubd as two ids; sending a batch again repeats its ids."""
+    store = WorkStore(tmp_path / "work.sqlite")
+    store.upsert(pr(checks="FAILURE", updated="2026-11-05T16:00:00Z"))
+    taken(store)
+    for checks in ("PENDING", "FAILURE"):
+        store.upsert(pr(checks=checks, updated="2026-11-05T16:00:00Z"))
+    batch = store.waiting(100)
+    ids = [store.event_id(i) for i, _ in batch]
+    assert len(ids) == 2 and len(set(ids)) == 2
+    assert ids == [store.event_id(i) for i, _ in store.waiting(100)]
+    feed = Feed(":memory:")
+    sent = [{**e, "id": store.event_id(i)} for i, e in batch]
+    assert feed.record(sent) == (2, 0) and feed.record(sent) == (0, 0)
+    # A store made again (a version change drops the old one) names its changes apart from the old store's.
+    other = WorkStore(":memory:")
+    assert other.event_id(1) != store.event_id(1)
 
 
 def test_importance_ranks_and_leaves_nothing_out():
