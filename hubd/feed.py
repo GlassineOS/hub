@@ -36,6 +36,7 @@ MAX_READ = 500
 DEFAULT_READ = 100
 OWN_WINDOW = 900       # seconds: a change to an item this soon after a session's write to it is marked that session's own
 MAX_MARKS = 2000
+MAX_NUMBER = 2**53 - 1  # an issue, pull request or run number: below what SQLite stores as an integer, and what JSON carries exactly
 
 WHATS = ("opened", "state", "head", "review", "checks", "labels", "comments", "run")
 _REPO_RE = re.compile(r"\.?[A-Za-z0-9_][A-Za-z0-9._-]{0,99}")
@@ -113,7 +114,7 @@ def clean(event) -> dict | None:
         return None
     if kind not in _LINKS or what not in WHATS or not isinstance(repo, str) or not _REPO_RE.fullmatch(repo):
         return None
-    if not isinstance(number, int) or isinstance(number, bool) or number < 0:
+    if not isinstance(number, int) or isinstance(number, bool) or not 0 <= number <= MAX_NUMBER:
         return None
     if not isinstance(at, str) or not _TIME_RE.fullmatch(at):
         return None
@@ -209,13 +210,19 @@ class Feed:
                 if e is None:
                     refused += 1
                     continue
-                own = [r["session"] for r in self.db.execute(
-                    "SELECT DISTINCT session FROM marks WHERE repo = ? AND number = ? AND at >= ?", (e["repo"], e["number"], now - OWN_WINDOW))]
-                cursor = self.db.execute(
-                    "INSERT OR IGNORE INTO events (key, at, recorded, kind, repo, number, what, old, new, old_head, new_head, actor, own) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (e["id"], e["at"], now, e["kind"], e["repo"], e["number"], e["what"], e["old"], e["new"],
-                     e["old_head"], e["new_head"], e["actor"], json.dumps(sorted(own))))
+                try:
+                    own = [r["session"] for r in self.db.execute(
+                        "SELECT DISTINCT session FROM marks WHERE repo = ? AND number = ? AND at >= ?", (e["repo"], e["number"], now - OWN_WINDOW))]
+                    cursor = self.db.execute(
+                        "INSERT OR IGNORE INTO events (key, at, recorded, kind, repo, number, what, old, new, old_head, new_head, actor, own) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (e["id"], e["at"], now, e["kind"], e["repo"], e["number"], e["what"], e["old"], e["new"],
+                         e["old_head"], e["new_head"], e["actor"], json.dumps(sorted(own))))
+                except (OverflowError, sqlite3.DataError, sqlite3.InterfaceError):
+                    # One event SQLite can't take is that event's loss. If it failed the batch, the app would send the same oldest
+                    # events again on every tick and nothing behind them would ever get in.
+                    refused += 1
+                    continue
                 kept += cursor.rowcount
             self._prune(now)
         return kept, refused

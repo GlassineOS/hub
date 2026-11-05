@@ -21,6 +21,7 @@ from hub.worksync import WorkSync  # noqa: E402
 from hubd import agents as agents_module, auth  # noqa: E402
 from hubd.agents import HUB_SENDER, IDLE_FILE, AgentError  # noqa: E402
 from hubd.feed import DEFAULT_PING, MAX_PING, MIN_PING, Feed, FeedError, Pings, clean, importance, parse_cursor, ping_interval, ping_text, target_of  # noqa: E402
+from hubd import feed as feedlib  # noqa: E402
 from hubd.ghpolicy import Refused  # noqa: E402
 from hubd.server import Hubd  # noqa: E402
 from hubd.shells import Shells  # noqa: E402
@@ -111,6 +112,15 @@ def test_only_facts_of_a_fixed_shape_get_in():
     kept, _ = feed.record([{**ev(number=9), "title": "A title", "body": "A body", "link": "https://evil.example/"}])
     stored = [c for c in feed.changes(None, None, 10, None)["changes"] if c["number"] == 9][0]
     assert kept == 1 and "title" not in stored and "body" not in stored and stored["link"].startswith("https://github.com/GlassineOS/")
+
+
+def test_a_number_too_big_for_the_store_is_refused_and_does_not_stall_the_batch(monkeypatch):
+    feed = Feed(":memory:")
+    assert feed.record([ev(number=2**70), ev(number=2**53), ev(number=-1), ev(number=2**53 - 1), ev(number=7)]) == (2, 3)
+    # Should a number get past the check, SQLite's refusal costs that event and not the ones after it.
+    monkeypatch.setattr(feedlib, "clean", lambda raw: raw)
+    assert feed.record([ev(number=2**70), ev(number=8), ev(number=9)]) == (2, 1)
+    assert sorted(r["number"] for r in feed.changes(None, None, 100, None)["changes"]) == [7, 8, 9, 2**53 - 1]
 
 
 def test_the_same_change_sent_twice_is_one_row():
