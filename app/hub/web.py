@@ -220,6 +220,12 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
             return await github.reopen_issue(repo, n)
         if action == "labels":
             return await github.label_issue(repo, n, b.get("add"), b.get("remove"))
+        if action == "edit":
+            return await github.edit_issue(repo, n, b.get("expected"), b.get("title"), b.get("body"), b.get("reason"))
+        if action == "tick":
+            return await github.tick_item(repo, n, b.get("item"), b.get("expected"), b.get("checked", True))
+        if action == "edit-comment":
+            return await github.edit_comment(repo, n, b.get("comment_id"), b.get("body"))
         raise BadRequest(f"unknown action: {action}")
 
     # --- pull requests ---------------------------------------------------------

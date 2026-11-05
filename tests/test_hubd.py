@@ -152,6 +152,9 @@ def test_graphql_only_named_documents(tmp_path, fake_gh):
             assert refused["refused"]
             refused = await h.call(op="gh.graphql", name="thread_reply", variables={"threadId": "PRRT_other", "body": "x"})
             assert refused["refused"]
+            # a comment of someone else's, whatever its id looks like
+            refused = await h.call(op="gh.graphql", name="comment_edit", variables={"commentId": "IC_other", "body": "x"})
+            assert refused["refused"] and "not in the organization" in refused["error"]
             # a project id the organization doesn't have (the fake answers no projects)
             refused = await h.call(op="gh.graphql", name="project_add_item",
                                    variables={"projectId": "PVT_other", "contentId": "x"})
@@ -162,6 +165,13 @@ def test_graphql_only_named_documents(tmp_path, fake_gh):
                                    variables={"projectId": "PVT_ours", "contentId": "ISSUE_other"})
             assert refused["refused"]
     run(go())
+
+
+def test_the_owner_check_knows_comments():
+    """commentId is checked by asking who owns the node, and that document has to ask about comments."""
+    from hubd.ghrun import GRAPHQL_DIR
+    assert "... on IssueComment" in (GRAPHQL_DIR / "content_owner.graphql").read_text()
+    assert (GRAPHQL_DIR / "comment_edit.graphql").read_text().startswith("mutation"), "a mutation, so it goes out as the persona"
 
 
 def test_malformed_requests(tmp_path, fake_gh):

@@ -62,6 +62,27 @@ _GITHUB_REFUSED = re.compile(r"GraphQL:|not mergeable|merge conflict|status chec
 _GITHUB_UNSURE = re.compile(r"something went wrong|timed? ?out|timeout", re.I)
 _HEAD_MOVED = re.compile(r"head branch was modified", re.I)
 _HEAD_RE = re.compile(r"[0-9a-f]{40}")
+_VERSION_RE = re.compile(r"[0-9a-f]{16}")
+
+
+def _edit_problem(name: str, tool_input) -> str | None:
+    """Why an edit to an issue or comment isn't worth a card: what the tool would refuse anyway, said before it asks."""
+    a = tool_input if isinstance(tool_input, dict) else {}
+    text = lambda key: a.get(key) if isinstance(a.get(key), str) else None
+    if name in ("edit_issue", "tick_item") and not (text("expected") and _VERSION_RE.fullmatch(text("expected"))):
+        return "Name the version you read as expected: the `version` get_issue gave you, so this can't overwrite a change made since."
+    if name == "edit_issue":
+        if text("title") is None and text("body") is None:
+            return "Give a title or a body to replace."
+        if (text("body") is not None and not text("body").strip()) or (text("title") is not None and not text("title").strip()):
+            return "A title or body can't be blanked. Edit what's wrong in it."
+    if name == "tick_item" and not (text("item") and text("item").strip()):
+        return "Name the box by its text."
+    if name == "edit_comment" and not (text("body") and text("body").strip()):
+        return "A comment can't be blanked, and this tool never deletes one."
+    return None
+
+
 REPO_OPS = {"repos.request": "request_repository", "repos.files": "list_repo_files", "repos.read": "read_repo_file", "repos.map_overview": "map_overview",
             "repos.map_definition": "map_definition", "repos.map_usages": "map_usages", "repos.map_string": "map_string"}
 MAP_OPS = {"repos.map_overview": ("overview", None), "repos.map_definition": ("definition", "symbol"), "repos.map_usages": ("usages", "symbol"), "repos.map_string": ("string", "text")}
@@ -218,6 +239,8 @@ class Hubd:
             return f"That's over {MAX_INPUT} characters, too long to show on a card. Shorten it."
         if name == "merge_pr" and not (isinstance(tool_input, dict) and isinstance(tool_input.get("head"), str) and _HEAD_RE.fullmatch(tool_input["head"])):
             return "Name the head commit you checked, in full, as head, so the merge fails if it has moved."
+        if name in ("edit_issue", "tick_item", "edit_comment") and (problem := _edit_problem(name, tool_input)):
+            return problem
         if name == "message_session":
             arguments = tool_input if isinstance(tool_input, dict) else {}
             try:

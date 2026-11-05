@@ -3,5 +3,6 @@ query($id: ID!) {
     ... on Issue { repository { owner { login } } }
     ... on PullRequest { repository { owner { login } } }
     ... on PullRequestReviewThread { repository { owner { login } } }
+    ... on IssueComment { repository { owner { login } } }
   }
 }

@@ -23,7 +23,7 @@ from starlette.responses import JSONResponse
 from . import tools, web
 from .docsearch import DocSearch
 from .github import GitHub
-from .hubd_client import ALL_REPOS, CALLER, SEES
+from .hubd_client import ALL_REPOS, CALLER, SEES, SESSION
 from .hubd_client import Hubd, HubdError
 from .watchdog import Requests, Watchdog, stack_dump_on_signal
 from .workstore import WorkStore
@@ -62,6 +62,8 @@ class AgentAuth:
         if not reply["ok"]:
             return await JSONResponse({"error": "unauthorized"}, 401)(scope, receive, send)
         CALLER.set(token)
+        session = (reply.get("scope") or {}).get("session")
+        SESSION.set(session if isinstance(session, str) else None)
         ALL_REPOS.set((reply.get("scope") or {}).get("all_repos") is True)
         tools = (reply.get("scope") or {}).get("tools")
         SEES.set(tools)

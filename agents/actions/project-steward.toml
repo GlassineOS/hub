@@ -16,5 +16,6 @@ asks_wait_for_you = true
 hub_tools = ["list_repo_files", "read_repo_file", "map_overview", "map_definition", "map_usages", "map_string", "plan_work", "message_started_session", "suggest_session", "new_work_drafts", "list_sessions", "list_running_sessions", "session_summary", "overview", "rate_limit", "run_history", "roadmap", "list_issues", "get_issue", "list_prs", "get_pr", "get_pr_diff", "list_runs", "get_run", "get_run_log", "list_workflows", "work_search", "work_status", "docs_search", "docs_index_status"]
 # Off its allowed list: each call asks you, and the tool server checks you said yes. The rest it can't even ask for.
 asks_first = ["roadmap_add", "roadmap_move", "create_issue", "comment_issue", "close_issue", "reopen_issue", "label_issue",
+              "edit_issue", "tick_item", "edit_comment",
               "comment_pr", "merge_pr", "close_pr", "rerun", "cancel_run", "dispatch_workflow", "spawn_session", "message_session"]
 checkout = false
