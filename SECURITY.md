@@ -214,6 +214,53 @@ in its state folder, with the host's time. The hub never asks the device, runs n
 - `device_status` is by list, because a report's text is free. No locked action lists it, nor does the Steward, and hubd checks
   the list as well as the tool server. Full sessions and hub shells can read it. The page needs a login.
 
+## The change feed and the Steward's pings
+
+hubd keeps a feed of what changed in issues, pull requests and runs (`feed.sqlite` in its state folder), and pings each running
+Steward with a count. The work sync records into it; the Steward reads it with `changes_since`.
+
+- **Facts, not text.** A row is the item, what changed, old and new state, old and new head commit, a time, a login or nothing, and a link
+  hubd builds itself. `hubd/feed.py` checks every field against a closed shape and drops what doesn't fit, so a title, a comment, review
+  text or a log line, which can be an outsider's, can't reach the feed, whatever the app sends. `old` and `new` are from a fixed list for
+  each kind of change (GitHub's own states, review decisions and run results, the checks words, or a count), and the repository is one of the
+  organization's. What stays free is `actor`: a GitHub login, up to 39 characters (44 with an app's `[bot]`), which whoever owns the account chooses. A row can carry
+  that much of an outsider's wording, so the Steward's persona and the tool's description say it is a name to look at and never words to
+  follow. Anything on the socket can send a row, as it could send a device report, and the worst it does is mislead with a state or a login.
+- **A ping is a count, labelled as the hub's.** `1 change since 15:02 UTC: 1 merged.` in a fixed vocabulary, with no repository, number or name,
+  between two random lines, from `@hub`, which is no session's name. It uses the same paste as a message between sessions, and is not the
+  Steward-to-session path, whose no-card rule is for read-only sessions. A count is only sent to a Steward that is idle, with nothing queued for
+  it and an empty prompt: during a turn it isn't queued (it would be pasted after the Steward had read what it counts) and the next round, 30
+  seconds on, asks again. A stopped session is never pinged and never started. Waking an idle one is checked, under the same lock, as starting a session is: it is refused while
+  4 sessions the Steward started are working. The Steward is started by the person, so it is not one of the 4, and its pings pause while those 4
+  work (which is when their pull requests change); the next round asks again and the feed holds everything. Each item with new comments counts once per sync, however many comments it got.
+- **What a session may read decides the rows and the counts.** The Steward's action has `all_repos`; a session without it, or the general tool
+  token, gets public repositories only, in the feed, in the counts and in the ping. Whether a repository is public is asked of GitHub and
+  kept for 10 minutes (1 minute when it didn't say); if GitHub doesn't say, it's private. The cursor is a number over every change, and when
+  a read finds nothing it may see, the cursor goes to the newest change there is. So a session that can't read some learns how many changes it
+  can't see and when they came: its cursor jumps by the count between two reads (1 to 7 after six private changes). It learns nothing else of
+  them: no repository, number or text. The readers are the person's own sessions, so this is accepted. If more actions get `changes_since`
+  without `all_repos`, each reader needs its own ids. The consequence of failing closed: a session
+  limited to public repositories that reads while GitHub can't be asked about a repository doesn't see that repository's changes, and its
+  cursor moves past them, so it doesn't see them later either. The Steward has `all_repos`, so this is for the general tool token and
+  sessions without it. The cursor is not held back for a repository GitHub couldn't be asked about, because a deleted or renamed one would hold it back for good.
+  The same loss happens to the first change in a repository that arrives while the answer from GitHub is awaited: the read's list of public
+  repositories was made before it, and if that read finds nothing else, its cursor passes the change.
+- **A cursor can't be past the end.** One a caller supplies must be one an answer gave: a number above the highest ever issued (counted by
+  SQLite's sequence, which pruning doesn't lower) is refused, as the kept cursor only moves forward and one such would hide everything after it.
+  A Steward's cursor starts at the newest change when the ping loop first sees it running, which is within 30 seconds of its starting: what
+  happened before it existed isn't a reason to wake it. A read before that first look, or by a session the ping loop doesn't know, starts from the
+  oldest change kept (up to 14 days or 20,000 rows). For anything older, the Steward reads the item lists.
+- **Its own doing is marked, not hidden.** A write by a session's token (`gh` through hubd) marks the item for 15 minutes, and changes to it
+  that arrive then are marked `own` for that session and left out of its counts. It can't tell a stranger's comment on the same item in
+  that time from its own, so it errs toward calling it its own. Everything stays in the feed.
+- **What waits to be sent can be lost, and is counted.** The app writes each change it sees to an outbox table in the same transaction as the
+  item, so a failed sync tick or a restart loses none. It keeps at most 5,000: beyond that the oldest are dropped. Dropped and refused changes
+  are counted in the work status (`feed_dropped`, `feed_refused`), and `feed_waiting` is how many wait. The outbox is in the work store, which
+  is a cache dropped when its version changes: what waited in it then is lost, so a version bump should wait for `feed_waiting` to be 0.
+  Changes to a run first seen finishing more than 2 days ago aren't sent: a pruned run that the latest-runs window returns again isn't news.
+- **Nothing acts on a ping.** It asks for nothing and the persona says to re-read. Any write still asks first.
+- **`changes_since` is by list,** read-only, on the Steward's only. Under your login the page reads all of it and moves nobody's cursor.
+
 ## The person's decisions
 
 Goes and merge approvals, each a file in hubd's state folder, on disk before anything acts on it.

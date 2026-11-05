@@ -188,6 +188,10 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         reply = await hubd.call(op="notes.find", token=token, words=b.get("words"), limit=b.get("limit"))
         return {k: reply[k] for k in ("here", "says", "rows", "total", "warnings")}
 
+    async def changes(r, _b, token):
+        """The same feed, for you: all repositories, and no Steward's cursor moves."""
+        return await github.changes_since(r.query_params.get("cursor"), int(r.query_params.get("limit") or 100), login=token)
+
     # --- the work store ---------------------------------------------------------
     async def work_status(_r, _b, _t):
         return github.work_status()
@@ -432,6 +436,7 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         Route("/api/notes", api(notes_status)),
         Route("/api/notes/find", api(notes_find), methods=["POST"]),
         Route("/api/repo-copies", api(repo_copies)),
+        Route("/api/changes", api(changes)),
         Route("/api/work/status", api(work_status)),
         Route("/api/work/sync", api(work_sync), methods=["POST"]),
         Route("/api/work/search", api(work_search)),

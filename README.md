@@ -161,7 +161,14 @@ Name the Claude login there, and any other variable they need, then restart hubd
 CLAUDE_CONFIG_DIR=~/.claude-something
 # which Claude Code, if not the one on PATH
 HUBD_CLAUDE=/path/to/claude
+# seconds between pings to a Steward about changes: 60 to 86400, 300 if unset or not a number
+HUBD_PING_SECONDS=300
 ```
+
+The work sync records what changed (an issue, a pull request or a run: its state, head commit, who, when and a link,
+never a title or text) in hubd's change feed, `feed.sqlite` in its state folder. Each running Steward reads it from its
+own cursor with `changes_since`, and gets at most one ping per interval, only a count, and none when nothing it hasn't
+read has changed. A ping is sent only to a Steward at its prompt; during a turn the next round tries again. `/api/changes` serves the same feed to you without moving a Steward's cursor.
 
 ```sh
 systemctl --user restart glassine-hubd
