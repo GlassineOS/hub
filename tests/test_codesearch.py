@@ -316,6 +316,27 @@ def test_the_sandbox_names_only_what_ripgrep_needs(org, tmp_path):
     assert binds(empty) == ["/usr", "/bin", "/sbin", "/lib", "/lib64"] and "--dir" in empty and str(tree) not in empty
 
 
+def _off_the_default_path(tmp_path, monkeypatch, name: str) -> Path:
+    """A folder that's on hubd's PATH and isn't on the default path create_subprocess_exec looks in when it's given an env, which is where bwrap lands in /usr/local/bin."""
+    folder = tmp_path / "only-on-hubds-path"
+    folder.mkdir()
+    monkeypatch.setenv("PATH", f"{folder}{os.pathsep}{os.environ['PATH']}")
+    return folder / name
+
+
+def test_a_bubblewrap_that_is_only_on_hubds_path_is_found(org, tmp_path, monkeypatch):
+    s, _seeds, _remote = org
+    fake = _off_the_default_path(tmp_path, monkeypatch, "bwrap-only-here")
+    fake.write_text("#!/bin/sh\nexit 0\n")  # starts, says nothing and finds nothing, as the check expects
+    fake.chmod(0o755)
+    s.sandbox, s.bwrap = True, "bwrap-only-here"
+    assert s._argv("/usr/bin/rg", ["--opt"], None)[0] == str(fake)  # resolved when a search starts, as ripgrep is
+    asyncio.run(s._check("/usr/bin/rg", ["--opt"], s._folder("empty")))  # with env={} a bare name is looked for in /bin:/usr/bin only
+    s.bwrap = "bwrap-nowhere"
+    with pytest.raises(SearchError, match="couldn't start bwrap-nowhere"):
+        asyncio.run(s._check("/usr/bin/rg", ["--opt"], s._folder("empty")))
+
+
 # --- what it can reach ----------------------------------------------------------------
 def _bwrap_works() -> bool:
     if not shutil.which("bwrap"):
@@ -373,6 +394,18 @@ def test_the_real_ripgrep_runs_in_the_real_sandbox(org):
     assert find(s, "OUTSIDE-THE-COPIES", repo="client")["matches"] == 0 and find(s, "[remote", repo="client")["matches"] == 0
     with pytest.raises(SearchError, match="not a valid regular expression"):
         find(s, "a(", regex=True, repo="client")
+
+
+@needs_rg
+@pytest.mark.skipif(not _bwrap_works(), reason="no working bubblewrap here")
+def test_the_real_bubblewrap_is_found_off_the_default_path(org, tmp_path, monkeypatch):
+    s, _seeds, _remote = org
+    plain = find(s, CTL, repo="client")["matches"]
+    link = _off_the_default_path(tmp_path, monkeypatch, "bwrap-only-here")
+    link.symlink_to(shutil.which("bwrap"))
+    s.sandbox, s.bwrap = True, "bwrap-only-here"
+    reply = find(s, CTL, repo="client")
+    assert plain > 0 and reply["matches"] == plain and reply["complete"] is True
 
 
 # --- who may look where ----------------------------------------------------------------

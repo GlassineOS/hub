@@ -181,7 +181,9 @@ class CodeSearch:
         """tree is None to run against an empty folder, for a query that's only being checked."""
         if not self.sandbox:
             return [rg, *options]
-        argv = [self.bwrap, "--unshare-all", "--new-session", "--die-with-parent", "--clearenv", "--setenv", "PATH", "/usr/local/bin:/usr/bin:/bin", "--ro-bind", "/usr", "/usr"]
+        # _start gives the process no environment, and then a bare name is looked for in /bin:/usr/bin and not on hubd's PATH, so a bubblewrap in /usr/local/bin
+        # isn't found: it's resolved here, as ripgrep is. A name that isn't found stays as it is and fails to start, and _start says so.
+        argv = [shutil.which(self.bwrap) or self.bwrap, "--unshare-all", "--new-session", "--die-with-parent", "--clearenv", "--setenv", "PATH", "/usr/local/bin:/usr/bin:/bin", "--ro-bind", "/usr", "/usr"]
         for link in ("/bin", "/sbin", "/lib", "/lib64"):
             argv += ["--ro-bind-try", link, link]
         argv += ["--proc", "/proc", "--dev", "/dev"]
