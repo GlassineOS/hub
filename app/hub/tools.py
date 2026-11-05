@@ -324,7 +324,10 @@ def build(github: GitHub, docs: DocSearch) -> MCPServer:
         time, from the oldest change kept); pass the `cursor` of an answer to ask from there, never one you made up.
         The hub's ping is only a count that something is waiting here. Changes come most important first, then oldest first,
         and none is left out for being unimportant. `more` says to read again. `gap: true` means changes from before this
-        cursor were dropped, so the list is incomplete: check the current state with list_prs, list_issues and list_runs."""
+        cursor were dropped, so the list is incomplete: check the current state with list_prs, list_issues and list_runs.
+        `gap` is not the only way it can be incomplete: changes the sync dropped while the feed couldn't take them, or that the
+        feed refused, never reach the list and `gap` doesn't say so. `work_status` counts them (`feed_dropped`, `feed_refused`):
+        when either has gone up since you last looked, check the same way."""
         return await github.changes_since(cursor, limit)
 
     @mcp.tool(annotations=READ)
