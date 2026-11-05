@@ -63,7 +63,7 @@ _GITHUB_UNSURE = re.compile(r"something went wrong|timed? ?out|timeout", re.I)
 _HEAD_MOVED = re.compile(r"head branch was modified", re.I)
 _HEAD_RE = re.compile(r"[0-9a-f]{40}")
 REPO_OPS = {"repos.request": "request_repository", "repos.files": "list_repo_files", "repos.read": "read_repo_file", "repos.map_overview": "map_overview",
-            "repos.map_definition": "map_definition", "repos.map_usages": "map_usages", "repos.map_string": "map_string"}
+            "repos.map_definition": "map_definition", "repos.map_usages": "map_usages", "repos.map_string": "map_string", "repos.search": "code_search"}
 MAP_OPS = {"repos.map_overview": ("overview", None), "repos.map_definition": ("definition", "symbol"), "repos.map_usages": ("usages", "symbol"), "repos.map_string": ("string", "text")}
 STARTED_OPS = {"started.list": "list_sessions", "started.running": "list_running_sessions", "started.summary": "session_summary", "started.spawn": "spawn_session",
                "started.message": "message_started_session", "started.message_any": "message_session"}
@@ -527,6 +527,9 @@ class Hubd:
             tool, key = MAP_OPS[op]
             args = {key: req.get(key)} if key else {}
             return {"ok": True, **await self.agents.repo_map(tool, repo=req.get("repo"), everything=scope.get("all_repos") is True, **args)}
+        if op == "repos.search":  # the same line as the map: by the session's token, so a request can't ask for more reach
+            return {"ok": True, **await self.agents.code_search(req.get("query"), repo=req.get("repo"), path=req.get("path"), regex=req.get("regex", False),
+                                                                 context=req.get("context", 1), everything=scope.get("all_repos") is True)}
         return {"ok": True, **await self.agents.repo_read(req.get("repo"), req.get("path"), req.get("start_line", 1), req.get("max_lines"))}
 
     def _work_fields(self, req: dict) -> dict:

@@ -18,6 +18,7 @@ import pytest
 from codemap.build import MAX_FILE, build
 from codemap.extract import extract, language_of
 from hubd import codemap as codemap_module
+from hubd import limits
 from hubd.agents import MAP_TOOLS, PLANNER_TOOLS, DRAFT_TOOLS, Library
 from hubd.codemap import CAVEAT, CodeMaps, MapError
 from hubd.seeds import Seeds
@@ -726,7 +727,7 @@ def test_limits_reach_the_builder(org, tmp_path):
     maps.python = fake_builder(tmp_path, f'ulimit -v > "{seen}"; ulimit -f >> "{seen}"; nice >> "{seen}"\nexit 1\n')
     asyncio.run(maps.build("daemon"))
     values = seen.read_text().split()
-    assert int(values[0]) == codemap_module.MAX_MEMORY // 1024 and int(values[1]) * 512 in (codemap_module.MAX_OUTPUT, codemap_module.MAX_OUTPUT * 2) and int(values[2]) >= 15
+    assert int(values[0]) == limits.MAX_MEMORY // 1024 and int(values[1]) * 512 in (limits.MAX_OUTPUT, limits.MAX_OUTPUT * 2) and int(values[2]) >= 15
 
 
 def test_the_sandbox_names_only_what_the_builder_needs(org, tmp_path):

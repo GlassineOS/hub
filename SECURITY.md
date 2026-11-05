@@ -78,7 +78,7 @@ A new restriction has to name the threat it stops, or be listed here as a guard.
   into git, and it matches file types, keys, tokens, addresses and paths, so it can't recognise private code.
 - **The repository copies.** The hub keeps a clone of each repository in the organization under
   `~/.local/state/glassine-hub/seeds`, private ones included. `request_repository` gives a session with
-  file tools a snapshot in its own folder, and `list_repo_files` and `read_repo_file` serve the Steward
+  file tools a snapshot in its own folder, and `list_repo_files`, `read_repo_file` and `code_search` serve the Steward
   and every planner, none of which have file tools. There's no question asked and no difference by repository, by your
   decision, so what was said above about private text reaches all of them. Actions with neither those tools nor
   file tools, such as `issue-triage` and the `run-*` actions, have no direct way in, but their planners do, and a
@@ -110,6 +110,37 @@ A new restriction has to name the threat it stops, or be listed here as a guard.
   no other's: it can't write where maps are kept, hubd moves the result there only if it's a regular file that says the right
   commit, and hubd opens maps read-only with SQLite's defensive mode on and `trusted_schema` off. A map that can't be read is
   listed as not searched, and takes no other repository's answers with it. Agents read a map as data.
+- **Code search.** `code_search` runs ripgrep over the same copies, for the same sessions as the map, by the same tools list. Every
+  line it can return is in a copy that `read_repo_file` or `request_repository` already gives a session by naming the repository, so
+  it adds no access to files. What it adds is finding private text by topic, so it keeps the line `work_search` and the map keep, and
+  through the same code, `hubd/reach.py`: with no repository named it searches public repositories only and lists what it skipped in
+  `not_searched`, by the session's token, except for a session that reads the whole project. A named private repository is searched
+  and says it's private. Forks are the one place it differs from the map, and that's about cost and not access: it leaves them out
+  unless one is named, because `linux` is 96,000 files that mostly aren't ours and would be searched, and then deleted, on every
+  query. Unnamed, a fork is listed in `not_searched`. A named fork is searched, as `read_repo_file` reads it.
+  The copies are text anyone may have written, so hubd doesn't search them itself: ripgrep runs as a separate process under
+  bubblewrap with no network, seeing the system's programs, itself if it's installed outside `/usr`, and one frozen read-only
+  snapshot of the one repository it is searching, taken with the same lock as any other snapshot, so a refresh can't change it
+  meanwhile. Nothing of the host is writable: the root is remounted read-only, which leaves only `/dev/shm`, in memory, and gone
+  with the process. It runs with no environment, so none of hubd's, and with `--no-config`. A process searches one repository,
+  so a subverted ripgrep can forge results, but only for the repository it was given, which hubd labels by process and not by what
+  the output says. hubd limits its address space (2 GiB), file size, priority and core files, the same as for the map's builder (both start their program through `hubd/limits.py`), stops it after 20 s and says it timed out, runs
+  at most two searches at once, and reads a bounded part of what it prints: a line of at most 300 bytes shown, 5 matches per
+  file, 200 matches from a named repository or 40 from each of several, and a reply of at most 40,000 characters, shared
+  between repositories. It keeps the end of what ripgrep says on stderr, 600 bytes, and reports it, even if matches were found: an
+  exit status of 2 is a problem the reply names, and a result that was cut, timed out or had a problem says so and isn't `complete`.
+  What a query can do: it reaches ripgrep only as the value of `-e`, and a path only as the value of `--glob=`, so neither can
+  be taken for an option, and a query is one line of at most 500 characters. A regular expression runs in ripgrep's default engine,
+  which has no backtracking to blow up, and not PCRE2; the time and address space limits are what end a regex that's slow anyway.
+  A path is checked as `read_repo_file`'s is, can't start with `!` or `/`, and is only ever a glob inside the frozen tree, never a
+  path on the host. Links aren't followed (and one that leads outside the snapshot leads nowhere inside the sandbox, which has
+  no other files), `.git` is left out, and `.gitignore` and `.ignore` files in a repository don't hide anything.
+  The frozen tree is made for each search under `~/.local/state/glassine-hub/search`, mode 0700, and removed after it. Taking a
+  large one apart takes a few seconds without root, so that happens after the reply, and a stop halfway leaves one that's removed
+  at the first search after the next start. On a host that can't snapshot, a tree is a full copy, which for `linux` is a lot: it isn't waited for past the
+  time limit, and is discarded when it's made. Replies describe private repositories, so they are never indexed for the docs search.
+  ripgrep isn't a dependency of the hub's code: `deploy/install.sh` says if it's missing, and hubd looks for it on its own `PATH` at
+  each search, so installing it later needs no restart, and until then the tool says so.
 - **The review shell.** The two review actions list Bash, for running a pull request's code and tests. Bash is
   left off their allowed list, so under dontAsk a command runs only when `hubd/shell_hook.py` allows it, and it allows
   it only rewritten to run inside bubblewrap and pasta. On a failure the hook says deny. A hook that can't answer at all

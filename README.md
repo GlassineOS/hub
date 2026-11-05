@@ -108,6 +108,15 @@ C, Python, JavaScript, Shell and Rust. Forks stay out (GitHub's own flag: `linux
 code, and `request_repository` still reaches them. The builder (`codemap/`) needs tree-sitter, so `deploy/install.sh` gives
 it a virtualenv pinned by `deploy/codemap-requirements.txt`, and hubd stays standard library only. Overview shows failures.
 
+**Code search.** `code_search` runs ripgrep over the copies: a string, or with `regex` a regular expression, optionally in
+one repository or path (a folder, a file or a glob), with the line, a little context and the commit of each copy. It reads
+every text file in any language, so it finds what the map can't, and the map follows a name or a string to what the search
+only mentions. Access is the map's: with no repository named it searches public repositories only and lists what it skipped,
+unless the session reads the whole project; forks (`linux` today) only when named. It runs in bubblewrap on a frozen snapshot, so
+it needs `rg` on hubd's `PATH` (`deploy/install.sh` says if it's missing; the package is `ripgrep`; no restart after installing it).
+A search that's cut, times out (20 s) or has a problem says so. Over all 12 non-fork copies here it takes about 0.3 s, and 2 s for `linux`
+when named. `SECURITY.md` has what it can and can't reach.
+
 **Sessions › History & cleanup** lists every session that has ended, with its transcript, and resumes any of
 them where it stopped, restoring its checkout at the same path if it's gone. It also lists the worktrees: what's
 safe to remove, what isn't and why. Nothing is removed without the commands being shown first, except a
