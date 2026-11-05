@@ -13,6 +13,10 @@ HEADER = struct.Struct(">BI")
 LIMIT = 64 * 1024 * 1024
 # The tool token of the agent this request is for: hubd takes who it is from that, not from the app.
 CALLER = contextvars.ContextVar("hub_caller", default=None)
+# The name of the session behind a tool call, as hubd says: what the hub records against a comment it posts for it.
+SESSION = contextvars.ContextVar("hub_session", default=None)
+# Which session of that name: names are reused (the Steward is always `steward`), so the instance is what tells one from the next.
+INSTANCE = contextvars.ContextVar("hub_instance", default=None)
 # Whether the session behind a tool call may list private repositories without naming one.
 ALL_REPOS = contextvars.ContextVar("hub_all_repos", default=False)
 # What the calling session may call, if it's held to a list: what it gets to see.

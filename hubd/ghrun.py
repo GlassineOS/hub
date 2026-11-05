@@ -130,6 +130,8 @@ class Gh:
             raise Refused("that issue or pull request is not in the organization")
         if "threadId" in variables and not await self._in_org(variables["threadId"]):
             raise Refused("that review thread is not in the organization")
+        if "commentId" in variables and not await self._in_org(variables["commentId"]):
+            raise Refused("that comment is not in the organization")
         return await self._document(document, variables, token)
 
     async def _document(self, document: str, variables: dict, token=None) -> dict:

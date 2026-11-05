@@ -1079,13 +1079,29 @@ def test_a_session_token_is_its_own_and_ends_with_it(tmp_path, remote):
     assert path.stat().st_mode & 0o777 == 0o600
     assert token != "SECRET" and token not in (directory / "run.sh").read_text()
     assert f'cat {directory / "tool-token"}' in (directory / "run.sh").read_text()
-    assert a.scope(token) == {"session": name, "tools": good()["hub_tools"], "persona": good()["persona"], "all_repos": False, "asks_first": []}
+    instance = a.session_id_of(name)
+    assert instance and a.scope(token) == {"session": name, "instance": instance, "tools": good()["hub_tools"], "persona": good()["persona"], "all_repos": False, "asks_first": []}
     assert a.scope("nope") is None and a.scope(None) is None
     # a restarted hubd knows it again
     again = agents(tmp_path, clone_base=remote)
-    assert again.scope(token)["session"] == name
+    assert again.scope(token)["session"] == name and again.scope(token)["instance"] == instance
     asyncio.run(a.forget(name))
     assert a.scope(token) is None
+
+
+def test_a_session_started_again_under_a_name_has_another_instance(tmp_path, remote):
+    """Names are reused, so what tells one session from the next is the instance in its scope, and resuming keeps it."""
+    a = agents(tmp_path, clone_base=remote)
+    a.shells = FakeShells()
+    name = asyncio.run(a.start(good()))["name"]
+    directory = tmp_path / "state" / "sessions" / name
+    first = a.scope((directory / "tool-token").read_text().strip())["instance"]
+    assert first == a.session_id_of(name)
+    asyncio.run(a.forget(name))
+    again = asyncio.run(a.start(good()))["name"]
+    assert again == name, "the same name"
+    second = a.scope((directory / "tool-token").read_text().strip())["instance"]
+    assert second and second != first
 
 
 def test_a_full_session_token_has_no_tool_list(tmp_path, remote_branch):

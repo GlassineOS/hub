@@ -327,6 +327,42 @@ The limits:
 - **Both have to be restarted together.** Nothing enforces it. An old app with a new hubd is refused, and a new app with an old hubd merges unenforced.
 - **"Approved" means your decision,** never a GitHub review, which a reviewer App can give.
 
+## Editing issues and comments
+
+`edit_issue`, `tick_item` and `edit_comment` are on the Steward's `asks_first` list and on no other action's list, and none is on any allowed
+list: each call asks you on a card, and the tool server checks your yes (`ask.grant_use`) before the app runs it. A planner, a locked session that
+can post, and a read-only one never see them. Full sessions list every tool, as they do any other. A test reads every action's file for this.
+They are marked as hard to undo. What they refuse is checked in the app, on the text GitHub has at that moment and not on the work store's:
+
+- **A guard on what was read.** `get_issue` returns a `version`, a hash of the title and body. `edit_issue` and `tick_item` need it as `expected`,
+  and if the issue has changed since, nothing is written and the refusal shows what differs, from the text the hub gave out. The person edits these
+  bodies too. While the work store serves reads, `get_issue` (and the page's `?for=edit`) asks GitHub for the title and body as well (one more call; the
+  dashboard's own view still asks it nothing), and gives those and their version, not the store's, which can be a sync behind: a version of text the person had already changed would be refused again at every retry. If
+  GitHub doesn't answer then, there is no `version` and so nothing to edit by. A refusal for a change is found only after the person allowed the card. A restart of the app makes it forget what it gave out, and then the refusal says only to read again. The check and the write are two
+  calls to GitHub, so a change in between isn't caught.
+- **Whose issues.** Only issues whose author GitHub marks as the organization's own (`OWNER` or `MEMBER`). Another person's is refused, and so is
+  a pull request. That doesn't catch outside text pasted into an organization member's issue, or an issue filed by an App, which is refused too,
+  as GitHub doesn't mark it as a member's. Edits go out as the Steward's persona, like its comments.
+- **Nothing is deleted or emptied.** A body, title or comment can't be blank, and a body that loses more than half its text needs a `reason`,
+  which is part of the call and so on the card. hubd can't know the old length, so that one is found after the person allowed the card: the tool's
+  text tells the Steward to always give a `reason` when it cuts. There is no delete. `tick_item` changes one box named by its exact text and refuses none or two,
+  ignoring boxes in fenced code blocks, closed as CommonMark closes them. A fence indented four or more spaces, in a list item, isn't seen, so a box in one counts. GitHub keeps an edit's history, and each result carries the previous text so the edit can be put back.
+- **Comments it posted itself.** `comment_issue` records the id, the session's name and its instance, in the work store. The instance is the session's
+  own id from hubd (the Claude session id), which a name is not: the Steward is always `steward`, and a name is used again once its folder is gone. A
+  resumed session keeps its id. `edit_comment` refuses any comment that isn't recorded, one posted by another session or by an earlier or later session of
+  the same name, one for which hubd named no instance, and one that isn't on the issue named. The edit is a GraphQL document, and hubd checks that the comment's node is
+  in the organization, as for review threads. A comment posted from the page can't be edited by a tool.
+  **A call with no session isn't held to one.** That is the page, which is your login, and the shared agent token that hub shells hold, which has no tool
+  list and so no card either: either can edit any comment the hub recorded, whichever session posted it. They have your rights, as for every other tool; a
+  test pins it.
+- **What the card shows is the call.** For `edit_issue` that is the whole new text, not its difference from the old. The Steward is told to say
+  what it changes and why, but that is its word. `tick_item` is small enough to read. Before asking, hubd refuses a call the tool would refuse
+  anyway: no `expected`, a blank body, a `checked` that isn't true or false, and a title that the command policy refuses (one shaped like `owner/repo`, or
+  starting with a link outside the organization).
+- **Text read in a private repository in a public edit.** Nothing technical stops it, as for `comment_issue`: the rule in `agents/private.md`
+  is the one measure. An issue's text and the comments an edit is based on may be an outsider's, so they are data, and an edit isn't made because
+  one says to; here too that is a rule in a prompt and the card, and the tools would carry out an edit a misled Steward asks for and you allow.
+
 ## The queue view
 
 A page over the work store and your decisions. It merges, reviews and starts nothing, and has no tool: a session has `decision_request` to ask.

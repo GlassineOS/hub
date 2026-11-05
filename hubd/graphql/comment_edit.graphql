@@ -1,0 +1,3 @@
+mutation($commentId: ID!, $body: String!) {
+  updateIssueComment(input: {id: $commentId, body: $body}) { issueComment { url } }
+}

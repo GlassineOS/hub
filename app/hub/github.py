@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import difflib
+import hashlib
+import json
 import logging
 import re
 import time
@@ -12,7 +15,7 @@ from urllib.parse import quote
 
 from . import diffbudget
 from . import mergequeue
-from .hubd_client import ALL_REPOS, CALLER, GhError, Hubd, HubdError
+from .hubd_client import ALL_REPOS, CALLER, INSTANCE, SESSION, GhError, Hubd, HubdError
 
 ORG = "GlassineOS"
 _REPO_RE = re.compile(r"[A-Za-z0-9._-]+")
@@ -25,6 +28,16 @@ OVERVIEW_TTL = 60.0
 BOARD_TTL = 120
 WORKFLOWS_TTL = 3600
 MAX_KEPT = 4 * 1024 * 1024  # a longer log or diff isn't worth keeping
+MAX_TITLE = 256
+MAX_TEXT = 65536  # GitHub's own limit for a body or a comment
+MAX_KNOWN = 64  # bodies kept to say what changed, when an edit finds the issue has moved on
+SHRUNK_FROM = 100  # a body shorter than this can lose most of its text without it meaning much
+# Who wrote an issue the Steward may edit: the organization's own. Everyone else's it leaves alone.
+OUR_AUTHORS = ("OWNER", "MEMBER")
+_VERSION_RE = re.compile(r"[0-9a-f]{16}")
+_COMMENT_AT_RE = re.compile(r"#issuecomment-([0-9]{1,15})\s*$")
+_BOX_RE = re.compile(r"^(?P<lead>[ \t]*(?:[-*+]|[0-9]{1,9}[.)])[ \t]+\[)(?P<mark>[ xX])(?P<mid>\][ \t]+)(?P<text>.*?)[ \t]*$")
+_FENCE_RE = re.compile(r"^ {0,3}(?P<run>`{3,}|~{3,})(?P<rest>.*)$")
 log = logging.getLogger("hub.github")
 
 
@@ -77,6 +90,81 @@ def _rollup(pr: dict) -> str:
     return "passing"
 
 
+def _same_lines(text) -> str:
+    """GitHub keeps the line endings a page wrote, so a body read two ways can differ by them alone."""
+    return (text or "").replace("\r\n", "\n")
+
+
+def _version(title, body) -> str:
+    """What an edit is guarded by: the text of an issue as it was read, short enough to copy."""
+    return hashlib.sha256(f"{_same_lines(title)}\0{_same_lines(body)}".encode()).hexdigest()[:16]
+
+
+def _text(value, what, top=MAX_TEXT) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise BadRequest(f"{what} can't be blank. This tool replaces text and never deletes it")
+    if "\0" in value or len(value) > top:
+        raise BadRequest(f"{what} is over {top} characters or holds a NUL")
+    return value
+
+
+def _title(value) -> str:
+    value = _text(value, "a title", MAX_TITLE)
+    if re.search(r"[\x00-\x1f\x7f]", value):
+        raise BadRequest("a title is one line")
+    return value.strip()
+
+
+def _expected(value) -> str:
+    if not isinstance(value, str) or not _VERSION_RE.fullmatch(value):
+        raise BadRequest("expected is the `version` that get_issue gave you for this issue: 16 hex characters. Read it again")
+    return value
+
+
+def _boxes(body: str) -> list[tuple[int, re.Match]]:
+    """The checkboxes of a Markdown body, as (line, match), without those in a fenced code block.
+
+    A fence closes as CommonMark has it: the same character, a run at least as long as the opener's, and nothing after it.
+    A fence indented four or more spaces, as in a list item, isn't seen, so a box in one is counted."""
+    found, fence = [], None
+    for i, line in enumerate(body.split("\n")):
+        line = line.rstrip("\r")
+        mark = _FENCE_RE.match(line)
+        if fence is not None:
+            if mark and mark["run"][0] == fence[0] and len(mark["run"]) >= len(fence) and not mark["rest"].strip():
+                fence = None
+            continue
+        if mark and not (mark["run"][0] == "`" and "`" in mark["rest"]):  # a backtick fence's info string has no backtick
+            fence = mark["run"]
+            continue
+        box = _BOX_RE.match(line)
+        if box:
+            found.append((i, box))
+    return found
+
+
+def _ticked(body: str, item: str, checked: bool) -> tuple[str | None, str, str]:
+    """The body with the one box named by `item` set, that box's line as it was, and as it is now.
+    None for the body if the box is set already."""
+    wanted = item.strip()
+    boxes = _boxes(body)
+    hits = [(i, b) for i, b in boxes if b.group("text") == wanted]
+    if not hits:
+        shown = "; ".join(b.group("text")[:80] for _, b in boxes[:15]) or "there are none"
+        raise BadRequest(f"no checkbox has exactly that text. The boxes in it: {shown}")
+    if len(hits) > 1:
+        raise BadRequest(f"{len(hits)} checkboxes have that text (lines {', '.join(str(i + 1) for i, _ in hits)}). "
+                         "This tool won't guess which: change the text on one of them first, with edit_issue")
+    line_no, box = hits[0]
+    lines = body.split("\n")
+    was = lines[line_no]
+    if (box.group("mark") in "xX") == checked:
+        return None, was, was
+    at = box.start("mark")
+    lines[line_no] = was[:at] + ("x" if checked else " ") + was[at + 1:]
+    return "\n".join(lines), was, lines[line_no]
+
+
 class GitHub:
     def __init__(self, hubd: Hubd, config_path: Path, clock=time.monotonic, store=None):
         self.hubd = hubd
@@ -92,6 +180,10 @@ class GitHub:
         self._strips = None
         self._strips_at = -OVERVIEW_TTL
         self._strips_lock = asyncio.Lock()
+        # Text of issues as the tools gave it out, by version, so a refused edit can say what changed. Lost on a restart.
+        self._known: dict[tuple, tuple[str, str]] = {}
+        # The comments this hub posted, if there's no store to keep them in.
+        self._posted: dict[str, dict] = {}
 
     # --- the whole organization ------------------------------------------------
     async def overview(self, fresh: bool = False) -> dict:
@@ -329,6 +421,26 @@ class GitHub:
             self.store.keep(f"issue/{repo}/{_num(number)}", known["updatedAt"], result)
         return result
 
+    async def agent_issue(self, repo, number) -> dict:
+        """One issue for a session that may edit it: its `version` is what edit_issue and tick_item take as expected.
+
+        The view above is the store's and asks GitHub nothing. This one, while the store serves, also reads the title and body
+        from GitHub, since the store can be a sync behind and an edit is checked against the text GitHub has: the text given and its
+        version are then one read, and a version of text the person had already changed would be refused at every retry."""
+        result = await self.issue(repo, number)
+        if "body" not in result or "title" not in result:
+            return result
+        if self._serving():
+            try:
+                live = await self._issue_now(repo, number)
+            except (BadRequest, HubdError) as e:
+                log.warning("no version for %s#%s, as GitHub wasn't asked: %s", repo, number, e)
+                return result  # what the store has, with nothing to edit by
+            result = {**result, "title": live["title"], "body": live["body"]}
+        version = _version(result["title"], result["body"])
+        self._know(repo, number, version, result["title"], result["body"])
+        return {**result, "version": version}
+
     async def create_issue(self, repo, title, body="", labels=None, roadmap=False) -> dict:
         if not title or not str(title).strip():
             raise BadRequest("an issue needs a title")
@@ -349,6 +461,8 @@ class GitHub:
 
     async def comment_issue(self, repo, number, body) -> dict:
         url = (await self._comment("issue", repo, number, body)).strip()
+        if found := _COMMENT_AT_RE.search(url):
+            self._record_comment(repo, found.group(1), _num(number))
         await self._wrote(repo, number)
         return {"url": url}
 
@@ -383,6 +497,142 @@ class GitHub:
         await self.hubd.gh(*argv)
         await self._wrote(repo, number)
         return {"ok": True}
+
+    # --- editing: the title and body, one checkbox, and the comments this hub posted ----------------
+    def _know(self, repo, number, version, title, body) -> None:
+        self._known.pop((repo, str(number), version), None)
+        self._known[(repo, str(number), version)] = (title, body)
+        while len(self._known) > MAX_KNOWN:
+            self._known.pop(next(iter(self._known)))
+
+    def _record_comment(self, repo, comment_id, number) -> None:
+        """Which session posted it, and which instance of that name: edit_comment is only for what the same one posted."""
+        record = {"number": number, "session": SESSION.get() or "", "instance": INSTANCE.get() or ""}
+        self._posted[f"{repo}/{comment_id}"] = record
+        if self.store:
+            self.store.put(f"posted/{repo}/{comment_id}", json.dumps(record))
+
+    def _posted_comment(self, repo, comment_id) -> dict | None:
+        if found := self._posted.get(f"{repo}/{comment_id}"):
+            return found
+        raw = self.store.get(f"posted/{repo}/{comment_id}") if self.store else None
+        return json.loads(raw) if raw else None
+
+    async def _issue_now(self, repo, number) -> dict:
+        """The issue as GitHub has it this moment, never from the store: an edit is checked against the real text."""
+        row = await self.hubd.gh_json("api", f"repos/{_full(repo)}/issues/{_num(number)}")
+        if not isinstance(row, dict):
+            raise BadRequest(f"GitHub returned nothing for {repo}#{number}")
+        return {**row, "title": row.get("title") or "", "body": row.get("body") or ""}
+
+    @staticmethod
+    def _ours_to_edit(repo, number, row) -> None:
+        if row.get("pull_request"):
+            raise BadRequest(f"{repo}#{number} is a pull request. These tools edit issues, and pull requests are not part of them")
+        author = (row.get("user") or {}).get("login") or "someone"
+        if row.get("author_association") not in OUR_AUTHORS:
+            raise BadRequest(f"{repo}#{number} was written by {author}, who isn't a member of the organization "
+                             f"({str(row.get('author_association') or 'unknown').lower()}), so it isn't rewritten from here. "
+                             "Say what's wrong in a comment, or ask the person to edit it")
+
+    def _guard(self, repo, number, row, expected) -> None:
+        self._ours_to_edit(repo, number, row)
+        if _version(row["title"], row["body"]) == expected:
+            return
+        said = f"{repo}#{number} has changed since you read it (last updated {row.get('updated_at')}), so nothing was edited. "
+        before = self._known.get((repo, str(number), expected))
+        if before is None:
+            raise BadRequest(said + "The hub no longer has the text you read, so it can't show what differs. Read it again with get_issue.")
+        parts = []
+        if _same_lines(before[0]) != _same_lines(row["title"]):
+            parts.append(f"title: {before[0]!r} is now {row['title']!r}")
+        changes = list(difflib.unified_diff(_same_lines(before[1]).split("\n"), _same_lines(row["body"]).split("\n"),
+                                            "what you read", "now", lineterm="", n=1))
+        if changes:
+            shown = "\n".join(changes)
+            parts.append("body:\n" + (shown[:3000] + "\n…" if len(shown) > 3000 else shown))
+        raise BadRequest(said + "What changed:\n" + "\n".join(parts) + "\nRead it again with get_issue before editing.")
+
+    async def _edit(self, repo, number, row, title, body) -> dict:
+        """One `gh issue edit` for what differs. The text goes on stdin or in an argument gh takes as a value."""
+        argv = ["issue", "edit", _num(number), "-R", _full(repo)]
+        if title is not None and _same_lines(title) != _same_lines(row["title"]):
+            argv.append(f"--title={title}")  # one argument: a title that starts with - isn't a flag
+        sent = None
+        if body is not None and _same_lines(body) != _same_lines(row["body"]):
+            argv += ["--body-file", "-"]
+            sent = body
+        if len(argv) == 5:
+            return {"changed": False}
+        try:
+            await self.hubd.gh(*argv, stdin=sent)
+        except HubdError as e:
+            if e.refused and title is not None:  # the text of a title is all hubd's policy reads, so that's what it refused
+                raise BadRequest("the title can't go through as written: one shaped like owner/repo (\"docs/search\") or starting "
+                                 f"with a link outside the organization is refused ({e}). Reword it") from e
+            raise
+        await self._wrote(repo, number)
+        new_title, new_body = (title if title is not None else row["title"]), (body if body is not None else row["body"])
+        version = _version(new_title, new_body)
+        self._know(repo, number, version, new_title, new_body)
+        return {"changed": True, "version": version}
+
+    async def edit_issue(self, repo, number, expected, title=None, body=None, reason=None) -> dict:
+        """Replaces the title or body of an issue of the organization's own, if nobody changed it since `expected`."""
+        if title is None and body is None:
+            raise BadRequest("give a title or a body to replace")
+        expected = _expected(expected)
+        title = None if title is None else _title(title)
+        body = None if body is None else _text(body, "a body")
+        row = await self._issue_now(repo, number)
+        self._guard(repo, number, row, expected)
+        old = _same_lines(row["body"]).strip()
+        if body is not None and len(old) >= SHRUNK_FROM and len(_same_lines(body).strip()) * 2 < len(old) \
+                and not (isinstance(reason, str) and reason.strip()):
+            raise BadRequest("this takes out more than half of the body. Say why in reason, which the person reads on the card, "
+                             "or keep what's still true")
+        done = await self._edit(repo, number, row, title, body)
+        return {"url": row.get("html_url"), **done, "previous_title": row["title"], "previous_body": row["body"]}
+
+    async def tick_item(self, repo, number, item, expected, checked=True) -> dict:
+        """Ticks or unticks the one checkbox with exactly this text, and changes nothing else."""
+        if not isinstance(item, str) or not item.strip() or "\n" in item or len(item) > 500:
+            raise BadRequest("name the box by its text: one line, as it reads after the [ ]")
+        if not isinstance(checked, bool):
+            raise BadRequest("checked is true or false")
+        expected = _expected(expected)
+        row = await self._issue_now(repo, number)
+        self._guard(repo, number, row, expected)
+        new_body, was, now = _ticked(row["body"], item, checked)
+        if new_body is None:
+            return {"url": row.get("html_url"), "changed": False, "line": was,
+                    "says": f"That box is already {'ticked' if checked else 'unticked'}; nothing was written."}
+        done = await self._edit(repo, number, row, None, new_body)
+        return {"url": row.get("html_url"), **done, "line": now, "previous_line": was, "previous_body": row["body"]}
+
+    async def edit_comment(self, repo, number, comment_id, body) -> dict:
+        """Replaces a comment this hub posted through comment_issue for the same session instance. Any other is refused.
+
+        A tool call from a named session must match both its name and its instance, and one with no instance is refused.
+        A call with no session at all is the page (the person's login) or a hub shell's shared token: both are the person's own
+        rights, and for them any comment the hub recorded will do."""
+        body = _text(body, "a comment")
+        n, cid = _num(number), _num(comment_id)
+        posted = self._posted_comment(repo, cid)
+        session, instance = SESSION.get(), INSTANCE.get()
+        theirs = session is not None and (not instance or posted is None or posted.get("session") != session
+                                          or posted.get("instance") != instance)
+        if not posted or posted["number"] != n or theirs:
+            raise BadRequest(f"comment {cid} on {repo}#{n} isn't one you posted with comment_issue. Only those can be edited here")
+        row = await self.hubd.gh_json("api", f"repos/{_full(repo)}/issues/comments/{cid}")
+        if not isinstance(row, dict) or not str(row.get("issue_url", "")).endswith(f"/{ORG}/{repo}/issues/{n}") \
+                or not isinstance(row.get("node_id"), str):
+            raise BadRequest(f"comment {cid} isn't on {repo}#{n}")
+        if _same_lines(row.get("body")) == _same_lines(body):
+            return {"url": row.get("html_url"), "changed": False, "previous_body": row.get("body") or ""}
+        data = await self.hubd.graphql("comment_edit", commentId=row["node_id"], body=body)
+        await self._wrote(repo, n)
+        return {"url": data["updateIssueComment"]["issueComment"]["url"], "changed": True, "previous_body": row.get("body") or ""}
 
     # --- pull requests ---------------------------------------------------------
     async def prs(self, repo=None, state="open", limit=50) -> list[dict]:
