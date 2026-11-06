@@ -24,7 +24,7 @@ query($org: String!, $number: Int!) {
             ... on Issue {
               number title url state repository { name } labels(first: 10) { nodes { name } }
               assignees(first: 3) { nodes { login } }
-              subIssues(first: 50) { nodes { state repository { name } } }
+              subIssues(first: 50) { nodes { number state repository { name } } }
             }
             ... on PullRequest { number title url state repository { name } }
           }

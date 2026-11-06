@@ -111,7 +111,8 @@ def build(github: GitHub, docs: DocSearch) -> MCPServer:
     @mcp.tool(annotations=READ)
     @_says_why
     async def roadmap() -> dict:
-        """The strategic board: the roadmap project's items by status column."""
+        """The roadmap: its items in four columns (Planned, In progress, In review, Done), each with its progress per
+        repository from sub-issues and "Part of" lines. Each column lists the Status options it takes, for roadmap_move."""
         return await github.project()
 
     @mcp.tool(annotations=WRITE)
