@@ -83,6 +83,8 @@ class FakeHubd(Hubd):
             self.commands.append((op, request))
             if op == "notes.status":
                 return {"ok": True, "here": False, "says": "There are no notes yet."}
+            if op == "notes.delete":
+                return {"ok": True, "said": "gpu/hang c4 deleted", "extra": "not passed on"}
             if op == "notes.totals":
                 return {"ok": True, "here": True, "says": None, "by_label": {"current": 2}, "by_topic": {"gpu/hang": 2}, "source": "last-search", "rows": 2}
             if request["words"] == "broken":
@@ -1288,6 +1290,23 @@ def test_notes_totals_go_with_the_login(client, hubd):
     assert totals == {"here": True, "says": None, "by_label": {"current": 2}, "by_topic": {"gpu/hang": 2}, "source": "last-search", "rows": 2}
 
 
+def test_a_note_is_deleted_by_the_login_with_a_reason(client, hubd):
+    """009 FR-007: a POST behind the login; what hubd says comes back, nothing else."""
+    body = {"topic": "gpu/hang", "id": "c4", "why": "contradicted"}
+    assert client.post("/api/notes/delete", json=body, headers=ORIGIN).status_code == 401
+    client.post("/api/login", json={"user": "u", "password": "right"}, headers=ORIGIN)
+    assert client.post("/api/notes/delete", json=body, headers=ORIGIN).json() == {"said": "gpu/hang c4 deleted"}
+    op, request = hubd.commands[-1]
+    assert op == "notes.delete" and (request["topic"], request["id"], request["why"]) == ("gpu/hang", "c4", "contradicted")
+
+
+def test_a_note_row_offers_a_delete_with_a_reason():
+    script = _app_js()
+    row, form = _component(script, "NoteRow"), _component(script, "DeleteNote")
+    assert "noteId(r)" in row and "<${DeleteNote}" in row
+    assert 'post("notes/delete", { topic: r.topic, id, why: why.trim() })' in form and "required" in form and "Keep it" in form
+
+
 def test_notes_page_in_the_page():
     script = _app_js()
     page = _component(script, "NotesPage")
@@ -1302,7 +1321,7 @@ def test_notes_page_in_the_page():
     assert '"notes-compact"' in keep and '"notes-sweep"' in keep and "Compact…" in keep and "Sweep…" in keep
     assert 'NO_REPO = ["knowledge", "notes"]' in script
     view = _component(script, "ResultView")
-    assert 'r.type === "notes"' in view and "o.command" in view and "Apply this one" in view and "Nothing is deleted" in view
+    assert 'r.type === "notes"' in view and "o.command" in view and "Apply this one" in view and "A delete takes the note's text out" in view
 
 
 def test_decision_tools_send_only_the_sessions_token(hubd, github):

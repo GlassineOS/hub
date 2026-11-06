@@ -225,8 +225,8 @@ stays in `artifacts/`, named by id.
 ```
 
 **Provenance is required per claim:** `seen` (a base and a command or artifact behind it), `inferred` (from what),
-`guess`, `user`, or `archive` (unreviewed, from the old tree). **Current or history** is where it sits. Nothing is
-deleted; a retraction stays in place. `notes lint` lets into Current only `seen` with evidence, `user`, and `inferred`
+`guess`, `user`, or `archive` (unreviewed, from the old tree). **Current or history** is where it sits. A retraction
+stays in place; a delete leaves only the claim's id, the date and why in Log (the notes' git history keeps the text). `notes lint` lets into Current only `seen` with evidence, `user`, and `inferred`
 resting on a Current claim. A `guess` or `archive` claim stays in Open or Log, and a retraction takes what rests on it
 out with it.
 

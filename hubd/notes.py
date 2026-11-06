@@ -6,8 +6,9 @@ The tool lives in the workspace and is run as a program, never imported: hubd st
 library, and the index stays the tool's own business, in its 0700 cache. Notes and the sources
 behind the search never passed the safety scan, so server.py keeps the search behind the login check, and lets a session's
 token have it only when its action is about the notes and can't post (SECURITY.md, Notes). Writing is a login's alone: a
-closed list of operations, each one `notes add` or `notes set` built here from checked fields, none of them a delete
-(009 FR-006, 005 FR-021).
+closed list of operations, each one `notes add` or `notes set` built here from checked fields; a delete is
+`notes set --delete` with a reason, and a session proposes one only with the note that shows it wrong (009 FR-006 to
+FR-008, 005 FR-021).
 """
 from __future__ import annotations
 
@@ -37,12 +38,13 @@ MAX_IDS = 10
 MAX_OP_WORDS = 2000
 MAX_WHY = 500
 # 009 FR-006: what a session may propose, each mapped to one invocation of the tool. merge and distil are a supersede by
-# another name: the new text replaces the first note and rests on all of them. None of them deletes: what's replaced,
-# retracted or closed goes to the topic's Log, marked, as the tool keeps it.
-OPS = ("supersede", "merge", "distil", "retract", "answer", "add")
+# another name: the new text replaces the first note and rests on all of them. What's replaced, retracted or closed goes
+# to the topic's Log, marked, as the tool keeps it; a delete leaves only the note's id, the date and why there.
+OPS = ("supersede", "merge", "distil", "retract", "answer", "add", "delete")
 _OP_FIELDS = {"supersede": ({"op", "topic", "ids", "words"}, {"why"}), "merge": ({"op", "topic", "ids", "words"}, {"why"}),
               "distil": ({"op", "topic", "ids", "words"}, {"why"}), "retract": ({"op", "topic", "ids", "by", "why"}, set()),
-              "answer": ({"op", "topic", "ids", "why"}, set()), "add": ({"op", "topic", "words"}, {"open", "why"})}
+              "answer": ({"op", "topic", "ids", "why"}, set()), "add": ({"op", "topic", "words"}, {"open", "why"}),
+              "delete": ({"op", "topic", "ids", "why"}, {"by"})}
 _ENV_KEEP = ("PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR")
 _TOTAL = re.compile(r"([0-9]+) rows? from (.+?)(?:, showing [0-9]+.*)?")
 NO_STATE = "no state given"  # a row is never shown as if it were a fact
@@ -112,7 +114,7 @@ def _one_line(value, what: str, limit: int) -> str:
 def clean_op(op) -> dict:
     """One proposed operation, as the closed shape the hub shows and applies. A command isn't taken from it: hubd builds it."""
     if not isinstance(op, dict) or op.get("op") not in OPS:
-        raise OpError(f"an operation is one of {', '.join(OPS)}; none deletes a note")
+        raise OpError(f"an operation is one of {', '.join(OPS)}")
     required, optional = _OP_FIELDS[op["op"]]
     keys = set(op)
     if keys - required - optional or required - keys:
@@ -126,10 +128,10 @@ def clean_op(op) -> dict:
         if not isinstance(ids, list) or not 0 < len(ids) <= MAX_IDS or not all(isinstance(i, str) and _ID_RE.fullmatch(i) for i in ids) \
                 or len(set(ids)) != len(ids):
             raise OpError(f"ids are 1 to {MAX_IDS} different note ids, as cN")
-        if op["op"] in ("retract", "answer") and len(ids) != 1:
+        if op["op"] in ("retract", "answer", "delete") and len(ids) != 1:
             raise OpError(f"{op['op']} is about one note")
         out["ids"] = list(ids)
-    if "by" in required:
+    if "by" in keys:
         if not isinstance(op["by"], str) or not _ID_RE.fullmatch(op["by"]) or op["by"] in out["ids"]:
             raise OpError("by is the id of the note that shows it wrong")
         out["by"] = op["by"]
@@ -153,6 +155,9 @@ def argv_of(op: dict) -> list[str]:
         return ["set", f"--retract={op['ids'][0]}", f"--by={op['by']}", f"--why={op['why']}", "--", topic]
     if kind == "answer":
         return ["set", f"--close={op['ids'][0]}", f"--why={op['why']}", "--", topic]
+    if kind == "delete":
+        by = [f"--by={op['by']}"] if "by" in op else []
+        return ["set", f"--delete={op['ids'][0]}", *by, f"--why={op['why']}", "--", topic]
     return ["add", *(["--open"] if op.get("open") else []), "--", topic, op["words"]]
 
 
