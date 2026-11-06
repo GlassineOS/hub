@@ -2,6 +2,7 @@ order = 2
 ceiling = "Read only."
 when = "not-failing"
 object = "pr"
+result = "none"
 title = "Prepare for merge"
 summary = "Checks whether it's ready: checks, linked issues, changelog. Reports in the session."
 personas = ["reviewer"]

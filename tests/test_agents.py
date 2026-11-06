@@ -58,6 +58,68 @@ def test_library_is_complete():
             assert action.get("access") is None and action["checkout"] in ("pr", "default", False)
 
 
+def _library_copy(tmp_path, change):
+    root = tmp_path / "agents"
+    shutil.copytree(Path(__file__).resolve().parents[1] / "agents", root)
+    change(root)
+    return root
+
+
+def _edit(path, old, new):
+    text = path.read_text()
+    assert old in text
+    path.write_text(text.replace(old, new, 1))
+
+
+@pytest.mark.parametrize("change, words", [
+    (lambda r: (r / "personas" / "newcomer.md").write_text("You are new."), "no entry in families.toml for newcomer"),
+    (lambda r: (r / "personas" / "triager.md").unlink(), "names triager, with no persona file"),
+    (lambda r: _edit(r / "personas" / "families.toml", 'family = "build"', 'family = "fixing"'), "isn't one of build"),
+    (lambda r: _edit(r / "personas" / "families.toml", 'initials = "EN"', 'initials = "ENG"'), "1-2 capital letters"),
+    (lambda r: _edit(r / "personas" / "families.toml", 'name = "Engineer"\n', ""), "exactly name, initials and family"),
+    (lambda r: _edit(r / "actions" / "pr-explain.toml", 'result = "none"', 'verb = "review"\nresult = "none"'),
+     "verb 'review' is already pr-explain's for a pr"),
+    (lambda r: _edit(r / "actions" / "pr-explain.toml", 'result = "none"', 'result = "essay"'), "result 'essay'"),
+    (lambda r: _edit(r / "actions" / "pr-explain.toml", 'result = "none"\n', ""), "result None"),
+    (lambda r: _edit(r / "actions" / "pr-explain.toml", 'personas = ["reviewer"]', 'personas = ["ghost"]'),
+     "names persona ghost"),
+])
+def test_the_library_refuses_personas_and_actions_that_dont_fit(tmp_path, change, words):
+    from hubd.agents import LibraryError
+    root = _library_copy(tmp_path, change)
+    with pytest.raises(LibraryError, match=re.escape(words)):
+        Library(root)
+
+
+def test_a_verb_may_repeat_on_another_kind_of_item(tmp_path):
+    # fix on a pull request and fix on a run (research 002 R2): two actions, one short name each per kind.
+    root = _library_copy(tmp_path, lambda r: _edit(r / "actions" / "run-explain.toml", 'result = "none"',
+                                                     'verb = "fix"\nresult = "none"'))
+    assert Library(root).actions["run-explain"]["verb"] == "fix"
+
+
+def test_every_persona_has_a_family_and_every_action_a_result():
+    from hubd.agents import FAMILIES, RESULTS
+    personas = {p.stem for p in (LIBRARY.root / "personas").glob("*.md")}
+    assert {"ci-fixer", "researcher", "archivist"} <= personas == set(LIBRARY.families)
+    assert all(LIBRARY.family(p)["family"] in FAMILIES for p in personas)
+    assert LIBRARY.family("steward") == {"name": "Steward", "initials": "S", "family": "organise"}
+    assert LIBRARY.family("nobody") is None and LIBRARY.family(None) is None
+    for persona in ("ci-fixer", "researcher", "archivist"):
+        text = LIBRARY.text("personas", persona)
+        assert "Assisted-by:" in text and "never `Signed-off-by`" in text
+    for action in LIBRARY.actions.values():
+        assert action["result"] in RESULTS and action["models"]  # the first model is the default (005 FR-013)
+    verbs = {a["verb"]: a["id"] for a in LIBRARY.actions.values() if a.get("verb")}
+    assert verbs == {"review": "pr-review", "address": "pr-address-review", "fix": "pr-fix-checks",
+                     "implement": "issue-implement", "triage": "issue-triage", "investigate": "run-diagnose",
+                     "issue": "new-issue", "sec": "new-security-audit", "arch": "new-architecture-audit",
+                     "road": "new-roadmap-item", "docs": "new-docs-sweep", "deps": "new-dependency-review"}
+    # The rest stay in the library, under "More…", and hand in nothing of their own.
+    assert all(a["result"] == "none" for a in LIBRARY.actions.values() if not a.get("verb"))
+    assert LIBRARY.action("pr-fix-checks")["personas"] == ["ci-fixer", "engineer"]
+
+
 def test_validate_accepts_what_the_action_lists():
     assert validate(LIBRARY, good())["model"] == "sonnet"
     assert validate(LIBRARY, good(tools=[], hub_tools=[]))["tools"] == []
@@ -1039,6 +1101,22 @@ def test_actions_are_ordered_and_carry_their_limits(tmp_path):
     assert {"failing", "not-failing"} <= {x["when"] for x in prs}
     described = a.action("pr-session")
     assert described["full"] and described["personas"][0]["text"] and described["skills"]
+
+
+
+def test_actions_carry_their_verb_result_and_persona_family(tmp_path):
+    from hubd.agents import RESULTS
+    a = agents(tmp_path)
+    rows = {x["id"]: x for kind in (None, "repo") for x in a.actions(kind)}
+    assert set(rows) == set(LIBRARY.actions)  # every shipped action loads and is offered somewhere
+    review = rows["pr-review"]
+    assert (review["verb"], review["result"], review["family"], review["persona_name"]) == ("review", "comment", "review", "Code reviewer")
+    assert review["result_words"] == RESULTS["comment"]
+    fix = rows["pr-fix-checks"]
+    assert (fix["verb"], fix["result"], fix["family"], fix["persona_name"]) == ("fix", "pr", "build", "CI fixer")
+    assert rows["pr-explain"]["verb"] is None and rows["pr-explain"]["result"] == "none"
+    assert rows["new-roadmap-item"]["family"] == "organise"
+    assert all(set(x) >= {"verb", "result", "result_words", "family", "persona_name"} for x in rows.values())
 
 
 def test_the_environment_knob(tmp_path, monkeypatch, caplog):

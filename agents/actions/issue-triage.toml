@@ -1,6 +1,8 @@
 order = 1
 ceiling = "Labels and comments. Never closes, merges or writes code."
 object = "issue"
+verb = "triage"
+result = "labels"
 title = "Triage"
 summary = "Looks for duplicates and answers, labels the issue and comments on it."
 personas = ["triager"]

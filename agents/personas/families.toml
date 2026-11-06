@@ -1,0 +1,70 @@
+# What the app shows for each persona: its display name, the initials on its badge, and its family,
+# which picks the badge's tint. Kept out of the persona files, which are pasted into the prompt.
+# Every persona file needs an entry here and every entry a file, or the library won't load.
+# family is one of: build, review, investigate, write, organise.
+# The Steward is drawn with its own pen-blue "S" badge whatever its family says.
+
+[architect]
+name = "Architect"
+initials = "AR"
+family = "review"
+
+[archivist]
+name = "Archivist"
+initials = "AV"
+family = "organise"
+
+[ci-diagnostician]
+name = "CI investigator"
+initials = "CI"
+family = "investigate"
+
+[ci-fixer]
+name = "CI fixer"
+initials = "CF"
+family = "build"
+
+[docs-writer]
+name = "Docs writer"
+initials = "DW"
+family = "write"
+
+[engineer]
+name = "Engineer"
+initials = "EN"
+family = "build"
+
+[issue-writer]
+name = "Issue writer"
+initials = "IW"
+family = "write"
+
+[release-steward]
+name = "Release steward"
+initials = "RS"
+family = "organise"
+
+[researcher]
+name = "Researcher"
+initials = "RE"
+family = "investigate"
+
+[reviewer]
+name = "Code reviewer"
+initials = "CR"
+family = "review"
+
+[security-auditor]
+name = "Security auditor"
+initials = "SA"
+family = "review"
+
+[steward]
+name = "Steward"
+initials = "S"
+family = "organise"
+
+[triager]
+name = "Triage"
+initials = "TR"
+family = "organise"

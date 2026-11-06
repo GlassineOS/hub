@@ -1,6 +1,8 @@
 order = 3
 ceiling = "Reads, then hands in drafts. It can't file, comment, push or merge: filing is yours."
 object = "repo"
+verb = "arch"
+result = "drafts"
 title = "Architecture audit"
 summary = "Reads the repository as an architect and drafts issues for what's worth changing."
 all_repos = true

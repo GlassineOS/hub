@@ -2,6 +2,7 @@ order = 3
 ceiling = "Read only."
 when = "not-failing"
 object = "run"
+result = "none"
 title = "Explain this run"
 summary = "Summarises what the run did and what it published. Reports in the session."
 personas = ["ci-diagnostician"]

@@ -1,6 +1,7 @@
 order = 9
 ceiling = "A full Claude Code with your rights, on this pull request's branch. Refuses forks."
 object = "pr"
+result = "none"
 title = "Open a session"
 summary = "A full session on the pull request's branch, with the pull request read. Then it's yours."
 access = "full"

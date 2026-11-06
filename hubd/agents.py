@@ -206,11 +206,64 @@ def _check_seen(kind, selection) -> None:
         raise AgentError("not an item")
 
 
+FAMILIES = ("build", "review", "investigate", "write", "organise")  # a persona's family picks its badge's tint
+# What an action ends with, in the words the app shows beside its ceiling. "none": it only talks in its terminal.
+RESULTS = {"comment": "ends with a comment", "pr": "ends with a draft pull request", "labels": "ends with labels",
+           "findings": "ends with findings", "drafts": "ends with draft issues", "report": "ends with a report",
+           "notes": "ends with proposed note changes", "none": "talks in its terminal, hands in nothing"}
+_INITIALS_RE = re.compile(r"[A-Z]{1,2}")
+MAX_PERSONA_NAME = 40
+
+
+class LibraryError(Exception):
+    """The action and persona files don't fit together. hubd won't start on them."""
+
+
 class Library:
     def __init__(self, root: Path):
         self.root = root
         self.actions = {p.stem: {**tomllib.loads(p.read_text()), "id": p.stem}
                         for p in sorted((root / "actions").glob("*.toml"))}
+        self.families = tomllib.loads((root / "personas" / "families.toml").read_text())
+        self._check()
+
+    def _check(self) -> None:
+        """A new persona can't ship without its badge, nor an action without its result type."""
+        files = {p.stem for p in (self.root / "personas").glob("*.md")}
+        if missing := sorted(files - set(self.families)):
+            raise LibraryError(f"no entry in families.toml for {', '.join(missing)}")
+        if extra := sorted(set(self.families) - files):
+            raise LibraryError(f"families.toml names {', '.join(extra)}, with no persona file")
+        for persona, entry in self.families.items():
+            if not isinstance(entry, dict) or set(entry) != {"name", "initials", "family"}:
+                raise LibraryError(f"families.toml: {persona} needs exactly name, initials and family")
+            if entry["family"] not in FAMILIES:
+                raise LibraryError(f"families.toml: {persona}'s family {entry['family']!r} isn't one of {', '.join(FAMILIES)}")
+            if not isinstance(entry["name"], str) or not 0 < len(entry["name"]) <= MAX_PERSONA_NAME:
+                raise LibraryError(f"families.toml: {persona}'s name must be 1-{MAX_PERSONA_NAME} characters")
+            if not isinstance(entry["initials"], str) or not _INITIALS_RE.fullmatch(entry["initials"]):
+                raise LibraryError(f"families.toml: {persona}'s initials must be 1-2 capital letters")
+        verbs = {}
+        for action in self.actions.values():
+            if action.get("result") not in RESULTS:
+                raise LibraryError(f"actions/{action['id']}.toml: result {action.get('result')!r} isn't one of {', '.join(RESULTS)}")
+            for persona in action["personas"]:
+                if persona not in self.families:
+                    raise LibraryError(f"actions/{action['id']}.toml names persona {persona}, which isn't in families.toml")
+            verb = action.get("verb")
+            if verb is None:
+                continue
+            if not isinstance(verb, str) or not re.fullmatch(r"[a-z]{2,20}", verb):
+                raise LibraryError(f"actions/{action['id']}.toml: verb must be a short lower-case word")
+            # One short name per kind of item: "fix" on a pull request and "fix" on a run are two actions.
+            other = verbs.setdefault((action["object"], verb), action["id"])
+            if other != action["id"]:
+                raise LibraryError(f"actions/{action['id']}.toml: verb {verb!r} is already {other}'s for a {action['object']}")
+
+    def family(self, persona) -> dict | None:
+        """{name, initials, family} of a persona, or None for one the library doesn't have (an old session's)."""
+        entry = self.families.get(persona) if isinstance(persona, str) else None
+        return dict(entry) if entry else None
 
     def skills(self) -> list[str]:
         return sorted(p.parent.name for p in (self.root / "plugin" / "skills").glob("*/SKILL.md"))
@@ -396,8 +449,11 @@ class Agents:
     def actions(self, kind=None) -> list[dict]:
         # Planners start from the new-work form, not from the list of things to do to an item.
         offered = [a for a in self.library.actions.values() if kind == a["object"] or (kind is None and a["object"] != "repo")]
-        return [{**{k: a[k] for k in ("id", "object", "title", "summary", "ceiling")}, "when": a.get("when"),
-                 "full": _full(a), "plan": a.get("plan", True), "models": a["models"], "needs": a.get("needs")}
+        return [{**{k: a[k] for k in ("id", "object", "title", "summary", "ceiling", "result")}, "when": a.get("when"),
+                 "full": _full(a), "plan": a.get("plan", True), "models": a["models"], "needs": a.get("needs"),
+                 "verb": a.get("verb"), "result_words": RESULTS[a["result"]],
+                 "family": self.library.family(a["personas"][0])["family"],
+                 "persona_name": self.library.family(a["personas"][0])["name"]}
                 for a in sorted(offered, key=lambda a: (a.get("order", 99), a["id"]))]
 
     def action(self, action_id) -> dict:

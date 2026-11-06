@@ -1,6 +1,8 @@
 order = 2
 ceiling = "Reads, then hands in drafts. It can't file, comment, push or merge: filing is yours."
 object = "repo"
+verb = "sec"
+result = "drafts"
 title = "Security audit"
 summary = "Audits the repository against its threat model and drafts one issue per finding."
 all_repos = true
