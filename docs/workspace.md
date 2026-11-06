@@ -121,7 +121,7 @@ lock, queue for anyone or send messages, and recovery never touches it.
 ## The user's decisions
 
 **Where:** `hubd/decisions.py`, a file per decision in hubd's state folder, each move on disk before it acts, and behind the same
-login check in `Hubd.request`. A Decisions page, and a Go button on the device view.
+login check in `Hubd.request`. Requests wait under Sessions › Needs you and what stands under Sessions › Active, with a Decisions page for the ended ones, and a Go button on the device view.
 
 **A record:** `id`, `kind`, `words` (what you typed), `scope` (device, actions, session or any; or repo, PR, head, base), `ends` (a time, a number of runs), `state`, `why_ended`, `made`.
 

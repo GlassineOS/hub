@@ -75,7 +75,7 @@ def test_a_token_cant_add_or_approve(world):
 def test_a_request_is_no_use_until_a_login_approves_it(world):
     hubd, store, _clock, login = world
     asked = call(hubd, op="decision.request", agent_token="full-token", kind="go", scope=GO, why="testing suspend")
-    assert asked["ok"]
+    assert asked["ok"] and "Needs you" in asked["words"] and "Decisions page" not in asked["words"]
     no = call(hubd, op="decision.check", agent_token="full-token", kind="go", actions="reboot")
     assert no["answer"] == "no"
     by_id = call(hubd, op="decision.check", agent_token="full-token", kind="go", actions="reboot", id=asked["id"])
@@ -853,7 +853,7 @@ def test_a_click_gh_fails_after_says_it_merged(world, tmp_path, fake_pr):
 def test_the_refusal_names_a_way_this_session_has(steward):
     hubd, _store, _clock, _login = steward
     words = call(hubd, op="gh", argv=merge_argv(), agent_token="steward-token")["error"]
-    assert "decision_request" not in words and "Decisions page" not in words and "merge_pr" in words and "card" in words
+    assert "decision_request" not in words and "Needs you" not in words and "merge_pr" in words and "card" in words
     full = call(hubd, op="gh", argv=merge_argv(), agent_token="full-token")["error"]
     assert "decision_request" in full and "kind merge" in full and "merge_pr" in full and "card" not in full
     assert full.count("Ask with") == 1 and "Call merge_pr with this head" not in full, "told one way, not both"

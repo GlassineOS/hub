@@ -367,7 +367,7 @@ They are marked as hard to undo. What they refuse is checked in the app, on the 
 
 A page over the work store and your decisions. It merges, reviews and starts nothing, and has no tool: a session has `decision_request` to ask.
 
-- **Approving records a merge decision** through the same login-checked `decision.add` and `decision.approve` as the Decisions page, for the head the
+- **Approving records a merge decision** through the same login-checked `decision.add` and `decision.approve` as the decision cards in Sessions and the Decisions page, for the head the
   page showed. hubd asks GitHub for the head at that moment and refuses if it has moved, so a stale page can't approve what you didn't see. If
   GitHub can't say, nothing is recorded.
 - **A pull request's text can't approve anything.** Anyone who can open a pull request writes `Set:` and `Tested:`, and a stranger's can join a set by

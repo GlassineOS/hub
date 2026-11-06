@@ -37,7 +37,7 @@ nothing runs them except a `PreToolUse` hook saying allow.
 - **Refused before it reaches you:** a merge with no `head`, a start that couldn't happen, whether it's the
   wrong action or item or 4 started sessions are still working, and a call too long to show on a card.
 - **A merge has one route for each kind of session.** The Steward's calls are cards, so allowing its `merge_pr` card is the merge
-  decision. A full session has no cards: it asks with `decision_request` (kind merge), you approve it on the Decisions page, and
+  decision. A full session has no cards: it asks with `decision_request` (kind merge), you approve it under Needs you in Sessions, and
   its `merge_pr` then goes through. Both end as the same merge decision in hubd, made by a login and checked against the head.
 - **A merge names its head commit,** which `get_pr` shows, and fails if the pull request has moved on. A change of
   base between the card and the merge isn't caught.
