@@ -1376,8 +1376,40 @@ def test_every_claude_session_is_a_chat():
     field = _component(script, "MessageField")
     assert 'post("agents/say", { name, text, where })' in field and "agents/press" not in field
     assert 'role="status"' in field and "<${Err} text=${act.error}" in field and "<label" in field
-    assert "<${MessageField} name=${STEWARD}" in _component(script, "StewardSession")
-    assert "<${MessageField} key=${current.name} name=${current.name}" in _component(script, "Shells")
+    # Both draw it through the SessionView, which has the field for every Claude session.
+    assert "<${MessageField} key=${name} name=${name} where=${where}" in _component(script, "SessionView")
+    assert '<${SessionView} session=${session} mode="compact"' in _component(script, "StewardSession")
+    assert '<${SessionView} key=${current.name} session=${current} mode="full"' in _component(script, "Shells")
+
+
+def test_one_session_view_everywhere():
+    """A static check (004 FR-001, FR-005, FR-009, FR-011): one SessionView in Sessions, Work and the Steward panel;
+    its terminal on night paper; Stop only after a confirmation; the old manifest column gone."""
+    script, css = _app_js(), _style_css()
+    view = _component(script, "SessionView")
+    assert '<${SessionView} key=${session.name} session=${session} mode="embedded"' in _component(script, "WorkLists")
+    assert "function Manifest(" not in script and "<${Manifest}" not in script and ".manifest" not in css
+    assert "background: var(--night)" in re.search(r"\n\.term \{[^}]*\}", css).group(0)
+    assert "background: var(--night)" in re.search(r"\n\.svterm \{[^}]*\}", css).group(0)
+    assert 'getPropertyValue("--night")' in script and "background: nightPaper()" in _component(script, "TerminalView")
+    # Stop: a Confirm first, then the DELETE, never the DELETE on its own.
+    stop = view[view.index("const stop = () => confirm("):]
+    stop = stop[:stop.index("\n  );")]
+    assert 'danger: true' in stop and stop.index("confirm(") < stop.index('method: "DELETE"')
+    assert view.count('method: "DELETE"') == 1 and "onClick=${stop}" in view
+    # The spec, the origin in words, the state in words, the stored view, the other items.
+    spec = _component(script, "SessionSpec")
+    for row in ("Persona", "Action", "Model", "Permission mode", "Ceiling", "Covered items", "Worktree", "Branch", "Start command"):
+        assert f"<dt>{row}</dt>" in spec, row
+    assert "started before origins were kept" in _component(script, "originWords")
+    assert 'post("agents/view"' in view and 'aria-label="Also on these items"' in view and "Ask} key=${x.id}" in view
+    assert "Waiting for you" in _component(script, "sessionWords")
+
+
+def test_the_terminal_keeps_your_place():
+    """A static check (004 FR-005): new output follows the end only while you're at it."""
+    term = _component(_app_js(), "TerminalView")
+    assert "b.viewportY >= b.baseY" in term and "if (atEnd) term.scrollToBottom()" in term
 
 
 # --- results (005 R2): who sees submit_result, and sessions started before it ----------------------
