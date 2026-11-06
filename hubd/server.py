@@ -61,7 +61,7 @@ WORK_TOOL_OPS = {"work.offer": "plan_work", "work.suggest": "suggest_session", "
 STEWARD = "steward"
 DIRECT_ORIGIN = {"launch": None, "from": None, "by": "you"}  # a session you started with the one click or the advanced form: no Launch record behind it
 RESULT_TOOL_OPS = {"result.submit": "submit_result", "result.report": "read_report"}  # By a session's own token, checked like WORK_TOOL_OPS
-NOTES_TOOL_OPS = {"notes_tool.find": "notes_find"}  # By a session's own token, only for an action about the notes (009)
+NOTES_TOOL_OPS = {"notes_tool.find": "notes_find"}  # By a session's own token, only for an action about the notes (009 FR-006)
 ITEM_OBJECTS = ("issue", "pr", "run")  # what a Launch's covered items can be (005 FR-011)
 KIND_WORDS = {"issue": "an issue", "pr": "a pull request", "run": "a run", "repo": "a repository", "project": "the whole project",
               "knowledge": "a question", "notes": "the notes"}
