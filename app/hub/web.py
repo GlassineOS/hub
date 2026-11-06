@@ -333,17 +333,35 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         return reply
 
     async def new_work_start(_r, b, token):
-        fields = {k: b.get(k) for k in ("id", "action", "repo", "notes", "describe", "paths", "why", "context", "pins", "model", "driver", "planner_model")}
+        fields = {k: b.get(k) for k in ("id", "action", "repo", "notes", "describe", "paths", "why", "context", "pins", "model", "driver", "planner_model",
+                                        "covers", "repos", "from", "background")}
         return await hubd.call(op="work.start", token=token, **fields)
 
     async def new_work_move(r, b, token):
         move = p(r, "move")
         if move == "file":
             return await github.file_drafts(token, p(r, "id"), b.get("indexes"))
+        if move == "background":  # 005 FR-008
+            return await hubd.call(op="work.background", token=token, id=p(r, "id"), on=b.get("on"))
         if move not in ("cancel", "dismiss", "discard", "hand", "bring_back", "approve", "plan"):
             raise BadRequest(f"can't {move} planned work")
         return await hubd.call(op=f"work.{move}", token=token, id=p(r, "id"), indexes=b.get("indexes"), model=b.get("model"), brief=b.get("brief"),
                                 number=b.get("number"), also_numbers=b.get("also_numbers"), notes=b.get("notes"), planner_model=b.get("planner_model"))
+
+    # --- results: what sessions hand in, which a login applies (005 R2) ----------------------
+    async def results_list(r, _b, token):
+        q = r.query_params
+        kept = {"1": True, "0": False}.get(q.get("kept") or "")
+        reply = await hubd.call(op="result.list", token=token, type=q.get("type") or None, kept=kept,
+                                session=q.get("session") or None, after=q.get("after") or None)
+        return {"results": reply["results"]}
+
+    async def result_move(r, b, token):
+        move = p(r, "move")
+        if move not in ("apply", "keep", "dismiss"):
+            raise BadRequest(f"can't {move} a result")
+        extra = {"indexes": b.get("indexes")} if move == "apply" else {"kept": b.get("kept", True)} if move == "keep" else {}
+        return {"result": (await hubd.call(op=f"result.{move}", token=token, id=p(r, "id"), **extra))["result"]}
 
     # --- what sessions ask ------------------------------------------------------------
     async def asks(_r, _b, token):
@@ -480,6 +498,8 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         Route("/api/new-work", api(new_work)),
         Route("/api/new-work", api(new_work_start), methods=["POST"]),
         Route("/api/new-work/{id}/{move}", api(new_work_move), methods=["POST"]),
+        Route("/api/results", api(results_list)),
+        Route("/api/results/{id}/{move}", api(result_move), methods=["POST"]),
         Route("/api/interactions", api(interactions)),
         Route("/api/interactions/{id}/answer", api(interaction_answer), methods=["POST"]),
         Route("/api/asks", api(asks)),

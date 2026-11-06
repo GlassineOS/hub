@@ -2,8 +2,8 @@
 """What waits for the person, in one shape: a projection over asks, decisions and new work.
 
 Nothing is stored here. Each source keeps its own lifetime and its own rules (asks live while their hook holds a
-connection, decisions and new work are on disk), and an answer goes to that source's own op: interaction.answer in
-Hubd only dispatches. Ids keep their source as a prefix: "a:" an ask, "d-" a decision, "w:" new work.
+connection, decisions, new work and results are on disk), and an answer goes to that source's own op: interaction.answer in
+Hubd only dispatches. Ids keep their source as a prefix: "a:" an ask, "d-" a decision, "w:" new work, "r-" a result.
 
 Every row is shown only to a login. What a session wrote in it (a why, a question, a suggestion's notes) stays the
 session's words, marked so on the card.
@@ -122,18 +122,35 @@ def from_work(record: dict, agents: dict, objects: dict, now: float) -> dict:
                 (record.get("handled") or {}).get("at") or record.get("moved"))
 
 
+RESULT_STATUS = {"pending": "pending", "applying": "started", "applied": "answered", "dismissed": "dismissed"}
+
+
+def from_result(record: dict, agents: dict, now: float) -> dict:
+    """005 R2: what a session handed in (or the pull request it opened), waiting for a login to apply, keep or set aside."""
+    status = RESULT_STATUS.get(record["state"], "ended")
+    if status == "pending" and record.get("kept"):  # a report kept for Knowledge is settled
+        status = "answered"
+    detail = {**record, "result_type": record["type"]}
+    return _row(record["id"], "result", status, record["session"], agents.get(record["session"]), list(record.get("items") or ()),
+                record["made"], now, record.get("handled"), detail, record.get("applied_at") or (record.get("handled") or {}).get("at"))
+
+
 def wanted(record: dict) -> bool:
     """New work that is or was an interaction: anything waiting, offered by a session, with drafts, or handled from a card.
-    Work you started yourself and is still running is a session, not a question for you."""
+    Work you started yourself and is still running is a session, not a question for you. A Launch with a result is that
+    result's card."""
+    if record.get("result"):
+        return False
     return record["state"] in WORK_WAITS or record.get("by") != "you" or bool(record.get("drafts")) or bool(record.get("handled"))
 
 
-def project(asks: dict, decisions: list[dict], work: list[dict], agents: dict, objects: dict, session=None, now=None) -> dict:
+def project(asks: dict, decisions: list[dict], work: list[dict], agents: dict, objects: dict, session=None, now=None, results=()) -> dict:
     """The list the page shows. Pending first, oldest first; settled rows of the last day after, newest first."""
     now = time.time() if now is None else now
     rows = [from_ask(v, now) for v in [*asks["open"], *asks["answered"]]]
     rows += [from_decision(v, agents, now) for v in decisions]
     rows += [from_work(r, agents, objects, now) for r in work if wanted(r)]
+    rows += [from_result(r, agents, now) for r in results]
     if session is not None:
         rows = [r for r in rows if r["session"] == session]
     pending = sorted((r for r in rows if r["status"] == "pending"), key=lambda r: r["made"])

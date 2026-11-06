@@ -1016,3 +1016,224 @@ def test_usage_takes_a_login_and_reads_only_the_session_folders(tmp_path, fake_g
             assert reply["ok"] and reply["known"] is False and reply["says"] == "usage not known"
             assert not (await h.call(op="usage.other", token=token))["ok"]
     run(go())
+
+
+# --- results: handed in by a token, applied by a login (005 R2) --------------------------------------
+from pathlib import Path as _Path  # noqa: E402
+
+from hubd import results as results_module  # noqa: E402
+from hubd.agents import Library  # noqa: E402
+from hubd.newwork import NewWork  # noqa: E402
+from hubd.results import Results  # noqa: E402
+
+RESULT_LIBRARY = Library(_Path(__file__).resolve().parents[1] / "agents")
+REVIEW = {"summary": "One bug: the FIFO is read twice.", "event": "request-changes",
+          "notes": [{"path": "epd/fifo.c", "line": 12, "side": "RIGHT", "body": "Read once here."}]}
+LABELS = {"issues": [{"ref": "boot#7", "add": ["bug"], "remove": ["needs-triage"], "part_of": "hub#3", "why": "A crash."}]}
+
+
+class ResultAgents:
+    library = RESULT_LIBRARY
+
+    def __init__(self):
+        self.sessions = {"pr-review-boot-5": ("pr-review", "pr", 5, "reviewer"), "issue-triage-boot-7": ("issue-triage", "issue", 7, "triager"),
+                         "issue-implement-boot-9": ("issue-implement", "issue", 9, "engineer")}
+        self.tools = {"review-token": ("pr-review-boot-5", RESULT_LIBRARY.actions["pr-review"]["hub_tools"]),
+                      "old-review-token": ("pr-review-boot-5", ["get_pr", "review_pr"]),  # started before results
+                      "triage-token": ("issue-triage-boot-7", RESULT_LIBRARY.actions["issue-triage"]["hub_tools"]),
+                      "full-token": ("issue-implement-boot-9", None)}
+        self.ended = set()
+
+    def scope(self, token):
+        if token not in self.tools:
+            return None
+        name, tools = self.tools[token]
+        return {"session": name, "tools": tools, "persona": self.sessions[name][3], "instance": "conv-1"}
+
+    def is_session(self, name):
+        return name in self.sessions
+
+    def describe(self, name):
+        if name not in self.sessions:
+            return None
+        action, kind, number, persona = self.sessions[name]
+        prs = [{"repo": "boot", "number": 5, "state": None}] if kind == "pr" else getattr(self, "prs", {}).get(name, [])
+        return {"action": action, "object": kind, "covers": [{"repo": "boot", "number": number}], "persona": persona,
+                "prs": prs, "ended": name in self.ended}
+
+    def session_id_of(self, _name):
+        return "conv-1"
+
+    def tell(self, *_a):
+        pass
+
+
+class ResultGh:
+    """What hubd sends to gh, by command and by document; never a real gh."""
+    def __init__(self):
+        self.runs, self.documents = [], []
+        self.body = "The issue.\n"
+
+    async def run(self, argv, stdin=None, timeout=None, token=None):
+        from hubd.ghpolicy import check
+        check(argv)  # what Gh.run checks first: the policy allows every command a result sends
+        self.runs.append((list(argv), stdin, token))
+        if argv[0] == "api":
+            return {"code": 0, "stdout": json.dumps({"body": self.body, "author_association": "MEMBER"}), "stderr": ""}
+        return {"code": 0, "stdout": "", "stderr": ""}
+
+    async def graphql(self, name, variables=None, token=None):
+        self.documents.append((name, dict(variables or {}), token))
+        if name == "content_id":
+            return {"code": 0, "stdout": json.dumps({"data": {"repository": {"issueOrPullRequest": {"id": "PR_node"}}}}), "stderr": ""}
+        return {"code": 0, "stdout": json.dumps({"data": {"addPullRequestReview": {"pullRequestReview": {"url": "https://github.com/x"}}}}), "stderr": ""}
+
+
+class AppsStub:
+    async def token(self, persona):
+        return f"app-{persona}"
+
+
+@pytest.fixture
+def result_hub(tmp_path):
+    h = Hubd(ResultGh(), Shells(), auth.Sessions(), "general", agents=ResultAgents(), apps=AppsStub(),
+             work=NewWork(tmp_path / "w"), result_store=Results(tmp_path / "results"))
+    h.sessions = type("S", (), {"check": staticmethod(lambda t: t == "login"), "own_user": staticmethod(lambda: "me")})()
+    return h
+
+
+def _submit(hub, token, kind, payload):
+    return run(hub.request({"op": "result.submit", "agent_token": token, "type": kind, "payload": payload}))
+
+
+def test_a_result_is_handed_in_only_by_its_session_and_of_its_type(result_hub):
+    assert _submit(result_hub, "nope", "comment", REVIEW).get("refused")
+    assert _submit(result_hub, "old-review-token", "comment", REVIEW).get("refused")  # its list from before has no submit_result
+    assert _submit(result_hub, "full-token", "pr", {"repo": "boot", "number": 9}).get("refused")  # a full session's result is found, not handed in
+    wrong = _submit(result_hub, "review-token", "labels", LABELS)
+    assert wrong.get("refused") and "ends with a comment" in wrong["error"]
+    unknown = _submit(result_hub, "review-token", "comment", {**REVIEW, "approve_too": True})
+    assert not unknown["ok"] and "approve_too" in unknown["error"]
+    bad_note = _submit(result_hub, "review-token", "comment", {**REVIEW, "notes": [{"path": "a", "line": 0, "body": "x"}]})
+    assert not bad_note["ok"] and "line" in bad_note["error"]
+    assert not result_hub.results.all()
+    first = _submit(result_hub, "review-token", "comment", REVIEW)
+    second = _submit(result_hub, "review-token", "comment", {**REVIEW, "summary": "Two bugs."})
+    assert first["ok"] and second["ok"] and [r["payload"]["summary"] for r in result_hub.results.all()] == ["Two bugs."]  # one pending a session
+    record = result_hub.results.get(second["id"])
+    assert record["items"] == [{"kind": "pr", "repo": "boot", "number": 5}] and record["persona"] == "reviewer" and record["state"] == "pending"
+
+
+def test_a_labels_result_names_only_the_items_its_session_covers(result_hub):
+    other = {"issues": [{**LABELS["issues"][0], "ref": "boot#8"}]}
+    assert "isn't an item this session covers" in _submit(result_hub, "triage-token", "labels", other)["error"]
+    assert _submit(result_hub, "triage-token", "labels", LABELS)["ok"]
+
+
+def test_applying_needs_a_login_and_the_actions_own_tool(result_hub, monkeypatch):
+    rid = _submit(result_hub, "review-token", "comment", REVIEW)["id"]
+    for token in (None, "review-token", "general"):
+        reply = run(result_hub.request({"op": "result.apply", "token": token, "agent_token": "review-token", "id": rid}))
+        assert not reply["ok"] and reply["denied"]
+    assert not result_hub.gh.documents
+    monkeypatch.setitem(RESULT_LIBRARY.actions, "pr-review", {**RESULT_LIBRARY.actions["pr-review"], "result_tools": []})
+    reply = run(result_hub.request({"op": "result.apply", "token": "login", "id": rid}))
+    assert not reply["ok"] and "doesn't name review_pr" in reply["error"]
+    assert result_hub.results.get(rid)["state"] == "pending" and not result_hub.gh.documents
+
+
+def test_applying_a_review_posts_it_by_the_named_document_as_the_personas_app(result_hub):
+    """005 FR-017: content_id, then pr_review_add with the text as a variable (sent on stdin by Gh), once."""
+    rid = _submit(result_hub, "review-token", "comment", REVIEW)["id"]
+    reply = run(result_hub.request({"op": "result.apply", "token": "login", "id": rid}))
+    assert reply["ok"] and reply["result"]["state"] == "applied" and reply["result"]["applied_by"] == "me"
+    (find, find_vars, _), (post, variables, token) = result_hub.gh.documents
+    assert (find, find_vars) == ("content_id", {"repo": "boot", "number": 5})
+    assert post == "pr_review_add" and token == "app-reviewer"
+    assert variables == {"pullRequestId": "PR_node", "body": REVIEW["summary"], "event": "REQUEST_CHANGES",
+                         "threads": [{"path": "epd/fifo.c", "line": 12, "side": "RIGHT", "body": "Read once here."}]}
+    again = run(result_hub.request({"op": "result.apply", "token": "login", "id": rid}))
+    assert not again["ok"] and "applied" in again["error"] and len(result_hub.gh.documents) == 2
+
+
+def test_a_review_github_refuses_goes_back_to_waiting_and_says_why(result_hub):
+    async def refused(name, variables=None, token=None):
+        if name == "content_id":
+            return {"code": 0, "stdout": json.dumps({"data": {"repository": {"issueOrPullRequest": {"id": "PR_node"}}}}), "stderr": ""}
+        return {"code": 1, "stdout": json.dumps({"errors": [{"message": "Can not request changes on your own pull request"}]}), "stderr": ""}
+    result_hub.gh.graphql = refused
+    rid = _submit(result_hub, "review-token", "comment", REVIEW)["id"]
+    reply = run(result_hub.request({"op": "result.apply", "token": "login", "id": rid}))
+    assert not reply["ok"] and "your own pull request" in reply["error"]
+    record = result_hub.results.get(rid)
+    assert record["state"] == "pending" and "didn't go out" in record["note"]
+
+
+def test_applying_labels_goes_through_label_issues_command_and_adds_part_of(result_hub):
+    """005 FR-018: the argv label_issue builds, then edit_issue's way: the body on stdin, a line added, once."""
+    rid = _submit(result_hub, "triage-token", "labels", LABELS)["id"]
+    reply = run(result_hub.request({"op": "result.apply", "token": "login", "id": rid}))
+    assert reply["ok"], reply
+    (label, _, token), (read, _, _), (edit, body, edit_token) = result_hub.gh.runs
+    assert label == ["issue", "edit", "7", "-R", "GlassineOS/boot", "--add-label", "bug", "--remove-label", "needs-triage"]
+    assert token == edit_token == "app-triager" and read == ["api", "repos/GlassineOS/boot/issues/7"]
+    assert edit == ["issue", "edit", "7", "-R", "GlassineOS/boot", "--body-file", "-"] and body == "The issue.\n\nPart of GlassineOS/hub#3\n"
+    assert "Part of GlassineOS/hub#3 on boot#7" in reply["result"]["note"]
+
+
+def test_a_part_of_line_already_there_isnt_added_twice(result_hub):
+    result_hub.gh.body = "The issue.\n\nPart of GlassineOS/hub#3"
+    rid = _submit(result_hub, "triage-token", "labels", LABELS)["id"]
+    assert run(result_hub.request({"op": "result.apply", "token": "login", "id": rid}))["ok"]
+    assert [r[0][:2] for r in result_hub.gh.runs] == [["issue", "edit"], ["api", "repos/GlassineOS/boot/issues/7"]]
+
+
+def test_a_restart_while_applying_puts_it_back_with_a_note(tmp_path):
+    store = Results(tmp_path / "r")
+    record = store.submit("comment", REVIEW, session="s", session_id="c", launch=None, items=[{"kind": "pr", "repo": "boot", "number": 5}],
+                          action="pr-review", persona="reviewer")
+    store.claim(record["id"])
+    again = Results(tmp_path / "r")
+    assert again.get(record["id"])["state"] == "pending" and again.get(record["id"])["note"] == results_module.INTERRUPTED
+    assert stat.S_IMODE((tmp_path / "r").stat().st_mode) == 0o700
+
+
+def test_findings_and_reports_arent_applied_and_a_report_is_kept(result_hub):
+    result_hub.agents.sessions["run-diagnose-boot-3"] = ("run-diagnose", "run", 3, "ci-diagnostician")
+    result_hub.agents.tools["diag-token"] = ("run-diagnose-boot-3", RESULT_LIBRARY.actions["run-diagnose"]["hub_tools"])
+    rid = _submit(result_hub, "diag-token", "findings", {"cause": "A flaky mirror.", "fix": "Retry the fetch.", "run": "boot#3"})["id"]
+    assert "start a fix session" in run(result_hub.request({"op": "result.apply", "token": "login", "id": rid}))["error"]
+    assert "only a report" in run(result_hub.request({"op": "result.keep", "token": "login", "id": rid}))["error"]
+    dismissed = run(result_hub.request({"op": "result.dismiss", "token": "login", "id": rid}))
+    assert dismissed["result"]["state"] == "dismissed"
+    listed = run(result_hub.request({"op": "result.list", "token": "login", "type": "findings"}))["results"]
+    assert [r["id"] for r in listed] == [rid]
+    assert not run(result_hub.request({"op": "result.list", "token": "login", "type": "secrets"}))["ok"]
+
+
+def test_a_session_that_opened_a_pull_request_has_it_as_its_result(result_hub):
+    """005 FR-016: on an issue once its branch has one; on a pull request once Claude has ended there. Once a run."""
+    result_hub.agents.prs = {"issue-implement-boot-9": [{"repo": "boot", "number": 12, "state": "OPEN"}]}
+    rows = [{"name": n, "agent": result_hub.agents.describe(n)} for n in result_hub.agents.sessions]
+    result_hub._note_pr_results(rows)
+    result_hub._note_pr_results(rows)
+    made = [(r["session"], r["payload"]) for r in result_hub.results.all()]
+    assert made == [("issue-implement-boot-9", {"repo": "boot", "number": 12})]
+    # pr-review covers a pull request but ends in a comment; a pr action on a pull request waits for its end.
+    result_hub.agents.sessions["pr-address-review-boot-5"] = ("pr-address-review", "pr", 5, "engineer")
+    result_hub._note_pr_results([{"name": "pr-address-review-boot-5", "agent": result_hub.agents.describe("pr-address-review-boot-5")}])
+    assert len(result_hub.results.all()) == 1
+    result_hub.agents.ended.add("pr-address-review-boot-5")
+    result_hub._note_pr_results([{"name": "pr-address-review-boot-5", "agent": result_hub.agents.describe("pr-address-review-boot-5")}])
+    assert len(result_hub.results.all()) == 2
+
+
+def test_results_are_interactions_answered_like_any_card(result_hub):
+    rid = _submit(result_hub, "review-token", "comment", REVIEW)["id"]
+    listed = run(result_hub.request({"op": "interaction.list", "token": "login"}))
+    row = next(i for i in listed["items"] if i["id"] == rid)
+    assert (row["kind"], row["status"], row["detail"]["result_type"]) == ("result", "pending", "comment")
+    assert row["items"] == [{"kind": "pr", "repo": "boot", "number": 5}]
+    assert "applied, kept or set aside" in run(result_hub.request({"op": "interaction.answer", "token": "login", "id": rid, "verdict": "allow"}))["error"]
+    answered = run(result_hub.request({"op": "interaction.answer", "token": "login", "id": rid, "verdict": "apply", "where": "Needs you"}))
+    assert answered["ok"] and answered["item"]["status"] == "answered" and answered["item"]["handled"]["where"] == "Needs you"

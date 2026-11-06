@@ -63,6 +63,22 @@ async def _collect(proc, stdin: str | None) -> tuple[bytes, bytes, bool]:
     return bytes(out), err, truncated
 
 
+# The one list-valued variable, on the one document that takes it (005 FR-017): a review's inline notes, each closed.
+THREAD_DOCUMENTS = ("pr_review_add",)
+MAX_THREADS = 50
+
+
+def _review_threads(threads) -> list[dict]:
+    if not isinstance(threads, list) or len(threads) > MAX_THREADS:
+        raise Refused(f"GraphQL: threads are a list of at most {MAX_THREADS}")
+    for thread in threads:
+        if (not isinstance(thread, dict) or set(thread) != {"path", "line", "side", "body"} or not isinstance(thread["path"], str)
+                or not isinstance(thread["body"], str) or not isinstance(thread["line"], int) or isinstance(thread["line"], bool)
+                or thread["line"] <= 0 or thread["side"] not in ("LEFT", "RIGHT") or len(thread["path"]) > 500 or len(thread["body"]) > 2000):
+            raise Refused("GraphQL: a thread is a path, a line, a side (LEFT or RIGHT) and a body")
+    return [dict(t) for t in threads]
+
+
 class Gh:
     def __init__(self, program: str = "gh", workdir: str | None = None, concurrency: int = 8):
         self.program = program
@@ -119,13 +135,18 @@ class Gh:
             raise Refused("GraphQL: the search query is not the app's to choose")
         if name == "org_changes":
             variables["query"] = changes_query(variables.pop("scope", None), variables.pop("since", None))
+        threads = variables.pop("threads", None) if name in THREAD_DOCUMENTS else None
         for key, value in variables.items():
             if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(key)) or not isinstance(value, (str, int, bool, type(None))):
                 raise Refused(f"bad GraphQL variable: {key}")
+        if threads is not None:
+            variables["threads"] = _review_threads(threads)
         variables["org"] = ORG
         # Node ids can name anything, so a project id must be one of the organization's.
         if "projectId" in variables and variables["projectId"] not in await self._projects(variables["projectId"]):
             raise Refused("that project is not in the organization")
+        if "pullRequestId" in variables and not await self._in_org(variables["pullRequestId"]):
+            raise Refused("that pull request is not in the organization")
         if "contentId" in variables and not await self._in_org(variables["contentId"]):
             raise Refused("that issue or pull request is not in the organization")
         if "threadId" in variables and not await self._in_org(variables["threadId"]):

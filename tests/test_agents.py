@@ -30,7 +30,7 @@ def sandbox_tools_present(monkeypatch):
 
 def good(**over):
     return {"action": "pr-review", "repo": "boot", "number": 5, "persona": "reviewer", "model": "sonnet",
-            "effort": "high", "tools": ["Read"], "hub_tools": ["get_pr", "review_pr"], "brief": "look at x", **over}
+            "effort": "high", "tools": ["Read"], "hub_tools": ["get_pr", "submit_result"], "brief": "look at x", **over}
 
 
 @pytest.fixture(autouse=True)
@@ -173,7 +173,7 @@ def agents(tmp_path, answer=None, **kw):
 
 def planned(**over):
     return {"structured_output": {"persona": "reviewer", "model": "sonnet", "effort": "high", "tools": ["Read"],
-                                  "hub_tools": ["get_pr", "review_pr"], "brief": "b", **over}, "total_cost_usd": 0.02}
+                                  "hub_tools": ["get_pr", "submit_result"], "brief": "b", **over}, "total_cost_usd": 0.02}
 
 
 def test_planner_is_read_only_and_keeps_the_token_off_the_command_line(tmp_path):
@@ -300,7 +300,7 @@ def test_start_builds_a_locked_down_session(tmp_path, remote):
     # It runs from the fixed directory, so the checkout's CLAUDE.md is not its project.
     assert a.shells.started[0][1] == str(a.home)
     for piece in ("--permission-mode dontAsk", "--setting-sources user", "--strict-mcp-config", "--tools Read",
-                  "mcp__glassine-hub__review_pr", f"--add-dir {checkout}", "--model sonnet",
+                  "mcp__glassine-hub__submit_result", f"--add-dir {checkout}", "--model sonnet",
                   "export CLAUDE_CONFIG_DIR=/some/dir"):
         assert piece in script, piece
     assert "SECRET" not in script and "Bash" not in script and "merge_pr" not in script
@@ -642,7 +642,7 @@ def test_resume_continues_the_conversation_with_the_same_rights(tmp_path, remote
     assert asyncio.run(a.resume(name))["name"] == name
     script = (directory / "resume.sh").read_text()
     assert f"--resume {record['session_id']}" in script and "--session-id" not in script
-    for piece in ("--permission-mode dontAsk", "--strict-mcp-config", "mcp__glassine-hub__review_pr", "--add-dir",
+    for piece in ("--permission-mode dontAsk", "--strict-mcp-config", "mcp__glassine-hub__submit_result", "--add-dir",
                   "export CLAUDE_CONFIG_DIR=/some/dir", "tool-token"):
         assert piece in script, piece
     assert "prompt.md" not in script  # its prompt is already in the conversation
@@ -1016,7 +1016,7 @@ def test_one_click_without_a_planner(tmp_path, remote_branch):
 @pytest.mark.parametrize("action", ["issue-implement", "pr-review"])
 def test_the_planner_doesnt_choose_tools(action):
     schema = LIBRARY.schema(LIBRARY.action(action))
-    assert set(schema["required"]) == set(schema["properties"]) == {"persona", "model", "effort", "brief", "docs", "docs_query"}
+    assert set(schema["required"]) == set(schema["properties"]) == {"persona", "model", "effort", "brief", "docs", "docs_query", "steps"}
 
 
 def test_a_plan_keeps_all_of_the_actions_tools_whatever_the_answer_says(tmp_path):
@@ -1215,7 +1215,7 @@ def test_the_planner_token_lasts_as_long_as_the_plan(tmp_path):
         return real(token)
     a._environment = spy
     asyncio.run(a.plan("pr-review", "boot", 5))
-    assert seen["scope"]["session"] is None and "review_pr" not in seen["scope"]["tools"]
+    assert seen["scope"]["session"] is None and not {"review_pr", "submit_result"} & set(seen["scope"]["tools"])
     assert a.scope(seen["token"]) is None
 
 
@@ -2445,7 +2445,7 @@ def test_a_session_that_can_write_needs_the_card_even_if_the_steward_started_it(
 
 def test_only_reading_tools_count_as_reading():
     tools = (Path(__file__).parents[1] / "app/hub/tools.py").read_text()
-    for name in agents_module.READS_ONLY - {"plan_work"}:  # plan_work only suggests, and the suggestion waits for you
+    for name in agents_module.READS_ONLY - {"plan_work", "submit_result"}:  # these only suggest or hand in, and that waits for you
         assert re.search(rf"annotations=READ\)\n\s+@_says_why\n\s+async def {name}\(", tools), name
     # The actions that can be messaged with no card, and only those.
     free = {a["id"] for a in LIBRARY.actions.values() if a.get("access") != "full" and a["object"] != "repo"
@@ -2919,3 +2919,44 @@ def test_esc_while_tmux_pastes_and_refuses_isnt_put_back_or_a_crash(tmp_path, mo
         assert state["queued"] == 0 and not a._senders and not getattr(a.shells, "pasted", [])
         assert a._sends.get(name, []) == [] and a._from.get(name, []) == []
     asyncio.run(go())
+
+
+def test_a_review_session_from_before_results_loses_review_pr_on_resume_and_gains_nothing(tmp_path):
+    """005 R3, said as it is: a running session keeps its frozen list (tests/test_app.py), but a resume reads the action
+    as it is now, which has no review_pr, and adds no tool a non-Steward session didn't have. Such a session can still
+    report in its terminal; for a review card, start a new one."""
+    a = agents(tmp_path)
+    old = {**good(), "hub_tools": ["get_pr", "review_pr"]}
+    assert a._current_config(old)["hub_tools"] == ["get_pr"]
+
+
+def test_a_result_tool_must_fit_its_actions_result():
+    action = LIBRARY.actions["pr-review"]
+    assert action["result"] == "comment" and action["result_tools"] == ["review_pr"] and "review_pr" not in action["hub_tools"]
+    assert LIBRARY.actions["issue-triage"]["result_tools"] == ["label_issue", "edit_issue"]
+    assert "label_issue" not in LIBRARY.actions["issue-triage"]["hub_tools"]
+    for kind in ("pr-review", "issue-triage", "run-diagnose"):
+        assert "submit_result" in LIBRARY.actions[kind]["hub_tools"]
+
+
+def test_the_library_refuses_a_result_tool_its_result_cant_use(tmp_path):
+    from hubd.agents import LibraryError
+    root = tmp_path / "agents"
+    shutil.copytree(Path(__file__).resolve().parents[1] / "agents", root)
+    path = root / "actions" / "run-diagnose.toml"
+    path.write_text(path.read_text() + '\nresult_tools = ["merge_pr"]\n')
+    with pytest.raises(LibraryError, match="result_tools for a findings result"):
+        Library(root)
+
+
+def test_plan_steps_reach_the_prompt_below_the_planners_banner(tmp_path):
+    a = agents(tmp_path)
+    steps = [{"what": "Read the FIFO", "touches": ["epd/fifo.c"]}, {"what": "Write the test", "touches": []}]
+    config = validate(LIBRARY, {**good(), "steps": steps})
+    prompt = a._prompt(config, LIBRARY.actions["pr-review"], "/c")
+    banner = prompt.index("prepared by a planner")
+    assert prompt.index("1. Read the FIFO (touches epd/fifo.c)") > banner and "2. Write the test\n" in prompt
+    for bad in ([{"what": "x"}], [{"what": "x" * 301, "touches": []}], [{"what": "x", "touches": ["t"] * 9}], [{"what": "x", "touches": []}] * 13, "x"):
+        with pytest.raises(AgentError, match="steps"):
+            validate(LIBRARY, {**good(), "steps": bad})
+    assert validate(LIBRARY, good())["steps"] == []

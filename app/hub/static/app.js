@@ -2266,6 +2266,35 @@ function WorkWaiting({ item, compact, reload, where = "Needs you" }) {
         ${item.state === "done" && html`<${Discard} item=${item} reload=${reload} />`}</div></div></div>`;
 }
 
+// A result a session handed in (005 R2), until the Launch UI (005/PR 2) gives each type its own view: its words as text,
+// and the one press that applies it. Its text is the session's, which may have read an outsider's: shown, never rendered.
+const RESULT_TITLE = { comment: "Review to post", labels: "Labels to apply", findings: "Findings", report: "Report", pr: "Pull request" };
+const resultTitle = (r) => `${RESULT_TITLE[r.type] || "Result"}${r.items && r.items[0] ? ` · ${ref(r.items[0])}` : ""}`;
+const RESULT_PRESS = { comment: ["apply", "Post review"], labels: ["apply", "Apply labels"], report: ["keep", "Keep for Knowledge"] };
+
+function ResultLines({ r }) {
+  const p = r.payload || {};
+  const text = (t) => html`<p class="small" style="white-space: pre-wrap; overflow-wrap: anywhere">${t}</p>`;
+  if (r.type === "comment") return html`${text(`${p.event === "request-changes" ? "Request changes" : p.event === "approve" ? "Approve" : "Comment"}: ${p.summary}`)}
+    ${(p.notes || []).map((n) => html`<p class="small mono" style="overflow-wrap: anywhere">${n.path}:${n.line} ${n.side === "LEFT" ? "(old)" : ""} — ${n.body}</p>`)}`;
+  if (r.type === "labels") return (p.issues || []).map((i) => text(`${i.ref}: ${[...i.add.map((l) => `+${l}`), ...i.remove.map((l) => `−${l}`)].join(" ")}${i.part_of ? ` · Part of ${i.part_of}` : ""} — ${i.why}`));
+  if (r.type === "findings") return html`${text(`Cause: ${p.cause}`)}${text(`Smallest fix: ${p.fix}`)}${(p.files || []).length > 0 && text(`Files: ${p.files.join(", ")}`)}`;
+  if (r.type === "report") return html`${text(p.question)}${text(p.answer)}${(p.sources || []).map((src) => text(`${src.link} — ${src.why}`))}`;
+  if (r.type === "pr") return text(`Opened or worked on ${p.repo}#${p.number}.`);
+  return null;
+}
+
+function ResultWaiting({ r, reload, where = "Needs you" }) {
+  const act = useAct(reload);
+  const press = RESULT_PRESS[r.type];
+  return html`<div class="ask calm ${r.session === STEWARD ? "steward" : ""}">
+    <div class="ask-head"><span class="ask-kind">${r.state === "applying" ? "APPLYING" : "RESULT READY"}</span><span class="small mono">${r.session}</span></div>
+    <div class="ask-body"><div class="ask-title">${resultTitle(r)}</div><${ResultLines} r=${r} />
+      ${r.note && html`<p class="small" role="status">${r.note}</p>`}<${Err} text=${act.error} />
+      <div class="row">${press && html`<button disabled=${act.busy || r.state !== "pending"} onClick=${() => act.run(() => answerAt(r.id, { verdict: press[0] }, where))}>${press[1]}</button>`}
+        <button class="plain" disabled=${act.busy || r.state !== "pending"} onClick=${() => act.run(() => answerAt(r.id, { verdict: "dismiss" }, where))}>Set aside</button></div></div></div>`;
+}
+
 // where: the view the card is in, which hubd records with your answer (003 FR-011). Answers go through interaction.answer.
 const answerAt = (id, body, where) => post(`interactions/${encodeURIComponent(id)}/answer`, { ...body, where });
 
@@ -2403,6 +2432,9 @@ function InteractionCard({ item, dense, where, reload }) {
   const settled = item.status !== "pending" && !(item.kind === "decision" && item.status === "allowed");
   const body = () => {
     if (item.kind === "permission" || item.kind === "question") return html`<${Ask} ask=${d} compact=${settled} onDone=${reload} where=${where} />`;
+    if (item.kind === "result" && d.type && !settled) return html`<${ResultWaiting} r=${d} reload=${reload} where=${where} />`;
+    if (item.kind === "result" && d.type) return html`<div class="ask calm done"><div class="ask-head"><span class="ask-kind">RESULT</span><span class="small mono">${d.session}</span></div>
+      <div class="ask-body"><p class="ask-title">${resultTitle(d)}</p>${d.note && html`<p class="small">${d.note}</p>`}</div></div>`;
     if (item.kind === "decision") return html`<div class="ask calm ${settled ? "done" : ""}"><div class="ask-head"><span class="ask-kind">${d.kind === "go" ? (d.scope.actions.includes("eye-test") ? "GO · EYE TEST" : "GO") : "MERGE"}</span>
       <span class="small mono">${d.asked_by || "you"}</span></div><div class="ask-body"><${DecisionRow} key=${`${d.id}-${d.state}`} d=${d} onChanged=${reload} where=${where} /></div></div>`;
     if (settled && d.state === "dismissed" && (d.drafts || []).length) return html`<${SetAside} item=${d} reload=${reload} />`;
@@ -2411,7 +2443,7 @@ function InteractionCard({ item, dense, where, reload }) {
     return html`<${WorkWaiting} item=${d} reload=${reload} where=${where} />`;
   };
   const summary = item.kind === "permission" ? toolTitle(d.tool) : item.kind === "question" ? ((d.input && d.input.questions) || [{}])[0].question || "Question"
-    : item.kind === "decision" ? d.says : d.title;
+    : item.kind === "decision" ? d.says : item.kind === "result" && d.type ? resultTitle(d) : d.title;
   if (dense && !open) {
     return html`<div class="icard dense ${item.blocking ? "waits" : ""}" data-waits=${item.blocking ? "" : undefined}>
       <button class="icard-line" aria-expanded="false" onClick=${() => setOpen(true)}>

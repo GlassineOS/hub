@@ -485,6 +485,17 @@ def build(github: GitHub, docs: DocSearch) -> MCPServer:
         (a repository, when it isn't this one), labels, and parent (another draft's exact title, or an issue reference)."""
         return await github.submit_drafts(drafts)
 
+    @mcp.tool(annotations=WRITE)
+    @_says_why
+    async def submit_result(type: str, payload: dict) -> dict:
+        """Hand in this session's result, as the last thing you do: nothing outside the hub changes until the person applies it.
+        type is your action's result: comment (payload: summary, event comment|request-changes|approve, notes [{path, line,
+        side LEFT|RIGHT, body}] up to 50), labels (payload: issues [{ref repo#number, add [labels], remove [labels], part_of
+        repo#number or null, why}], only the items you were started on), findings (payload: cause, fix, files [paths], run) or
+        report (payload: question, answer, unsettled [text], sources [{link, why}], followups [text]). Unknown keys are refused.
+        Handing in again replaces what's still waiting."""
+        return await github.submit_result(type, payload)
+
     @mcp.tool(annotations=READ)
     @_says_why
     async def new_work_drafts() -> list[dict]:
