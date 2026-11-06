@@ -116,6 +116,19 @@ def _json_pages(text: str) -> list:
     return found
 
 
+def attention_key(row: dict, waiting: int = 0):
+    """007 FR-004: failing runs, then sessions waiting for you, then open pull requests, then the latest activity.
+    The page adds the waiting sessions it knows of and sorts again by the same order."""
+    a = row["attention"]
+    last = a["last_activity"] or ""
+    return (-a["failing_runs"], -waiting, -a["open_prs"], 0 if last else 1, _negated(last))
+
+
+def _negated(text: str) -> tuple:
+    """Newest first, for an ISO time, inside an ascending sort."""
+    return tuple(-ord(c) for c in text)
+
+
 def merge_blockers(pr: dict, open_threads) -> list[dict]:
     """Why Merge… is off for an open pull request, in words (006 FR-031). Empty: nothing stops it."""
     out = []
@@ -259,6 +272,27 @@ class GitHub:
                 if self.store:
                     self.store.keep("overview", "", self._overview)
             return self._overview
+
+    async def overview_page(self, fresh: bool = False) -> dict:
+        """The overview with what Overview sorts by (007 FR-004, FR-007): each repository's failing workflows, open pull
+        requests, last commit and last activity, and how many open pull requests fail. From the work store while it
+        serves, so the page asks GitHub nothing (001 SC-002); before that, the default branch's checks stand in."""
+        view = await self.overview(fresh=fresh)
+        serving = self._serving()
+        branches = {r["name"]: r.get("branch") for g in view["groups"] for r in g["repos"]}
+        activity = self.store.latest_activity() if serving else {}
+        failing = self.store.failing_workflows(branches) if serving else None
+        failing_prs = self.store.open_pr_checks() if serving else None
+
+        def row(r):
+            last = max([t for t in (r.get("pushed"), r.get("head_date"), activity.get(r["name"])) if t] or [None], key=lambda t: t or "")
+            runs = failing[r["name"]] if failing is not None else int(r.get("ci") in ("failure", "error"))
+            return {**r, "last_commit": {"title": r.get("head_title"), "date": r.get("head_date"), "oid": r.get("head")} if r.get("head") else None,
+                    "last_activity": last, "failing_prs": (failing_prs or {}).get(r["name"], 0) if failing_prs is not None else None,
+                    "attention": {"failing_runs": runs, "open_prs": r["prs"], "last_activity": last}}
+        groups = [{**g, "repos": sorted((row(r) for r in g["repos"]), key=attention_key)} for g in view["groups"]]
+        totals = {**view["totals"], "failing_prs": sum(failing_prs.values()) if failing_prs is not None else None}
+        return {**view, "groups": groups, "totals": totals, "from_store": serving}
 
     def _serving(self) -> bool:
         return bool(self.store and self.sync and self.sync.ready())

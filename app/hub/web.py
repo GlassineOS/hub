@@ -140,7 +140,7 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
 
     # --- overview and board --------------------------------------------------
     async def overview(request, _b, _t):
-        return await github.overview(fresh=request.query_params.get("fresh") == "1")
+        return await github.overview_page(fresh=request.query_params.get("fresh") == "1")
 
     async def limits(_r, _b, _t):
         return await github.rate_limit()

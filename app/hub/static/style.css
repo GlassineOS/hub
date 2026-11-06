@@ -129,7 +129,13 @@ label.field > span, div.field > span { font: 500 11.5px var(--mono); letter-spac
 .layer h3 { font: 500 11.5px/1.5 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
 .repos { flex: 1 1 400px; min-width: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
 .repo { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 6px; width: 100%; min-height: 0; padding: 12px 14px; font-weight: 400; text-align: left; }
-.repo[aria-pressed="true"], .repo[aria-pressed="true"]:hover:not(:disabled) { background: var(--mark); }
+.repo { display: flex; }
+.repo[data-picked] { background: var(--mark); }
+.repo .title.plain { justify-content: flex-start; padding: 0; border: 0; background: none; text-align: left; }
+.repo .title.plain:hover { text-decoration: underline; }
+.layer-toggle { padding: 0; min-height: 0; border: 0; background: none; font: inherit; letter-spacing: inherit; text-transform: inherit; }
+button.stat { align-items: flex-start; justify-content: flex-start; text-align: left; font: inherit; background: var(--paper); cursor: pointer; }
+button.stat.blocking { background: var(--mark); }
 .repo .title { display: flex; align-items: center; gap: 8px; width: 100%; font: 600 15px var(--mono); overflow-wrap: anywhere; }
 .strip { display: flex; gap: 3px; min-height: 12px; }
 .strip i { display: block; width: 12px; height: 12px; border-radius: 3px; border: 1.5px solid var(--ink); background: var(--paper); }
