@@ -1401,15 +1401,17 @@ def test_one_session_view_everywhere():
     spec = _component(script, "SessionSpec")
     for row in ("Persona", "Action", "Model", "Permission mode", "Ceiling", "Covered items", "Worktree", "Branch", "Start command"):
         assert f"<dt>{row}</dt>" in spec, row
-    assert "started before origins were kept" in _component(script, "originWords")
+    assert "started before origins were kept" in _component(script, "originWords") and "a.origin_kept ?" in _component(script, "originWords")
     assert 'post("agents/view"' in view and 'aria-label="Also on these items"' in view and "Ask} key=${x.id}" in view
     assert "Waiting for you" in _component(script, "sessionWords")
 
 
 def test_the_terminal_keeps_your_place():
-    """A static check (004 FR-005): new output follows the end only while you're at it."""
+    """A static check (004 FR-005): tmux, not the page, keeps your place while output arrives."""
     term = _component(_app_js(), "TerminalView")
-    assert "b.viewportY >= b.baseY" in term and "if (atEnd) term.scrollToBottom()" in term
+    # The place is kept by tmux copy mode (the wheel, with tmux's mouse on): the page leaves the scrolling to it.
+    assert "scrollToBottom" not in term and "copy mode keeps your place" in term
+    assert '"mouse", "on"' in (Path(__file__).resolve().parents[1] / "hubd" / "shells.py").read_text()
 
 
 # --- results (005 R2): who sees submit_result, and sessions started before it ----------------------
@@ -1532,3 +1534,21 @@ def test_every_result_type_has_its_view_in_launch_and_in_needs_you():
     drafts = _component(script, "DraftsResult")
     assert "`new-work/${item.id}/file`" in drafts and "`new-work/${item.id}/hand`" in drafts and "`new-work/${item.id}/edit`" in drafts
     assert "dangerouslySetInnerHTML" not in view, "a session's text is shown, never rendered"
+
+
+def test_sessions_running_groups_badges_and_history_filters():
+    """A static check (004 FR-012–FR-019, FR-022): the page isn't run here."""
+    script = _app_js()
+    groups = re.search(r"const RUN_GROUPS = \[(.*?)\];", script)[1]
+    assert re.findall(r'\["(\w+)", "[^"]+"\]', groups) == ["embedded", "background", "finished", "plain"]
+    shells = _component(script, "Shells")
+    # A session started elsewhere shows without a reload: polled like the other lists that change under you.
+    assert 'useLoad(() => api("shells"), [], 3000)' in shells
+    assert "Badges only" in shells and "<${FamilyLegend} />" in shells and "waiting" in shells and "⇄ also on" in shells
+    assert "originWords(a)" in shells and "Resume a past session" in shells and "<${NewShell} " in shells
+    assert 'post("agents/worktrees", { repo })' in _component(script, "NewShell") and "<${RepoPicker} " in _component(script, "NewShell")
+    past = _component(script, "PastSessions")
+    assert 'post("agents/past", { persona: persona || undefined, repo: repo || undefined, outcome:' in past
+    assert "Running again" in past and "Resuming…" in past and "Restoring…" in past
+    clean = _component(script, "Cleanup")
+    assert "safe.filter((r) => r.pr_settled)" in clean and ">Select safe<" in clean and "r.commands.join" in clean and 'role="switch"' in clean

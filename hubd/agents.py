@@ -208,6 +208,7 @@ def _session_scope(name: str, config: dict, full: bool, all_repos: bool = False,
 
 
 REMOVE_AFTER_DAYS = 7
+PAST_OUTCOMES = ("interrupted", "ended", "finished")
 
 
 def _start_ref(name: str) -> str:
@@ -1264,11 +1265,11 @@ class Agents:
             # A full session starts where you would: the workspace's rules and memory are there.
             cwd = self.workspace if _full(action) else self.home
             # Before the terminal: from when it's open, this is a session, not a shell in the way.
+            # 005 FR-010: the Launch record it came from, shown as its origin. Always written, null without a Launch, so a
+            # session started directly (the API, a session's tool) can be told from one started before origins were kept.
             record = {"name": name, "session_id": session_id, "config": config, "title": action["title"],
                       "object": action["object"], "full": _full(action), "permission_mode": _mode(action), "created": time.time(),
-                      "started_by": started_by}
-            if origin is not None:  # 005 FR-010: the Launch record it came from, shown as its origin
-                record["origin"] = origin
+                      "started_by": started_by, "origin": origin}
             (directory / "session.json").write_text(json.dumps(record))
             await self.shells.new(name, str(cwd), self._command(directory, script))
         except Exception:  # whatever it was, a folder left behind would keep the name taken
@@ -1849,6 +1850,7 @@ class Agents:
         badge = self.library.family(config["persona"]) or {"name": config["persona"], "initials": None, "family": None}
         return {"title": record["title"], "object": record["object"], "repo": config["repo"], "number": config["number"], "also_numbers": config.get("also_numbers", []),
                 "covers": covers_of(config), "prs": self._prs_seen(name, record), "view": self._view(name), "origin": record.get("origin"),
+                "origin_kept": "origin" in record, "created": record.get("created"),
                 "permission_mode": record.get("permission_mode"),  # as it ran; None for a record from before it was kept
                 "model": config["model"], "effort": config["effort"], "persona": config["persona"], "action": config["action"],
                 "persona_name": badge["name"], "initials": badge["initials"], "family": badge["family"],
@@ -2152,10 +2154,33 @@ class Agents:
             return "none"
         return "kept" if len(self._present(name)) >= len(self._checkouts(name, config, action)) else "removed"
 
-    async def past(self) -> list[dict]:
-        """Every session that isn't running, newest first. The Steward has its own place."""
+    async def past(self, persona=None, repo=None, outcome=None) -> list[dict]:
+        """Every session that isn't running, newest first. The Steward has its own place.
+        004 FR-016: narrowed to a persona, a repository and an outcome (interrupted, ended, finished) when given."""
+        if persona is not None and not (isinstance(persona, str) and _NAME_RE.fullmatch(persona)):
+            raise AgentError("persona is a name")
+        if repo is not None and not (isinstance(repo, str) and _REPO_RE.fullmatch(repo) and ".." not in repo):
+            raise AgentError("not a repository name")
+        if outcome not in (None, *PAST_OUTCOMES):
+            raise AgentError(f"outcome is one of {', '.join(PAST_OUTCOMES)}")
         live = {s["name"] for s in await self.shells.list()}
-        return await asyncio.to_thread(self._past_rows, live)  # reads transcripts, which can be long
+        rows = await asyncio.to_thread(self._past_rows, live)  # reads transcripts, which can be long
+        return [r for r in rows if (persona is None or r["persona"] == persona) and (repo is None or r["repo"] == repo) and (outcome is None or r["kind"] == outcome)]
+
+    def worktrees(self, repo) -> list[dict]:
+        """004 FR-015: where a plain shell can start for a repository: its checkout in the workspace and the session
+        worktrees of it there. Paths only; a login can start a shell anywhere the user can."""
+        if not (isinstance(repo, str) and _REPO_RE.fullmatch(repo) and ".." not in repo):
+            raise AgentError("not a repository name")
+        found = []
+        main = self.main_checkout(repo)
+        if (main / ".git").exists():
+            found.append({"path": str(main), "label": "the workspace's checkout"})
+        for folder in sorted(self.work.iterdir() if self.work.is_dir() else ()):
+            into = folder / repo.lstrip(".")
+            if (into / ".git").exists():
+                found.append({"path": str(into), "label": f"session {folder.name}"})
+        return found
 
     def _past_rows(self, live: set[str]) -> list[dict]:
         rows = []
@@ -2331,7 +2356,7 @@ class Agents:
     async def _cleanup_row(self, name: str, checkouts: list[Path], live: set[str]) -> dict:
         directory = self.sessions / name
         running = name in self._starting or (name in live and not (directory / ENDED_FILE).exists())
-        row = {"id": name, "path": str(checkouts[0].parent if checkouts else self.work / name), "size": 0, "commands": [], "merged_at": None}
+        row = {"id": name, "path": str(checkouts[0].parent if checkouts else self.work / name), "size": 0, "commands": [], "merged_at": None, "pr_settled": False}
         row["size"] = sum([await asyncio.to_thread(self._size, c) for c in checkouts])
         if running:
             return {**row, "state": "inuse", "what": "A session is running here."}
@@ -2348,7 +2373,7 @@ class Agents:
                     (s["inside"], "changes or unpushed commits inside a submodule")) if count]
         if worries:
             return {**row, "state": "review", "what": ", ".join(worries) + "."}
-        merged, what, more_work = [], [], False
+        merged, what, more_work, settled = [], [], False, True
         for s in scans:
             if s["branch"] == "HEAD":  # a detached read-only checkout: nothing of its own
                 what.append(f"{s['repo']}: read-only checkout")
@@ -2363,6 +2388,7 @@ class Agents:
                     return {**row, "state": "review", "what": f"{s['repo']}: its branch isn't on GitHub any more."}
             except (AgentError, Refused, ValueError, TypeError, KeyError) as e:
                 return {**row, "state": "review", "what": f"Couldn't check its pull request: {e}"}
+            settled = settled and bool(pr) and pr["state"] in ("MERGED", "CLOSED")
             if done:
                 merged.append(pr["mergedAt"])
                 what.append(f"{s['repo']}: pull request #{pr['number']} merged")
@@ -2380,7 +2406,9 @@ class Agents:
         for s in scans:
             if s["branch"] == f"agent/{name}":  # the scan found every commit on GitHub
                 shown.append(["git", "-C", str(s["main"]), "branch", "-D", s["branch"]])
-        return {**row, "state": "safe", "what": "; ".join(what) + "." if what else "Nothing in it.",
+        # 004 FR-022: "Select safe" takes only these, where every branch's pull request is merged or closed. A safe row with
+        # no pull request can still be ticked by hand.
+        return {**row, "state": "safe", "what": "; ".join(what) + "." if what else "Nothing in it.", "pr_settled": settled,
                 "commands": [shlex.join(c) for c in shown] + ([f"tmux kill-session -t {shlex.quote(name)}"] if name in live else []),
                 "_argv": commands, "_mains": [s["main"] for s in scans], "merged_at": max(merged) if merged and not more_work else None}
 
