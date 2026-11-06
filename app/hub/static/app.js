@@ -856,61 +856,259 @@ function SteerFields({ kind, notes, pins, onNotes, onPins }) {
 }
 
 // 006 FR-015, as Launch needs it: the item's agent actions, each opening Launch on this item (006/PR 1 adds the rest of the row).
-function LaunchRow({ kind, repo, number, failing, threads }) {
-  const { data, error } = useLoad(() => api(`agents/actions${params({ object: kind })}`), [kind]);
-  const openThreads = threads ? threads.open : 0;
-  const reviewCount = threads ? threads.reviews : 0;  // a review can say it all in its text, with no threads
-  const threadPins = threads ? threads.pins : [];
-  const offered = (data || []).filter((a) => (!a.when || a.when === (failing ? "failing" : "not-failing")) && (!a.needs || (a.needs === "review" && openThreads + reviewCount > 0))).sort((a, b) => Boolean(b.needs) - Boolean(a.needs));
-  const titleOf = (a) => (a.needs === "review" ? `${a.title} · ${threadPins.length ? count(threadPins.length, "ticked thread") : openThreads === 1 ? "1 open thread" : openThreads ? `all ${openThreads} threads` : count(reviewCount, "review")}` : a.title);
+// The kind's agent actions that apply to the item now: `when` by its checks, `needs: "review"` only with something to address.
+function offeredFor(actions, facts) {
+  return (actions || []).filter((a) => (!a.when || a.when === (facts.failing ? "failing" : "not-failing"))
+    && (!a.needs || (a.needs === "review" && facts.openThreads + facts.reviews > 0)));
+}
+
+// 006 FR-007: the one action that fits the item best. Fix if failing, address if a review asked for changes, triage if
+// nobody has labelled it, else review a PR, implement an issue, investigate a run. Work's rows use it too.
+const BEST_VERB = { pr: "review", issue: "implement", run: "investigate" };
+function bestAction(kind, facts, offered) {
+  const verb = facts.failing ? (kind === "run" ? "investigate" : "fix")
+    : kind === "pr" && (facts.changesRequested || facts.openThreads > 0) ? "address"
+    : kind === "issue" && facts.untriaged ? "triage" : BEST_VERB[kind];
+  return offered.find((a) => a.verb === verb) || offered.find((a) => a.verb) || offered[0] || null;
+}
+
+const useKindActions = (kind) => useLoad(() => api(`agents/actions${params({ object: kind })}`), [kind]);
+
+// 006 FR-015: the kind's agent actions as blue buttons, the best one filled, and "New work from this…". Each opens Launch on the item.
+function LaunchRow({ kind, repo, number, facts }) {
+  const { data, error } = useKindActions(kind);
+  const offered = offeredFor(data, facts);
+  const best = bestAction(kind, facts, offered);
+  const ordered = best ? [best, ...offered.filter((a) => a !== best)] : offered;
+  const pins = facts.threadPins || [];
+  const titleOf = (a) => (a.needs === "review" ? `${a.title} · ${pins.length ? count(pins.length, "ticked thread") : facts.openThreads === 1 ? "1 open thread" : facts.openThreads ? `all ${facts.openThreads} threads` : count(facts.reviews, "review")}` : a.title);
   const here = `${repo}#${number}`;
-  const open = (a) => launch({ action: a.id, covers: [{ kind, repo, number }], pins: a.needs === "review" ? threadPins : [], from: { view: "Work", ref: here } });
+  const open = (a) => launch({ action: a.id, covers: [{ kind, repo, number }], pins: a.needs === "review" ? pins : [], from: { view: "Work", ref: here } });
   return html`<section class="spawn keycap" aria-labelledby="h-launch">
     <div class="row" style="gap: 4px 12px; align-items: baseline"><h2 id="h-launch" class="row" style="gap: 8px; font-size: 19px; font-weight: 600"><${TermIcon} />Launch on ${here}</h2>
       <span class="small soft">Each opens Launch on this item: a planner reads first, and nothing runs until you've read its plan.</span></div>
     <${Err} text=${error} />
-    <div class="row">${offered.map((a, i) => html`<button class=${i === 0 ? "primary" : ""} title=${`${a.summary} ${a.ceiling}`} onClick=${() => open(a)}><${TermIcon} />${titleOf(a)}</button>`)}</div>
+    <div class="row">${ordered.map((a) => html`<button class=${a === best ? "primary" : "pen"} title=${`${a.summary} ${a.ceiling}`} onClick=${() => open(a)}><${TermIcon} />${titleOf(a)}</button>`)}
+      <button class="pen" onClick=${() => launch({ repos: [repo], context: here, pins: [{ kind: "ref", label: here }], from: { view: "Work", ref: here } })}>＋ New work from this…</button></div>
   </section>`;
 }
 
-// --- work: details --------------------------------------------------------------------
-function Labels({ repo, number, labels, editable, onChanged }) {
-  const [adding, setAdding] = useState(false);
-  const [value, setValue] = useState("");
-  const act = useAct(onChanged);
-  const change = (body) => act.run(() => post(`issues/${repo}/${number}/labels`, body));
-  return html`<div class="labels">
-    ${labels.map((l) => html`<span class="label" style=${editable ? "" : "padding-right: 8px"}>${l.name}
-      ${editable && html`<button aria-label="Remove label ${l.name}" disabled=${act.busy} onClick=${() => change({ remove: [l.name] })}>
-        <svg width="12" height="12" viewBox="0 0 12 12" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6" /></svg></button>`}</span>`)}
-    ${editable && !adding && html`<button class="addlabel" onClick=${() => setAdding(true)}>+ label</button>`}
-    ${adding && html`<form class="row" onSubmit=${async (e) => { e.preventDefault(); await change({ add: [value] }); setValue(""); setAdding(false); }}>
-      <input aria-label="New label" autofocus style="min-height: 32px" value=${value} onInput=${(e) => setValue(e.target.value)} /></form>`}
-    <${Err} text=${act.error} /></div>`;
+// 006 FR-025: no session covers the item, so the best action is offered as a suggestion, in Needs you's card style.
+function SuggestBest({ kind, repo, number, facts }) {
+  const { data } = useKindActions(kind);
+  const best = bestAction(kind, facts, offeredFor(data, facts));
+  if (!best) return html`<p class="small soft">No session on this item.</p>`;
+  const here = `${repo}#${number}`;
+  return html`<article class="ask calm compact"><div class="ask-head"><span class="ask-kind">SESSION · SUGGESTED</span></div>
+    <div class="ask-body"><h3 class="ask-title">${best.title} ${here}</h3><p class="small">${best.summary}</p>
+      <p class="small soft">A planner reads this first. Nothing runs until you've read its plan.</p>
+      <div class="row"><button class="primary" onClick=${() => launch({ action: best.id, covers: [{ kind, repo, number }], pins: best.needs === "review" ? facts.threadPins || [] : [], from: { view: "Work", ref: here } })}><${TermIcon} />Launch…</button></div></div></article>`;
 }
 
+// 006 FR-023–FR-025: every session on the item. Embedded ones as persona tabs, each its SessionView; the ones in the
+// background as links; none, a suggestion for the best action.
+function SessionsOn({ kind, repo, number, facts, sessions, phaseOf, place, setPhase, asks, onReload }) {
+  const here = `${repo}#${number}`;
+  const embedded = sessions.filter((s) => phaseOf(s) === "embedded");
+  const behind = sessions.filter((s) => phaseOf(s) !== "embedded");
+  const [tab, setTab] = useState(null);
+  const current = embedded.find((s) => s.name === tab) || embedded[0];
+  return html`<section class="stack" aria-labelledby="h-sessions-on" style="gap: 10px">
+    <h2 id="h-sessions-on" style="font-size: 19px; font-weight: 600">Sessions on ${here} · ${sessions.length}</h2>
+    ${!sessions.length && html`<${SuggestBest} kind=${kind} repo=${repo} number=${number} facts=${facts} />`}
+    ${embedded.length > 0 && html`<div role="tablist" aria-label="Sessions on ${here}" class="tabs">${embedded.map((s) => html`<button role="tab" aria-selected=${s === current ? "true" : "false"} onClick=${() => setTab(s.name)}>
+        <${PersonaBadge} persona=${personaOf(s.agent)} hidden /> ${s.agent.persona_name || s.agent.persona} <span class="mono soft" style="font-size: 12.5px">${s.name}</span></button>`)}</div>
+      <${SessionView} key=${current.name} session=${current} mode="embedded" asks=${asks} here=${here}
+        onView=${(m) => setPhase(current.name, m)} onEnded=${onReload} onGone=${onReload} />`}
+    ${behind.length > 0 && html`<div role="status" class="notice quiet"><span class="grow">${behind.length} sent to background: ${behind.map((s, i) => html`${i ? ", " : ""}<a class="mono" href=${hash("shells", { name: s.name })}>${s.name}</a> (${s.agent.persona_name || s.agent.persona}${s.agent.waiting ? ", waiting" : ""})`)}</span>
+      ${behind.map((s) => html`<button class="plain" onClick=${() => place(s.name, "embedded")}>Bring back ${behind.length > 1 ? s.name : ""}</button>`)}</div>`}
+  </section>`;
+}
+
+// The host's user, for "On GitHub, as …": the page's GitHub actions run on the host's own gh. Set by Hub.
+let HOST_USER = "";
+
+// --- work item: GitHub actions, as you -------------------------------------------------------
+// Which labels the item has, and the repository's, ticked on and off. One call adds and removes.
+function LabelsDialog({ repo, have, path, onDone, onNo }) {
+  const ref = useRef();
+  const all = useLoad(() => api(`labels/${repo}`), [repo]);
+  const [on, setOn] = useState(() => new Set(have));
+  const act = useAct();
+  useEffect(() => { ref.current.showModal(); }, []);
+  const names = [...new Set([...(all.data || []).map((l) => l.name), ...have])].sort((a, b) => a.localeCompare(b));
+  const add = names.filter((n) => on.has(n) && !have.includes(n));
+  const remove = have.filter((n) => !on.has(n));
+  const apply = () => act.run(async () => { await post(path, { add, remove }); onDone(`Labels changed${add.length ? `: +${add.join(", +")}` : ""}${remove.length ? `${add.length ? "," : ":"} −${remove.join(", −")}` : ""}`); });
+  return html`<dialog ref=${ref} onClose=${onNo}><h2>Labels</h2>
+    <${Err} text=${all.error || act.error} />${!all.data && !all.error && html`<p class="soft">Loading…</p>`}
+    <div class="stack" style="gap: 4px; max-height: 50vh; overflow: auto">${names.map((n) => html`<label class="row" style="gap: 8px"><input type="checkbox" checked=${on.has(n)}
+      onChange=${() => setOn((s) => { const x = new Set(s); if (!x.delete(n)) x.add(n); return x; })} />${n}</label>`)}</div>
+    <div class="row"><button class="gh" disabled=${act.busy || !(add.length || remove.length)} onClick=${apply}>Apply</button><button onClick=${onNo}>Cancel</button></div></dialog>`;
+}
+
+function MergeDialog({ data, onYes, onNo }) {
+  const ref = useRef();
+  const [method, setMethod] = useState("squash");
+  useEffect(() => { ref.current.showModal(); }, []);
+  return html`<dialog ref=${ref} onClose=${onNo}><h2>Merge this pull request?</h2>
+    <p>${data.repo}#${data.number} at <span class="mono">${(data.headRefOid || "").slice(0, 12)}</span> into ${data.baseRefName}. Checks: ${data.checks}. If it has moved on from that commit, the merge fails.</p>
+    <label class="field"><span>How</span><select value=${method} onChange=${(e) => setMethod(e.target.value)}>
+      <option value="squash">Squash and merge</option><option value="merge">Merge commit</option><option value="rebase">Rebase and merge</option></select></label>
+    <div class="row"><button class="gh" onClick=${() => onYes(method)}>Merge</button><button onClick=${onNo}>Cancel</button></div></dialog>`;
+}
+
+// Everything the black button offers for one kind (006 FR-030, FR-032, FR-033). Each entry says why it's off, or null.
+function ghEntries({ kind, data, repo, number, base, behind }) {
+  const page = { label: "Open on GitHub", disabled: null, href: data.url };
+  if (kind === "pr") {
+    const open = data.state === "OPEN";
+    const merged = data.state === "MERGED";
+    const blockers = (data.merge_blockers || []).map((b) => b.why);
+    return [
+      { id: "merge", label: "Merge…", done: "Merged", merge: true,
+        disabled: merged ? "already merged" : !open ? "closed" : data.isDraft ? "a draft: mark it ready first" : blockers.length ? `off while ${blockers.join(", ")}` : null },
+      { id: "ready", label: "Mark ready", done: "Marked ready", run: () => post(`${base}/ready`), disabled: !open ? "not open" : data.isDraft ? null : "not a draft" },
+      { id: "update", label: behind ? `Update branch · ${behind} behind` : "Update branch", done: "Branch updated", run: () => post(`${base}/update-branch`),
+        disabled: !open ? "not open" : behind === 0 ? `0 behind ${data.baseRefName}` : null },
+      { id: "labels", label: "Labels…", labels: `${base}/labels`, disabled: null },
+      open ? { id: "close", label: "Close", done: "Closed", run: () => post(`${base}/close`), disabled: null,
+        confirm: { title: "Close without merging?", text: `${repo}#${number}: ${data.title}`, label: "Close pull request" } }
+        : { id: "reopen", label: "Reopen", done: "Reopened", run: () => post(`${base}/reopen`), disabled: merged ? "merged pull requests can't reopen" : null },
+      page,
+    ];
+  }
+  if (kind === "issue") {
+    const open = data.state === "OPEN";
+    const mine = (data.assignees || []).some((a) => a.login === HOST_USER);
+    const close = (reason, label) => ({ id: `close-${reason}`, label, done: `Closed as ${reason}`, run: () => post(`${base}/close`, { reason }),
+      disabled: open ? null : "already closed", confirm: { title: `${label}?`, text: `${repo}#${number}: ${data.title}`, label } });
+    return [
+      close("completed", "Close as completed"),
+      close("not planned", "Close as not planned"),
+      { id: "reopen", label: "Reopen", done: "Reopened", run: () => post(`${base}/reopen`), disabled: open ? "it's open" : null },
+      { id: "labels", label: "Labels…", labels: `${base}/labels`, disabled: null },
+      { id: "assign", label: "Assign to me", done: "Assigned", run: () => post(`${base}/assign-me`), disabled: mine ? "assigned to you" : null },
+      page,
+    ];
+  }
+  const running = data.status !== "completed";
+  return [
+    { id: "rerun-failed", label: "Re-run failed jobs", done: "Re-run started", run: () => post(`${base}/rerun`, { failed_only: true }),
+      disabled: running ? "running" : data.conclusion === "failure" ? null : "no job failed" },
+    { id: "rerun-all", label: "Re-run all", done: "Re-run started", run: () => post(`${base}/rerun`, { failed_only: false }), disabled: running ? "running" : null },
+    { id: "cancel", label: "Cancel run", done: "Cancelled", run: () => post(`${base}/cancel`), disabled: running ? null : "completed",
+      confirm: { title: "Cancel this run?", text: `${data.workflowName} · ${data.displayTitle}`, label: "Cancel run" } },
+    { id: "log", label: "Download full log", download: `${base}/log?all=1`, disabled: null },
+    page,
+  ];
+}
+
+// 006 FR-026–FR-029, FR-038: a black split button, as you on GitHub. Its main action is the first one that's on; the arrow
+// opens the rest, the ones that are off saying why. Black, never blue: blue starts an agent (001 FR-013).
+function GhActions({ kind, data, repo, number, base, behind, onDone }) {
+  const entries = ghEntries({ kind, data, repo, number, base, behind });
+  const main = entries.find((e) => !e.disabled && !e.href) || entries.find((e) => !e.href) || entries[0];
+  const [menu, setMenu] = useState(false);
+  const [modal, setModal] = useState(null);
+  const [said, setSaid] = useState("");
+  const [confirm, dialog] = useConfirm();
+  const act = useAct();
+  const box = useRef();
+  useEffect(() => {
+    if (!menu) return undefined;
+    const away = (e) => { if (box.current && !box.current.contains(e.target)) setMenu(false); };
+    const esc = (e) => { if (e.key === "Escape") setMenu(false); };
+    document.addEventListener("pointerdown", away);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("pointerdown", away); document.removeEventListener("keydown", esc); };
+  }, [menu]);
+  // The view reloads at once and again after a few seconds, as GitHub can take a moment to show the change (FR-038).
+  const finish = async (words) => { setSaid(`${words} by ${HOST_USER || "you"}.`); await onDone(); setTimeout(onDone, 4000); };
+  const go = (e) => {
+    setMenu(false);
+    if (e.disabled) return;
+    if (e.href) { window.open(e.href, "_blank", "noopener,noreferrer"); return; }
+    if (e.merge) { setModal("merge"); return; }
+    if (e.labels) { setModal("labels"); return; }
+    if (e.download) {
+      act.run(async () => {
+        const text = await api(e.download);
+        const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([text], { type: "text/plain" })), download: `${repo}-run-${number}.log` });
+        a.click();
+        URL.revokeObjectURL(a.href);
+      });
+      return;
+    }
+    const doIt = () => act.run(async () => { await e.run(); await finish(e.done); });
+    if (e.confirm) confirm({ ...e.confirm, danger: true }, doIt); else doIt();
+  };
+  const merge = (method) => { setModal(null); act.run(async () => { await post(`${base}/merge`, { method, head: data.headRefOid }); await finish("Merged"); }); };
+  const have = (data.labels || []).map((l) => l.name);
+  return html`<div class="ghactions" ref=${box}>${dialog}
+    ${modal === "merge" && html`<${MergeDialog} data=${{ ...data, repo, number }} onYes=${merge} onNo=${() => setModal(null)} />`}
+    ${modal === "labels" && html`<${LabelsDialog} repo=${repo} have=${have} path=${`${base}/labels`} onNo=${() => setModal(null)} onDone=${(w) => { setModal(null); finish(w); }} />`}
+    <div class="ghsplit"><button class="gh" disabled=${act.busy || Boolean(main.disabled)} title=${main.disabled || ""} onClick=${() => go(main)}>${main.label}</button>
+      <button class="gh arrow" aria-haspopup="menu" aria-expanded=${menu ? "true" : "false"} aria-label="More actions on GitHub" disabled=${act.busy} onClick=${() => setMenu(!menu)}>
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 5l4 4 4-4" /></svg></button></div>
+    <span class="small soft">On GitHub, as <span class="mono">${HOST_USER || "the host's gh"}</span></span>
+    ${menu && html`<ul role="menu" class="ghmenu" aria-label="Actions on GitHub">${entries.map((e) => html`<li role="none">
+      <button role="menuitem" aria-disabled=${e.disabled ? "true" : "false"} onClick=${() => go(e)}><span>${e.label}</span>${e.disabled && html`<span class="why">${e.disabled}</span>`}</button></li>`)}</ul>`}
+    <${Err} text=${act.error} />${said && html`<span role="status" class="small">${said}</span>`}</div>`;
+}
+
+// --- work item ---------------------------------------------------------------------------------
 function Comments({ list }) {
   return list.map((c) => html`<article class="body">
     <span class="row small soft" style="gap: 8px"><span class="mono" style="font-size: 12.5px">${c.author && c.author.login} · ${ago(c.createdAt || c.submittedAt)}</span>
       ${c.badge && html`<span class="badge dim">${c.badge}</span>`}</span><${Md} text=${c.body} /></article>`);
 }
 
-// One item, on its own page: what it is, what you can do, Claude, then its sections and details.
-function ItemFrame({ kindLabel, where, title, state, stateCls, meta, actions, claude, sections, details }) {
+const WORK_TAB = { issue: "issues", pr: "prs", run: "actions" };
+
+// One item on its own page (006 FR-011–FR-014): where it is, its state, title and reference, the black GitHub button beside
+// the title, a Details flyout, one line of facts; then Launch, the sessions on it, and its content.
+function ItemFrame({ kind, repo, refText, title, state, stateCls, gh, details, facts, chips, launchRow, sessions, sections }) {
   const [tab, setTab] = useState(sections[0].id);
+  const [showDetails, setShowDetails] = useState(false);
   const current = sections.find((x) => x.id === tab) || sections[0];
-  return html`<div class="stack" style="gap: 8px"><${Eyebrow} soft>${kindLabel} · GlassineOS/${where}<//>
-      <h1 class="itemtitle">${title}</h1>
-      <div class="row small soft" style="gap: 6px 14px"><span class="badge ${stateCls}">${state}</span>${meta.filter(Boolean).map((m) => html`<span>${m}</span>`)}</div></div>
-    ${actions}
-    ${claude}
-    <div class="columns near"><section class="wide stack" aria-label="Content" style="gap: 16px">
-        <div role="tablist" aria-label="Item sections" class="tabs">${sections.map((x) => html`<button role="tab" aria-selected=${current.id === x.id ? "true" : "false"} onClick=${() => setTab(x.id)}>${x.label}</button>`)}</div>
-        ${current.body}</section>
-      <aside class="aside stack itemside" aria-label="Details">${details}</aside></div>`;
+  return html`<div class="stack" style="gap: 10px">
+      <nav aria-label="Breadcrumb" class="small mono crumbline"><a href=${hash("work", { tab: WORK_TAB[kind] })}>Work</a> › <a href=${hash("work", { tab: WORK_TAB[kind], repo })}>${repo}</a> › <span aria-current="page">${refText}</span></nav>
+      <div class="itemhead"><div class="stack grow" style="gap: 6px">
+          <h1 class="itemtitle">${title}</h1>
+          <div class="row small soft" style="gap: 6px 12px"><span class="badge ${stateCls}">${state}</span><span class="mono">${refText}</span>
+            <button class="link" aria-haspopup="dialog" onClick=${() => setShowDetails(true)}>Details</button></div></div>
+        ${gh}</div>
+      <p class="small facts">${facts.filter(Boolean).join(" · ")}</p>
+      ${chips}</div>
+    ${showDetails && html`<${DetailsFlyout} title=${`${refText} details`} onClose=${() => setShowDetails(false)}>${details}<//>`}
+    ${launchRow}
+    ${sessions}
+    <section class="stack" aria-label="Content" style="gap: 16px">
+      ${sections.length > 1 && html`<div role="tablist" aria-label="Item sections" class="tabs">${sections.map((x) => html`<button role="tab" aria-selected=${current.id === x.id ? "true" : "false"} onClick=${() => setTab(x.id)}>${x.label}</button>`)}</div>`}
+      ${current.body}</section>`;
 }
 
-function Comment({ busy, onSend, object, repo, number }) {
+function DetailsFlyout({ title, onClose, children }) {
+  const ref = useRef();
+  useEffect(() => { ref.current.showModal(); }, []);
+  return html`<dialog class="flyout" ref=${ref} onClose=${onClose} aria-label=${title}>
+    <div class="row" style="justify-content: space-between"><h2>Details</h2><button class="plain" onClick=${() => ref.current.close()}>Close</button></div>
+    ${children}</dialog>`;
+}
+
+// The checks as chips (006 FR-016): failing first, each linking to its run.
+function CheckChips({ checks }) {
+  if (!checks.length) return null;
+  const order = (c) => ({ bad: 0, dim: 1, "": 2 }[CHECK_BADGE(c.state)[1]]);
+  return html`<div class="row" style="gap: 6px" aria-label="Checks">${[...checks].sort((a, b) => order(a) - order(b)).map((c) => {
+    const [word, cls] = CHECK_BADGE(c.state);
+    const name = c.workflow && c.workflow !== c.name ? `${c.workflow} · ${c.name}` : c.name;
+    return c.url ? html`<a class="checkchip ${cls}" href=${c.url} target="_blank" rel="noreferrer noopener">${word} · ${name}</a>` : html`<span class="checkchip ${cls}">${word} · ${name}</span>`;
+  })}</div>`;
+}
+
+function Comment({ busy, onSend, object, repo, number, onDraft }) {
   const [text, setText] = useState("");
   const [note, setNote] = useState("");
   const draft = useAct();
@@ -919,15 +1117,16 @@ function Comment({ busy, onSend, object, repo, number }) {
     try {
       const r = await post("agents/draft", { kind, object, repo, number });
       setText((t) => (t.trim() ? `${t.trim()}\n\n${r.text}` : r.text));
-      setNote("Draft ready. Edit it, then Comment: nothing is posted until you do.");
+      setNote("Draft ready. Edit it, then Post: nothing is posted until you do.");
     } catch (e) { setNote(""); throw e; }
   });
   return html`<label class="field" style="gap: 6px"><span>Comment</span>
     <textarea rows="4" placeholder="Markdown supported" value=${text} onInput=${(e) => setText(e.target.value)}></textarea></label>
     <${Err} text=${draft.error} />
-    <div class="row"><button class="primary" disabled=${busy || !text.trim()} onClick=${async () => { await onSend(text); setText(""); setNote(""); }}>Comment</button>
-      <button disabled=${draft.busy} onClick=${() => ask("comment")}><${TermIcon} />Draft with Claude</button>
-      <button disabled=${draft.busy} onClick=${() => ask("summary")}><${TermIcon} />Summarise thread</button>
+    <div class="row"><button class="gh" disabled=${busy || !text.trim()} onClick=${async () => { await onSend(text); setText(""); setNote(""); }}>Post</button>
+      ${onDraft ? html`<button class="pen" onClick=${() => onDraft(text)}><${TermIcon} />Draft with Claude</button>`
+        : html`<button class="pen" disabled=${draft.busy} onClick=${() => ask("comment")}><${TermIcon} />Draft with Claude</button>
+          <button disabled=${draft.busy} onClick=${() => ask("summary")}><${TermIcon} />Summarise thread</button>`}
       <span role="status" class="small soft">${note}</span></div>`;
 }
 
@@ -966,6 +1165,9 @@ function Thread({ thread, base, repo, number, ticked, onTick, onChanged }) {
   </article>`;
 }
 
+const threadPin = (t) => ({ kind: "thread", label: `${t.path}${t.line ? `:${t.line}` : ""} (${t.id})` });
+
+// 006 FR-018: tick threads, then "Address N threads…" opens Launch with the address action and those threads pinned.
 function Threads({ threads, base, repo, number, picked, setPicked, onChanged }) {
   const open = threads.filter((t) => !t.resolved);
   const ticked = open.filter((t) => picked.has(t.id));
@@ -973,100 +1175,168 @@ function Threads({ threads, base, repo, number, picked, setPicked, onChanged }) 
   const [showDone, setShowDone] = useState(false);
   const done = threads.filter((t) => t.resolved);
   const toggle = (id) => setPicked((p) => { const n = new Set(p); if (!n.delete(id)) n.add(id); return n; });
-  return html`${open.length > 0 && html`<div class="notice"><span class="grow" style="font-weight: 600">${count(open.length, "open review thread")}${ticked.length ? ` · ${ticked.length} ticked, pinned for the agent` : " · tick the ones an agent should address"}</span>
-      <button class="plain" onClick=${() => setPicked(all ? new Set() : new Set(open.map((t) => t.id)))}>${all ? "Clear selection" : "Select all"}</button></div>`}
+  const address = ticked.length ? ticked : open;
+  const here = `${repo}#${number}`;
+  return html`${open.length > 0 && html`<div class="notice"><span class="grow" style="font-weight: 600">${count(open.length, "open review thread")}${ticked.length ? ` · ${ticked.length} ticked` : " · tick the ones an agent should address"}</span>
+      <button class="plain" onClick=${() => setPicked(all ? new Set() : new Set(open.map((t) => t.id)))}>${all ? "Clear selection" : "Select all"}</button>
+      <button class="pen" onClick=${() => launch({ verb: "address", covers: [{ kind: "pr", repo, number }], pins: address.map(threadPin), from: { view: "Work", ref: here } })}><${TermIcon} />Address ${count(address.length, "thread")}…</button></div>`}
     ${open.map((t) => html`<${Thread} key=${t.id} thread=${t} base=${base} repo=${repo} number=${number} ticked=${picked.has(t.id)} onTick=${() => toggle(t.id)} onChanged=${onChanged} />`)}
     ${done.length > 0 && html`<button class="link" style="align-self: flex-start" aria-expanded=${showDone ? "true" : "false"} onClick=${() => setShowDone(!showDone)}>${showDone ? "Hide" : "Show"} ${count(done.length, "resolved thread")}</button>`}
     ${showDone && done.map((t) => html`<${Thread} key=${t.id} thread=${t} base=${base} repo=${repo} number=${number} onChanged=${onChanged} />`)}`;
 }
 
-function IssueDetail({ repo, number, spawn, onChanged }) {
+// A file's diff as rows with old and new line numbers. Lines outside a hunk (the header) are dropped.
+function diffRows(text) {
+  const rows = [];
+  let a = 0;
+  let b = 0;
+  for (const line of String(text || "").split("\n")) {
+    const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/.exec(line);
+    if (hunk) { a = Number(hunk[1]); b = Number(hunk[2]); rows.push({ kind: "hunk", text: line }); continue; }
+    if (!a && !b) continue;
+    if (line.startsWith("+")) rows.push({ kind: "add", b: b++, text: line.slice(1) });
+    else if (line.startsWith("-")) rows.push({ kind: "del", a: a++, text: line.slice(1) });
+    else if (line.startsWith("\\")) rows.push({ kind: "note", text: line });
+    else if (line.startsWith(" ") || line === "") rows.push({ kind: "ctx", a: a++, b: b++, text: line.slice(1) });
+  }
+  while (rows.length && rows[rows.length - 1].kind === "ctx" && rows[rows.length - 1].text === "") rows.pop();
+  return rows;
+}
+
+// One file in Files changed (006 FR-020, FR-021): opens to its hunks with line numbers and the review notes at their lines.
+// A large or binary file waits for "load the diff".
+function FileDiff({ base, file, threads }) {
+  const [open, setOpen] = useState(false);
+  const [asked, setAsked] = useState(!file.large);
+  const diff = useLoad(() => (open && asked ? api(`${base}/diff${params({ path: file.path })}`) : Promise.resolve(null)), [open, asked, file.path]);
+  const notes = threads.filter((t) => t.path === file.path);
+  const at = (n) => notes.filter((t) => t.line === n);
+  const loose = notes.filter((t) => !t.line);
+  const rows = diff.data ? diffRows(diff.data) : [];
+  return html`<div class="filediff">
+    <button class="fileline" aria-expanded=${open ? "true" : "false"} onClick=${() => setOpen(!open)}>
+      <${Chevron} right=${!open} /><span class="mono grow" style="overflow-wrap: anywhere">${file.path}</span>
+      ${notes.length > 0 && html`<span class="badge dim">${count(notes.length, "note")}</span>`}
+      <span class="mono small"><span class="add">+${file.additions}</span> <span class="del">−${file.deletions}</span></span></button>
+    ${open && !asked && html`<div class="row" style="padding: 8px 12px"><span class="small soft grow">${file.binary ? "A binary file: no lines to show." : `${file.additions + file.deletions} lines changed.`}</span>
+      ${!file.binary && html`<button onClick=${() => setAsked(true)}>Large file — load the diff</button>`}</div>`}
+    ${open && asked && html`<${Err} text=${diff.error} />${!diff.data && !diff.error && html`<p class="small soft" style="padding: 8px 12px">Loading…</p>`}
+      ${loose.length > 0 && html`<div class="diffnotes">${loose.map((t) => html`<${DiffNote} thread=${t} />`)}</div>`}
+      ${diff.data !== null && html`<div class="diffbox"><table class="diff"><tbody>${rows.map((r) => html`
+        <tr class=${r.kind}><td class="ln">${r.a || ""}</td><td class="ln">${r.b || ""}</td><td class="code">${r.kind === "add" ? "+" : r.kind === "del" ? "−" : " "}${r.text}</td></tr>
+        ${r.b && at(r.b).length > 0 && html`<tr class="notes"><td colspan="3">${at(r.b).map((t) => html`<${DiffNote} thread=${t} />`)}</td></tr>`}`)}</tbody></table></div>`}`}
+  </div>`;
+}
+
+const DiffNote = ({ thread }) => {
+  const first = thread.comments[0];
+  return html`<div class="diffnote ${thread.resolved ? "done" : ""}"><span class="small soft"><b style="color: var(--ink)">${(first && first.author) || "deleted account"}</b>${thread.resolved ? " · resolved" : ""}${thread.outdated ? " · outdated" : ""}${thread.comments.length > 2 ? ` · ${thread.comments.length - 1} replies` : thread.comments.length === 2 ? " · 1 reply" : ""}</span>
+    ${first && html`<${Md} text=${first.body} />`}</div>`;
+};
+
+function FilesChanged({ base, threads }) {
+  const files = useLoad(() => api(`${base}/files`), [base]);
+  if (files.error) return html`<${Err} text=${files.error} />`;
+  if (!files.data) return html`<p class="soft">Loading…</p>`;
+  if (!files.data.length) return html`<p class="soft">No files changed.</p>`;
+  return html`<div class="stack" style="gap: 6px">${files.data.map((f) => html`<${FileDiff} key=${f.path} base=${base} file=${f} threads=${threads} />`)}</div>`;
+}
+
+// 006 FR-022: the failed step's log, its error lines marked, and the full log a click away.
+function FailedStep({ repo, id }) {
+  const step = useLoad(() => api(`runs/${repo}/${id}/failed-step`), [repo, id]);
+  const [full, setFull] = useState(null);
+  const logs = useAct();
+  if (step.error) return html`<${Err} text=${step.error} />`;
+  if (!step.data) return html`<p class="soft">Loading…</p>`;
+  const d = step.data;
+  const errors = d.lines.filter((l) => l.error).length;
+  return html`<div class="stack" style="gap: 8px">
+    ${d.job ? html`<p style="font-weight: 600; overflow-wrap: anywhere">Failed: ${d.job}${d.step ? html` › ${d.step}` : ""}</p>
+      <span class="small soft">${count(d.lines.length, "line")}${errors ? `, ${count(errors, "error line")} marked` : ""}</span>
+      ${d.lines.length ? html`<ol class="steplog" aria-label="Log of the failed step">${d.lines.map((l) => html`<li class=${l.error ? "err" : ""} value=${l.n}>${l.error && html`<span class="sr">error: </span>`}${l.text}</li>`)}</ol>`
+        : html`<p class="small soft">GitHub kept no log for this step.</p>`}`
+      : html`<p class="soft">No job failed in this run.</p>`}
+    <${Err} text=${logs.error} />
+    <div class="row">${d.log_url && html`<a href=${d.log_url} target="_blank" rel="noreferrer noopener">The job on GitHub</a>`}
+      <button class="plain" disabled=${logs.busy} onClick=${() => logs.run(async () => setFull(full === null ? await api(`runs/${repo}/${id}/log?all=1`) : null))}>${full === null ? "Full log here" : "Hide the full log"}</button></div>
+    ${full !== null && html`<div class="log">${full}</div>`}</div>`;
+}
+
+const defs = (pairs) => html`<dl class="defs">${pairs.filter(([, v]) => v !== null && v !== undefined && v !== "").map(([k, v]) => html`<dt>${k}</dt><dd>${v}</dd>`)}</dl>`;
+const labelList = (labels) => ((labels || []).length ? html`<span class="labels">${labels.map((l) => html`<span class="label" style="padding-right: 8px">${l.name}</span>`)}</span>` : "none");
+const partOf = (body) => { const m = /^Part of\s+(\S+)/m.exec(body || ""); return m ? m[1] : null; };
+
+function IssueDetail({ repo, number, frame, onChanged }) {
   const { data, error, reload } = useLoad(() => api(`issues/${repo}/${number}`), [repo, number]);
-  const [confirm, dialog] = useConfirm();
   const act = useAct(async () => { await reload(); onChanged(); });
   if (error && !data) return html`<${Err} text=${error} />`;
   if (!data) return html`<p class="soft">Loading…</p>`;
   const open = data.state === "OPEN";
+  const base = `issues/${repo}/${number}`;
+  const assignees = (data.assignees || []).map((a) => a.login);
+  const facts = { failing: false, untriaged: !(data.labels || []).length, openThreads: 0, reviews: 0 };
   const conversation = html`<div class="body"><${Md} text=${data.body} /></div>
     <${Comments} list=${data.comments} />
-    <${Comment} busy=${act.busy} object="issue" repo=${repo} number=${number} onSend=${(body) => act.run(() => post(`issues/${repo}/${number}/comment`, { body }))} />`;
-  return html`${dialog}<${ItemFrame} kindLabel="Issue" where=${`${repo}#${number}`} title=${data.title}
-    state=${data.state} stateCls=${open ? "" : "dim"}
-    meta=${[`opened by ${data.author && data.author.login} ${ago(data.createdAt)}`, (data.assignees || []).length ? "" : "no assignee", count(data.comments.length, "comment")]}
-    actions=${html`<${Err} text=${act.error || error} /><div class="row">
-      <button disabled=${act.busy} onClick=${() => act.run(() => post("project/add", { repo, number }))}>Add to roadmap</button>
-      ${open ? html`<button disabled=${act.busy} onClick=${() => confirm(
-        { title: "Close this issue?", text: `${repo}#${number}: ${data.title}`, label: "Close issue", danger: true },
-        () => act.run(() => post(`issues/${repo}/${number}/close`, { reason: "completed" })),
-      )}>Close</button>` : html`<button class="primary" disabled=${act.busy} onClick=${() => act.run(() => post(`issues/${repo}/${number}/reopen`))}>Reopen</button>`}</div>`}
-    claude=${html`<button class="nw-open" onClick=${() => launch({ repos: [repo], context: `${repo}#${number}`, pins: [{ kind: "ref", label: `${repo}#${number}` }], from: { view: "Work", ref: `${repo}#${number}` } })}>＋ New work from this…</button>${open && spawn({ kind: "issue", failing: false })}`}
-    sections=${[{ id: "talk", label: "Conversation", body: conversation }]}
-    details=${html`<dl class="defs"><dt>Assignee</dt><dd>${(data.assignees || []).map((a) => a.login).join(", ") || "unassigned"}</dd>
-        <dt>On GitHub</dt><dd><a href=${data.url} target="_blank" rel="noreferrer noopener">${repo}#${number}</a></dd></dl>
-      <${Labels} repo=${repo} number=${number} labels=${data.labels} editable=${true} onChanged=${reload} />`} />`;
+    <${Err} text=${act.error || error} />
+    <${Comment} busy=${act.busy} object="issue" repo=${repo} number=${number} onSend=${(body) => act.run(() => post(`${base}/comment`, { body }))} />`;
+  return html`<${ItemFrame} kind="issue" repo=${repo} refText=${`${repo}#${number}`} title=${data.title} state=${data.state} stateCls=${open ? "" : "dim"}
+    gh=${html`<${GhActions} kind="issue" data=${data} repo=${repo} number=${number} base=${base} onDone=${async () => { await reload(); onChanged(); }} />`}
+    facts=${[`opened by ${data.author && data.author.login} ${ago(data.createdAt)}`, assignees.length ? `assigned to ${assignees.join(", ")}` : "no assignee",
+      count(data.comments.length, "comment"), (data.labels || []).map((l) => l.name).join(", ")]}
+    details=${defs([["Part of", partOf(data.body)], ["Author", data.author && data.author.login], ["Labels", labelList(data.labels)],
+      ["Assignee", assignees.join(", ") || "unassigned"], ["Milestone", data.milestone && data.milestone.title], ["Updated", ago(data.updatedAt)],
+      ["Repository", `GlassineOS/${repo}`], ["On GitHub", html`<a href=${data.url} target="_blank" rel="noreferrer noopener">${repo}#${number}</a>`]])}
+    launchRow=${open && frame.launchRow({ kind: "issue", facts })}
+    sessions=${frame.sessions({ kind: "issue", facts })}
+    sections=${[{ id: "talk", label: "Conversation", body: conversation }]} />`;
 }
 
 const CHECK_BADGE = (s) => (["failure", "error", "timed_out", "cancelled", "action_required", "startup_failure"].includes(s) ? ["fail", "bad"]
   : ["success", "skipped", "neutral", "completed"].includes(s) ? [s === "skipped" ? "skip" : "ok", ""] : ["run", "dim"]);
-const CheckRow = ({ name, state, note }) => {
-  const [word, cls] = CHECK_BADGE(state);
-  return html`<div class="checkrow"><span class="badge ${cls}">${word}</span><span class="n">${name}</span>${note && html`<span class="soft" style="font-size: 12.5px">${note}</span>`}</div>`;
-};
 
-function PrDetail({ repo, number, spawn, onChanged }) {
+function PrDetail({ repo, number, frame, onChanged }) {
   const { data, error, reload } = useLoad(() => api(`prs/${repo}/${number}`), [repo, number]);
-  const [method, setMethod] = useState("squash");
-  const [diff, setDiff] = useState(null);
   const threads = useLoad(() => api(`prs/${repo}/${number}/threads`), [repo, number]);
   const [picked, setPicked] = useState(new Set());
-  const [confirm, dialog] = useConfirm();
   const act = useAct(async () => { await reload(); onChanged(); });
   if (error && !data) return html`<${Err} text=${error} />`;
   if (!data) return html`<p class="soft">Loading…</p>`;
   const open = data.state === "OPEN";
   const base = `prs/${repo}/${number}`;
+  const here = `${repo}#${number}`;
   const openThreads = (threads.data || []).filter((t) => !t.resolved);
-  const threadPins = openThreads.filter((t) => picked.has(t.id)).map((t) => ({ kind: "thread", label: `${t.path}${t.line ? `:${t.line}` : ""} (${t.id})` }));
-  const merge = () => confirm(
-    { title: "Merge this pull request?", text: `${repo}#${number} at ${(data.headRefOid || "").slice(0, 12)} into ${data.baseRefName} (${method}). Checks: ${data.checks}. If it has moved on from that commit, the merge fails.`, label: "Merge", danger: data.checks !== "passing" },
-    () => act.run(() => post(`${base}/merge`, { method, head: data.headRefOid })),
-  );
   // A push and a pull request event each report the same check.
   const checks = [...new Map(data.check_list.map((c) => [`${c.workflow}/${c.name}/${c.state}`, c])).values()];
-  const passed = checks.filter((c) => ["success", "skipped", "neutral"].includes(c.state)).length;
   const reviews = (data.reviews || []).filter((r) => r.body || r.state !== "COMMENTED").map((r) => ({ ...r, badge: `review · ${String(r.state).toLowerCase().replaceAll("_", " ")}` }));
   const talk = [...data.comments, ...reviews].sort((a, b) => new Date(a.createdAt || a.submittedAt) - new Date(b.createdAt || b.submittedAt));
+  const facts = { failing: data.checks === "failing", changesRequested: data.reviewDecision === "CHANGES_REQUESTED", openThreads: openThreads.length,
+    reviews: reviews.filter((r) => r.body && r.state !== "APPROVED").length, threadPins: openThreads.filter((t) => picked.has(t.id)).map(threadPin) };
   const conversation = html`<div class="body"><${Md} text=${data.body} /></div>
     <${Comments} list=${talk} />
     ${threads.data && threads.data.length > 0 && html`<${Threads} threads=${threads.data} base=${base} repo=${repo} number=${number} picked=${picked} setPicked=${setPicked} onChanged=${threads.reload} />`}
-    <${Err} text=${threads.error} />
-    <${Comment} busy=${act.busy} object="pr" repo=${repo} number=${number} onSend=${(body) => act.run(() => post(`${base}/comment`, { body }))} />`;
-  const checkList = html`<div class="stack" style="gap: 4px"><span class="small soft">${passed} of ${checks.length} passed</span>
-    ${checks.map((c) => html`<${CheckRow} name=${c.workflow && c.workflow !== c.name ? `${c.workflow} · ${c.name}` : c.name} state=${c.state} />`)}
-    ${!checks.length && html`<p class="soft">No checks on this pull request.</p>`}</div>`;
-  const files = html`<div class="stack" style="gap: 4px">
-    ${data.files.map((f) => html`<div class="checkrow"><span class="n">${f.path}</span><span>+${f.additions} −${f.deletions}</span></div>`)}
-    <div class="row" style="margin-top: 8px"><button disabled=${act.busy} onClick=${() => act.run(async () => setDiff(diff === null ? await api(`${base}/diff`) : null))}>${diff === null ? "View diff" : "Hide diff"}</button></div>
-    ${diff !== null && html`<div class="log">${diff}</div>`}</div>`;
-  return html`${dialog}<${ItemFrame} kindLabel="Pull request" where=${`${repo}#${number}`} title=${data.title}
-    state=${data.isDraft && open ? "DRAFT" : data.state} stateCls=${open ? (data.checks === "failing" ? "bad" : "") : "dim"}
-    meta=${[`${data.headRefName} → ${data.baseRefName}`, `opened by ${data.author && data.author.login} ${ago(data.createdAt)}`, `+${data.additions} −${data.deletions}`]}
-    actions=${html`<${Err} text=${act.error || error} />${open && html`<div class="row">
-      ${!data.isDraft && html`<button class="primary" disabled=${act.busy} onClick=${merge}>Merge…</button>
-        <select aria-label="Merge method" value=${method} onChange=${(e) => setMethod(e.target.value)}>
-          <option value="squash">Squash</option><option value="merge">Merge commit</option><option value="rebase">Rebase</option></select>`}
-      ${data.isDraft && html`<button class="primary" disabled=${act.busy} onClick=${() => act.run(() => post(`${base}/ready`))}>Mark ready</button>`}
-      <button disabled=${act.busy} onClick=${() => act.run(() => post(`${base}/update-branch`))}>Update branch</button>
-      <button class="danger" disabled=${act.busy} onClick=${() => confirm(
-        { title: "Close without merging?", text: `${repo}#${number}: ${data.title}`, label: "Close pull request", danger: true },
-        () => act.run(() => post(`${base}/close`)),
-      )}>Close</button></div>`}`}
-    claude=${html`<button class="nw-open" onClick=${() => launch({ repos: [repo], context: `${repo}#${number}`, pins: [{ kind: "ref", label: `${repo}#${number}` }], from: { view: "Work", ref: `${repo}#${number}` } })}>＋ New work from this…</button>${open && spawn({ kind: "pr", failing: data.checks === "failing", threads: { open: openThreads.length, pins: threadPins, reviews: reviews.filter((r) => r.body && r.state !== "APPROVED").length } })}`}
-    sections=${[{ id: "talk", label: "Conversation", body: conversation }, { id: "checks", label: `Checks ${checks.length}`, body: checkList }, { id: "files", label: `Files ${data.files.length}`, body: files }]}
-    details=${html`<dl class="defs"><dt>Reviews</dt><dd>${(data.reviewDecision || "none").toLowerCase().replaceAll("_", " ")}</dd>
-        <dt>State</dt><dd>${data.isDraft ? "draft · " : ""}${data.state.toLowerCase()} · ${String(data.mergeStateStatus || "").toLowerCase()}</dd>
-        <dt>On GitHub</dt><dd><a href=${data.url} target="_blank" rel="noreferrer noopener">${repo}#${number}</a></dd></dl>
-      ${data.labels.length > 0 && html`<${Labels} repo=${repo} number=${number} labels=${data.labels} editable=${false} />`}`} />`;
+    <${Err} text=${threads.error || act.error || error} />
+    <${Comment} busy=${act.busy} object="pr" repo=${repo} number=${number} onSend=${(body) => act.run(() => post(`${base}/comment`, { body }))}
+      onDraft=${(text) => launch({ verb: "review", covers: [{ kind: "pr", repo, number }], notes: text.trim() ? `The comment so far:\n${text}` : "", from: { view: "Work", ref: here } })} />`;
+  const files = (data.files || []).length;
+  const merged = data.state === "MERGED";
+  const state = merged ? `Merged${data.mergedBy ? ` by ${data.mergedBy.login}` : ""}` : data.isDraft && open ? "DRAFT" : data.state;
+  return html`<${ItemFrame} kind="pr" repo=${repo} refText=${here} title=${data.title}
+    state=${state} stateCls=${open ? (data.checks === "failing" ? "bad" : "") : "dim"}
+    gh=${html`<${GhActions} kind="pr" data=${data} repo=${repo} number=${number} base=${base} behind=${data.behind_by} onDone=${async () => { await reload(); onChanged(); }} />`}
+    facts=${[`+${data.additions} −${data.deletions}`, count(files, "file"), typeof data.behind_by === "number" ? `${data.behind_by} behind` : "",
+      `checks ${data.checks}`, (data.reviewDecision || "").toLowerCase().replaceAll("_", " "), open && data.open_threads ? count(data.open_threads, "open thread") : ""]}
+    chips=${html`<${CheckChips} checks=${checks} />`}
+    details=${defs([["Part of", partOf(data.body)], ["Branch", html`<span class="mono">${data.headRefName} → ${data.baseRefName}</span>`],
+      ["Size", `+${data.additions} −${data.deletions}, ${count(files, "file")}`], ["Author", data.author && data.author.login], ["Labels", labelList(data.labels)],
+      ["Assignee", (data.assignees || []).map((a) => a.login).join(", ") || "unassigned"], ["Reviews", (data.reviewDecision || "none").toLowerCase().replaceAll("_", " ")],
+      ["State", `${data.isDraft ? "draft · " : ""}${data.state.toLowerCase()}${data.mergeStateStatus ? ` · ${String(data.mergeStateStatus).toLowerCase()}` : ""}`],
+      ["Updated", ago(data.updatedAt)], ["Repository", `GlassineOS/${repo}`],
+      ["Changed files", html`<ul class="mono small">${(data.files || []).map((f) => html`<li>${f.path}</li>`)}</ul>`],
+      ["On GitHub", html`<a href=${data.url} target="_blank" rel="noreferrer noopener">${here}</a>`]])}
+    launchRow=${open && frame.launchRow({ kind: "pr", facts })}
+    sessions=${frame.sessions({ kind: "pr", facts })}
+    sections=${[{ id: "talk", label: "Conversation", body: conversation }, { id: "files", label: `Files changed ${files}`, body: html`<${FilesChanged} base=${base} threads=${threads.data || []} />` }]} />`;
 }
 
 function duration(job) {
@@ -1075,36 +1345,29 @@ function duration(job) {
   return s < 0 ? "" : s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
-function RunDetail({ repo, id, spawn, onChanged }) {
+function RunDetail({ repo, id, frame, onChanged }) {
   const { data, error, reload } = useLoad(() => api(`runs/${repo}/${id}`), [repo, id], 20000);
-  const [log, setLog] = useState(null);
-  const act = useAct(async () => { await reload(); onChanged(); });
-  const logs = useAct();
   if (error && !data) return html`<${Err} text=${error} />`;
   if (!data) return html`<p class="soft">Loading…</p>`;
   const running = data.status !== "completed";
   const failed = data.conclusion === "failure";
-  const show = (all) => logs.run(async () => setLog(await api(`runs/${repo}/${id}/log${all ? "?all=1" : ""}`)));
   const jobs = data.jobs || [];
-  const failedJobs = jobs.filter((j) => j.conclusion === "failure");
-  const summary = html`${failedJobs.length > 0 && html`<p style="font-weight: 600; overflow-wrap: anywhere">Failed: ${failedJobs.map((j) => j.name).join(", ")}</p>`}
-    <${Err} text=${logs.error} /><div class="row">
-      <button disabled=${logs.busy} onClick=${() => show(false)}>Failed steps log</button>
-      <button disabled=${logs.busy} onClick=${() => show(true)}>Full log</button></div>
-    ${log !== null ? html`<div class="log">${log || "(empty: no failed steps)"}</div>` : html`<p class="small soft">Open a log to read it here.</p>`}`;
-  const steps = html`<div class="stack" style="gap: 4px">${jobs.map((j) => html`<${CheckRow} name=${j.name} state=${j.conclusion || j.status} note=${duration(j)} />`)}</div>`;
-  return html`<${ItemFrame} kindLabel="Workflow run" where=${`${repo} run ${id}`} title=${`${data.workflowName} · ${data.displayTitle}`}
+  const facts = { failing: failed, openThreads: 0, reviews: 0 };
+  const took = data.jobs && jobs.length ? duration({ startedAt: jobs[0].startedAt, completedAt: jobs[jobs.length - 1].completedAt }) : "";
+  const summary = html`<${Err} text=${error} />${failed ? html`<${FailedStep} repo=${repo} id=${id} />`
+    : html`<p class="soft">${running ? "Still running. The log is on GitHub until it ends." : `Ended: ${String(data.conclusion || "").toLowerCase()}.`}</p>`}`;
+  return html`<${ItemFrame} kind="run" repo=${repo} refText=${`${repo} run ${id}`} title=${`${data.workflowName} · ${data.displayTitle}`}
     state=${String(data.conclusion || data.status).toUpperCase()} stateCls=${failed ? "bad" : running ? "dim" : ""}
-    meta=${[`${data.event} on ${data.headBranch}`, (data.headSha || "").slice(0, 7), ago(data.createdAt)]}
-    actions=${html`<${Err} text=${act.error || error} /><div class="row">
-      ${running ? html`<button class="primary" disabled=${act.busy} onClick=${() => act.run(() => post(`runs/${repo}/${id}/cancel`))}>Cancel</button>`
-        : html`<button class="primary" disabled=${act.busy} onClick=${() => act.run(() => post(`runs/${repo}/${id}/rerun`, { failed_only: true }))}>Re-run failed jobs</button>
-          <button disabled=${act.busy} onClick=${() => act.run(() => post(`runs/${repo}/${id}/rerun`, { failed_only: false }))}>Re-run all</button>`}</div>`}
-    claude=${!running && spawn({ kind: "run", failing: failed })}
-    sections=${[{ id: "talk", label: "Summary", body: summary }, ...(jobs.length ? [{ id: "steps", label: `Jobs ${jobs.length}`, body: steps }] : [])]}
-    details=${html`<dl class="defs"><dt>Workflow</dt><dd>${data.workflowName}</dd>
-      <dt>Trigger</dt><dd>${data.event} on ${data.headBranch}</dd>
-      <dt>On GitHub</dt><dd><a href=${data.url} target="_blank" rel="noreferrer noopener">${repo} run ${id}</a></dd></dl>`} />`;
+    gh=${html`<${GhActions} kind="run" data=${data} repo=${repo} number=${id} base=${`runs/${repo}/${id}`} onDone=${async () => { await reload(); onChanged(); }} />`}
+    facts=${[`${data.event} on ${data.headBranch}`, (data.headSha || "").slice(0, 7), took, ago(data.createdAt)]}
+    chips=${html`<${CheckChips} checks=${jobs.map((j) => ({ name: j.name, state: j.conclusion || j.status, url: j.url }))} />`}
+    details=${defs([["Workflow", data.workflowName], ["Trigger", `${data.event} on ${data.headBranch}`], ["Commit", html`<span class="mono">${(data.headSha || "").slice(0, 12)}</span>`],
+      ["Jobs", html`<ul class="small">${jobs.map((j) => html`<li>${j.name} · ${j.conclusion || j.status}${duration(j) ? ` · ${duration(j)}` : ""}</li>`)}</ul>`],
+      ["Updated", ago(data.updatedAt)], ["Repository", `GlassineOS/${repo}`],
+      ["On GitHub", html`<a href=${data.url} target="_blank" rel="noreferrer noopener">${repo} run ${id}</a>`]])}
+    launchRow=${!running && frame.launchRow({ kind: "run", facts })}
+    sessions=${frame.sessions({ kind: "run", facts })}
+    sections=${[{ id: "summary", label: failed ? "Failed step" : "Summary", body: summary }]} />`;
 }
 
 function NewIssue({ groups, initial, roadmap, onDone, onCancel }) {
@@ -1308,24 +1571,21 @@ function WorkLists({ query, asks }) {
   const TABS = [["issues", "Issues", scoped ? scoped.issues : counts && counts.issues], ["prs", "Pull requests", scoped ? scoped.prs : counts && counts.prs], ["actions", "Actions", null], ["queue", "Queue", null]];
   const stateWord = (STATES[tab].find(([v]) => v === state) || [state, state])[1];
   if (current) {
-    const session = sessionOf(current);
     const here = `${current.repo}#${current.number}`;
-    const stored = session && session.agent.view;
-    const phase = !session ? null : phases[session.name]
-      || (stored && stored.mode === "embedded" && stored.where === "Work" && (!stored.ref || stored.ref === here) ? "embedded" : "background");
-    const embedded = phase === "embedded";
+    const on = sessionsOn(current, list);
+    // Where each session on the item shows: as moved on this page, else its stored view. Embedded only when it was put here.
+    const phaseOf = (s) => phases[s.name] || (s.agent.view && s.agent.view.mode === "embedded" && s.agent.view.where === "Work" && (!s.agent.view.ref || s.agent.view.ref === here) ? "embedded" : "background");
     // Moved here: shown so at once, and kept by hubd for the next page that draws it.
     const place = (name, mode) => {
       setPhases((p) => ({ ...p, [name]: mode }));
       post("agents/view", { name, mode, where: "Work", ref: here }).then(() => sessions.reload(), () => {});
     };
-    const w = session && session.agent.waiting;
-    const spawn = ({ kind, failing, threads }) => html`<${LaunchRow} key=${current.key} kind=${kind} repo=${current.repo} number=${current.number} failing=${failing} threads=${threads} />
-      ${session && !embedded && html`<div role="status" class="notice quiet"><span><span class="mono" style="font-weight: 600">${session.name}</span> · ${session.agent.persona_name || session.agent.persona} · <span class="badge ${w ? "mark" : ""}">${w ? "waiting" : "running"}</span> in the background</span>
-        <button class="plain" onClick=${() => place(session.name, "embedded")}>Bring back</button></div>`}
-      ${embedded && html`<${SessionView} key=${session.name} session=${session} mode="embedded" asks=${asks} here=${here}
-        onView=${(m) => setPhases((p) => ({ ...p, [session.name]: m }))} onEnded=${() => sessions.reload()} onGone=${() => sessions.reload()} />`}`;
-    const props = { key: current.key, repo: current.repo, spawn, onChanged: reload };
+    const frame = {
+      launchRow: ({ kind, facts }) => html`<${LaunchRow} key=${current.key} kind=${kind} repo=${current.repo} number=${current.number} facts=${facts} />`,
+      sessions: ({ kind, facts }) => html`<${SessionsOn} key=${current.key} kind=${kind} repo=${current.repo} number=${current.number} facts=${facts} sessions=${on}
+        phaseOf=${phaseOf} place=${place} setPhase=${(name, m) => setPhases((p) => ({ ...p, [name]: m }))} asks=${asks} onReload=${() => sessions.reload()} />`,
+    };
+    const props = { key: current.key, repo: current.repo, frame, onChanged: reload };
     return html`<main class="page close">
       <div class="crumbs"><a href=${hash("work", { tab, repo: scope })} style="font-weight: 600">← ${TABS.find((t) => t[0] === tab)[1]}</a>
         <span class="mono soft grow" style="font-size: 13px">${position >= 0 ? `${position + 1} of ${shown.length} listed` : "not in the list"} · ${stateWord} · ${repo || "all repositories"}</span>
@@ -3095,6 +3355,7 @@ function Hub({ host: first, route, onOut }) {
   const knownHost = useRef(first);
   if (hostPoll.data) knownHost.current = hostPoll.data;
   const host = knownHost.current;
+  HOST_USER = host.user || "";
   // One list of what waits for you: asks, decisions and new work (interaction.list), every 3 s (003 SC-002).
   const listed = useLoad(() => api("interactions"), [], 3000);
   // A failed read keeps what we knew, or a brief hubd error would close the cards you're filling in.
