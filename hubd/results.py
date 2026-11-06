@@ -7,7 +7,8 @@ producing action names for it (`result_tools` in its file), as that persona's Ap
 do more than its session's action allows. Every move is on disk, so a restart keeps what was handed in; one that died
 while applying goes back to pending with a note to check GitHub first.
 
-Drafts stay in the NewWork record (`clean_drafts`), and notes operations come with 009/PR 1.
+Drafts stay in the NewWork record (`clean_drafts`). A notes result is note operations (009 FR-006): each carries the command
+hubd built for it and its own state, and applying one runs the notes tool for a login, never for a token.
 """
 from __future__ import annotations
 
@@ -18,11 +19,14 @@ import secrets
 import time
 from pathlib import Path
 
+from . import notes as notes_ops
+
 # What a session hands in, per type. pr results are made by the hub when it finds the session's pull request.
-HANDED_IN = ("comment", "labels", "findings", "report")
+HANDED_IN = ("comment", "labels", "findings", "report", "notes")
 TYPES = (*HANDED_IN, "pr")
 # The tools a person's press writes through, per type. An action lists the ones it may use as result_tools.
-APPLY_TOOLS = {"comment": ("review_pr",), "labels": ("label_issue", "edit_issue")}
+APPLY_TOOLS = {"comment": ("review_pr",), "labels": ("label_issue", "edit_issue"), "notes": ("notes_apply",)}
+OP_STATES = ("pending", "applied", "failed")
 STATES = ("pending", "applying", "applied", "dismissed")
 KEEP = 200  # results kept; settled ones go first, oldest first
 PAGE = 20
@@ -137,6 +141,20 @@ def clean_payload(kind: str, payload, items: list[dict]) -> dict:
         followups = [_text(f, "a follow-up", 500) for f in _list(p.get("followups"), "followups", 10)]
         return {"question": _text(p["question"], "the question", 2000), "answer": _text(p["answer"], "the answer", 20000),
                 "unsettled": unsettled, "sources": sources, "followups": followups}
+    if kind == "notes":  # 009 FR-006: proposed, never applied by the session; no op deletes (005 FR-021)
+        p = _closed(payload, {"ops"}, {"summary"}, "a notes result")
+        ops = _list(p["ops"], "ops", notes_ops.MAX_OPS)
+        if not ops:
+            raise ResultError("propose at least one operation")
+        cleaned = []
+        for op in ops:
+            try:
+                clean = notes_ops.clean_op(op)
+            except notes_ops.OpError as e:
+                raise ResultError(str(e)) from None
+            cleaned.append({**clean, "command": notes_ops.command_of(clean), "state": "pending", "said": None})
+        summary = _text(p.get("summary") or "", "the summary", 2000, empty=True)
+        return {"ops": cleaned, "summary": summary}
     if kind == "pr":  # 005 FR-016: made by the hub, not handed in
         p = _closed(payload, {"repo", "number"}, set(), "a pr result")
         if not isinstance(p["repo"], str) or not _REPO_RE.fullmatch(p["repo"]) or ".." in p["repo"]:
