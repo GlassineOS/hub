@@ -83,6 +83,8 @@ class FakeHubd(Hubd):
             self.commands.append((op, request))
             if op == "notes.status":
                 return {"ok": True, "here": False, "says": "There are no notes yet."}
+            if op == "notes.totals":
+                return {"ok": True, "here": True, "says": None, "by_label": {"current": 2}, "by_topic": {"gpu/hang": 2}, "source": "last-search", "rows": 2}
             if request["words"] == "broken":
                 raise HubdError("the index can't be used")
             return {"ok": True, "here": True, "says": "1 row from notes", "rows": [{"state": "retracted", "where": "a/b:3", "label": "c1", "text": "t"}], "total": 1, "warnings": [], "extra": "not passed on"}
@@ -1259,7 +1261,7 @@ def test_notes_on_the_page_go_with_the_login(client, hubd):
     assert client.post("/api/notes/find", json={"words": "x"}, headers=ORIGIN).status_code == 401
     assert not hubd.commands, "nothing reached hubd without a login"
     client.post("/api/login", json={"user": "u", "password": "right"}, headers=ORIGIN)
-    assert client.get("/api/notes").json() == {"here": False, "says": "There are no notes yet."}
+    assert client.get("/api/notes").json() == {"here": False, "says": "There are no notes yet.", "indexing": False}
     assert client.post("/api/notes/find", json={"words": "x"}).status_code == 403, "same origin"
     found = client.post("/api/notes/find", json={"words": "fault", "limit": 5}, headers=ORIGIN).json()
     assert found == {"here": True, "says": "1 row from notes", "rows": [{"state": "retracted", "where": "a/b:3", "label": "c1", "text": "t"}], "total": 1, "warnings": []}
@@ -1268,9 +1270,35 @@ def test_notes_on_the_page_go_with_the_login(client, hubd):
     assert answer.status_code == 502 and answer.json()["error"] == "the index can't be used", "said in words"
 
 
-def test_no_tool_reaches_notes():
+def test_the_one_tool_that_reaches_notes_goes_by_the_sessions_token():
+    """009: notes_find, for a session about the notes, by its own token; hubd decides (tests/test_notes.py). No other op."""
     source = Path(tools.__file__).read_text() + Path(sys.modules["hub.github"].__file__).read_text()
-    assert 'op="notes' not in source and "/api/notes" not in source
+    assert re.findall(r'op="notes[^"]*"', source) == ['op="notes_tool.find"'] and "/api/notes" not in source
+    assert 'op="notes_tool.find", agent_token=CALLER.get()' in source
+
+
+def test_notes_totals_go_with_the_login(client, hubd):
+    assert client.get("/api/notes/totals").status_code == 401
+    client.post("/api/login", json={"user": "u", "password": "right"}, headers=ORIGIN)
+    totals = client.get("/api/notes/totals").json()
+    assert totals == {"here": True, "says": None, "by_label": {"current": 2}, "by_topic": {"gpu/hang": 2}, "source": "last-search", "rows": 2}
+
+
+def test_notes_page_in_the_page():
+    script = _app_js()
+    page = _component(script, "NotesPage")
+    for text in ("Keep notes useful…", "indexing", "Show ${", "That's as many as this page shows", "notesCommand(", "The notes tool failed.",
+                 "The notes tool isn't here.", "<${TrustLegend} />", "Nothing matches", "Warning:"):
+        assert text in page, text
+    assert "location" not in page and "hash(" not in page, "what you look for stays out of the address"
+    for word in ("CURRENT", "OPEN QUESTION", "HISTORY", "RETRACTED", "ARCHIVE·UNREVIEWED", "NO STATUS"):
+        assert f'"{word}"' in script
+    assert "Show the whole note" in _component(script, "NoteRow")
+    keep = _component(script, "KeepNotesUseful")
+    assert '"notes-compact"' in keep and '"notes-sweep"' in keep and "Compact…" in keep and "Sweep…" in keep
+    assert 'NO_REPO = ["knowledge", "notes"]' in script
+    view = _component(script, "ResultView")
+    assert 'r.type === "notes"' in view and "o.command" in view and "Apply this one" in view and "Nothing is deleted" in view
 
 
 def test_decision_tools_send_only_the_sessions_token(hubd, github):
@@ -2429,4 +2457,4 @@ def test_knowledge_view_in_the_page():
     assert 'action: "knowledge-research"' in flyout and "Plan a research session…" in flyout and "<${KnowledgeReports} />" in flyout
     assert 'kept: "1"' in _component(script, "KnowledgeReports") and "Follow up…" in _component(script, "KnowledgeReports")
     assert "Run docs CI now" in _component(script, "KnowledgeIndexes") and "Ingest now" in _component(script, "KnowledgeIndexes")
-    assert 'NO_REPO = ["knowledge"]' in script and "noRepo" in _component(script, "LaunchBrief")
+    assert 'NO_REPO = ["knowledge"' in script and "noRepo" in _component(script, "LaunchBrief")

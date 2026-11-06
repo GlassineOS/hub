@@ -2458,10 +2458,11 @@ const PLANNER_DEFAULT = "haiku";
 const nwWaits = (item) => NW_WAITING.includes(item.state);
 // 005 FR-002, in this order. failed and dismissed are where a Launch stopped, shown on the stage it stopped at.
 const LAUNCH_STAGES = [["brief", "Brief"], ["planning", "Planning"], ["plan", "Plan"], ["run", "Run"], ["result", "Result"]];
-const OBJECT_WORDS = { issue: "an issue", pr: "a pull request", run: "a run", repo: "a repository", knowledge: "a question" };
-const VERB_OBJECT = { issue: "issue", pr: "PR", run: "run", repo: "repo", knowledge: "question" }; // beside a verb two kinds share, as fix
-// Actions about no repository and no item: a research question (008 FR-007). hubd's NO_REPO_OBJECTS, less the Steward's.
-const NO_REPO = ["knowledge"];
+const OBJECT_WORDS = { issue: "an issue", pr: "a pull request", run: "a run", repo: "a repository", knowledge: "a question", notes: "the notes" };
+const VERB_OBJECT = { issue: "issue", pr: "PR", run: "run", repo: "repo", knowledge: "question", notes: "notes" }; // beside a verb two kinds share, as fix
+// Actions about no repository and no item: a research question (008 FR-007), the notes (009 FR-005). hubd's NO_REPO_OBJECTS,
+// less the Steward's.
+const NO_REPO = ["knowledge", "notes"];
 const MAX_COVERS = 6; // hubd's: one item and five more
 const coverOf = (c) => ({ kind: c.kind, repo: c.repo, number: c.number });
 // A record from before covers were kept names its items by number.
@@ -2561,7 +2562,8 @@ function DraftsResult({ item, reload, onNote }) {
 
 // 005 FR-016–FR-020 and 003 FR-010: one view per result type, in Launch and on its card in Needs you. The text is the
 // session's, which may have read an outsider's: shown as text, never rendered, links printed in full.
-const RESULT_TITLE = { comment: "Review to post", labels: "Labels to apply", findings: "Findings", report: "Report", pr: "Pull request" };
+const RESULT_TITLE = { comment: "Review to post", labels: "Labels to apply", findings: "Findings", report: "Report", pr: "Pull request", notes: "Note operations" };
+const NOTE_OP_WORD = { supersede: "Supersede", merge: "Merge", distil: "Distil", retract: "Retract", answer: "Answer", add: "Add" };
 const resultTitle = (r) => `${RESULT_TITLE[r.type] || "Result"}${r.items && r.items[0] ? ` · ${ref(r.items[0])}` : ""}`;
 const EVENT_WORD = { comment: "Comment", "request-changes": "Request changes", approve: "Approve" };
 const plainText = (t, mono) => html`<p class="small ${mono ? "mono" : ""}" style="white-space: pre-wrap; overflow-wrap: anywhere">${t}</p>`;
@@ -2606,6 +2608,20 @@ function ResultView({ r, reload, where = "Needs you" }) {
       ${(p.sources || []).length > 0 && html`<span class="eyebrow">Sources</span><ul class="stack" style="gap: 4px">${p.sources.map((s) => html`<li>${plainText(`${s.link} — ${s.why}`)}</li>`)}</ul>`}
       ${(p.followups || []).length > 0 && html`<span class="eyebrow">Follow-ups</span><ul>${p.followups.map((t) => html`<li>${plainText(t)}</li>`)}</ul>`}
       ${r.kept ? html`<p class="small" role="status">Saved to Knowledge.</p>` : waits && html`<div class="row"><button class="primary" disabled=${act.busy} onClick=${() => answer("keep")}>Save to Knowledge</button>${setAside}</div>`}`;
+  } else if (r.type === "notes") {
+    // 009 FR-006: each op with the exact command hubd built and will run; apply one or all. None deletes a note.
+    const ops = p.ops || [];
+    const left = ops.filter((o) => o.state !== "applied").length;
+    body = html`${p.summary && plainText(p.summary)}
+      <ol class="stack" style="gap: 10px">${ops.map((o, n) => html`<li class="stack tight">
+        <div class="row" style="gap: 8px"><b>${NOTE_OP_WORD[o.op] || o.op}</b><span class="mono small">${o.topic}</span>${(o.ids || []).length > 0 && html`<span class="mono small soft">${o.ids.join(", ")}</span>`}
+          <span class="badge ${o.state === "failed" ? "bad" : o.state === "applied" ? "dim" : ""}">${o.state}</span></div>
+        ${o.words && plainText(o.words)}${o.why && html`<span class="small soft">Why: ${o.why}</span>`}
+        <code class="small mono" style="white-space: pre-wrap; overflow-wrap: anywhere">${o.command}</code>
+        ${o.said && html`<span class="small" role=${o.state === "failed" ? "alert" : null} style="overflow-wrap: anywhere">${o.state === "failed" ? "The notes tool said: " : ""}${o.said}</span>`}
+        ${r.state === "pending" && o.state !== "applied" && ops.length > 1 && html`<button class="plain" style="align-self: flex-start" disabled=${act.busy} onClick=${() => answer("apply", { indexes: [n] })}>Apply this one</button>`}</li>`)}</ol>
+      <p class="small soft">Nothing is deleted: what's replaced, retracted or answered stays in the topic's Log.</p>
+      ${r.state === "pending" && left > 0 && html`<div class="row"><button class="primary" disabled=${act.busy} onClick=${() => answer("apply")}>${left === ops.length ? "Apply all" : `Apply the ${count(left, "other")}`}</button>${setAside}</div>`}`;
   } else if (r.type === "pr") {
     const closes = (r.items || []).filter((i) => i.kind === "issue");
     body = html`<${PrResultTitle} repo=${p.repo} number=${p.number} />
@@ -2671,7 +2687,8 @@ function LaunchBrief({ seed, actions, templates, groups, onPlanned, onCancel, bu
         ${covers.length < MAX_COVERS && html`<${ItemPicker} repos=${allRepos} kind=${action.object} many label=${`Add ${OBJECT_WORDS[action.object]}`}
           exclude=${covers.map(ref)} onPick=${(item) => setCovers((now) => (now.some((c) => ref(c) === ref(item)) || now.length >= MAX_COVERS ? now : [...now, coverOf({ ...item, kind: item.kind || action.object })]))} />`}
         ${covers.length > 1 && html`<span class="small soft">The session's checkout is in ${covers[0].repo}, the first item's repository; the others are listed as covered.</span>`}</div>`
-      : noRepo ? html`<div class="small"><${Eyebrow}>About<//> ${action.object === "knowledge" ? "a question: no repository and no checkout. The notes below are the question and its scope." : "no repository"}</div>`
+      : noRepo ? html`<div class="small"><${Eyebrow}>About<//> ${action.object === "knowledge" ? "a question: no repository and no checkout. The notes below are the question and its scope."
+        : "the shared notes: no repository and no checkout. The notes below name the topic."}</div>`
       : action.repo ? html`<div class="small"><${Eyebrow}>In<//> <span class="mono">GlassineOS/${action.repo}</span> · org board</div>`
       : html`<${RepoPicker} value=${repo} onChange=${setRepo} groups=${groups} label="Repository" />`}
     ${launchRefusal(action, covers) && html`<p class="small" role="alert">${refusal}</p>`}
@@ -3538,40 +3555,118 @@ function WorkQueue() {
 }
 
 // --- the Notes page ------------------------------------------------------------------------------
-const NOTE_BADGE = { current: "", open: "mark", history: "dim", retracted: "bad", "archive, unreviewed": "dim" };
+// 009 FR-003: the trust labels, in words; a state the page doesn't know reads as no status, never as a fact.
+const TRUST = {
+  current: ["CURRENT", "", "Holds now, with evidence."],
+  open: ["OPEN QUESTION", "mark", "Not settled yet."],
+  history: ["HISTORY", "dim", "Was so once; the log keeps it."],
+  retracted: ["RETRACTED", "bad", "Shown wrong by a later note."],
+  "archive, unreviewed": ["ARCHIVE·UNREVIEWED", "dim", "From an old source nobody has checked."],
+  "no state given": ["NO STATUS", "bad", "The note says nothing about itself."],
+};
+const trustOf = (state) => TRUST[state] || TRUST["no state given"];
+const NOTES_PAGE = 20; // rows at first, then 20 more at a time (009 FR-002)
 const NOTES_MOST = 100; // hubd's limit
+const NOTES_LONG = 220; // characters before a row folds
+// The command that lists everything, for the limit box: the words as the tool will see them, each quoted.
+const shellWord = (w) => (/^[A-Za-z0-9_./:+-]+$/.test(w) ? w : `'${w.replace(/'/g, "'\\''")}'`);
+const notesCommand = (words, total) => `notes find --limit ${total} -- ${words.trim().split(/\s+/).map(shellWord).join(" ")}`;
+// A note has no title of its own: its first sentence stands in, and the rest folds.
+const noteTitle = (text) => { const m = /^(.{1,120}?[.!?])(\s|$)/.exec(text); return m ? m[1] : text.slice(0, 120); };
+
+function TrustLegend() {
+  return html`<dl class="defs" aria-label="Trust labels">${Object.values(TRUST).map(([word, cls, means]) => html`<dt><span class="badge ${cls}">${word}</span></dt><dd class="small">${means}</dd>`)}</dl>`;
+}
+
+function NoteRow({ r }) {
+  const [open, setOpen] = useState(false);
+  const [word, cls] = trustOf(r.state);
+  const title = noteTitle(r.text);
+  const long = r.text.length > NOTES_LONG || r.text.trim().length > title.length + 40;
+  return html`<article class="stack" style="gap: 4px; padding: 10px 0; border-bottom: 1px solid var(--rule)" aria-label=${`${word}: ${r.where}`}>
+    <div class="row" style="gap: 8px"><span class="badge ${cls}">${word}</span><b style="flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere">${title}</b></div>
+    <div class="row small soft" style="gap: 4px 12px"><span class="mono" style="overflow-wrap: anywhere">${r.topic || r.where}</span>
+      ${r.topic && r.where !== r.topic && html`<span class="mono">${r.where.slice(r.topic.length + 1) ? `line ${r.where.slice(r.topic.length + 1)}` : ""}</span>`}
+      ${r.label && html`<span class="mono" style="overflow-wrap: anywhere">${r.label}</span>`}${r.date && html`<span>${r.date}</span>`}</div>
+    ${long ? html`${open && html`<p style="overflow-wrap: anywhere; white-space: pre-wrap">${r.text}</p>`}
+      <button class="link" style="align-self: flex-start" aria-expanded=${open ? "true" : "false"} onClick=${() => setOpen(!open)}>${open ? "Show less" : "Show the whole note"}</button>`
+      : r.text.trim() !== title && html`<p style="overflow-wrap: anywhere">${r.text}</p>`}</article>`;
+}
+
+// 009 FR-005: totals per label and per topic, and the two upkeep actions, for all notes or one topic.
+function KeepNotesUseful({ onClose }) {
+  const ref = useRef();
+  useEffect(() => { ref.current.showModal(); }, []);
+  const { data, error } = useLoad(() => api("notes/totals"), []);
+  const go = (action, topic) => { launch({ action, notes: topic ? `Topic: ${topic}` : "All notes", from: { view: "Notes" } }); ref.current.close(); };
+  const both = (topic) => html`<button onClick=${() => go("notes-compact", topic)}>Compact…</button><button onClick=${() => go("notes-sweep", topic)}>Sweep…</button>`;
+  const topics = data ? Object.entries(data.by_topic || {}).sort((a, b) => b[1] - a[1]) : [];
+  return html`<dialog class="flyout" ref=${ref} onClose=${onClose} aria-labelledby="kn-keep">
+    <div class="row" style="justify-content: space-between"><h2 id="kn-keep">Keep notes useful</h2><button class="plain" onClick=${() => ref.current.close()}>Close</button></div>
+    <div class="stack" style="gap: 16px">
+      <p class="small">Compact: an Archivist proposes note operations (merge, distil, supersede, answer), each with its exact command, and you apply them; nothing is deleted. Sweep: a docs writer drafts issues for what belongs in the docs.</p>
+      <div class="row" style="gap: 6px"><b style="flex: 1">All notes</b>${both(null)}</div>
+      <${Err} text=${error} />
+      ${data && !data.here && html`<p class="small" role="status">${data.says}</p>`}
+      ${data && data.here && !data.source && html`<p class="small soft">Totals come from a search: search first, and the totals of its rows show here.</p>`}
+      ${data && data.source && html`<p class="small soft">Counted from the last search's ${count(data.rows, "row")}: the notes tool has no totals of its own yet.</p>
+        <section class="stack tight" aria-label="Per label"><span class="eyebrow">Per label</span>
+          <ul class="stack tight">${Object.entries(data.by_label).map(([state, n]) => html`<li class="row" style="gap: 8px"><span class="badge ${trustOf(state)[1]}">${trustOf(state)[0]}</span><span>${n}</span></li>`)}</ul></section>
+        <section class="stack tight" aria-label="Per topic"><span class="eyebrow">Per topic</span>
+          <ul class="stack" style="gap: 6px">${topics.map(([topic, n]) => html`<li class="row" style="gap: 6px"><span class="mono small" style="flex: 1; overflow-wrap: anywhere">${topic} · ${n}</span>${both(topic)}</li>`)}</ul></section>`}
+    </div></dialog>`;
+}
 
 function NotesPage() {
-  const { data, error } = useLoad(() => api("notes"), [], 60000);
-  const [words, setWords] = useState(""); // never in the address, which the Steward's panel reads
+  const status = useLoad(() => api("notes"), [], 60000);
+  const [words, setWords] = useState(""); // never in the address, which the Steward's panel reads (009 FR-001)
   const [found, setFound] = useState(null);
   const [searched, setSearched] = useState("");
+  const [indexing, setIndexing] = useState(false);
+  const [keep, setKeep] = useState(false);
+  const [copied, setCopied] = useState(false);
   const act = useAct();
   // Rows from an earlier search never stay under new words, and "show more" means more of what was searched.
-  const search = (asked, limit) => act.run(async () => { setFound(null); setSearched(asked); setFound(await post("notes/find", { words: asked, limit })); });
-  const said = found && !found.here ? found.says : data && !data.here ? data.says : null;
+  const search = (asked, limit) => act.run(async () => {
+    if (limit === NOTES_PAGE) setFound(null);
+    setSearched(asked);
+    // The tool brings its index up to date on each search: say so while it does (009 FR-004).
+    const poll = setInterval(() => api("notes").then((s) => setIndexing(Boolean(s.indexing))).catch(() => {}), 700);
+    try { setFound(await post("notes/find", { words: asked, limit })); } finally { clearInterval(poll); setIndexing(false); }
+  });
+  const missing = found && !found.here ? found.says : status.data && !status.data.here ? status.data.says : null;
+  const rows = found && found.here ? found.rows : [];
+  const more = found && found.here && found.total > rows.length;
+  const atLimit = more && rows.length >= NOTES_MOST;
   return html`<main class="page close" aria-labelledby="h-notes">
-    <div class="stack tight"><h1 id="h-notes">Notes</h1>
-      <span class="small soft">The same search as <span class="mono">notes find</span>, by word. Only a login reads this: no session's token can, and the Steward has no tool for it. Every row says what it is, and current comes first.</span></div>
-    <${Err} text=${error || act.error} />
-    ${said && html`<p role="status" style="overflow-wrap: anywhere">${said}</p>`}
-    <form class="row" style="gap: 8px" role="search" onSubmit=${(e) => { e.preventDefault(); if (words.trim()) search(words); }}>
+    <div class="row" style="justify-content: space-between; align-items: flex-end">
+      <div class="stack tight"><h1 id="h-notes">Notes</h1>
+        <span class="small soft">The shared notes, by word, as <span class="mono">notes find</span> searches them. Only a login reads this page. Every row says how far it can be trusted, and current comes first.</span></div>
+      <button disabled=${Boolean(missing)} onClick=${() => setKeep(true)}>Keep notes useful…</button></div>
+    ${missing && html`<div class="panel stack tight" style="padding: 14px" role="status"><b>The notes tool isn't here.</b><span style="overflow-wrap: anywhere">${missing}</span></div>`}
+    ${act.error && html`<div class="error" role="alert"><b>The notes tool failed.</b> It said: <span style="overflow-wrap: anywhere">${act.error}</span></div>`}
+    <${Err} text=${status.error} />
+    <form class="row" style="gap: 8px" role="search" onSubmit=${(e) => { e.preventDefault(); if (words.trim()) search(words, NOTES_PAGE); }}>
       <label class="row small" style="gap: 6px; flex: 1">Look for
         <input type="search" style="flex: 1; min-width: 0" maxlength="500" value=${words} onInput=${(e) => setWords(e.target.value)} /></label>
-      <button class="primary" type="submit" disabled=${act.busy || !words.trim()}>${act.busy ? "Searching…" : "Search"}</button></form>
+      <button class="primary" type="submit" disabled=${act.busy || !words.trim() || Boolean(missing)}>${act.busy ? "Searching…" : "Search"}</button>
+      ${(indexing || (status.data && status.data.indexing)) && html`<span class="badge mark" role="status">indexing</span>`}</form>
+    ${!found && !missing && html`<div class="stack" style="gap: 8px"><p class="small soft">Search by words, then press Search. What each label means:</p><${TrustLegend} /></div>`}
     ${found && found.here && html`<div class="stack" style="gap: 4px">
-      <p role="status" class="small">${found.says}${found.total > found.rows.length ? `, showing ${found.rows.length}` : ""}.</p>
-      ${found.warnings.map((w) => html`<p class="small" style="overflow-wrap: anywhere">${w}</p>`)}
-      ${found.rows.map((r) => html`<article class="stack" style="gap: 4px; padding: 10px 0; border-bottom: 1px solid var(--rule)" aria-label=${`${r.state}: ${r.where}`}>
-        <div class="row" style="gap: 8px"><span class="badge ${NOTE_BADGE[r.state] ?? "bad"}">${r.state}</span>
-          <span class="mono small" style="overflow-wrap: anywhere">${r.where}</span>${r.label && html`<span class="mono small soft" style="overflow-wrap: anywhere">${r.label}</span>`}</div>
-        <p style="overflow-wrap: anywhere">${r.text}</p></article>`)}
-      ${found.total > found.rows.length && found.rows.length < NOTES_MOST && html`<div class="row"><button disabled=${act.busy} onClick=${() => search(searched, NOTES_MOST)}>Show up to ${NOTES_MOST}</button></div>`}
-      ${found.total > found.rows.length && found.rows.length >= NOTES_MOST && html`<p class="small soft">That's as many as this page shows. Narrow the words, or use <span class="mono">notes find --limit</span> in a terminal.</p>`}</div>`}
+      <p role="status" class="small">${rows.length ? `${found.says}${more ? `, showing ${rows.length}` : ""}.` : `Nothing matches “${searched}”.`}</p>
+      ${found.warnings.map((w) => html`<p class="small" role="status" style="overflow-wrap: anywhere"><b>Warning:</b> ${w}</p>`)}
+      ${rows.map((r, i) => html`<${NoteRow} key=${`${r.where}-${i}`} r=${r} />`)}
+      ${more && !atLimit && html`<div class="row"><button disabled=${act.busy} onClick=${() => search(searched, Math.min(rows.length + NOTES_PAGE, NOTES_MOST))}>Show ${Math.min(NOTES_PAGE, NOTES_MOST - rows.length, found.total - rows.length)} more</button>
+        <span class="small soft">${found.total - rows.length} more match.</span></div>`}
+      ${atLimit && html`<div class="panel stack tight" style="padding: 14px" role="status"><b>That's as many as this page shows (${NOTES_MOST}).</b>
+        <span class="small">Narrow the words, or list all ${found.total} in a terminal:</span>
+        <div class="row" style="gap: 8px"><code class="mono small" style="flex: 1; overflow-wrap: anywhere">${notesCommand(searched, found.total)}</code>
+          <button onClick=${async () => setCopied(await copyText(notesCommand(searched, found.total)))}>${copied ? "Copied" : "Copy"}</button></div></div>`}</div>`}
+    ${keep && html`<${KeepNotesUseful} onClose=${() => setKeep(false)} />`}
   </main>`;
 }
 
-// 001 FR-001. Knowledge is the docs search until PR 15, Notes the notes search until PR 16. Device is on Overview,
+// 001 FR-001. Device is on Overview,
 // decisions are in Needs you; their old addresses go there (Hub's MOVED).
 const NAV = [["overview", "Overview"], ["roadmap", "Roadmap"], ["work", "Work"], ["knowledge", "Knowledge"], ["notes", "Notes"], ["shells", "Sessions"]];
 
