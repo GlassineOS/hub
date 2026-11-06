@@ -446,7 +446,7 @@ class Hubd:
                 if isinstance(wanted, dict):  # whoever asks: not its to choose, and a shell has no session but `any`
                     wanted = {**wanted, "session": session or decisions.ANY}
                 record = self.decisions.request(req.get("kind"), wanted, req.get("why"), session, req.get("ends"))
-                return {"ok": True, "id": record["id"], "words": f"{record['id']} is waiting for the person, on the Decisions page. It does nothing until they approve it."}
+                return {"ok": True, "id": record["id"], "words": f"{record['id']} is waiting for the person, under Needs you in Sessions. It does nothing until they approve it."}
             if op == "decision.end_go":
                 record = self.decisions.end_go(req.get("id"), req.get("why"), session or "a hub shell")
                 return {"ok": True, "words": f"{record['id']} has ended."}
@@ -573,7 +573,7 @@ class Hubd:
         if not found:
             # One way in per kind of session, and both end in the same merge decision, checked against the head here.
             how = ("Call merge_pr with this head, and the person's Allow on its card is the decision" if "merge_pr" in (scope.get("asks_first") or ())
-                   else f"Ask with decision_request (kind merge, scope repo {repo}, number {number}, this head), the person approves it on the Decisions page, and then call merge_pr")
+                   else f"Ask with decision_request (kind merge, scope repo {repo}, number {number}, this head), the person approves it under Needs you in Sessions, and then call merge_pr")
             return f"There's no decision letting this session merge {repo}#{number}. {how}. A yes from before, or from another session, isn't one."
         now = await self._pr_now(repo, number)
         answer = None
