@@ -853,8 +853,10 @@ def test_a_click_gh_fails_after_says_it_merged(world, tmp_path, fake_pr):
 def test_the_refusal_names_a_way_this_session_has(steward):
     hubd, _store, _clock, _login = steward
     words = call(hubd, op="gh", argv=merge_argv(), agent_token="steward-token")["error"]
-    assert "decision_request" not in words and "card" in words
-    assert "decision_request" in call(hubd, op="gh", argv=merge_argv(), agent_token="full-token")["error"]
+    assert "decision_request" not in words and "Decisions page" not in words and "merge_pr" in words and "card" in words
+    full = call(hubd, op="gh", argv=merge_argv(), agent_token="full-token")["error"]
+    assert "decision_request" in full and "kind merge" in full and "merge_pr" in full and "card" not in full
+    assert full.count("Ask with") == 1 and "Call merge_pr with this head" not in full, "told one way, not both"
 
 
 def test_approving_a_head_twice_keeps_one_decision_to_take_back(world):

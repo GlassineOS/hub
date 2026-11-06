@@ -1031,6 +1031,14 @@ def test_decision_tools_send_only_the_sessions_token(hubd, github):
     assert not any(c[0] in ("decision.add", "decision.approve") for c in hubd.commands)
 
 
+def test_the_merge_tools_name_one_route_for_each_kind_of_session():
+    """A tool's text is the same for every session, so it says which route is whose."""
+    listed = listed_for({"session": None, "tools": None, "persona": None})
+    merge, ask = listed["merge_pr"]["description"], listed["decision_request"]["description"]
+    assert "card" in merge and "decision_request" in merge and "decision_check" in merge
+    assert "merge_pr" in ask and "cards" in ask
+
+
 def test_decision_tools_are_annotated_and_held_to_a_list():
     listed = listed_for({"session": None, "tools": None, "persona": None})
     assert listed["decision_check"]["annotations"]["readOnlyHint"] is True

@@ -571,8 +571,9 @@ class Hubd:
         session = scope["session"]
         found = self.decisions.merges(repo, number, session)
         if not found:
-            how = ("Call merge_pr, and the person's Allow on its card is the decision" if "merge_pr" in (scope.get("asks_first") or ())
-                   else "Ask with decision_request, and the person approves it on the Decisions page")
+            # One way in per kind of session, and both end in the same merge decision, checked against the head here.
+            how = ("Call merge_pr with this head, and the person's Allow on its card is the decision" if "merge_pr" in (scope.get("asks_first") or ())
+                   else f"Ask with decision_request (kind merge, scope repo {repo}, number {number}, this head), the person approves it on the Decisions page, and then call merge_pr")
             return f"There's no decision letting this session merge {repo}#{number}. {how}. A yes from before, or from another session, isn't one."
         now = await self._pr_now(repo, number)
         answer = None

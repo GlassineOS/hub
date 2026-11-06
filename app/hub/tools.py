@@ -98,8 +98,8 @@ def build(github: GitHub, docs: DocSearch) -> MCPServer:
     async def decision_request(kind: str, scope: dict, why: str, ends: dict | None = None) -> dict:
         """Ask the person for a decision: a card on the Decisions page, which they can narrow before approving. It does
         nothing until they do, and no tool can approve it. kind is go (scope: actions, device), merge (scope: repo, number,
-        head). ends is {runs: n} or {hours: n}; a go without one is one
-        run. why is a sentence on why, shown to them as yours. Check for an answer with decision_check."""
+        head; a session whose calls show as cards doesn't have this tool and merges by calling merge_pr). ends is {runs: n} or
+        {hours: n}; a go without one is one run. why is a sentence on why, shown to them as yours. Check for an answer with decision_check."""
         return await github.decision_request(kind, scope, why, ends)
 
     @mcp.tool(annotations=WRITE)
@@ -246,8 +246,10 @@ def build(github: GitHub, docs: DocSearch) -> MCPServer:
     @_says_why
     async def merge_pr(repo: str, number: int, head: str, method: str = "squash", delete_branch: bool = False) -> dict:
         """Merge a pull request. head is the commit you checked, in full: the merge fails if the pull request has moved on
-        from it. hubd refuses this unless the person's decision covers that head: ask with decision_request, or, if your
-        calls show as cards, allowing the card is the decision. method is merge, squash or rebase."""
+        from it. hubd refuses this unless the person's merge decision covers that head, and there's one way to get it for
+        each kind of session. If your calls show as cards, allowing this call's card is the decision: call this, and don't
+        look for another way. Otherwise ask first with decision_request (kind merge), wait until decision_check says yes,
+        then call this. method is merge, squash or rebase."""
         return await github.merge_pr(repo, number, method, delete_branch, head)
 
     @mcp.tool(annotations=HARD)
