@@ -428,8 +428,13 @@ worded to match a likely query can reach a run about something else. So:
   no `work_search`, because a draft may go into a public repository.
 - A session held to a list sees only that list in `tools/list`, so it doesn't spend turns being refused. This is
   a convenience: what enforces the list is the token check on each call and `--allowedTools`.
-- The hub types into a session only for a login: a preset button's text with a checked item name, or Esc. No tool call reaches
+- The hub types into a session only for a login: a preset button's text with a checked item name, Esc, or the words you
+  type in its message field (`agent.say`, any Claude session, the Steward included). No tool call and no session's token reaches
   this. It pastes only once the session's turn has ended with its prompt empty, as Enter could answer a question or send a draft.
+  Your words go to tmux on stdin, never as an argument, so the process list doesn't show them; they're 1 to 4,000 characters
+  with no control characters, which could end the bracketed paste. A login could already type into any session through its
+  terminal, so the field adds no reach: it adds a queue that waits for the turn to end. The words arrive as your turn, so a
+  session treats them as yours: don't paste an outsider's text there unread.
 - A session's prompts and questions reach the hub as cards through a hook, which holds a connection to hubd. Only a login can
   answer: a session's token can add a card for itself, and close it, and nothing else. The hook prints what hubd worked out
   from the prompt, never what a page sent, and a card that's closed, or a second answer, changes nothing. A card shows the

@@ -452,10 +452,41 @@ def test_shell_command_keeps_a_shell(tmp_path, fake_gh, monkeypatch):
 def test_saying_something_to_a_session_needs_a_login(tmp_path, fake_gh):
     async def go():
         async with Harness(tmp_path, fake_gh) as h:
-            for op in ("agent.send", "agent.interrupt", "agent.state", "agent.context", "agent.view", "agent.buttons"):
+            for op in ("agent.send", "agent.say", "agent.interrupt", "agent.state", "agent.context", "agent.view", "agent.buttons"):
                 for token in ("wrong", None):
                     reply = await h.call(op=op, token=token, agent_token="session", name="steward", text="x")
                     assert not reply["ok"] and reply["denied"], op
+    run(go())
+
+
+def test_typed_words_reach_a_session_as_the_persons_and_only_through_a_login(tmp_path, fake_gh):
+    """004 FR-008: say is a login op; the words go to _send with no sender, so they're the person's turn."""
+    sent = []
+
+    class Agents:
+        async def _send(self, name, text, by=None):
+            sent.append((name, text, by))
+            return {"sent": True, "queued": 0}
+
+        def scope(self, token):
+            return {"session": "s", "tools": ["list_running_sessions"], "persona": "steward"} if token == "session" else None
+
+    async def go():
+        async with Harness(tmp_path, fake_gh) as h:
+            h.hubd.agents = Agents()
+            token = await h.login()
+            # A session's token is no login, whatever it names.
+            for req in ({"agent_token": "session"}, {"agent_token": "agent-secret"}, {"token": "agent-secret"}):
+                reply = await h.call(op="agent.say", name="steward", text="hello", where="Work", **req)
+                assert not reply["ok"] and reply["denied"]
+            assert not sent
+            reply = await h.call(op="agent.say", token=token, name="steward", text="look at boot#5", where="Work")
+            assert reply == {"ok": True, "sent": True, "queued": 0}
+            assert sent == [("steward", "look at boot#5", None)]
+            assert not (await h.call(op="agent.say", token=token, name="steward", text="x", where="Device"))["ok"]
+            assert not (await h.call(op="agent.say", token=token, name="steward", text=["x"], where="Work"))["ok"]
+            assert (await h.call(op="agent.say", token=token, name="s1", text="x", where="SessionView"))["ok"]
+            assert len(sent) == 2
     run(go())
 
 

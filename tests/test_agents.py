@@ -2693,3 +2693,37 @@ def test_a_checkout_stays_listed_if_git_cant_say_whether_it_has_a_remote(tmp_pat
         return await real(*args, **kw)
     monkeypatch.setattr(a, "_git", fails)
     assert [m["repo"] for m in asyncio.run(a.workspace_status())["main"]] == ["boot"]
+
+
+def test_typed_words_reach_tmux_on_stdin_never_in_its_arguments(tmp_path, monkeypatch):
+    """004 FR-008, 004 R2: the process list shows tmux's arguments, so the words go on stdin."""
+    monkeypatch.setattr("hubd.shells.PASTE_SETTLE", 0)
+    log = tmp_path / "calls.jsonl"
+    fake = tmp_path / "tmux"
+    fake.write_text("#!/usr/bin/env python3\nimport json, sys\n"
+                    f"data = sys.stdin.read() if '-' in sys.argv[1:] else ''\n"
+                    f"open({str(log)!r}, 'a').write(json.dumps({{'argv': sys.argv[1:], 'stdin': data}}) + '\\n')\n")
+    fake.chmod(0o755)
+    words = "look at boot#5 -t evil; $(whoami)\nsecond line"
+    asyncio.run(Shells(program=str(fake)).paste("s1", words))
+    calls = [json.loads(line) for line in log.read_text().splitlines()]
+    assert [c["argv"][2] for c in calls] == ["load-buffer", "paste-buffer", "send-keys"]
+    assert calls[0]["stdin"] == words and calls[0]["argv"][-1] == "-"
+    assert all(words not in " ".join(c["argv"]) and "boot#5" not in " ".join(c["argv"]) for c in calls)
+
+
+def test_a_typed_message_is_the_persons_and_waits_for_the_turn(tmp_path, monkeypatch):
+    """What agent.say calls: no sender, so it's never labelled as another session's, and mid-turn it queues."""
+    monkeypatch.setattr(agents_module, "SEND_POLL", 60)
+    a, name, directory, fire = bridged(tmp_path)
+
+    async def go():
+        a._lost[name] = "1 queued message not sent"
+        assert await a._send(name, "mine, typed") == {"sent": False, "queued": 1}  # mid-turn
+        assert a._from[name] == [None] and name not in a._lost  # yours, and you've seen the notice
+        fire("Stop")
+        await a._send_next(name)
+        assert a.shells.pasted == [(name, "mine, typed")]
+        for task in a._senders.values():
+            task.cancel()
+    asyncio.run(go())

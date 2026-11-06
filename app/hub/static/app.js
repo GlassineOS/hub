@@ -1668,6 +1668,32 @@ function TerminalView({ name, onGone, focusRef, quiet }) {
 }
 
 // --- sessions -------------------------------------------------------------------------------------
+// Your own words to a Claude session (004 FR-008): through hubd as typed input, a turn of yours. Mid-turn they queue.
+const MAX_MESSAGE = 4000;
+function MessageField({ name, where, off }) {
+  const [text, setText] = useState("");
+  const [note, setNote] = useState("");
+  const act = useAct();
+  const id = `msg-${name}`;
+  const send = () => act.run(async () => {
+    setNote("");
+    const r = await post("agents/say", { name, text, where });
+    setText("");
+    setNote(r.sent ? "Sent. It's your turn in the terminal." : `Queued (${r.queued} waiting). It goes when the turn ends, with the prompt empty.`);
+  });
+  const empty = !text.trim();
+  return html`<div class="msgfield stack tight">
+    <label class="eyebrow" for=${id}>Message to ${name}</label>
+    <textarea id=${id} rows="2" maxlength=${MAX_MESSAGE} disabled=${!!off} placeholder="Type a message. Ctrl+Enter sends." value=${text}
+      onInput=${(e) => setText(e.target.value)}
+      onKeyDown=${(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !empty && !act.busy) { e.preventDefault(); send(); } }}></textarea>
+    <div class="row" style="gap: 8px; justify-content: space-between">
+      <span role="status" class="small soft">${off || (act.busy ? "Sending…" : note)}</span>
+      <span class="row" style="gap: 8px"><span class="small soft mono">${text.length > MAX_MESSAGE - 400 ? `${text.length} / ${MAX_MESSAGE}` : ""}</span>
+        <button disabled=${!!off || empty || act.busy} onClick=${send}>Send</button></span></div>
+    <${Err} text=${act.error} /></div>`;
+}
+
 function NewShell({ initial, onDone, onCancel }) {
   const [name, setName] = useState(initial || "");
   const [cwd, setCwd] = useState("");
@@ -2682,7 +2708,9 @@ function Shells({ query, asks }) {
             { title: "Resume this session?", text: "Its conversation continues in a new terminal. The shell open here closes, with anything running in it.", label: "Resume" },
             () => resume(current.name),
           )}>Resume…</button></div>`}
-        <${TerminalView} key=${current.name} name=${current.name} focusRef=${focus} onGone=${() => { setOpen(null); reload(); }} />`
+        <${TerminalView} key=${current.name} name=${current.name} focusRef=${focus} onGone=${() => { setOpen(null); reload(); }} />
+        ${current.agent && html`<div class="termsay"><${MessageField} key=${current.name} name=${current.name} where="Sessions"
+          off=${current.agent.ended ? "Claude has ended in this session: resume it to write to it." : ""} /></div>`}`
       : html`<div class="empty" id="h-term">${list.length || (stopped.data || []).length ? "Choose a session." : "No sessions yet."}</div>`}
     </section>
     <${Manifest} key=${current ? current.name : "none"} session=${current} work=${asks.work} />
@@ -3101,6 +3129,7 @@ function StewardSession({ state, seen, buttons, reload, asks }) {
     <div class="row" style="gap: 6px; padding: 8px 12px 0">
       ${offered.map((b) => html`<button class="dock-msg" disabled=${act.busy} title=${b.text.replaceAll("{selection}", thisItem)} onClick=${() => send(b)}>${b.label}</button>`)}
       <button class="dock-msg" title="Stops the turn, and anything queued for after it" disabled=${act.busy} onClick=${() => act.run(async () => { await post("agents/interrupt", { name: STEWARD }); setNote("Sent Esc."); })}>Esc</button></div>
+    <div class="dock-say"><${MessageField} name=${STEWARD} where=${seen.screen} /></div>
     <div role="status" class="small soft" style="padding: 4px 12px 8px; min-height: 28px">${state.queued > 0 ? `${count(state.queued, "message")} queued until the turn ends, with the prompt empty. If it has ended, clear what's typed there. After Esc in the terminal, press Esc here too.` : note.startsWith("Queued") ? "" : note}</div>
     <${Err} text=${act.error || state.lost} /></div>`;
 }

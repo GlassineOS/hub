@@ -279,6 +279,9 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
 .dock-term .term { flex: 1; min-height: 0; height: auto; padding: 6px 8px; }
 .dock-waiting { justify-content: space-between; margin: 8px 12px 0; background: var(--mark); box-shadow: none; }
 .dock-msg { min-height: 36px; padding: 0 10px; font-size: 13px; box-shadow: none; }
+.dock-say { padding: 8px 12px 0; }
+.termsay { padding: 10px 16px 12px; border-top: 1.5px solid var(--ink); background: var(--sheet); }
+.msgfield textarea { min-height: 56px; }
 @media (max-width: 1000px) {
   .dock { position: fixed; inset: 0; z-index: 30; width: auto; border-left: 0; }
   .dock-rail { position: fixed; right: 12px; bottom: 12px; z-index: 30; width: auto; height: auto; padding: 0; border: 0; background: none; }

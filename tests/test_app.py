@@ -767,7 +767,7 @@ def test_spawn_session_goes_to_hubd_under_the_sessions_token(github, hubd):
     hubd.call = original
 
 
-def test_the_page_says_only_a_button_and_an_item_to_a_session():
+def test_typed_words_go_only_to_say_and_a_button_says_its_own():
     seen = []
 
     class Hubd(FakeHubd):
@@ -783,6 +783,11 @@ def test_the_page_says_only_a_button_and_an_item_to_a_session():
     press = next(r for r in seen if r["op"] == "agent.press")
     assert (press["name"], press["button"], press["kind"], press["selection"]) == ("steward", "status", "run", "hub#1")
     assert "text" not in press
+    # Typed words have their own route (004 FR-008), and carry only the name, the words and where.
+    assert client.post("/api/agents/say", json={**body, "where": "Work"}, headers=ORIGIN).status_code == 200
+    say = next(r for r in seen if r["op"] == "agent.say")
+    assert (say["name"], say["text"], say["where"]) == ("steward", "my own words", "Work")
+    assert not {"button", "kind", "selection"} & set(say)
     assert client.post("/api/agents/send", json=body, headers=ORIGIN).status_code == 400
 
 
@@ -1363,3 +1368,13 @@ def test_a_failed_reload_keeps_what_the_views_showed():
         source = _component(script, view)
         assert "if (error && !data) return" in source and "if (error) return" not in source, f"{view} keeps the item it showed"
         assert "<${Err} text=${act.error || error} />" in source, f"{view} shows the error beside the item"
+
+
+def test_every_claude_session_is_a_chat():
+    """A static check (004 FR-008, 010 FR-006): the Steward panel and Sessions both have a message field, posting to say."""
+    script = _app_js()
+    field = _component(script, "MessageField")
+    assert 'post("agents/say", { name, text, where })' in field and "agents/press" not in field
+    assert 'role="status"' in field and "<${Err} text=${act.error}" in field and "<label" in field
+    assert "<${MessageField} name=${STEWARD}" in _component(script, "StewardSession")
+    assert "<${MessageField} key=${current.name} name=${current.name}" in _component(script, "Shells")
