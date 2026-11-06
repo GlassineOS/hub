@@ -435,7 +435,7 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         op = p(r, "step")
         if op not in ("action", "defaults", "plan", "run", "start", "preview", "manifest", "resume", "draft", "state", "press", "interrupt", "context", "view", "say", "buttons", "steward", "past", "past_transcript", "past_search", "resume_past", "cleanup", "cleanup_remove", "worktrees"):
             raise BadRequest(f"unknown step: {op}")
-        fields = ("id", "words", "ids", "after_merge", "model", "planner_model", "action", "repo", "number", "config", "name", "notes", "pins", "kind", "object", "button", "screen", "selection", "thread", "mode", "where", "ref", "persona", "outcome")
+        fields = ("id", "words", "ids", "after_merge", "model", "planner_model", "action", "repo", "number", "config", "name", "notes", "pins", "kind", "object", "button", "screen", "selection", "repos", "thread", "mode", "where", "ref", "persona", "outcome")
         # Typed words go only to say (004 FR-008): press stays a preset button's own text, with no free text beside it.
         if op == "say":
             fields = ("name", "text", "where")

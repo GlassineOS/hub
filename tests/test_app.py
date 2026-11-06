@@ -1756,7 +1756,8 @@ def test_launch_is_one_modal_with_five_stages_opened_by_one_event():
     assert 'launch({ action: action.id, covers: [{ kind, repo: row.repo, number: row.number }], from: { view: "Work"' in _component(script, "WorkRow")
     assert 'from: { view: "Work", ref: here }' in _component(script, "LaunchRow")
     assert 'from: { view: "Roadmap" }' in _component(script, "Roadmap") and 'from: { view: "Overview" }' in _component(script, "RepoDetail")
-    assert "from: { view: seen.screen" in _component(script, "Steward")
+    # The Steward panel's ＋ asks the Steward in its chat (010 FR-006); its suggestions open Launch.
+    assert "launch(" not in _component(script, "Steward")
     assert "launch({ id: item.id" in _component(script, "SuggestedSession")
     # The old address lands on the item.
     assert 'route.path === "launch"' in _component(script, "movedRoute")
@@ -2569,3 +2570,54 @@ def test_read_report_is_listed_only_for_a_research_session_and_goes_to_hubd_unde
         hubd_client.CALLER.set("session-token")
         return await github.read_report("r-0123456789ab")
     assert asyncio.run(go())["answer"] == "a"
+
+
+def test_the_page_tells_hubd_the_chosen_repositories_with_the_context():
+    seen = []
+
+    class Hubd(FakeHubd):
+        async def call(self, **request):
+            if not request["op"].startswith("agent."):
+                return await super().call(**request)
+            seen.append(request)
+            return {"ok": True, "sees": [{"kind": "view", "label": "Work"}]}
+    client = TestClient(web.build(Hubd(), None, FakeDocs(), secure_cookie=False, allowed_hosts={"testserver"}))
+    signed_in(client)
+    body = {"name": "steward", "screen": "Work", "repos": ["hub", "docs"], "text": "not here"}
+    assert client.post("/api/agents/context", json=body, headers=ORIGIN).json()["sees"] == [{"kind": "view", "label": "Work"}]
+    context = next(r for r in seen if r["op"] == "agent.context")
+    assert (context["screen"], context["repos"]) == ("Work", ["hub", "docs"]) and "text" not in context
+
+
+def test_the_steward_panel_opens_per_view_and_keeps_its_width():
+    script = _app_js()
+    # 010 FR-002: open beside Overview, Roadmap, Work and a work item; a rail beside Sessions, Knowledge and Notes.
+    assert 'const STEWARD_OPEN = ["Overview", "Roadmap", "Work", "Work item", "Queue"];' in script
+    for view in ("Sessions", "Knowledge", "Notes"):
+        assert f'"{view}"' not in script.split("const STEWARD_OPEN = ")[1].split(";")[0]
+    assert "keptRail" not in script and '"steward-panel"' in script
+    # 010 FR-001: 320 to 760 px, a handle the keyboard moves, the width kept in this browser.
+    assert "const STEWARD_WIDTH = { min: 320, max: 760" in script and '"steward-width"' in script
+    handle = _component(script, "WidthHandle")
+    for text in ('role="separator"', 'tabindex="0"', "aria-valuenow", "ArrowLeft", "ArrowRight", "onPointerMove"):
+        assert text in handle, text
+    css = (Path(__file__).resolve().parents[1] / "app" / "hub" / "static" / "style.css").read_text()
+    assert "width: var(--dock-w, 440px)" in css and ".dock-handle { display: none; }" in css
+
+
+def test_the_steward_panel_shows_what_hubd_says_it_was_told():
+    script = _app_js()
+    panel = _component(script, "Steward")
+    # 010 FR-004: the chips are hubd's reply to the context it wrote, not the page's own guess.
+    assert 'post("agents/context", { name: STEWARD, screen: seen.screen, kind: seen.kind, selection: seen.selection, repos: seen.repos })' in panel
+    assert "r.sees" in panel and "chips.map" in panel
+    assert "seenRepos(moved.query.repo)" in script and "seenRepos(moved.query.repos)" in script
+    # 010 FR-005: the strip counts what Needs you counts for the Steward, and opens it filtered.
+    assert 'r.status === "pending" && r.session === STEWARD' in panel and 'needsYou({ filter: "steward" })' in panel
+    # 010 FR-006: a request in the Steward's chat with your words, not Launch; off while it isn't running.
+    plan = _component(script, "PlanWithSteward")
+    assert 'post("agents/say", { name: STEWARD, text, where })' in plan and "Start the Steward first" in plan
+    assert "launch(" not in plan and "planFromSteward" not in script
+    assert "＋ Plan new work with the Steward" in panel
+    # 010 FR-003: the compact session view, with the model and its select.
+    assert "<${StewardModel}" in panel and 'mode="compact"' in _component(script, "StewardSession")
