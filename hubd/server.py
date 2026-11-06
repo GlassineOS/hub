@@ -62,7 +62,8 @@ STEWARD = "steward"
 DIRECT_ORIGIN = {"launch": None, "from": None, "by": "you"}  # a session you started with the one click or the advanced form: no Launch record behind it
 RESULT_TOOL_OPS = {"result.submit": "submit_result"}  # By a session's own token, checked like WORK_TOOL_OPS
 ITEM_OBJECTS = ("issue", "pr", "run")  # what a Launch's covered items can be (005 FR-011)
-KIND_WORDS = {"issue": "an issue", "pr": "a pull request", "run": "a run", "repo": "a repository", "project": "the whole project"}
+KIND_WORDS = {"issue": "an issue", "pr": "a pull request", "run": "a run", "repo": "a repository", "project": "the whole project",
+              "knowledge": "a question"}
 _ITEM_REF_RE = re.compile(r"\.?[A-Za-z0-9_][A-Za-z0-9._-]{0,99}#[1-9][0-9]{0,14}")  # 15 digits, as feed.py takes: a run's number is 11 now
 REVIEW_EVENT = {"comment": "COMMENT", "request-changes": "REQUEST_CHANGES", "approve": "APPROVE"}
 PLANNER_CHOOSES = ("effort", "brief", "docs_query", "docs", "steps")  # the model it suggests is planner_pick: you choose on its plan

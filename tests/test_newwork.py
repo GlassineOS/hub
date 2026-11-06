@@ -1061,3 +1061,21 @@ def test_a_waiting_draft_can_be_edited_before_filing_and_nothing_else(hub):
     assert hub.work.get(work)["drafts"][0]["title"] == "Clearer title"
     assert call(hub, "work.bring_back", token="login", id=work)["ok"]
     assert call(hub, "work.edit", token="login", id=work, index=0, title="Back again", body="")["ok"]
+
+
+# --- Knowledge's research: a Launch with no repository (008 FR-007) -----------------------------------
+def test_research_launches_with_no_repository(hub):
+    reply = call(hub, "work.start", token="login", action="knowledge-research", repos=[], notes="Question: why LUT version 3",
+                 pins=[{"kind": "docs", "label": "https://docs.glassine.org/x"}], **{"from": {"view": "Knowledge", "ref": None}})
+    assert reply["ok"], reply
+    assert reply["work"]["repo"] is None and reply["work"]["covers"] == []
+    assert hub.agents.planned[-1][:4] == ("knowledge-research", None, None, "Question: why LUT version 3")
+    record = approved(hub, reply["work"]["id"])
+    assert hub.agents.started[-1][0]["repo"] is None and record["state"] == "running"
+
+
+def test_research_refuses_a_repository_or_an_item(hub):
+    assert "isn't about one" in call(hub, "work.start", token="login", action="knowledge-research", repos=["boot"])["error"]
+    error = call(hub, "work.start", token="login", action="knowledge-research", covers=[{"kind": "issue", "repo": "boot", "number": 3}])["error"]
+    assert "works on a question, not on an item like boot#3" in error
+    assert not hub.agents.started

@@ -2306,3 +2306,127 @@ def test_roadmap_page_static_parts():
     assert "`${p.done} of ${p.total} done`" in _component(script, "Progress")
     assert "options.find((o) => o.mapped)" in _component(script, "Roadmap"), "a move never picks an option with no column"
     assert 'road=${kind === "issue" && query.road === "1"}' in script and 'planIssues(repo, number, "Work")' in _component(script, "LaunchRow")
+
+
+# --- Knowledge: both indexes in one search (008) ---------------------------------------------------------
+from hub import knowledge  # noqa: E402
+
+
+class KnowledgeHub:
+    """The two services Knowledge reads: the overview (what the host login sees) and the work store's search."""
+    def __init__(self, rows=None, fail=None):
+        self.rows = rows if rows is not None else [
+            {"kind": "issue", "repo": "hub", "number": 3, "title": "LUT version 3 ships", "state": "OPEN", "url": "u3",
+             "passage": "Why LUT version 3: the panel needs it", "meaning": 0.62, "words": 1.0},
+            {"kind": "pr", "repo": "secret", "number": 9, "title": "LUT", "state": "OPEN", "url": "u9", "passage": "x", "meaning": 0.9, "words": 1.0}]
+        self.fail = fail
+        self.asked = []
+
+    async def overview(self, fresh=False):
+        return {"groups": [{"repos": [{"name": "hub"}, {"name": "boot"}]}]}
+
+    async def work_search(self, query, kind=None, repo=None, state=None, k=8):
+        self.asked.append((query, repo, state))
+        if self.fail:
+            raise BadRequest(self.fail)
+        return {"results": [r for r in self.rows if not repo or r["repo"] == repo]}
+
+    def work_status(self):
+        return {"enabled": True, "ready": True, "running": False, "error": None, "synced_at": 1.0, "counts": {"issue": 4, "pr": 2, "passages": 90}}
+
+
+class KnowledgeDocs:
+    def __init__(self, fail=False):
+        self.fail = fail
+
+    async def search(self, q, k=5):
+        if self.fail:
+            raise RuntimeError("no index here")
+        return {"results": [{"title": "Display", "heading": "LUT", "score": 0.2, "url": "https://docs.glassine.org/d#lut", "text": "The LUT version is 3."}]}
+
+    async def status(self):
+        if self.fail:
+            raise RuntimeError("no index here")
+        return {"state": "stale", "chunks": 12, "latest_run": {"createdAt": "2026-11-01T00:00:00Z"}}
+
+
+def test_knowledge_merges_both_domains_and_marks_the_words():
+    found = asyncio.run(knowledge.search(KnowledgeDocs(), KnowledgeHub(), "LUT version"))
+    assert [r["domain"] for r in found["results"]] == ["work", "docs"]  # best score first
+    work = found["results"][0]
+    assert [work["snippet"][a:b] for a, b in work["marks"]] == ["LUT", "version"]
+    assert [work["title"][a:b] for a, b in work["title_marks"]] == ["LUT", "version"]
+    assert found["good"] is True and all(d["ok"] for d in found["domains"])
+
+
+def test_knowledge_shows_nothing_from_a_repository_the_login_cant_read():
+    found = asyncio.run(knowledge.search(KnowledgeDocs(), KnowledgeHub(), "LUT", domains="work"))
+    assert {r["repo"] for r in found["results"]} == {"hub"}  # not secret, which the overview doesn't list
+    with pytest.raises(BadRequest, match="isn't a repository the hub can read"):
+        asyncio.run(knowledge.search(KnowledgeDocs(), KnowledgeHub(), "LUT", repos="secret"))
+
+
+def test_knowledge_refuses_a_planned_or_unknown_domain():
+    for domains, words in (("code", "planned"), ("docs,shells", "not a domain"), ("docs,docs", "once")):
+        with pytest.raises(BadRequest, match=words):
+            asyncio.run(knowledge.search(KnowledgeDocs(), KnowledgeHub(), "LUT", domains=domains))
+
+
+def test_knowledge_one_failed_domain_leaves_the_other():
+    found = asyncio.run(knowledge.search(KnowledgeDocs(fail=True), KnowledgeHub(), "LUT"))
+    assert [d["ok"] for d in found["domains"]] == [False, True] and "no index here" in found["domains"][0]["error"]
+    assert found["results"] and all(r["domain"] == "work" for r in found["results"])
+
+
+def test_knowledge_repositories_and_open_only_narrow_the_work_items():
+    hub = KnowledgeHub()
+    asyncio.run(knowledge.search(KnowledgeDocs(), hub, "LUT", domains="work", repos="hub,boot", open_only=True))
+    assert hub.asked == [("LUT", "hub", "open"), ("LUT", "boot", "open")]
+
+
+def test_knowledge_no_good_hits_offers_research():
+    weak = KnowledgeHub(rows=[{"kind": "issue", "repo": "hub", "number": 1, "title": "t", "state": "OPEN", "url": "u", "passage": "p",
+                               "meaning": 0.1, "words": 0.0}])
+    assert asyncio.run(knowledge.search(KnowledgeDocs(), weak, "why LUT version 3"))["good"] is False
+    exact = asyncio.run(knowledge.search(KnowledgeDocs(), KnowledgeHub(), "panel needs", mode="exact"))
+    assert exact["good"] is True and [r["number"] for r in exact["results"]] == [3]  # only the hit with every word
+    assert asyncio.run(knowledge.search(KnowledgeDocs(), KnowledgeHub(), "nowhere words", mode="exact"))["good"] is False
+    unembedded = KnowledgeHub(rows=[{"kind": "issue", "repo": "hub", "number": 1, "title": "t", "state": "OPEN", "url": "u", "passage": "p",
+                                     "meaning": None, "words": 0.667}])
+    assert asyncio.run(knowledge.search(KnowledgeDocs(), unembedded, "why LUT version 3", domains="work"))["good"] is False
+
+
+def test_knowledge_needs_words_within_limits():
+    for q, words in (("", "needs words"), ("x" * 501, "at most")):
+        with pytest.raises(BadRequest, match=words):
+            asyncio.run(knowledge.search(KnowledgeDocs(), KnowledgeHub(), q))
+    with pytest.raises(BadRequest, match="mode"):
+        asyncio.run(knowledge.search(KnowledgeDocs(), KnowledgeHub(), "LUT", mode="fuzzy"))
+
+
+def test_knowledge_indexes_say_state_and_age():
+    rows = {r["id"]: r for r in asyncio.run(knowledge.indexes(KnowledgeDocs(), KnowledgeHub()))}
+    assert (rows["docs"]["state"], rows["docs"]["stale"], rows["docs"]["action"], rows["docs"]["can_act"]) == ("ready", True, "reindex", True)
+    assert (rows["work"]["state"], rows["work"]["size"], rows["work"]["action"]) == ("ready", 6, "sync")
+    assert (rows["code"]["state"], rows["code"]["action"]) == ("planned", None)
+    failed = {r["id"]: r for r in asyncio.run(knowledge.indexes(KnowledgeDocs(fail=True), KnowledgeHub()))}
+    assert failed["docs"]["state"] == "failed" and "no index here" in failed["docs"]["says"]
+
+
+def test_knowledge_routes_need_a_login(client):
+    assert client.get("/api/knowledge/search?q=x").status_code == 401
+    assert client.get("/api/knowledge/indexes").status_code == 401
+
+
+def test_knowledge_view_in_the_page():
+    script = _app_js()
+    view = _component(script, "Knowledge")
+    for text in ("Research this…", "Open only", "Try:", "Exact words", "KN_LAYOUTS", "KnowledgeResult", "ResearchFlyout"):
+        assert text in view, text
+    assert "Pin as context" in _component(script, "KnowledgeResult") and "SessionChip" in _component(script, "KnowledgeResult")
+    assert 'KN_PLANNED = ["code"]' in script and "disabled aria-pressed=\"false\" title=\"Not indexed yet\"" in script
+    flyout = _component(script, "ResearchFlyout")
+    assert 'action: "knowledge-research"' in flyout and "Plan a research session…" in flyout and "<${KnowledgeReports} />" in flyout
+    assert 'kept: "1"' in _component(script, "KnowledgeReports") and "Follow up…" in _component(script, "KnowledgeReports")
+    assert "Run docs CI now" in _component(script, "KnowledgeIndexes") and "Ingest now" in _component(script, "KnowledgeIndexes")
+    assert 'NO_REPO = ["knowledge"]' in script and "noRepo" in _component(script, "LaunchBrief")
