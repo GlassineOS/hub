@@ -151,6 +151,15 @@ def test_a_model_the_action_doesnt_list_is_refused(hub):
     assert not hub.agents.started
 
 
+def test_run_fix_starts_on_a_run_and_is_refused_on_an_issue(hub):
+    """006 T018: run-fix's object is a run."""
+    error = call(hub, "work.start", token="login", action="run-fix", covers=[{"kind": "issue", "repo": "kernel", "number": 204}])["error"]
+    assert "works on a run, and kernel#204 is an issue, so it can't start there" in error
+    reply = call(hub, "work.start", token="login", action="run-fix", covers=[{"kind": "run", "repo": "kernel", "number": 4242}])
+    assert reply["ok"], reply
+    assert reply["work"]["covers"] == [{"kind": "run", "repo": "kernel", "number": 4242}]
+
+
 def test_an_item_of_the_wrong_kind_is_refused_by_name(hub):
     """005 FR-011: the action's object decides; the refusal names the item and both kinds."""
     assert "isn't a kind" in call(hub, "work.start", token="login", action="project-steward")["error"]

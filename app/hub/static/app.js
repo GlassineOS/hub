@@ -862,14 +862,19 @@ function offeredFor(actions, facts) {
     && (!a.needs || (a.needs === "review" && facts.openThreads + facts.reviews > 0)));
 }
 
-// 006 FR-007: the one action that fits the item best. Fix if failing, address if a review asked for changes, triage if
-// nobody has labelled it, else review a PR, implement an issue, investigate a run. Work's rows use it too.
+// 006 FR-007: the one action that fits the item best. Fix if failing (a run without a fix action: investigate), address if a
+// review asked for changes, triage if nobody has labelled it, else review a PR, implement an issue, investigate a run.
+// Work's rows use it too.
 const BEST_VERB = { pr: "review", issue: "implement", run: "investigate" };
 function bestAction(kind, facts, offered) {
-  const verb = facts.failing ? (kind === "run" ? "investigate" : "fix")
-    : kind === "pr" && (facts.changesRequested || facts.openThreads > 0) ? "address"
-    : kind === "issue" && facts.untriaged ? "triage" : BEST_VERB[kind];
-  return offered.find((a) => a.verb === verb) || offered.find((a) => a.verb) || offered[0] || null;
+  const verbs = facts.failing ? ["fix", "investigate"]
+    : kind === "pr" && (facts.changesRequested || facts.openThreads > 0) ? ["address"]
+    : kind === "issue" && facts.untriaged ? ["triage"] : [BEST_VERB[kind]];
+  for (const verb of verbs) {
+    const found = offered.find((a) => a.verb === verb);
+    if (found) return found;
+  }
+  return offered.find((a) => a.verb) || offered[0] || null;
 }
 
 const useKindActions = (kind) => useLoad(() => api(`agents/actions${params({ object: kind })}`), [kind]);
@@ -961,6 +966,10 @@ function MergeDialog({ data, onYes, onNo }) {
 // Everything the black button offers for one kind (006 FR-030, FR-032, FR-033). Each entry says why it's off, or null.
 function ghEntries({ kind, data, repo, number, base, behind }) {
   const page = { label: "Open on GitHub", disabled: null, href: data.url };
+  if (kind === "work") { // 006 FR-034: each opens its form; the form does the call. Run workflow… first on the Runs tab.
+    const made = [{ id: "new-issue", label: "New issue…", panel: "new", disabled: null }, { id: "dispatch", label: "Run workflow…", panel: "dispatch", disabled: null }];
+    return [...(data.tab === "actions" ? made.reverse() : made), page];
+  }
   if (kind === "pr") {
     const open = data.state === "OPEN";
     const merged = data.state === "MERGED";
@@ -1006,7 +1015,7 @@ function ghEntries({ kind, data, repo, number, base, behind }) {
 
 // 006 FR-026–FR-029, FR-038: a black split button, as you on GitHub. Its main action is the first one that's on; the arrow
 // opens the rest, the ones that are off saying why. Black, never blue: blue starts an agent (001 FR-013).
-function GhActions({ kind, data, repo, number, base, behind, onDone }) {
+function GhActions({ kind, data, repo, number, base, behind, onDone, onPanel }) {
   const entries = ghEntries({ kind, data, repo, number, base, behind });
   const main = entries.find((e) => !e.disabled && !e.href) || entries.find((e) => !e.href) || entries[0];
   const [menu, setMenu] = useState(false);
@@ -1029,6 +1038,7 @@ function GhActions({ kind, data, repo, number, base, behind, onDone }) {
     setMenu(false);
     if (e.disabled) return;
     if (e.href) { window.open(e.href, "_blank", "noopener,noreferrer"); return; }
+    if (e.panel) { onPanel(e.panel); return; }
     if (e.merge) { setModal("merge"); return; }
     if (e.labels) { setModal("labels"); return; }
     if (e.download) {
@@ -1370,40 +1380,97 @@ function RunDetail({ repo, id, frame, onChanged }) {
     sections=${[{ id: "summary", label: failed ? "Failed step" : "Summary", body: summary }]} />`;
 }
 
+// 006 FR-035: a new issue as you, on GitHub. "Part of" is written as the body's first line, as filed drafts write it.
 function NewIssue({ groups, initial, roadmap, onDone, onCancel }) {
   const [repo, setRepo] = useState(initial || "hub");
   const [onBoard, setOnBoard] = useState(Boolean(roadmap));
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [parent, setParent] = useState(null);
+  const [picked, setPicked] = useState([]);
+  const labels = useLoad(() => (repo ? api(`labels/${repo}`) : Promise.resolve([])), [repo]);
   const act = useAct();
+  const partOf = parent ? `${parent.repo}#${parent.number}` : null;
+  const toggle = (name) => setPicked((p) => (p.includes(name) ? p.filter((n) => n !== name) : [...p, name]));
+  // What was typed becomes the brief of the issue-writer action (005): the planner reads it, and you read its drafts.
+  const byClaude = () => {
+    const text = [title.trim(), body.trim(), partOf ? `Part of GlassineOS/${partOf}` : "", picked.length ? `Labels to use: ${picked.join(", ")}` : ""].filter(Boolean).join("\n\n");
+    launch({ action: "new-issue", repos: [repo], describe: text, from: { view: "Work" } });
+    onCancel();
+  };
   return html`<h2 id="h-item" style="font-size: 22px; font-weight: 600">New issue</h2>
-    <div class="field"><span aria-hidden="true">Repository</span><${RepoPicker} value=${repo} onChange=${setRepo} groups=${groups} /></div>
+    <div class="field"><span aria-hidden="true">Repository</span><${RepoPicker} value=${repo} onChange=${(r) => { setRepo(r); setPicked([]); }} groups=${groups} /></div>
     <label class="field"><span>Title</span><input value=${title} onInput=${(e) => setTitle(e.target.value)} /></label>
     <label class="field"><span>Description</span><textarea rows="6" placeholder="Markdown supported" value=${body} onInput=${(e) => setBody(e.target.value)}></textarea></label>
+    <div class="field"><span aria-hidden="true">Part of <span class="soft">(optional)</span></span>
+      ${parent ? html`<span class="row"><${ItemPill} ...${parent} removable onRemove=${() => setParent(null)} /></span>`
+        : html`<${ItemPicker} kind="issue" label="Part of: find an issue" onPick=${(i) => setParent({ kind: "issue", repo: i.repo, number: i.number, title: i.title })} />`}</div>
+    <div class="field"><span aria-hidden="true">Labels</span>
+      <${Err} text=${labels.error} />${!labels.data && !labels.error && html`<span class="small soft">Loading…</span>`}
+      <div class="row" role="group" aria-label="Labels" style="gap: 6px">${(labels.data || []).map((l) => html`<button type="button" class="pill" aria-pressed=${picked.includes(l.name) ? "true" : "false"}
+        title=${l.description || ""} onClick=${() => toggle(l.name)}>${l.name}</button>`)}
+        ${labels.data && !labels.data.length && html`<span class="small soft">${repo} has no labels.</span>`}</div></div>
     <label class="row small"><input type="checkbox" style="min-height: 0" checked=${onBoard} onChange=${(e) => setOnBoard(e.target.checked)} /> Add to the roadmap</label>
     <${Err} text=${act.error} />
-    <div class="row"><button class="primary" disabled=${act.busy || !title.trim()}
-      onClick=${async () => { const r = await act.run(() => post(`issues/${repo}`, { title, body, roadmap: onBoard })); if (r) onDone(r); }}>Create</button>
+    <div class="row"><button class="gh" disabled=${act.busy || !title.trim() || !repo}
+      onClick=${async () => { const r = await act.run(() => post(`issues/${repo}`, { title, body, labels: picked, part_of: partOf, roadmap: onBoard })); if (r) onDone(r); }}>Create on GitHub</button>
+      <button class="pen" disabled=${!repo || !(title.trim() || body.trim())} onClick=${byClaude}><${TermIcon} />Let Claude write it instead</button>
       <button onClick=${onCancel}>Cancel</button></div>`;
 }
 
+// One input of a workflow, as its type says (006 FR-036). Values go to gh as text.
+function WorkflowInput({ input, value, onChange }) {
+  const id = `wf-${input.name}`;
+  const label = html`<span>${input.name}${input.required ? " *" : ""}${input.description && html` <span class="soft">· ${input.description}</span>`}</span>`;
+  if (input.type === "boolean") {
+    return html`<label class="row small"><input type="checkbox" style="min-height: 0" checked=${value === "true"} onChange=${(e) => onChange(e.target.checked ? "true" : "false")} />${label}</label>`;
+  }
+  if (input.type === "choice") {
+    return html`<label class="field">${label}<select id=${id} value=${value} onChange=${(e) => onChange(e.target.value)}>
+      ${!input.required && html`<option value="">—</option>`}${input.options.map((o) => html`<option value=${o}>${o}</option>`)}</select></label>`;
+  }
+  return html`<label class="field">${label}<input id=${id} value=${value} inputmode=${input.type === "number" ? "decimal" : undefined}
+    placeholder=${input.type === "environment" ? "an environment's name" : ""} onInput=${(e) => onChange(e.target.value)} /></label>`;
+}
+
+const inputDefault = (i) => (i.default === undefined ? (i.type === "boolean" ? "false" : i.type === "choice" && i.required ? i.options[0] : "") : String(i.default));
+
+// 006 FR-036, FR-037: a workflow that can be started by hand, as you, with its typed inputs.
 function Dispatch({ groups, initial, onDone, onCancel }) {
   const [repo, setRepo] = useState(initial || "");
   const { data, error } = useLoad(() => (repo ? api(`workflows/${repo}`) : Promise.resolve([])), [repo]);
   const [file, setFile] = useState("");
   const [ref, setRef] = useState("main");
+  const [shownRef, setShownRef] = useState("main");
+  const [values, setValues] = useState({});
+  const read = useLoad(() => (repo && file ? api(`workflows/${repo}${params({ inputs: file, ref: shownRef || undefined })}`) : Promise.resolve(null)), [repo, file, shownRef]);
+  useEffect(() => { if (read.data) setValues(Object.fromEntries((read.data.inputs || []).map((i) => [i.name, inputDefault(i)]))); }, [read.data]);
   const [confirm, dialog] = useConfirm();
   const act = useAct(onDone);
-  const active = (data || []).filter((w) => w.state === "active");
+  const startable = (data || []).filter((w) => w.dispatchable);
+  const unread = (data || []).filter((w) => w.dispatchable == null && w.state === "active");
+  const inputs = (read.data && read.data.inputs) || [];
+  const missing = inputs.filter((i) => i.required && i.type !== "boolean" && !String(values[i.name] || "").trim());
+  const off = !file || act.busy || !read.data || read.data.error || read.data.dispatchable === false || missing.length > 0 || shownRef !== ref;
   return html`${dialog}<h2 id="h-item" style="font-size: 22px; font-weight: 600">Run a workflow</h2>
     <${Err} text=${error || act.error} />
     <div class="field"><span aria-hidden="true">Repository</span><${RepoPicker} value=${repo} onChange=${(r) => { setRepo(r); setFile(""); }} groups=${groups} /></div>
-    <label class="field"><span>Workflow</span><select value=${file} disabled=${!repo} onChange=${(e) => setFile(e.target.value)}>
-      <option value="">Choose…</option>${active.map((w) => html`<option value=${w.path.split("/").pop()}>${w.name}</option>`)}</select></label>
-    <label class="field"><span>Branch</span><input value=${ref} onInput=${(e) => setRef(e.target.value)} /></label>
-    <div class="row"><button class="primary" disabled=${!file || act.busy} onClick=${() => confirm(
+    ${repo && data && !startable.length && html`<p role="status" class="notice quiet"><span>No workflow of ${repo} can be started by hand: none has <span class="mono">on: workflow_dispatch</span>.${unread.length ? ` ${count(unread.length, "file")} couldn't be read: ${unread.map((w) => w.name).join(", ")}.` : ""}</span></p>`}
+    ${(!repo || !data || startable.length > 0) && html`
+      <label class="field"><span>Workflow</span><select value=${file} disabled=${!repo || !data} onChange=${(e) => setFile(e.target.value)}>
+        <option value="">Choose…</option>${startable.map((w) => html`<option value=${w.path.split("/").pop()}>${w.name}</option>`)}</select></label>
+      <label class="field"><span>Branch or tag</span><span class="row" style="gap: 6px; flex-wrap: nowrap"><input value=${ref} onInput=${(e) => setRef(e.target.value)} />
+        <button type="button" disabled=${!file || ref === shownRef || !ref.trim()} onClick=${() => setShownRef(ref.trim())}>Read its inputs</button></span></label>
+      ${file && read.loading && html`<p class="small soft">Reading ${file} at ${shownRef}…</p>`}
+      ${read.data && read.data.error && html`<p role="status" class="small"><b>${read.data.error}.</b> The form can't show its inputs.</p>`}
+      ${read.data && read.data.dispatchable === false && html`<p role="status" class="small">At ${shownRef}, ${file} can't be started by hand.</p>`}
+      ${read.data && !read.data.error && read.data.dispatchable && (inputs.length
+        ? html`<fieldset class="stack" style="gap: 8px; border: 0; padding: 0"><legend class="eyebrow">Inputs</legend>${inputs.map((i) => html`<${WorkflowInput} key=${i.name} input=${i}
+            value=${values[i.name] ?? ""} onChange=${(v) => setValues((x) => ({ ...x, [i.name]: v }))} />`)}</fieldset>`
+        : html`<p class="small soft">It takes no inputs.</p>`)}`}
+    <div class="row"><button class="gh" disabled=${off} title=${shownRef !== ref ? "Read the inputs at this branch first" : missing.length ? `Needs ${missing.map((i) => i.name).join(", ")}` : ""} onClick=${() => confirm(
       { title: "Start this workflow?", text: `${file} of ${repo} on ${ref}. Some workflows publish things.`, label: "Start" },
-      () => act.run(() => post(`workflows/${repo}/${file}/dispatch`, { ref })),
+      () => act.run(() => post(`workflows/${repo}/${file}/dispatch`, { ref, inputs: Object.fromEntries(Object.entries(values).filter(([, v]) => v !== "")) })),
     )}>Start workflow</button><button onClick=${onCancel}>Cancel</button></div>`;
 }
 
@@ -1419,23 +1486,42 @@ function SyncLine({ onSynced }) {
     <${Err} text=${act.error} /></div>`;
 }
 
+const sizeWords = (p) => (p.additions == null ? "" : `+${p.additions} −${p.deletions}`);
+const spanWords = (from, to) => {
+  const s = Math.round((new Date(to) - new Date(from)) / 1000);
+  return !from || !to || !(s >= 0) ? "" : s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+};
+const partWords = (r) => (r.part_of ? `Part of ${r.part_of}` : "");
+const join = (parts) => parts.filter(Boolean).join(" · ");
+
+// A row of Work (006 FR-006): its sub-line, its state, and the facts its one blue action is chosen by (FR-007).
 const ROWS = {
   issues: (i) => ({
     key: `${i.repo}#${i.number}`, repo: i.repo, number: i.number, ref: `${i.repo}#${i.number}`, title: i.title,
-    sub: [i.labels.map((l) => l.name).join(" · "), i.comments ? count(i.comments, "comment") : ""].filter(Boolean).join(" · ") || (i.author && i.author.login) || "",
-    state: i.state, pill: pillState("issue", i), at: i.updatedAt, object: "issue", labels: i.labels.map((l) => l.name), startable: i.state === "OPEN",
+    sub: join([partWords(i), i.author && i.author.login, i.comments ? count(i.comments, "comment") : "", i.labels.map((l) => l.name).join(", ")]),
+    state: i.state === "OPEN" ? "Open" : "Closed", badge: i.state === "OPEN" ? "" : "dim", pill: pillState("issue", i), at: i.updatedAt, object: "issue",
+    labels: i.labels.map((l) => l.name), startable: i.state === "OPEN", facts: { untriaged: i.state === "OPEN" && !i.labels.length, openThreads: 0, reviews: 0 },
   }),
-  prs: (p) => ({
-    key: `${p.repo}#${p.number}`, repo: p.repo, number: p.number, ref: `${p.repo}#${p.number}`, title: p.title,
-    sub: `${p.headRefName} → ${p.baseRefName}`, agent: p.headRefName.startsWith("agent/"), object: "pr", pill: pillState("pr", p), at: p.updatedAt, labels: p.labels.map((l) => l.name), startable: p.state === "OPEN",
-    state: p.state !== "OPEN" ? p.state : p.isDraft ? "Draft" : p.checks === "failing" ? "Failing" : p.checks === "pending" ? "Checks" : p.checks === "passing" ? "Ready" : "Open",
-    icon: p.state !== "OPEN" ? "pass" : p.checks === "failing" ? "fail" : p.checks === "pending" ? "run" : p.checks === "passing" ? "pass" : "open",
-  }),
+  prs: (p) => {
+    const changes = p.reviewDecision === "CHANGES_REQUESTED";
+    return {
+      key: `${p.repo}#${p.number}`, repo: p.repo, number: p.number, ref: `${p.repo}#${p.number}`, title: p.title,
+      sub: join([partWords(p), sizeWords(p), p.author && p.author.login, `${p.headRefName} → ${p.baseRefName}`]),
+      agent: p.headRefName.startsWith("agent/"), object: "pr", pill: pillState("pr", p), at: p.updatedAt, labels: p.labels.map((l) => l.name), startable: p.state === "OPEN",
+      state: p.state !== "OPEN" ? (p.state === "MERGED" ? "Merged" : "Closed") : p.isDraft ? "Draft" : p.checks === "failing" ? "Failing" : changes ? "Changes asked" : p.checks === "pending" ? "Checks" : p.checks === "passing" ? "Ready" : "Open",
+      badge: p.state !== "OPEN" ? "dim" : p.checks === "failing" ? "bad" : changes ? "mark" : "",
+      icon: p.state !== "OPEN" ? "pass" : p.checks === "failing" ? "fail" : p.checks === "pending" ? "run" : p.checks === "passing" ? "pass" : "open",
+      facts: { failing: p.state === "OPEN" && p.checks === "failing", changesRequested: changes, openThreads: 0, reviews: changes ? 1 : 0 },
+    };
+  },
   actions: (r) => ({
     key: `${r.repo}/${r.databaseId}`, repo: r.repo, number: r.databaseId, workflow: r.workflowName, ref: `${r.workflowName} #${r.databaseId}`, title: `${r.repo} · ${r.displayTitle}`,
-    sub: `${r.event} on ${r.headBranch} · ${(r.headSha || "").slice(0, 7)}`, agent: (r.headBranch || "").startsWith("agent/"), object: "run", pill: pillState("run", r), at: r.createdAt, labels: [], startable: r.status === "completed",
-    state: r.status !== "completed" ? "Running" : r.conclusion === "success" ? "Passed" : r.conclusion || "Done",
+    sub: join([`${r.event} on ${r.headBranch}`, (r.headSha || "").slice(0, 7), r.status === "completed" ? spanWords(r.createdAt, r.updatedAt) : "running"]),
+    agent: (r.headBranch || "").startsWith("agent/"), object: "run", pill: pillState("run", r), at: r.createdAt, labels: [], startable: r.status === "completed",
+    state: r.status !== "completed" ? "Running" : r.conclusion === "success" ? "Passed" : r.conclusion === "failure" ? "Failed" : r.conclusion || "Done",
+    badge: r.status !== "completed" ? "" : r.conclusion === "failure" ? "bad" : r.conclusion === "success" ? "" : "dim",
     icon: r.status !== "completed" ? "run" : r.conclusion === "failure" ? "fail" : r.conclusion === "success" ? "pass" : "open",
+    facts: { failing: r.status === "completed" && r.conclusion === "failure", openThreads: 0, reviews: 0 },
   }),
 };
 
@@ -1452,21 +1538,36 @@ function parseFilter(text) {
   return out;
 }
 
+// 006 FR-003–FR-005: the groups of each tab, in the order shown. session: the first session on the row, if any.
 const NEEDS = {
-  issues: { order: ["Needs you", "Untriaged", "Everything else"], of: (r, waiting, mine) => (waiting || mine.has(r.key) ? "Needs you" : !r.labels.length && r.state === "OPEN" ? "Untriaged" : "Everything else") },
-  prs: { order: ["Needs you", "From agent sessions", "Everything else"], of: (r, waiting, _mine, session) => (waiting || r.state === "Failing" || r.state === "Ready" ? "Needs you" : r.agent || session ? "From agent sessions" : "Everything else") },
+  prs: { order: ["Needs you", "From agent sessions", "Everything else"],
+    of: (r, session) => (session && session.agent.waiting) || r.state === "Failing" || r.state === "Ready" || r.state === "Changes asked" ? "Needs you"
+      : r.agent || session ? "From agent sessions" : "Everything else" },
+  issues: { order: ["Untriaged", "In sessions", "Backlog"], of: (r, session) => (session ? "In sessions" : r.facts.untriaged ? "Untriaged" : "Backlog") },
   actions: { order: ["Failed", "Running", "Recent"], of: (r) => (r.icon === "fail" ? "Failed" : r.icon === "run" ? "Running" : "Recent") },
 };
+const groupOf = (tab, row, session) => NEEDS[tab].of(row, session);
 
 function readWorkFilter() {
   try { return JSON.parse(sessionStorage.getItem("work-filter")) || {}; } catch { return {}; }
 }
 
+// 006 FR-001: the repository last chosen on Work, per viewer. The address wins when it names one.
+const WORK_REPO_KEY = "work-repo";
+function readWorkRepo() {
+  try { return localStorage.getItem(WORK_REPO_KEY) || ""; } catch { return ""; }
+}
+function writeWorkRepo(name) {
+  try { localStorage.setItem(WORK_REPO_KEY, name || ""); } catch { /* it only helps */ }
+}
+
 const MAX_ROW_CHIPS = 3;
+const PAGE = 50; // rows asked for at a time (001 FR-019); "Load more" asks for the next ones
+const KIND_OF_TAB = { issues: "issue", prs: "pr", actions: "run" };
 
 function WorkRow({ row, tab, scope, sessions, action }) {
   const open = hash("work", { tab, repo: scope, at: row.repo, item: row.number });
-  const kind = { issues: "issue", prs: "pr", actions: "run" }[tab];
+  const kind = KIND_OF_TAB[tab];
   // Only a plain click: a link opened in a new tab is just the item.
   // 005 SC-001: the row's blue action opens Launch on the row's item, from Work.
   const launchIt = () => launch({ action: action.id, covers: [{ kind, repo: row.repo, number: row.number }], from: { view: "Work", ref: `${row.repo}#${row.number}` } });
@@ -1477,23 +1578,32 @@ function WorkRow({ row, tab, scope, sessions, action }) {
     <a class="t" href=${open}><span class="line"><b>${row.title}</b></span><span class="small soft sub">${row.sub}</span></a>
     ${shown.length > 0 && html`<span class="row" style="gap: 6px">${shown.map((s) => html`<${SessionChip} key=${s.name} session=${s} href=${open} />`)}
       ${sessions.length > shown.length && html`<a class="small" href=${open}>${sessions.length - shown.length} more</a>`}</span>`}
-    <span class="state">${row.state}</span><span class="age">${age(row.at)}</span>
+    <span class=${`state badge ${row.badge || ""}`}>${row.state}</span><span class="age">${age(row.at)}</span>
     ${action && html`<button class="start" title=${`${action.summary} Opens Launch: the planner runs first, and you read its plan. ${action.ceiling}`} onClick=${launchIt}><${TermIcon} />${action.title}</button>`}
   </div>`;
 }
 
-// Work's tabs. The queue is its own view of the pull requests, so it has the page to itself.
+// Work's tabs. The queue is its own view of the pull requests, so it has the page to itself (006 FR-009).
 function Work({ query, asks }) {
   return query.tab === "queue" ? html`<${WorkQueue} />` : html`<${WorkLists} query=${query} asks=${asks} />`;
 }
+
+// 006 FR-002: the kinds, pull requests first. The queue is a view of the pull requests (FR-009).
+const WORK_TABS = [["prs", "Pull requests"], ["issues", "Issues"], ["actions", "Runs"], ["queue", "Queue"]];
 
 function WorkLists({ query, asks }) {
   const overview = useLoad(() => api("overview"), []);
   const sessions = useSessions();
   // What the address says, so an item can be linked to and Back returns to the list as it was.
-  const tab = query.tab || "issues";
+  const tab = query.tab || "prs";
   const scope = query.repo || "";
   const go = (patch) => { location.hash = hash("work", { tab, repo: scope, ...patch }); };
+  // 006 FR-001: with no repository in the address, the one you last chose here; "All repositories" is remembered too.
+  useEffect(() => {
+    const kept = readWorkRepo();
+    if (!query.repo && kept && !query.item) location.replace(hash("work", { ...query, tab, repo: kept }));
+  }, []);
+  const chooseRepo = (name) => { writeWorkRepo(name); go({ repo: name || undefined }); };
   // In this tab of the browser, so a reload keeps your list and k / j still walk it.
   const kept = useRef(readWorkFilter()).current;
   const [states, setStates] = useState({ issues: "open", prs: "open", ...kept.states, ...(query.status ? { actions: query.status } : {}) });
@@ -1502,7 +1612,6 @@ function WorkLists({ query, asks }) {
   const [applied, setApplied] = useState(kept.applied || "");
   useEffect(() => { try { sessionStorage.setItem("work-filter", JSON.stringify({ states, groupBy, applied })); } catch { /* it only helps */ } }, [states, groupBy, applied]);
   const [byMeaning, setByMeaning] = useState(false);
-  const [allRepos, setAllRepos] = useState(false);
   const [panel, setPanel] = useState(query.new === "1" ? "new" : null);
   const [notice, setNotice] = useState(null);
   const [phases, setPhases] = useState({}); // session name → embedded or background, as moved on this page; else its stored view
@@ -1512,16 +1621,19 @@ function WorkLists({ query, asks }) {
   const repo = filter.repo || scope;
   const state = filter.state || states[tab];
   const assignee = filter.assignee === "me" ? "@me" : filter.assignee || "";
+  // 001 FR-019: one page of rows, and more on request. Back to one page when what's listed changes.
+  const [pages, setPages] = useState(1);
+  useEffect(() => setPages(1), [tab, repo, state, assignee, filter.words]);
+  const asked = tab === "actions" ? Math.ceil(PAGE / 2) * pages : PAGE * pages;
   const load = async () => {
-    if (tab === "issues") return { tab, rows: await api(`issues${params({ repo, state, search: filter.words, assignee })}`) };
-    return { tab, rows: await (tab === "prs" ? api(`prs${params({ repo, state })}`) : api(`runs${params({ repo, status: state })}`)) };
+    if (tab === "issues") return { tab, rows: await api(`issues${params({ repo, state, search: filter.words, assignee, limit: asked })}`) };
+    return { tab, rows: await (tab === "prs" ? api(`prs${params({ repo, state, limit: asked })}`) : api(`runs${params({ repo, status: state, limit: asked })}`)) };
   };
-  const loaded = useLoad(load, [tab, repo, state, assignee, filter.words], 20000);
+  const loaded = useLoad(load, [tab, repo, state, assignee, filter.words, asked], 20000);
   const { error, loading, reload } = loaded;
   // The list of the tab you just left is still here until the new one arrives, and has other fields.
   const data = loaded.data && loaded.data.tab === tab ? loaded.data.rows : null;
-  const mineList = useLoad(() => (tab === "issues" ? api(`issues${params({ repo, state: "open", assignee: "@me" })}`).catch(() => []) : Promise.resolve([])), [tab, repo], 60000);
-  const offered = useLoad(() => api(`agents/actions${params({ object: { issues: "issue", prs: "pr", actions: "run" }[tab] })}`).catch(() => []), [tab]);
+  const offered = useLoad(() => api(`agents/actions${params({ object: KIND_OF_TAB[tab] })}`).catch(() => []), [tab]);
   const meaning = useLoad(() => (byMeaning && filter.words && tab !== "actions"
     ? api(`work/search${params({ q: filter.words, kind: tab === "prs" ? "pr" : "issue", repo, state })}`) : Promise.resolve(null)), [byMeaning, filter.words, tab, repo, state]);
   const list = sessions.data || [];
@@ -1532,17 +1644,12 @@ function WorkLists({ query, asks }) {
     ? found.map((h) => ({ ...ROWS[tab](h.row), sub: h.passage.replace(/\s+/g, " ").slice(0, 140) }))
     : (data || []).map(ROWS[tab]).filter((r) => tab === "issues" || !needle || `${r.title} ${r.ref} ${r.sub}`.toLowerCase().includes(needle)))
     .filter((r) => !filter.label || r.labels.includes(filter.label));
-  const mine = new Set((mineList.data || []).map((i) => `${i.repo}#${i.number}`));
   const layerOf = new Map(groups.flatMap((g) => g.repos.map((r) => [r.name, g.title])));
-  const startFor = (r) => {
-    if (!r.startable) return null;
-    const failing = r.icon === "fail";
-    return (offered.data || []).find((a) => a.plan && !a.needs && (!a.when || a.when === (failing ? "failing" : "not-failing"))) || null;
-  };
+  // 006 FR-007: the one blue action of a row, by the rule the item page uses. Plain sessions (no planner) aren't offered here.
+  const startFor = (r) => (r.startable ? bestAction(KIND_OF_TAB[tab], r.facts, offeredFor(offered.data || [], r.facts).filter((a) => a.plan !== false)) : null);
   const sections = () => {
     if (groupBy === "none") return [[null, rows]];
-    const keyOf = groupBy === "repo" ? (r) => r.repo : groupBy === "layer" ? (r) => layerOf.get(r.repo) || "Unplaced"
-      : (r) => { const s = sessionOf(r); return NEEDS[tab].of(r, s && s.agent.waiting, mine, s); };
+    const keyOf = groupBy === "repo" ? (r) => r.repo : groupBy === "layer" ? (r) => layerOf.get(r.repo) || "Unplaced" : (r) => groupOf(tab, r, sessionOf(r));
     const by = new Map(groupBy === "needs" ? NEEDS[tab].order.map((k) => [k, []]) : []);
     for (const r of rows) by.set(keyOf(r), [...(by.get(keyOf(r)) || []), r]);
     return [...by.entries()].filter(([, v]) => v.length);
@@ -1550,7 +1657,7 @@ function WorkLists({ query, asks }) {
   const shown = sections().flatMap(([, v]) => v); // k and j follow the order on the page
   const itemRepo = query.at || query.repo;
   const itemNumber = query.item ? Number(query.item) : null;
-  const current = itemNumber && itemRepo ? { repo: itemRepo, number: itemNumber, object: { issues: "issue", prs: "pr", actions: "run" }[tab], key: `${itemRepo}#${itemNumber}` } : null;
+  const current = itemNumber && itemRepo ? { repo: itemRepo, number: itemNumber, object: KIND_OF_TAB[tab], key: `${itemRepo}#${itemNumber}` } : null;
   const position = current ? shown.findIndex((r) => r.repo === current.repo && r.number === current.number) : -1;
   const stepTo = (delta) => { const r = shown[position + delta]; if (position >= 0 && r) go({ at: r.repo, item: r.number }); };
   const step = useRef(stepTo);
@@ -1568,7 +1675,11 @@ function WorkLists({ query, asks }) {
   const switchTab = (t) => { setPanel(null); go({ tab: t }); };
   const counts = overview.data ? overview.data.totals : null;
   const scoped = groups.flatMap((g) => g.repos).find((r) => r.name === repo);
-  const TABS = [["issues", "Issues", scoped ? scoped.issues : counts && counts.issues], ["prs", "Pull requests", scoped ? scoped.prs : counts && counts.prs], ["actions", "Actions", null], ["queue", "Queue", null]];
+  // 006 FR-002: counts for the repository chosen, or all of them. Open issues and pull requests come from the overview;
+  // runs only from the list on screen, as nothing counts them all without asking each repository.
+  const tabCount = { prs: scoped ? scoped.prs : counts && counts.prs, issues: scoped ? scoped.issues : counts && counts.issues,
+    actions: tab === "actions" && data ? `${data.length}${data.length >= asked ? "+" : ""}` : null, queue: null };
+  const TABS = WORK_TABS.map(([id, label]) => [id, label, tabCount[id]]);
   const stateWord = (STATES[tab].find(([v]) => v === state) || [state, state])[1];
   if (current) {
     const here = `${current.repo}#${current.number}`;
@@ -1598,23 +1709,20 @@ function WorkLists({ query, asks }) {
         : html`<${RunDetail} id=${current.number} ...${props} />`}
     </main>`;
   }
-  const chips = [...groups.flatMap((g) => g.repos)].sort((a, b) => (b.issues + b.prs) - (a.issues + a.prs));
-  const visible = allRepos ? chips : chips.filter((r, i) => i < 5 || r.name === scope);
   const layer = scoped ? layerOf.get(scoped.name) : null;
+  const more = data && !found && data.length >= asked;
   return html`<main class="page close">
     <h1 class="sr">Work</h1>
-    <div class="row" style="gap: 10px 14px"><span class="eyebrow soft">Repository</span>
-      <div role="radiogroup" aria-label="Repository" class="row" style="flex: 1 1 400px; gap: 6px">
-        <button role="radio" class="pill mono" aria-checked=${!scope ? "true" : "false"} onClick=${() => go({ repo: undefined })}>All</button>
-        ${visible.map((r) => html`<button role="radio" class="pill mono" aria-checked=${scope === r.name ? "true" : "false"} onClick=${() => go({ repo: r.name })}>${r.name}</button>`)}
-        ${chips.length > 5 && html`<button class="addlabel" onClick=${() => setAllRepos(!allRepos)}>${allRepos ? "fewer" : "more…"}</button>`}</div>
-      <button onClick=${() => launch({ repos: repo ? [repo] : undefined, from: { view: "Work" } })}>${repo ? `＋ New in ${repo}…` : "＋ New work…"}</button>
-      <button class="primary" onClick=${() => setPanel(tab === "actions" ? "dispatch" : "new")}>${tab === "actions" ? "Run workflow…" : repo ? `New issue in ${repo}` : "New issue"}</button></div>
+    <div class="row" style="gap: 10px 14px; align-items: flex-start"><span class="eyebrow soft" style="padding-top: 10px">Repository</span>
+      <${RepoPicker} value=${scope} allowAll onChange=${chooseRepo} groups=${groups} />
+      <span class="grow"></span>
+      <button class="pen" onClick=${() => launch({ repos: repo ? [repo] : undefined, from: { view: "Work" } })}><${TermIcon} />${repo ? `New work in ${repo}…` : "New work…"}</button>
+      <${GhActions} kind="work" data=${{ url: `https://github.com/GlassineOS${repo ? `/${repo}` : ""}`, tab }} onPanel=${setPanel} onDone=${() => {}} /></div>
     <p style="font-size: 17px; line-height: 1.4"><span class="mono" style="font-weight: 600">${repo ? `GlassineOS/${repo}` : `GlassineOS · all ${groups.flatMap((g) => g.repos).length} repositories`}</span>
       <span class="soft"> · ${repo ? (layer || "") : groupBy === "needs" ? "grouped by what needs you" : "all"}</span></p>
     ${panel && html`<div class="panel">${panel === "new" ? html`<${NewIssue} groups=${groups} initial=${repo || query.repo} roadmap=${query.roadmap === "1"} onCancel=${() => setPanel(null)}
-        onDone=${(r) => { setPanel(null); reload(); setNotice(r.roadmap_error ? `Created, but not added to the roadmap: ${r.roadmap_error}` : null); go({ at: r.repo, item: r.number, new: undefined, roadmap: undefined }); }} />`
-      : html`<${Dispatch} key=${repo} groups=${groups} initial=${repo} onCancel=${() => setPanel(null)} onDone=${() => { setPanel(null); reload(); }} />`}</div>`}
+        onDone=${(r) => { setPanel(null); reload(); setNotice(r.roadmap_error ? `Created, but not added to the roadmap: ${r.roadmap_error}` : null); go({ tab: "issues", at: r.repo, item: r.number, new: undefined, roadmap: undefined }); }} />`
+      : html`<${Dispatch} key=${repo} groups=${groups} initial=${repo} onCancel=${() => setPanel(null)} onDone=${() => { setPanel(null); go({ tab: "actions" }); reload(); }} />`}</div>`}
     <div role="tablist" aria-label="Work type" class="tabs">
       ${TABS.map(([id, label, n]) => html`<button role="tab" aria-selected=${tab === id ? "true" : "false"} onClick=${() => switchTab(id)}>${label}${n != null && html` <span class="count">${n}</span>`}</button>`)}
     </div>
@@ -1636,7 +1744,9 @@ function WorkLists({ query, asks }) {
       <div class="wlist">${group.map((r) => html`<${WorkRow} key=${r.key} row=${r} tab=${tab} scope=${scope} sessions=${sessionsOn(r, list)} action=${startFor(r)} />`)}</div></section>`)}
     ${data && !rows.length && html`<p class="soft">Nothing here.</p>`}
     ${!data && loading && html`<p class="soft">Loading…</p>`}
-    ${rows.length > 0 && html`<p class="small soft">Open an item to work on it full width, and k / j steps through this list from there. The button on a row opens Launch with its most likely Claude action.</p>`}
+    ${data && html`<div class="row small soft" role="status" style="gap: 6px 12px"><span>${count(rows.length, "row")} listed${more ? ", the newest first: there are more" : ""}.</span>
+      ${more && html`<button class="link" disabled=${loading} onClick=${() => setPages(pages + 1)}>${loading ? "Loading…" : "Load more"}</button>`}</div>`}
+    ${rows.length > 0 && html`<p class="small soft">Open an item to work on it full width, and k / j steps through this list from there. The blue button on a row opens Launch with its most likely Claude action.</p>`}
   </main>`;
 }
 
@@ -2111,6 +2221,7 @@ const nwWaits = (item) => NW_WAITING.includes(item.state);
 // 005 FR-002, in this order. failed and dismissed are where a Launch stopped, shown on the stage it stopped at.
 const LAUNCH_STAGES = [["brief", "Brief"], ["planning", "Planning"], ["plan", "Plan"], ["run", "Run"], ["result", "Result"]];
 const OBJECT_WORDS = { issue: "an issue", pr: "a pull request", run: "a run", repo: "a repository" };
+const VERB_OBJECT = { issue: "issue", pr: "PR", run: "run", repo: "repo" }; // beside a verb two kinds share, as fix
 const MAX_COVERS = 6; // hubd's: one item and five more
 const coverOf = (c) => ({ kind: c.kind, repo: c.repo, number: c.number });
 // A record from before covers were kept names its items by number.
@@ -2269,7 +2380,8 @@ function ResultView({ r, reload, where = "Needs you" }) {
 function LaunchBrief({ seed, actions, templates, groups, onPlanned, onCancel, busyId }) {
   const steward = seed.by === STEWARD || seed.steward;
   const suggester = seed.by && seed.by !== "you" ? (seed.by === STEWARD ? "the Steward" : seed.by) : null;
-  const initial = actions.find((a) => a.id === seed.action) || (seed.verb && actions.find((a) => a.verb === seed.verb))
+  const initial = actions.find((a) => a.id === seed.action)
+    || (seed.verb && (actions.find((a) => a.verb === seed.verb && seed.covers && seed.covers[0] && a.object === seed.covers[0].kind) || actions.find((a) => a.verb === seed.verb)))
     || (seed.covers && seed.covers[0] && actions.find((a) => a.object === seed.covers[0].kind && a.verb))
     || actions.find((a) => a.object === "repo") || actions[0];
   const [actionId, setActionId] = useState(initial && initial.id);
@@ -2302,7 +2414,7 @@ function LaunchBrief({ seed, actions, templates, groups, onPlanned, onCancel, bu
   return html`<div class="nw-body">
     ${seed.why && html`<div class="nw-why"><span class="nw-why-word">why</span><span>${seed.why}</span></div>`}
     <div class="stack" style="gap: 6px"><span id="lb-action" class="eyebrow">Action</span>
-      <div role="radiogroup" aria-labelledby="lb-action" class="row" style="gap: 6px">${verbs.map((a) => html`<button role="radio" class="pill" aria-checked=${a.id === action.id ? "true" : "false"} title=${a.title} onClick=${() => setActionId(a.id)}>${a.verb}</button>`)}</div>
+      <div role="radiogroup" aria-labelledby="lb-action" class="row" style="gap: 6px">${verbs.map((a) => html`<button role="radio" class="pill" aria-checked=${a.id === action.id ? "true" : "false"} title=${a.title} onClick=${() => setActionId(a.id)}>${a.verb}${verbs.some((b) => b !== a && b.verb === a.verb) ? html` <span class="soft">${VERB_OBJECT[a.object]}</span>` : ""}</button>`)}</div>
       ${more.length > 0 && html`<label class="field" style="align-self: flex-start"><span>More…</span>
         <select value=${action.verb ? "" : action.id} onChange=${(e) => e.target.value && setActionId(e.target.value)}><option value="">${action.verb ? "Other actions" : action.title}</option>
           ${more.map((a) => html`<option value=${a.id}>${a.title}</option>`)}</select></label>`}</div>
@@ -3160,8 +3272,6 @@ function QueueRow({ r, onChanged }) {
     <${Err} text=${act.error} /></article>`;
 }
 
-const WORK_TABS = [["issues", "Issues"], ["prs", "Pull requests"], ["actions", "Actions"], ["queue", "Queue"]];
-
 function WorkQueue() {
   const { data, error, reload } = useLoad(() => api("queue"), [], 15000);
   const row = (r) => html`<${QueueRow} key=${`${r.repo}#${r.number}`} r=${r} onChanged=${reload} />`;
@@ -3249,7 +3359,7 @@ function movedRoute(route) {
 function seenFrom(route) {
   const q = route.query;
   const moved = movedRoute(route);
-  const path = moved.path, tab = path === "work" ? moved.query.tab || "issues" : path;
+  const path = moved.path, tab = path === "work" ? moved.query.tab || "prs" : path;
   // From the address, which a link can fill with anything. Same pattern as hubd's.
   const item = (repo, n) => (/^[A-Za-z0-9._-]+$/.test(repo || "") && /^[0-9]+$/.test(n || "") ? `${repo}#${n}` : null);
   if (path === "work" && item(q.at || q.repo, q.item)) return { screen: "Work", kind: SEEN_KIND[tab] || null, selection: item(q.at || q.repo, q.item) };

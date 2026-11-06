@@ -46,6 +46,10 @@ ALLOWED = [
     ["api", "repos/GlassineOS/boot/compare/main...a1b2c3d4"],
     ["api", "repos/GlassineOS/boot/labels?per_page=100"],
     ["api", "repos/GlassineOS/boot/actions/runs/123/jobs"],
+    # 006/PR 2: a workflow file's inputs, at a branch; a run's head branch for run-fix (hubd's own gh)
+    ["api", "repos/GlassineOS/boot/contents/.github/workflows/ci.yml"],
+    ["api", "repos/GlassineOS/boot/contents/.github/workflows/ci.yml?ref=feature%2Fx"],
+    ["api", "repos/GlassineOS/boot/actions/runs/123"],
 ]
 
 REFUSED = [
@@ -188,6 +192,10 @@ REFUSED = [
     ["api", "repos/GlassineOS/boot/compare/main...b?x=../../y"],
     ["api", "repos/GlassineOS/boot/compare/main...b?x={y}"],
     ["api", "repos/GlassineOS/boot/contents/{path}"],
+    ["api", "repos/GlassineOS/boot/contents/.github/workflows/../../x"],
+    ["api", "repos/GlassineOS/boot/contents/.github/workflows/%2e%2e/x.yml"],
+    ["api", "repos/GlassineOS/boot/contents/.github/workflows/ci.yml?ref=../../x"],
+    ["api", "repos/other/boot/contents/.github/workflows/ci.yml"],
     ["api", "repos/other/boot/labels"],
     # nonsense
     [],

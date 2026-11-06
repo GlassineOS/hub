@@ -1,0 +1,18 @@
+# A full session on a new branch made from the run's head branch. Refuses a run of a fork's branch: see hubd/agents.py.
+order = 2
+ceiling = "Branch + draft PR. Your rights, on its own branch."
+when = "failing"
+object = "run"
+verb = "fix"
+result = "pr"
+title = "Fix on a branch"
+summary = "A full session on a new branch from the run's branch: finds why the run failed, fixes it and opens a draft pull request."
+access = "full"
+permission_mode = "auto"
+personas = ["ci-fixer"]
+prompt = "run-fix"
+models = ["opus", "sonnet"]
+efforts = ["high", "xhigh", "medium"]
+tools = []
+hub_tools = []
+checkout = "new-branch"

@@ -67,7 +67,8 @@ A new restriction has to name the threat it stops, or be listed here as a guard.
   outside. They can still be misled within those
   tools, for example into posting a bad comment. A full session on an outsider's issue can be
   misled with your full rights, as if you had pasted the issue into your own session; only
-  forks' pull requests are refused. Each session has its own tool server token, in a file only
+  forks' pull requests are refused, and for a run's fix (`run-fix`) a run of a fork's branch: hubd reads the run
+  first and starts the new branch only from a branch of the repository itself. Each session has its own tool server token, in a file only
   your user can read, and the tool server refuses any tool outside that session's list, so a
   locked session is held to it whatever Claude Code does. Shells keep the one general token, and
   a full session could read that file, as it can anything of yours.
@@ -331,6 +332,9 @@ Every `pr merge` that goes through hubd needs one of two things, checked in `Hub
 - **An agent token with a matching decision:** repository, number and head, and for a decision made for one session, that session's. A locked session
   without `merge_pr` on its list has no use for one. Allowing a `merge_pr` card records a decision for its head and that session, for as long as
   the card's grant lasts. No answer from before counts: a grant alone doesn't merge, and neither does a yes in a conversation.
+
+So an agent session merges a pull request only under a decision you approved for its current head (006 FR-010); every other merge
+the app makes is your own Merge… on the work item. The Queue view merges nothing: approving a set there records that decision.
 
 Both need `--match-head-commit` with the head in full, and hubd compares it with the decision's. Only the form the app builds passes, so no `--auto`.
 hubd also reads the pull request before an agent's merge: a moved head ends the decision, and another base refuses it. The decision is marked on disk
