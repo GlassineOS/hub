@@ -5,3 +5,6 @@ __pycache__/
 /app/hub/static/vendor/
 /.env
 /.pytest_cache/
+# Spec Kit: only spec.md is committed; plans, research, contracts and tasks are working notes.
+/specs/*/*
+!/specs/*/spec.md
