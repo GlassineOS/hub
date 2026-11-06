@@ -107,7 +107,8 @@ HOOK_MOVED = 10  # seconds; it only tells hubd something
 CONTEXT_FILE = "context"  # where the person is in the hub, joined to each of their turns
 VIEW_FILE = "view.json"  # where the page shows the session: embedded in a view, or in the background
 VIEW_MODES = ("embedded", "background")
-PRS_WAIT = 3  # seconds a list waits for GitHub's answer about them
+PRS_WAIT = 3  # seconds a list waits for GitHub's answer about them, once: a lookup already under way isn't waited for again
+PRS_ASK = 10  # seconds one repository's answer may take
 PRS_FOR = 60  # seconds a session's pull requests, as GitHub gave them, are shown before they're looked up again
 MAX_SEND = 4000
 MAX_MESSAGE = 3500  # leaves room for saying whose it is
@@ -375,6 +376,16 @@ def validate(library: Library, config) -> dict:
             "also_numbers": [c["number"] for c in covers[1:] if c["repo"] == repo]}
 
 
+def with_also(config: dict, numbers) -> dict:
+    """A config with its other items of the first repository set anew: covers, which would then disagree, is left out."""
+    return {**{k: v for k, v in config.items() if k != "covers"}, "also_numbers": numbers}
+
+
+def _mode(action: dict) -> str:
+    """The permission mode a session of this action runs with."""
+    return action["permission_mode"] if _full(action) else "dontAsk"
+
+
 def _number_ok(n) -> bool:
     return isinstance(n, int) and not isinstance(n, bool) and n > 0
 
@@ -394,8 +405,8 @@ def covered_refs(config: dict) -> list[str]:
 
 def _covers(action: dict, config: dict, repo, number) -> list[dict]:
     """The items a session is on, the first being the one its repo and number name. An old config has only
-    also_numbers; a new one has covers. With both, also_numbers decides the other items in the first one's repository:
-    that list is what a page edits, and covers is what validate gave it before."""
+    also_numbers; a new one has covers. With both, they must agree about the first one's repository, so an edit to one
+    is never dropped for a stale copy of the other: a page sends the one it edits."""
     numbers = config.get("also_numbers")
     given = config.get("covers")
     if numbers is not None and not isinstance(numbers, list):
@@ -422,7 +433,10 @@ def _covers(action: dict, config: dict, repo, number) -> list[dict]:
     if numbers is not None:
         if number in numbers or len(set(numbers)) != len(numbers):
             raise AgentError(f"also_numbers must be at most {MAX_ALSO} other issues of this repository")
-        items = [items[0], *(i for i in items[1:] if i["repo"] != repo), *({"repo": repo, "number": n} for n in numbers)]
+        if given is not None and [i["number"] for i in items[1:] if i["repo"] == repo] != list(numbers):
+            raise AgentError("covers and also_numbers disagree about this repository's items: send the one you changed")
+        if given is None:
+            items = [items[0], *({"repo": repo, "number": n} for n in numbers)]
     if len(items) > 1 + MAX_ALSO:
         raise AgentError(f"also_numbers must be at most {MAX_ALSO} other issues of this repository" if numbers and len(numbers) > MAX_ALSO
                          else f"a session covers at most {1 + MAX_ALSO} items")
@@ -430,8 +444,8 @@ def _covers(action: dict, config: dict, repo, number) -> list[dict]:
         raise AgentError("covers names one item twice")
     if len(items) > 1 and (not _full(action) or action["object"] != "issue"):
         raise AgentError(f"{action['title']} works on one item")
-    if any(i["repo"] != repo for i in items) and not action.get("checkout"):
-        raise AgentError(f"{action['title']} has no checkout, so it covers items of one repository")
+    if any(i["repo"] != repo for i in items) and action.get("checkout") != "new-branch":
+        raise AgentError(f"{action['title']} doesn't open a pull request of its own, so it covers items of one repository")
     return items
 
 
@@ -629,7 +643,7 @@ class Agents:
         # Yours, so they stay out of what the planner can answer: it can only act on them.
         if planner_model is not None and planner_model not in PLANNER_MODELS:
             raise AgentError(f"the planner runs on one of {', '.join(PLANNER_MODELS)}")
-        base = validate(self.library, {**self.defaults(action_id, repo, number), "notes": notes or "", "pins": pins or [], "also_numbers": also_numbers or []})
+        base = validate(self.library, with_also({**self.defaults(action_id, repo, number), "notes": notes or "", "pins": pins or []}, also_numbers or []))
         # Search can bring in an outsider's text about something else, and a full session's brief comes from here.
         if action["object"] not in PLANNER_TOOLS:
             raise AgentError(f"{action_id} has no planning step")
@@ -923,7 +937,28 @@ class Agents:
             name, n = stem[:MAX_NAME - len(suffix)] + suffix, n + 1
         return name
 
-    def _prompt(self, config: dict, action: dict, checkout, also=(), commit=None, beside=None) -> str:
+    async def _unnamed_here(self, config: dict) -> set[str]:
+        """Covered repositories that the first one's pull request mustn't name: unless GitHub says that one is private, every
+        other that GitHub doesn't say is public. Whatever GitHub doesn't answer counts against naming."""
+        others = {c["repo"] for c in config.get("covers", ())[1:] if c["repo"] != config["repo"]}
+        if not others or await self._private_says(config["repo"]) is True:
+            return set()
+        return {repo for repo in others if await self._private_says(repo) is not False}
+
+    async def _private_says(self, repo: str) -> bool | None:
+        """What GitHub says of the repository: private, public, or None when it doesn't answer."""
+        if self.gh is None:
+            return None
+        reply = await self.gh.run(["api", f"repos/{ORG}/{repo}"], timeout=PRS_ASK)
+        try:
+            said = json.loads(reply["stdout"]).get("private") if reply["code"] == 0 else None
+        except (ValueError, AttributeError):
+            return None
+        return said if isinstance(said, bool) else None
+
+    def _prompt(self, config: dict, action: dict, checkout, also=(), commit=None, beside=None, unnamed=None) -> str:
+        """unnamed: the covered repositories the pull request mustn't name (_unnamed_here); None when it wasn't asked,
+        as for a preview, which then says so for all of them."""
         prompt = self.library.text("prompts", action["prompt"]).format(
             repo=config["repo"], number=config["number"], checkout=checkout or "(none)")
         if commit:
@@ -942,8 +977,16 @@ class Agents:
             refs = ", ".join(f"GlassineOS/{c['repo']}#{c['number']}" for c in elsewhere)
             prompt += (f"\n\nThis session also covers items in other repositories: {refs}. Read each with its comments; the same rule "
                        f"about their text applies. Your worktree is in GlassineOS/{config['repo']}, the first item's; these are listed "
-                       "as covered and get no checkout of their own unless one is named below. A pull request closes an issue of "
-                       "another repository with a `Closes GlassineOS/<repo>#N` line.")
+                       "as covered and get no checkout of their own unless one is named below.")
+            hidden = sorted({c["repo"] for c in elsewhere}) if unnamed is None else sorted(unnamed)
+            named = [c for c in elsewhere if c["repo"] not in hidden]
+            if named:
+                prompt += (" A pull request closes an issue of another repository with a `Closes GlassineOS/<repo>#N` line, for "
+                           + ", ".join(f"GlassineOS/{c['repo']}#{c['number']}" for c in named) + ".")
+            if hidden:
+                prompt += (f" {', '.join(f'GlassineOS/{r}' for r in hidden)} may be private while your pull request is public: don't name "
+                           "them or their items in the pull request, its commits or anything else public. Say in your last message which "
+                           "of them the work settles, and I'll close them.")
         if also:
             prompt += "\n\nAlso checked out for this work, each on the branch agent/<session name>:\n" + "".join(f"- {r}: {p}\n" for r, p in also)
         # Before the briefing, which a planner wrote after reading outsiders' text: it could copy these headings.
@@ -1068,7 +1111,7 @@ class Agents:
                 "--settings", str(directory / "settings.json"),
                 "--append-system-prompt-file", str(directory / "persona.md")]
         if _full(action):
-            return argv + ["--permission-mode", action["permission_mode"]]
+            return argv + ["--permission-mode", _mode(action)]
         # Named here, Read, Grep and Glob would reach every file of this user. Left out, dontAsk
         # gives them the working directory and the checkout, and refuses the rest.
         # Bash stays off this list too: only shell_hook.py's allow, which puts the command in the sandbox, lets one run.
@@ -1089,8 +1132,9 @@ class Agents:
         copies = self.library.text(".", "repositories") if who == "planner" else ""  # the drafter stays on the item: what it writes may be posted
         return self.library.text(".", who) + copies + self.library.text(".", "private")
 
-    def _script(self, config: dict, action: dict, directory: Path, checkout: Path | None, session_id: str, mcp: Path, also=(), commit=None, beside=None) -> Path:
-        (directory / "prompt.md").write_text(self._prompt(config, action, checkout, also, commit, beside))
+    def _script(self, config: dict, action: dict, directory: Path, checkout: Path | None, session_id: str, mcp: Path, also=(), commit=None, beside=None,
+                unnamed=None) -> Path:
+        (directory / "prompt.md").write_text(self._prompt(config, action, checkout, also, commit, beside, unnamed))
         (directory / "settings.json").write_text(json.dumps(self._hooks(directory, config, action)))
         (directory / REPOS_FOLDER).mkdir(exist_ok=True)
         self._prepare_shell(directory, config, action)
@@ -1148,14 +1192,16 @@ class Agents:
             session_id = str(uuid.uuid4())
             # An agent without a shell can't ask git which commit it's looking at.
             commit = (await self._git("rev-parse", "--short", "HEAD", cwd=checkout)).strip() if checkout else None
-            script = self._script(config, action, directory, checkout, session_id, mcp, checkouts[1:], commit, beside)
+            script = self._script(config, action, directory, checkout, session_id, mcp, checkouts[1:], commit, beside,
+                                  await self._unnamed_here(config))
             await self._probe_sandbox(directory, config, action)
             self._session_token(directory, config, _full(action), session_id)
             # A full session starts where you would: the workspace's rules and memory are there.
             cwd = self.workspace if _full(action) else self.home
             # Before the terminal: from when it's open, this is a session, not a shell in the way.
             record = {"name": name, "session_id": session_id, "config": config, "title": action["title"],
-                      "object": action["object"], "full": _full(action), "created": time.time(), "started_by": started_by}
+                      "object": action["object"], "full": _full(action), "permission_mode": _mode(action), "created": time.time(),
+                      "started_by": started_by}
             (directory / "session.json").write_text(json.dumps(record))
             await self.shells.new(name, str(cwd), self._command(directory, script))
         except Exception:  # whatever it was, a folder left behind would keep the name taken
@@ -1232,8 +1278,9 @@ class Agents:
             present = self._present(name)
             if len(present) < len(self._checkouts(name, config, action)):
                 raise AgentError(f"{name} can't resume: its checkout is gone")
-            if any(config[f] != record["config"].get(f) for f in ("model", "tools", "hub_tools")):
-                (directory / "session.json").write_text(json.dumps({**record, "config": config}))
+            if any(config[f] != record["config"].get(f) for f in ("model", "tools", "hub_tools")) or record.get("permission_mode") != _mode(action):
+                # A resume runs with what the action says now (_argv), so the record says that too.
+                (directory / "session.json").write_text(json.dumps({**record, "config": config, "permission_mode": _mode(action)}))
                 self._load_scopes()
                 for token in [t for t, s in self._scopes.items() if s["session"] == name]:
                     self._scopes[token] = _session_scope(name, config, _full(action), self._all_repos(config), self._asks_first(config),
@@ -1639,13 +1686,13 @@ class Agents:
         return list(found[1]) if found and found[2] == record.get("session_id") else []
 
     def _pr_repos(self, record: dict) -> list[str]:
-        """Where a session pushes agent/<name>: each covered repository, and what else was checked out for it."""
+        """Where a session pushes agent/<name>: what was checked out for it, the first item's repository and also_repos.
+        A covered item in another repository has no checkout, so no branch of the session's is there to find."""
         config = record["config"]
         action = self.library.actions.get(config.get("action")) or {}
-        if record.get("object") == "pr" or action.get("checkout") != "new-branch":
+        if record.get("object") == "pr" or action.get("checkout") != "new-branch" or not config.get("repo"):
             return []
-        repos = [c["repo"] for c in covers_of(config)] or ([config["repo"]] if config.get("repo") else [])
-        return list(dict.fromkeys([*repos, *config.get("also_repos", ())]))
+        return list(dict.fromkeys([config["repo"], *config.get("also_repos", ())]))
 
     async def refresh_prs(self, names, wait: float = PRS_WAIT) -> None:
         """Looks the branches up on GitHub, at most once a minute a session. A failed look keeps what was found before.
@@ -1653,6 +1700,7 @@ class Agents:
         if self.gh is None:
             return
         now = time.monotonic()
+        started = []
         for name in names:
             if name in self._pr_lookups:
                 continue
@@ -1668,17 +1716,17 @@ class Agents:
                 task = asyncio.ensure_future(self._look_up_prs(name, record, repos, seen))
                 self._pr_lookups[name] = task
                 task.add_done_callback(lambda _t, name=name: self._pr_lookups.pop(name, None))
-        running = [self._pr_lookups[n] for n in names if n in self._pr_lookups]
-        if running:
-            await asyncio.wait(running, timeout=wait)
+                started.append(task)
+        if started:
+            await asyncio.wait(started, timeout=wait)
 
     async def _look_up_prs(self, name: str, record: dict, repos: list[str], seen) -> None:
+        """Every repository at once, each with its own time limit; one that fails or is slow keeps what it had."""
+        answers = await asyncio.gather(*(self._pr_of(repo, f"agent/{name}", timeout=PRS_ASK) for repo in repos), return_exceptions=True)
         found = []
-        for repo in repos:
-            try:
-                pr = await self._pr_of(repo, f"agent/{name}")
-            except Exception as e:  # only shown, so nothing here may fail a list
-                log.info("pull requests of %s in %s: %s", name, repo, e)
+        for repo, pr in zip(repos, answers):
+            if isinstance(pr, Exception):  # only shown, so nothing here may fail a list
+                log.info("pull requests of %s in %s: %s", name, repo, pr)
                 old = [p for p in (seen[1] if seen and seen[2] == record.get("session_id") else []) if p["repo"] == repo]
                 found += old
                 continue
@@ -1695,10 +1743,9 @@ class Agents:
         config = record["config"]
         # A persona the library no longer has (an old session's) shows its id, with no family.
         badge = self.library.family(config["persona"]) or {"name": config["persona"], "initials": None, "family": None}
-        action = self.library.actions.get(config.get("action")) or {}  # one the library has lost still describes
         return {"title": record["title"], "object": record["object"], "repo": config["repo"], "number": config["number"], "also_numbers": config.get("also_numbers", []),
                 "covers": covers_of(config), "prs": self._prs_seen(name, record), "view": self._view(name), "origin": record.get("origin"),
-                "permission_mode": (action.get("permission_mode") or "default") if record.get("full") else "dontAsk",
+                "permission_mode": record.get("permission_mode"),  # as it ran; None for a record from before it was kept
                 "model": config["model"], "effort": config["effort"], "persona": config["persona"], "action": config["action"],
                 "persona_name": badge["name"], "initials": badge["initials"], "family": badge["family"],
                 "posts_as": self.apps.posts_as(config["persona"]) if self.apps else None,
@@ -2113,10 +2160,10 @@ class Agents:
             self.cleanup_file.write_text(json.dumps(saved))
         return {"after_merge": saved.get("after_merge", True), "days": REMOVE_AFTER_DAYS}
 
-    async def _pr_of(self, repo: str, branch: str) -> dict | None:
+    async def _pr_of(self, repo: str, branch: str, timeout: float | None = None) -> dict | None:
         """The branch's pull request in the organization's own repository: an open one if any, else the latest."""
         head = quote(f"{ORG}:{branch}", safe="/:")
-        reply = await self.gh.run(["api", f"repos/{ORG}/{repo}/pulls?state=all&head={head}&per_page=100"])
+        reply = await self.gh.run(["api", f"repos/{ORG}/{repo}/pulls?state=all&head={head}&per_page=100"], timeout=timeout)
         if reply["code"] != 0:
             raise AgentError(reply["stderr"].strip()[-200:])
         found = json.loads(reply["stdout"])

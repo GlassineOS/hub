@@ -1135,6 +1135,11 @@ def test_the_session_tools_give_what_a_session_covers_as_refs(hubd, github):
         return {"boot"}
     hubd.call = call
     github._public_repos = public
+    # #29 review: a session on a public repository that covers a private one's item is private.
+    assert asyncio.run(github.running_sessions())[0]["private"] is True
+    rows[0]["covers"] = ["boot#9", "boot#11"]
+    assert asyncio.run(github.running_sessions())[0]["private"] is False
+    rows[0]["covers"] = ["boot#9", "boot#11", "kernel#2"]
     for found in (asyncio.run(github.running_sessions()), asyncio.run(github.started_sessions())):
         assert found[0]["covers"] == ["boot#9", "boot#11", "kernel#2"]
         assert all(isinstance(c, str) and re.fullmatch(r"[A-Za-z0-9._-]+#[0-9]+", c) for c in found[0]["covers"])

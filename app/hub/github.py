@@ -296,10 +296,12 @@ class GitHub:
         return found
 
     async def _say_private(self, rows: list[dict]) -> list[dict]:
-        """A session that reads the whole project can't tell private rows apart by their names."""
+        """A session that reads the whole project can't tell private rows apart by their names. A row is private when
+        anything it names is: its repository, or one it covers (`repo#N`)."""
         public = await self._public_repos()
         for row in rows:
-            row["private"] = row.get("repo") not in public
+            named = [row.get("repo"), *(str(c).split("#", 1)[0] for c in row.get("covers") or ())]
+            row["private"] = any(repo not in public for repo in named)
         return rows
 
     def _arrange(self, nodes: list[dict]) -> dict:

@@ -25,6 +25,12 @@ async function api(path, { method = "GET", body } = {}) {
 
 const post = (path, body = {}) => api(path, { method: "POST", body });
 // What a session is about: one item, or the whole project.
+// What a page sends of a config it changed: these pages edit also_numbers, so covers from an earlier answer is left out.
+// Sent together, the two would have to agree, and an edit to also_numbers would make the stale covers disagree.
+function edited(config) {
+  const { covers, ...rest } = config;
+  return rest;
+}
 const alsoCovers = (a) => (a.also_numbers || []).map((n) => ` #${n}`).join("");
 const whereFrom = (a) => (a.repo ? (a.number ? `${a.repo}#${a.number}${alsoCovers(a)}` : a.repo) : "the whole project");
 const params = (o) => {
@@ -904,7 +910,7 @@ function Spawn({ kind, repo, number, failing, session, phase, threads, onStarted
       }
     });
   };
-  const start = () => act.run(async () => { onStarted(await post("agents/start", { config: plan.config })); setPlan(null); clearSteer(); });
+  const start = () => act.run(async () => { onStarted(await post("agents/start", { config: edited(plan.config) })); setPlan(null); clearSteer(); });
   const chooseModel = (model) => setPlan({ ...plan, config: { ...plan.config, model } });
   const advanced = () => { advancedHandoff = plan.config; };
   useEffect(() => {
@@ -1717,7 +1723,7 @@ function Manifest({ session, work }) {
         <dt>Posts as</dt><dd class="mono" style="font-size: 13px">${a.posts_as || "you"}</dd>
         <dt>From</dt><dd>${suggested ? `${suggested.by === STEWARD ? "Steward" : suggested.by} suggestion · ` : ""}${a.repo && a.number ? html`<a href=${hash("work", { tab, repo: a.repo, item: a.number })}>${whereFrom(a)}</a>` : whereFrom(a)}</dd>
         ${(a.covers || []).length > 1 && html`<dt>Covers</dt><dd class="mono" style="font-size: 13px">${a.covers.map((c, i) => `${c.repo}#${c.number}${i ? "" : " (primary)"}`).join(", ")}</dd>`}
-        ${a.permission_mode && html`<dt>Permission mode</dt><dd class="mono" style="font-size: 13px">${a.permission_mode}</dd>`}
+        <dt>Permission mode</dt><dd class="mono" style="font-size: 13px">${a.permission_mode || "not recorded (started before it was kept)"}</dd>
         ${closes.length > 0 && html`<dt>PR will say</dt><dd class="mono" style="font-size: 13px">${closes.map((n) => `Closes #${n}`).join(" · ")}</dd>`}
         ${m.checkouts.map((c) => html`<dt>Worktree</dt><dd class="mono" style="font-size: 13px; overflow-wrap: anywhere">${c}</dd>`)}
         <dt>Attach</dt><dd class="mono" style="font-size: 13px">tmux -L glassine-hub attach -t ${session.name}</dd></dl>`}
@@ -1854,7 +1860,7 @@ function NewWork({ open, work, asks, onClose, reload }) {
   const shownBrief = brief === null ? (spec && spec.brief) || "" : brief;
   useEffect(() => {
     if (!planned || editing || !spec) return undefined;
-    const timer = setTimeout(() => { post("agents/preview", { config: { ...spec, model: chosenModel, brief: shownBrief } }).then(setPreview).catch(() => setPreview(null)); }, 250);
+    const timer = setTimeout(() => { post("agents/preview", { config: edited({ ...spec, model: chosenModel, brief: shownBrief }) }).then(setPreview).catch(() => setPreview(null)); }, 250);
     return () => clearTimeout(timer);
   }, [planned, editing, chosenModel, shownBrief]);
   if (!template) return html`<dialog ref=${ref} onClose=${() => onClose()}><p>No kinds of new work are set up on this hub.</p><button onClick=${() => onClose()}>Close</button></dialog>`;
@@ -2093,7 +2099,7 @@ function StartForm({ item, work, onClose, reload }) {
     if (!config) return undefined;
     const shown = review && spec ? { ...spec, model: chosenModel, brief: shownBrief } : config;
     const timer = setTimeout(async () => {
-      try { setPreview(await post("agents/preview", { config: shown })); setPreviewError(null); } catch (e) { setPreviewError(e.message); }
+      try { setPreview(await post("agents/preview", { config: edited(shown) })); setPreviewError(null); } catch (e) { setPreviewError(e.message); }
     }, 250);
     return () => clearTimeout(timer);
   }, [config, review, chosenModel, shownBrief]);
@@ -2630,12 +2636,12 @@ function Launch({ query }) {
   useEffect(() => {
     if (!config) return undefined;
     const timer = setTimeout(async () => {
-      try { setPreview(await post("agents/preview", { config })); setPreviewError(null); } catch (e) { setPreviewError(e.message); }
+      try { setPreview(await post("agents/preview", { config: edited(config) })); setPreviewError(null); } catch (e) { setPreviewError(e.message); }
     }, 250);
     return () => clearTimeout(timer);
   }, [config]);
   const replan = () => act.run(async () => { const r = await post("agents/plan", { action: actionId, repo, number, notes: config.notes, pins: config.pins, planner_model: plannerModel }); setConfig({ ...r.config, also_numbers: config.also_numbers || [] }); setDocsQuery(r.config.docs_query || ""); });
-  const start = () => act.run(async () => { const r = await post("agents/start", { config }); if (steerKey) steering.delete(steerKey); location.hash = hash("shells", { name: r.name }); });
+  const start = () => act.run(async () => { const r = await post("agents/start", { config: edited(config) }); if (steerKey) steering.delete(steerKey); location.hash = hash("shells", { name: r.name }); });
   const toggleDoc = (link, why) => set({ docs: config.docs.some((d) => d.link === link) ? config.docs.filter((d) => d.link !== link) : [...config.docs, { link, why: why.slice(0, 300) }] });
   const toggle = (field, name) => set({ [field]: config[field].includes(name) ? config[field].filter((t) => t !== name) : [...config[field], name] });
   const tab = { pr: "prs", issue: "issues", run: "actions" }[info ? info.object : "issue"];
