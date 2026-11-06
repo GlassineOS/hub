@@ -329,37 +329,29 @@ def test_no_token_applies_ops(tmp_path):
 class NotesAgents(Agents):
     SCOPES = {**Agents.SCOPES, "compact-token": {"session": "notes-compact", "tools": ["notes_find", "submit_result"], "persona": "archivist"},
               "steward-token": {"session": "steward", "tools": ["notes_find", "docs_search"], "persona": "steward"},
-              "issue-token": {"session": "issue-triage-boot-3", "tools": ["notes_find", "get_issue"], "persona": "triager"}}
-    ACTIONS = {"notes-compact": "notes-compact", "steward": "project-steward", "issue-triage-boot-3": "issue-triage"}
+              "issue-token": {"session": "issue-triage-boot-3", "tools": ["notes_find", "get_issue"], "persona": "triager"},
+              "old-token": {"session": "old", "tools": ["get_issue"], "persona": "triager"}}
     library = LIBRARY
 
-    def describe(self, name):
-        return {"action": self.ACTIONS[name]} if name in self.ACTIONS else None
 
-
-def test_only_a_session_about_the_notes_searches_them(tmp_path, workspace):
+def test_every_session_searches_the_notes(tmp_path, workspace):
+    """The notes are kept for agents to read: any session's token, a full session's, or a hub shell's."""
     hubd, _login = world(tmp_path, workspace)
     hubd.agents = NotesAgents()
-    reply = call(hubd, op="notes_tool.find", agent_token="compact-token", words="fault")
-    assert reply["ok"] and reply["rows"]
-    (workspace / "seen.json").unlink()
-    # A list that names the tool isn't enough: the action, as it is now, has to be about the notes and list it.
-    for token in ("steward-token", "issue-token", "full-token", "locked-token", "general-token", "nope", None):
+    for token in ("compact-token", "steward-token", "issue-token", "full-token", "general-token"):
+        reply = call(hubd, op="notes_tool.find", agent_token=token, words="fault")
+        assert reply["ok"] and reply["rows"], token
+    # Not a session's token, or a list from before the tool (a session still running with its frozen list).
+    for token in ("old-token", "nope", None):
         assert call(hubd, op="notes_tool.find", agent_token=token, words="fault")["refused"], token
-    assert not (workspace / "seen.json").exists()
+    # And not the page's query: that one stays behind the login.
+    assert call(hubd, op="notes.find", agent_token="steward-token", words="fault")["denied"]
 
 
-def test_the_library_keeps_notes_find_to_an_action_about_the_notes_that_cant_post(tmp_path):
-    root = tmp_path / "agents"
-    shutil.copytree(Path(__file__).resolve().parents[1] / "agents", root)
-    action = root / "actions" / "notes-compact.toml"
-    good = action.read_text()
-    for bad in (good.replace('"submit_result"]', '"submit_result", "comment_issue"]'), good.replace('object = "notes"', 'object = "issue"'),
-                good + 'access = "full"\n', good + 'all_repos = true\n'):
-        action.write_text(bad)
-        with pytest.raises(LibraryError, match="notes_find"):
-            Library(root)
-    assert "notes_find" not in LIBRARY.action("project-steward")["hub_tools"]
+def test_every_action_lists_the_notes_search(tmp_path):
+    from hubd.agents import _full
+    assert all("notes_find" in a["hub_tools"] for a in LIBRARY.actions.values() if not _full(a))  # a full session's list is open
+    assert "notes_find" in LIBRARY.action("project-steward")["hub_tools"]
 
 
 def test_totals_come_from_the_last_search_and_say_so(tmp_path, workspace):
