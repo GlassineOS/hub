@@ -387,6 +387,24 @@ They are marked as hard to undo. What they refuse is checked in the app, on the 
   is the one measure. An issue's text and the comments an edit is based on may be an outsider's, so they are data, and an edit isn't made because
   one says to; here too that is a rule in a prompt and the card, and the tools would carry out an edit a misled Steward asks for and you allow.
 
+## The work item's GitHub actions
+
+The black button on an issue, pull request or run (spec 006) acts on GitHub as you: the page's routes call `gh` through hubd with no
+agent token, so it runs on the host's own `gh` login. The page passes its login token along. hubd checks it only for a merge (see "Merges");
+for the other actions it is carried so a later check needs no change in the app. No tool calls these, so no session reaches them.
+
+- **`pr edit` changes labels and nothing else.** ghpolicy takes it with `--add-label`/`--remove-label` and `-R`, one number, and at least
+  one label. A title, body, body file, base, reviewer, assignee or milestone is refused, so the author's text and the review routing stay theirs.
+- **`pr reopen` takes no comment,** so it reads no file and posts no text: one number and `-R`.
+- **An issue's assignee is only you, added.** `issue edit --add-assignee` takes only `@me`, and `--remove-assignee` is refused. This narrows
+  what passed before; nothing in the app named anyone else.
+- **Three reads for the view,** all `gh api`, read-only like the rest: `compare/<base>...<head>` for how far behind a pull request is, the
+  repository's `labels`, and a run's `actions/runs/<id>/jobs` for its failed step. `compare` is the one path where three dots aren't refused as
+  traversal: neither ref may hold two dots of its own or end in one.
+- **Merge is still hubd's merge path.** The menu's Merge… is the same `pr merge --match-head-commit` with your login as before. Why it is off
+  (checks running, not approved, threads open) is shown, not enforced: hubd doesn't refuse a merge over a review state, and GitHub's branch
+  protection is what holds there.
+
 ## The queue view
 
 A tab under Work, over the work store and your decisions. It merges, reviews and starts nothing, and has no tool: a session has `decision_request` to ask.
