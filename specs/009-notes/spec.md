@@ -11,9 +11,9 @@ Notes are the shared notes that sessions and the maintainer keep, each with a tr
 They exist so sessions can read them: every session, planner and the Steward included, can
 search them. What needs care is a note's text leaving in a public post, not a session reading it.
 
-- **Notes** finds notes with their trust labels in view and keeps them tidy: an Archivist
-  session proposes note operations, the maintainer applies them, and no operation ever
-  deletes a note.
+- **Notes** finds notes with their trust labels in view and keeps them tidy: sessions
+  propose note operations, the maintainer applies them, and the maintainer can delete a
+  note that is wrong or contradicts another.
 
 Depends on: App frame (001), Building blocks (002) and Launch (005) for the compact and
 sweep actions and the notes result.
@@ -22,13 +22,13 @@ sweep actions and the notes result.
 
 ### User Story 1 - Keep notes useful (Priority: P3)
 
-The maintainer tidies a topic without losing anything.
+The maintainer tidies a topic and drops what is wrong.
 
 **Given** the Notes topic "epd" has many HISTORY and duplicate notes
 **When** the maintainer runs "Compact…" on that topic
 **Then** an Archivist session returns note operations (merge, distil, supersede, ...),
-each with the exact notes-tool command it stands for; applying them changes labels and
-merges notes, and deletes nothing.
+each with the exact notes-tool command it stands for, and proposes deleting a note that
+another, better-founded note contradicts; the maintainer applies the ones they agree with.
 
 ### Edge Cases
 
@@ -36,8 +36,9 @@ merges notes, and deletes nothing.
   (FR-002).
 - The notes tool is missing or fails: the view says so, with the tool's message (FR-004).
 - The index is updating: an "indexing" badge shows (FR-004).
-- A proposed operation would delete a note: it is not offered and cannot be applied
-  (FR-006).
+- Other notes rest on a note that is deleted: they lose their CURRENT label with it
+  (FR-007).
+- A proposed delete names no note that shows it wrong: it is refused (FR-008).
 
 ## Requirements
 
@@ -59,16 +60,22 @@ the spec's name and number, as in "App frame (001) FR-011".
 - **FR-005**: A "Keep notes useful" flyout shows totals per label and per topic, and
   offers "Compact…" and "Sweep…" for all notes or per topic.
 - **FR-006**: A session only proposes note operations; only the maintainer applies them,
-  from the hub. No operation deletes a note (Launch (005) FR-021), and Notes shows only
-  notes the maintainer may see.
+  from the hub. Notes shows only notes the maintainer may see.
+- **FR-007**: The maintainer can delete a note from Notes after confirming, with a short
+  reason. The note's text is gone from the notes; a line with its id, the date and the
+  reason stays in its topic's history, and notes that rested on it lose their CURRENT
+  label.
+- **FR-008**: A session that finds two notes contradicting each other proposes deleting
+  (or retracting) the one that is wrong, naming the note that shows it wrong; the proposal
+  waits for the maintainer like any other note operation.
 
 ### Key Entities
 
 - **Note**: a shared note with a title, topic, date, body and trust label.
 - **Trust label**: how far a note can be relied on: CURRENT, OPEN QUESTION, HISTORY,
   RETRACTED, ARCHIVE·UNREVIEWED or NO STATUS.
-- **Note operation**: a proposed change (merge, distil, answer, supersede, ...) with the
-  command it stands for; it changes labels or merges notes and never deletes.
+- **Note operation**: a proposed change (merge, distil, answer, supersede, retract,
+  delete, ...) with the command it stands for.
 
 ## Success Criteria
 
@@ -82,7 +89,5 @@ SC-003 (phone width) apply.
 - Compact is done by an Archivist session and Sweep by a docs-writer session; both are
   read-only and post nothing (Launch (005)).
 - The hub runs on the maintainer's own machine and touches no device.
-
-## Out of scope
-
-- Deleting notes: no note operation deletes one (Launch (005) FR-021).
+- A deleted note's text stays in the notes tool's own history, so a delete can be undone
+  by hand outside the hub.

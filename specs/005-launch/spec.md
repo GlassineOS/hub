@@ -125,8 +125,8 @@ that spec's name and number, as in "App frame (001) FR-011".
 - **FR-020**: A report result shows the answer, what could not be settled, the sources,
   and follow-ups; it can be saved to Knowledge.
 - **FR-021**: A notes result lists note operations (merge, distil, answer, supersede,
-  status, retract, flag), each with the exact command it will run; the operations can be
-  applied one by one or all, and none of them deletes a note.
+  status, retract, flag, delete), each with the exact command it will run; the operations
+  can be applied one by one or all.
 
 ### Key Entities
 
