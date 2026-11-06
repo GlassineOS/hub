@@ -1,6 +1,8 @@
 order = 4
 ceiling = "Reads, then hands in drafts. It can't file, comment, push or merge: filing is yours."
 object = "repo"
+verb = "road"
+result = "drafts"
 title = "Roadmap item"
 summary = "Drafts one strategic issue, its sub-issues, and where it goes on the board."
 all_repos = true

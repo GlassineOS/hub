@@ -3,6 +3,8 @@
 order = 1
 ceiling = "Reads and posts one review, which may approve. Has a sandboxed shell with the internet, seeing the checkout, the repository's git history, and the system's programs and /etc. Never merges, closes or pushes."
 object = "pr"
+verb = "review"
+result = "comment"
 title = "Review this PR"
 summary = "Reviews the code and posts a review: approve, comment or request changes."
 personas = ["reviewer"]

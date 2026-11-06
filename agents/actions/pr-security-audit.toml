@@ -1,6 +1,7 @@
 order = 5
 ceiling = "Reads and posts one comment. Never merges, closes or pushes. Has a sandboxed shell with the internet, seeing the checkout, the repository's git history, and the system's programs and /etc."
 object = "pr"
+result = "comment"
 title = "Security audit"
 summary = "Fable audits the change against the threat model and posts its findings as a comment."
 personas = ["security-auditor"]

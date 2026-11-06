@@ -2,6 +2,7 @@ order = 4
 ceiling = "Read only."
 when = "not-failing"
 object = "run"
+result = "none"
 title = "Why was it slow?"
 summary = "Finds the slowest steps against recent runs. Reports in the session."
 personas = ["ci-diagnostician"]

@@ -1,6 +1,8 @@
 order = 5
 ceiling = "Reads, then hands in drafts. It can't file, comment, push or merge: filing is yours."
 object = "repo"
+verb = "docs"
+result = "drafts"
 title = "Docs gap sweep"
 summary = "Compares the code with its docs and drafts an issue for each gap."
 all_repos = true

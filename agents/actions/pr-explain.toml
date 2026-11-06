@@ -2,6 +2,7 @@ order = 3
 ceiling = "Read only."
 
 object = "pr"
+result = "none"
 title = "Explain the diff"
 summary = "Explains the change file by file, and what could break. Reports in the session."
 personas = ["reviewer"]

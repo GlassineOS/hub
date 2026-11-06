@@ -1,6 +1,7 @@
 order = 3
 ceiling = "A full Claude Code with your rights, on its own new branch."
 object = "issue"
+result = "pr"
 title = "Draft docs for it"
 summary = "A full session on a new branch: drafts the docs change the issue needs and opens a pull request."
 access = "full"

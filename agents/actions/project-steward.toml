@@ -2,6 +2,7 @@ order = 1
 ceiling = "Reads everything, including private repositories. Every write asks you first, on a card."
 
 object = "project"
+result = "none"
 title = "Steward"
 summary = "One long-lived session for the whole project: strategy, planning, and what needs attention."
 plan = false

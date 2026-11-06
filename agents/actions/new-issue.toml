@@ -1,6 +1,8 @@
 order = 1
 ceiling = "Reads, then hands in drafts. It can't file, comment, push or merge: filing is yours."
 object = "repo"
+verb = "issue"
+result = "drafts"
 title = "Issue"
 summary = "Writes one or more well-scoped issues from what you describe."
 all_repos = true

@@ -82,7 +82,9 @@ runs a short planner (`claude -p`, read-only tools, up to $1) that reads the obj
 docs and writes the session spec. You then start it, discard it, or open it in advanced mode
 to change the persona, briefing, docs passages and tools. The session runs in tmux and opens
 below the item, or in Sessions. Actions with `plan = false` skip the planner and start at
-once. The library is in `agents/`: actions, personas, prompts and a plugin with skills.
+once. The library is in `agents/`: actions, personas, prompts and a plugin with skills. Each
+action names its short `verb` and its `result` type; each persona has a display name, initials and
+one of five families in `agents/personas/families.toml`, and hubd won't start if one is missing.
 
 - **Review, Security audit, Triage, Diagnose and the other read-and-report actions** are locked: only the tools the action lists.
   They post what they say they post, directly.
