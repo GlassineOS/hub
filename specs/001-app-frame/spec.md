@@ -91,8 +91,8 @@ that spec's name and number, as in "App frame (001) FR-011".
 
 #### Phone (≤ 760 px)
 
-- **FR-007**: At 760 px wide or less, the header shows only "New" and "Menu"; Menu holds
-  the navigation, Needs you and the user line.
+- **FR-007**: At 760 px wide or less, the header shows only "New" and "Menu"; Menu carries
+  the Needs-you count and holds the navigation, Needs you and the user line.
 - **FR-008**: At phone width the Steward is a floating button that opens it as a full
   sheet.
 - **FR-009**: At phone width, views use a single column with 16 px side gutters, and no
@@ -115,7 +115,7 @@ that spec's name and number, as in "App frame (001) FR-011".
 - **FR-016**: Every view can be used by keyboard alone; modals and sheets trap focus and
   close on Esc.
 - **FR-017**: Text and controls meet WCAG 2.2 AA contrast, and touch targets are at least
-  44 × 44 px on phone.
+  44 × 44 px on phone; links inside running text keep the height of the text.
 - **FR-018**: Animations are off when the viewer asks for reduced motion, and the app
   stays usable on an e-ink browser (no motion needed to understand state).
 - **FR-019**: Lists that can grow past one screen show a count and load more on request;
@@ -152,7 +152,7 @@ that spec's name and number, as in "App frame (001) FR-011".
 - **SC-002**: With 60 repositories and 500 open items, Overview and Work render their
   first screen in under 2 seconds on the host.
 - **SC-003**: At 390 px wide, no view scrolls sideways and every control is at least
-  44 × 44 px.
+  44 × 44 px, links inside running text aside.
 - **SC-004**: Every P1 user story can be completed with the keyboard alone, without a
   mouse.
 

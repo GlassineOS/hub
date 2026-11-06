@@ -8,6 +8,8 @@
 ## Context
 
 Notes are the shared notes that sessions and the maintainer keep, each with a trust label.
+They exist so sessions can read them: every session, planner and the Steward included, can
+search them. What needs care is a note's text leaving in a public post, not a session reading it.
 
 - **Notes** finds notes with their trust labels in view and keeps them tidy: an Archivist
   session proposes note operations, the maintainer applies them, and no operation ever

@@ -177,7 +177,8 @@ the spec's name and number, as in "App frame (001) FR-011".
 ## Success Criteria
 
 - **SC-001**: 100 % of GitHub actions in the hub are reached through the black split
-  button, and 100 % of disabled ones state a reason.
+  button, the Conversation comment box and thread replies (FR-018, FR-019) aside, and 100 %
+  of disabled ones state a reason.
 
 ## Assumptions
 
