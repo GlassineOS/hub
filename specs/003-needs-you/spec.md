@@ -16,8 +16,8 @@ effect everywhere.
 
 It uses the header button (App frame (001) FR-002), the yellow rule (App frame (001)
 FR-011), live updates (App frame (001) FR-020), the trust rule (App frame (001) FR-023)
-and the ItemPill, SessionChip and PersonaBadge (Building blocks, 002). Results open the
-result actions of Launch (005); the SessionView (Sessions, 004) shows a session's
+and the item pill, session chip and persona badge (Building blocks, 002). Results open the
+result actions of Launch (005); the session view (Sessions, 004) shows a session's
 interactions inline; the Steward's waiting strip (Steward, 010) opens Needs you filtered
 to the Steward.
 
@@ -109,7 +109,7 @@ that spec's name and number, as in "App frame (001) FR-011".
   where, and stays visible in the "N handled in this view" line until the view is left.
 - **FR-012**: Permission and question cards are blocking; they are the only kinds shown
   yellow (App frame (001) FR-011).
-- **FR-013**: Answering an interaction anywhere (card, SessionView, terminal) updates
+- **FR-013**: Answering an interaction anywhere (card, session view, terminal) updates
   every other place it is shown within 5 seconds.
 
 #### Feed

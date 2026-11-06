@@ -12,9 +12,9 @@ a known kind of result. This spec defines the five stages of Launch, the record 
 every Launch, the action table (which persona does what, with which result and ceiling),
 and the result types with what applying each one does.
 
-It uses App frame (001), the ItemPill, ItemPicker, RepoPicker and action metadata
+It uses App frame (001), the item pill, item picker, repository picker and action metadata
 (Building blocks, 002), suggestions and results as interactions (Needs you, 003) and the
-compact SessionView with covers and origin (Sessions, 004). Launch is opened from Work
+compact session view with covers and origin (Sessions, 004). Launch is opened from Work
 and Work item (006), Roadmap (007), Knowledge (008), Notes (009) and the Steward (010).
 
 ### Views
@@ -37,7 +37,7 @@ five stages to Start.
 1. **Given** the Steward has posted a suggestion "implement kernel#204 and kernel#219
    together", **When** the maintainer opens it from Needs you, checks the brief, picks
    the planner model, reads the plan and presses "Start", **Then** an Engineer session
-   runs that covers both issues; both items show its SessionChip; the session is embedded
+   runs that covers both issues; both items show its session chip; the session is embedded
    in the view it was started from; and the suggestion card shows "started".
 
 ### Edge Cases
@@ -63,8 +63,8 @@ that spec's name and number, as in "App frame (001) FR-011".
   that place.
 - **FR-002**: Launch goes through five stages: brief, planning, plan, run, result. The
   current stage is always visible.
-- **FR-003**: The brief stage shows the action, the persona, the covered items (ItemPills,
-  added with the ItemPicker), the repositories (RepoPicker), the model and an optional
+- **FR-003**: The brief stage shows the action, the persona, the covered items (item pills,
+  added with the item picker), the repositories (repository picker), the model and an optional
   note.
 - **FR-004**: The brief stage shows the action's result type and ceiling in plain words
   ("ends with a draft PR", "read-only, posts a comment").
@@ -72,7 +72,7 @@ that spec's name and number, as in "App frame (001) FR-011".
   Haiku) and shows its progress.
 - **FR-006**: The plan stage shows the planned steps and the files or items each step
   touches; the maintainer can edit the brief and plan again, or start.
-- **FR-007**: The run stage shows the session in a compact SessionView with its inline
+- **FR-007**: The run stage shows the session in a compact session view with its inline
   asks.
 - **FR-008**: At any stage after planning, Launch can be sent to the background; a toast
   confirms it and links to the session, and later asks and the result arrive in Needs

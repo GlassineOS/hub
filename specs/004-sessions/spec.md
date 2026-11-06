@@ -3,25 +3,25 @@
 **Feature Branch**: `001-hub-app`
 **Created**: 2026-11-06
 **Status**: Draft
-**Input**: "Sessions: the SessionView (full chat with typed messages), what a session knows (covers, PRs, view, origin), Sessions › Running, and History & cleanup."
+**Input**: "Sessions: the session view (full chat with typed messages), what a session knows (covers, PRs, view, origin), Sessions › Running, and History & cleanup."
 
 ## Context
 
 A session is a Claude Code session (or a plain shell) with a persona, covered items and a
 terminal. Each runs on the host in its own git worktree. This spec defines the
-**SessionView** (the full chat with a session, in three sizes), what a session knows about
+**session view** (the full chat with a session, in three sizes), what a session knows about
 itself (the items and pull requests it covers, where it is shown, where it came from),
 **Sessions › Running**, and **Sessions › History & cleanup**, which resumes past sessions
 and keeps the host tidy.
 
-It uses App frame (001), the PersonaBadge, ItemPill and SessionChip (Building blocks,
+It uses App frame (001), the persona badge, item pill and session chip (Building blocks,
 002) and inline interactions (Needs you, 003). Launch (005) starts sessions and records
 their origin; the Steward panel (Steward, 010) shows its session in the compact
-SessionView.
+session view.
 
 ### Views
 
-- **SessionView**: shows one session in full (Sessions), embedded (inside a Work item) or
+- **Session view**: shows one session in full (Sessions), embedded (inside a Work item) or
   compact (Steward panel), as a chat with its live terminal.
 - **Sessions › Running**: lists every live session and plain shell and opens any of them
   in full.
@@ -81,24 +81,24 @@ that spec's name and number, as in "App frame (001) FR-011".
 
 ### Functional Requirements
 
-#### SessionView
+#### Session view
 
-- **FR-001**: A SessionView has three modes: full (Sessions), embedded (inside a Work
+- **FR-001**: A session view has three modes: full (Sessions), embedded (inside a Work
   item) and compact (Steward panel).
-- **FR-002**: The SessionView header shows the PersonaBadge, the persona name, the model,
+- **FR-002**: The session view header shows the persona badge, the persona name, the model,
   the state, the branch and the origin (where and why it was started), tinted with the
   persona's family tint.
-- **FR-003**: The SessionView shows the covered items and pull requests as ItemPills.
+- **FR-003**: The session view shows the covered items and pull requests as item pills.
 - **FR-004**: When a session covers more than one item, an "Also on these items" switcher
   shows the other items and opens them.
-- **FR-005**: The SessionView shows the live terminal of the session on night paper
+- **FR-005**: The session view shows the live terminal of the session on night paper
   (#121212), scrolled to the end, with the user's scroll position kept while new output
   arrives.
 - **FR-006**: Pending interactions for that session are shown inline above the terminal
   and can be answered there, with the same effect as answering them in Needs you.
 - **FR-007**: A SEND row offers the session's preset reply buttons and Esc.
 - **FR-008**: Every Claude Code session, the Steward included, is a full chat: the
-  SessionView has a message field, and what the maintainer types is sent to the session
+  session view has a message field, and what the maintainer types is sent to the session
   as their message. Only the signed-in maintainer can send a message into a session, a
   typed message is never visible to other processes on the machine, and the transcript
   shows it as the maintainer's.
@@ -107,16 +107,16 @@ that spec's name and number, as in "App frame (001) FR-011".
   the session.
 - **FR-010**: A session can be switched between embedded and background; a background
   session leaves the view and is counted in the view's "N sent to background" line.
-- **FR-011**: A session can be stopped from its SessionView only after a confirmation.
+- **FR-011**: A session can be stopped from its session view only after a confirmation.
 
 #### Sessions › Running
 
 - **FR-012**: Running lists sessions in groups: embedded in a view, in the background,
   finished with the terminal still open, and plain shells.
-- **FR-013**: Each row shows the PersonaBadge, the state, "N waiting", a sub-line (origin,
+- **FR-013**: Each row shows the persona badge, the state, "N waiting", a sub-line (origin,
   model, age), "⇄ also on" items and the covered items.
 - **FR-014**: The list can be narrowed to badges only; the selected session opens in a
-  full SessionView beside it.
+  full session view beside it.
 - **FR-015**: Running offers "＋ Plain shell" (a shell in a chosen repository's worktree)
   and "Resume a past session" (opens History).
 
