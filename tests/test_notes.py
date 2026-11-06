@@ -3,6 +3,7 @@
 import ast
 import asyncio
 import json
+import shutil
 import stat
 import sys
 from pathlib import Path
@@ -72,7 +73,8 @@ def test_no_token_has_it(tmp_path, workspace):
 def test_a_login_gets_the_same_query_with_each_rows_state_in_words(tmp_path, workspace):
     hubd, login = world(tmp_path, workspace)
     reply = call(hubd, op="notes.find", token=login, words="the  fault", limit=5)
-    assert reply["ok"] and reply["here"] and reply["rows"] == ROWS
+    # 009 FR-003: each row also says its topic, from where it lives, and a date only when the tool gives one.
+    assert reply["ok"] and reply["here"] and reply["rows"] == [{**r, "topic": t, "date": ""} for r, t in zip(ROWS, ("gpu/hang", "gpu/hang", ""))]
     assert reply["total"] == 7 and reply["says"] == "7 rows from notes, memory"
     assert reply["warnings"] == ["the search index was damaged, so it's being rebuilt"]
     seen = json.loads((workspace / "seen.json").read_text())
@@ -114,7 +116,7 @@ def test_what_isnt_there_is_said_in_words_and_not_made(tmp_path, workspace, gone
 
 def test_when_all_is_there_status_says_so(tmp_path, workspace):
     hubd, login = world(tmp_path, workspace)
-    assert call(hubd, op="notes.status", token=login) == {"ok": True, "here": True, "says": None}
+    assert call(hubd, op="notes.status", token=login) == {"ok": True, "here": True, "says": None, "indexing": False}
 
 
 def test_a_workspace_that_isnt_there_is_said_too(tmp_path):
@@ -223,3 +225,147 @@ def test_hubd_keeps_to_the_limit_and_caps_every_field(tmp_path):
     assert len(found["rows"]) == 5 and found["total"] == 30
     assert all(len(r[k]) < notes.MAX_TEXT + 10 for r in found["rows"] for k in ("where", "label", "text"))
     assert len(found["warnings"]) <= 20 and all(len(w) < notes.MAX_TEXT + 10 for w in found["warnings"])
+
+
+# --- 009: totals, a session that reads the notes, and the operations a login applies -------------------
+from hubd import results  # noqa: E402
+from hubd.agents import Library, LibraryError  # noqa: E402
+
+LIBRARY = Library(Path(__file__).resolve().parents[1] / "agents")
+# A tool that writes down every call and answers like `notes set`: what hubd ran is all a test needs to see.
+WRITER = """import json, os, sys
+open(os.environ["GLASSINE_WORKSPACE"] + "/calls.jsonl", "a").write(json.dumps(sys.argv[1:]) + "\\n")
+if "--retract=c2" in sys.argv:
+    print("notes: c2 is already retracted", file=sys.stderr)
+    sys.exit(1)
+print("ok " + " ".join(sys.argv[1:3]))
+"""
+
+
+def calls(workspace):
+    path = workspace / "calls.jsonl"
+    return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+
+@pytest.mark.parametrize("op,argv", [
+    ({"op": "supersede", "topic": "gpu/hang", "ids": ["c3", "c4"], "words": "Faults stop with r107."},
+     ["set", "--replaces=c3", "--inferred=c3,c4", "--", "gpu/hang", "Faults stop with r107."]),
+    ({"op": "merge", "topic": "gpu/hang", "ids": ["c3"], "words": "--retract c5 is words"},
+     ["set", "--replaces=c3", "--inferred=c3", "--", "gpu/hang", "--retract c5 is words"]),
+    ({"op": "retract", "topic": "gpu/hang", "ids": ["c9"], "by": "c12", "why": "-x looks like a flag"},
+     ["set", "--retract=c9", "--by=c12", "--why=-x looks like a flag", "--", "gpu/hang"]),
+    ({"op": "answer", "topic": "gpu/hang", "ids": ["c7"], "why": "settled by c12"}, ["set", "--close=c7", "--why=settled by c12", "--", "gpu/hang"]),
+    ({"op": "add", "topic": "gpu/hang", "words": "Merged c3 and c4.", "open": True}, ["add", "--open", "--", "gpu/hang", "Merged c3 and c4."]),
+])
+def test_each_op_is_one_tool_run_and_words_are_never_flags(op, argv):
+    assert notes.argv_of(notes.clean_op(op)) == argv
+    assert notes.command_of(notes.clean_op(op)).startswith("notes " + argv[0])
+
+
+@pytest.mark.parametrize("op,words", [
+    ({"op": "delete", "topic": "gpu/hang", "ids": ["c1"]}, "none deletes"),
+    ({"op": "supersede", "topic": "../etc", "ids": ["c1"], "words": "w"}, "AREA/TOPIC"),
+    ({"op": "supersede", "topic": "gpu/hang", "ids": ["1"], "words": "w"}, "note ids"),
+    ({"op": "supersede", "topic": "gpu/hang", "ids": ["c1"], "words": "w", "command": "rm -rf"}, "not command"),
+    ({"op": "retract", "topic": "gpu/hang", "ids": ["c1", "c2"], "by": "c3", "why": "w"}, "one note"),
+    ({"op": "retract", "topic": "gpu/hang", "ids": ["c1"], "by": "c1", "why": "w"}, "shows it wrong"),
+    ({"op": "add", "topic": "gpu/hang", "words": "hidden\u200bword"}, "invisible"),
+    ({"op": "add", "topic": "gpu/hang", "words": "x" * 2001}, "1 to 2000"),
+])
+def test_an_op_outside_the_shape_is_refused(op, words):
+    with pytest.raises(notes.OpError, match=words):
+        notes.clean_op(op)
+
+
+def test_a_notes_result_carries_the_command_hubd_built():
+    payload = results.clean_payload("notes", {"ops": [{"op": "answer", "topic": "gpu/hang", "ids": ["c7"], "why": "settled"}], "summary": "s"}, [])
+    assert payload["ops"][0]["command"] == "notes set --close=c7 '--why=settled' -- gpu/hang".replace("'--why=settled'", "--why=settled")
+    assert payload["ops"][0]["state"] == "pending"
+    with pytest.raises(results.ResultError, match="at least one"):
+        results.clean_payload("notes", {"ops": []}, [])
+
+
+def note_world(tmp_path):
+    root = tmp_path / "workspace"
+    (root / "tools").mkdir(parents=True)
+    (root / "notes").mkdir()
+    (root / "tools" / "notes").write_text(WRITER)
+    hubd, login = world(tmp_path, root)
+    hubd.results = results.Results(tmp_path / "results")
+    hubd.agents.library = LIBRARY
+    hubd.sessions.own_user = lambda: "me"
+    hubd.work = None
+    ops = [{"op": "supersede", "topic": "gpu/hang", "ids": ["c3"], "words": "New words."},
+           {"op": "retract", "topic": "gpu/hang", "ids": ["c2"], "by": "c3", "why": "wrong"},
+           {"op": "add", "topic": "gpu/hang", "words": "Log line."}]
+    record = hubd.results.submit("notes", {"ops": ops}, session="notes-compact", session_id="i", launch=None, items=[],
+                                 action="notes-compact", persona="archivist")
+    return hubd, login, root, record
+
+
+def test_a_login_applies_ops_in_order_and_a_failure_stops_the_rest(tmp_path):
+    hubd, login, root, record = note_world(tmp_path)
+    reply = call(hubd, op="result.apply", token=login, id=record["id"])
+    assert not reply["ok"] or reply["result"]["state"] == "pending"
+    ops = hubd.results.get(record["id"])["payload"]["ops"]
+    assert [o["state"] for o in ops] == ["applied", "failed", "pending"] and "already retracted" in ops[1]["said"]
+    assert calls(root) == [["set", "--replaces=c3", "--inferred=c3", "--", "gpu/hang", "New words."],
+                           ["set", "--retract=c2", "--by=c3", "--why=wrong", "--", "gpu/hang"]]
+    assert not any(a[0] not in ("add", "set") for a in calls(root))  # nothing but add and set: no delete
+    call(hubd, op="result.apply", token=login, id=record["id"], indexes=[2])
+    assert [o["state"] for o in hubd.results.get(record["id"])["payload"]["ops"]] == ["applied", "failed", "applied"]
+    refused = call(hubd, op="result.apply", token=login, id=record["id"], indexes=[0])
+    assert "isn't applied yet" in refused["error"]  # an applied op isn't run twice
+
+
+def test_no_token_applies_ops(tmp_path):
+    hubd, _login, root, record = note_world(tmp_path)
+    for token in ("full-token", "locked-token", "general-token", None):
+        assert call(hubd, op="result.apply", agent_token=token, id=record["id"])["denied"]
+        assert call(hubd, op="result.apply", token=token, id=record["id"])["denied"]
+    assert calls(root) == []
+
+
+class NotesAgents(Agents):
+    SCOPES = {**Agents.SCOPES, "compact-token": {"session": "notes-compact", "tools": ["notes_find", "submit_result"], "persona": "archivist"},
+              "steward-token": {"session": "steward", "tools": ["notes_find", "docs_search"], "persona": "steward"},
+              "issue-token": {"session": "issue-triage-boot-3", "tools": ["notes_find", "get_issue"], "persona": "triager"}}
+    ACTIONS = {"notes-compact": "notes-compact", "steward": "project-steward", "issue-triage-boot-3": "issue-triage"}
+    library = LIBRARY
+
+    def describe(self, name):
+        return {"action": self.ACTIONS[name]} if name in self.ACTIONS else None
+
+
+def test_only_a_session_about_the_notes_searches_them(tmp_path, workspace):
+    hubd, _login = world(tmp_path, workspace)
+    hubd.agents = NotesAgents()
+    reply = call(hubd, op="notes_tool.find", agent_token="compact-token", words="fault")
+    assert reply["ok"] and reply["rows"]
+    (workspace / "seen.json").unlink()
+    # A list that names the tool isn't enough: the action, as it is now, has to be about the notes and list it.
+    for token in ("steward-token", "issue-token", "full-token", "locked-token", "general-token", "nope", None):
+        assert call(hubd, op="notes_tool.find", agent_token=token, words="fault")["refused"], token
+    assert not (workspace / "seen.json").exists()
+
+
+def test_the_library_keeps_notes_find_to_an_action_about_the_notes_that_cant_post(tmp_path):
+    root = tmp_path / "agents"
+    shutil.copytree(Path(__file__).resolve().parents[1] / "agents", root)
+    action = root / "actions" / "notes-compact.toml"
+    good = action.read_text()
+    for bad in (good.replace('"submit_result"]', '"submit_result", "comment_issue"]'), good.replace('object = "notes"', 'object = "issue"'),
+                good + 'access = "full"\n', good + 'all_repos = true\n'):
+        action.write_text(bad)
+        with pytest.raises(LibraryError, match="notes_find"):
+            Library(root)
+    assert "notes_find" not in LIBRARY.action("project-steward")["hub_tools"]
+
+
+def test_totals_come_from_the_last_search_and_say_so(tmp_path, workspace):
+    hubd, login = world(tmp_path, workspace)
+    assert call(hubd, op="notes.totals", token=login)["source"] is None
+    call(hubd, op="notes.find", token=login, words="fault")
+    totals = call(hubd, op="notes.totals", token=login)
+    assert totals["source"] == "last-search" and totals["rows"] == 3
+    assert totals["by_label"] == {"current": 1, "retracted": 1, "archive, unreviewed": 1} and totals["by_topic"] == {"gpu/hang": 2}

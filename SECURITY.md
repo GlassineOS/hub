@@ -315,14 +315,28 @@ Goes and merge approvals, each a file in hubd's state folder, on disk before any
 Notes and the archive search live on this host only, and much of what they search never passed the safety scan. The app's container
 mounts none of it.
 
-- **One query, by a login.** `notes.find` and `notes.status` are behind the login check in `Hubd.request`, with no path for a token: a
-  session's, the general one a hub shell holds, or a locked agent's. Unlike other capabilities it has no tool in `tools.py`, on purpose: a
-  session that reads this could post it. The Steward searching notes is future scope (Decision 4 in `docs/workspace.md`).
-- **The tool stays a program.** hubd runs `tools/notes find` from the workspace as a subprocess, never imports it, with a short
+- **The search, by a login, and by a session about the notes.** `notes.find`, `notes.status` and `notes.totals` are behind
+  the login check in `Hubd.request`, with no path for a token. The one token path is `notes_find` (`notes_tool.find`), for a
+  session whose list has it *and* whose action, as it is now, is about the notes and lists it. The library refuses to load
+  an action that lists `notes_find` unless it is about the notes, locked, reads only (no shell, no write or post tool, no
+  `asks_first`, not the whole project) and hands in a result or drafts: today `notes-compact` (the Archivist, note
+  operations) and `notes-sweep` (a docs writer, draft issues). What such a session reads goes out only in what it hands in,
+  which a login reads before anything happens; `session_summary` refuses its words, so the Steward can't read notes through
+  it, and the Steward has no `notes_find` (Decision 4 in `docs/workspace.md`). Sweep drafts are filed in public by you, so
+  read them for private details first: the prompt asks the session to leave them out, which is a rule, not a control.
+- **Applying note operations is a login's alone.** A notes result is a closed list of operations (supersede, merge,
+  distil, retract, answer, add), each checked against the tool's own shapes (topic `AREA/TOPIC`, ids `cN`, one-line words
+  with nothing invisible). hubd builds each command from those fields and never takes one from the payload; the card shows
+  it verbatim, and applying runs exactly it, through `result.apply` behind the login check, never by a token. Each is one
+  `notes add` or `notes set`, its values after `=` or `--` so no text can be read as a flag. None deletes a note: what is
+  replaced, retracted or closed stays in the topic's Log, as the tool keeps it (009 FR-006, 005 FR-021). The tool lints, scans
+  and commits each write itself; a write it refuses stops the rest, which stay to apply again.
+- **The tool stays a program.** hubd runs `tools/notes find` (and, for a login's press, `add` or `set`) from the workspace as a subprocess, never imports it, with a short
   environment, and what you typed follows `--`, so it's only ever words. It creates nothing: if the tool or `notes/` isn't there, hubd says
   so in words. The index is the tool's own 0700 cache, and hubd doesn't read it.
 - **What you look for stays out of addresses.** The page sends it in a POST body and keeps it out of the location, which the Steward's
-  panel reads, so it isn't in access logs or browser history. The answer isn't kept: not in the work store, not in the browser's storage.
+  panel reads, so it isn't in access logs or browser history. The answer isn't kept: not in the work store, not in the browser's storage; hubd keeps only the last search's counts per
+  label and topic, in memory, for the totals. Note operations a session proposes are kept like any result, in hubd's 0700 state.
 - **Every row says what it is,** in words, and a row without a state says so, so a retracted theory can't pass as a fact.
 - **The limit.** Anyone with the login reads everything the search covers. Full sessions run as your user and can read the same files, as
   `docs/workspace.md` says. The tool runs with hubd's rights, so whoever can write `tools/notes` in the workspace runs code as you, which a

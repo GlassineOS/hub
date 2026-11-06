@@ -25,7 +25,7 @@ from pathlib import Path
 
 from . import auth, decisions, devices, interactions, newwork, notes, results, usage
 from . import feed as feedlib
-from .agents import MAX_ALSO, MAX_NOTES, PLANNER_MODELS, RESULTS as RESULTS_WORDS, SCREENS, AgentError, Agents, Library, load_environment, screen_of, validate, with_also
+from .agents import MAX_ALSO, MAX_NOTES, NOTES_TOOL, PLANNER_MODELS, RESULTS as RESULTS_WORDS, SCREENS, AgentError, Agents, Library, load_environment, screen_of, validate, with_also
 from .apps import AppError, Apps, is_write
 from .asks import GRANT_LIFE, MAX_INPUT, TOOL_PREFIX, AskError, Asks
 from .ghpolicy import ORG, Refused, check, is_merge, merge_request
@@ -61,9 +61,10 @@ WORK_TOOL_OPS = {"work.offer": "plan_work", "work.suggest": "suggest_session", "
 STEWARD = "steward"
 DIRECT_ORIGIN = {"launch": None, "from": None, "by": "you"}  # a session you started with the one click or the advanced form: no Launch record behind it
 RESULT_TOOL_OPS = {"result.submit": "submit_result", "result.report": "read_report"}  # By a session's own token, checked like WORK_TOOL_OPS
+NOTES_TOOL_OPS = {"notes_tool.find": "notes_find"}  # By a session's own token, only for an action about the notes (009)
 ITEM_OBJECTS = ("issue", "pr", "run")  # what a Launch's covered items can be (005 FR-011)
 KIND_WORDS = {"issue": "an issue", "pr": "a pull request", "run": "a run", "repo": "a repository", "project": "the whole project",
-              "knowledge": "a question"}
+              "knowledge": "a question", "notes": "the notes"}
 _ITEM_REF_RE = re.compile(r"\.?[A-Za-z0-9_][A-Za-z0-9._-]{0,99}#[1-9][0-9]{0,14}")  # 15 digits, as feed.py takes: a run's number is 11 now
 REVIEW_EVENT = {"comment": "COMMENT", "request-changes": "REQUEST_CHANGES", "approve": "APPROVE"}
 PLANNER_CHOOSES = ("effort", "brief", "docs_query", "docs", "steps")  # the model it suggests is planner_pick: you choose on its plan
@@ -222,6 +223,8 @@ class Hubd:
             return await self.work_tool(op, req)
         if op in RESULT_TOOL_OPS:
             return self.result_tool(op, req)
+        if op in NOTES_TOOL_OPS:
+            return await self.notes_tool(req)
         if op in STARTED_OPS:
             return await self.started_request(op, req)
         if op in REPO_OPS:
@@ -562,9 +565,26 @@ class Hubd:
                 return {"ok": True, **self.notes.status()}
             if op == "notes.find":
                 return {"ok": True, **await self.notes.find(req.get("words"), req.get("limit"))}
+            if op == "notes.totals":
+                return {"ok": True, **await self.notes.totals()}
         except notes.NotesError as e:
             return {"ok": False, "error": str(e)}
         return {"ok": False, "error": f"unknown request: {op}"}
+
+    async def notes_tool(self, req: dict) -> dict:
+        """notes_find by a session's own token: its list has the tool and its action, as it is now, is about the notes.
+        The library lets only a locked action that reads and hands in list it, so the search has no way out but the result
+        the person reads (SECURITY.md, Notes)."""
+        scope = self.agents.scope(req.get("agent_token")) if self.agents else None
+        agent = self.agents.describe(scope["session"]) if scope and scope.get("session") else None
+        action = self.agents.library.actions.get(agent["action"]) if agent else None
+        if self.notes is None or not scope or NOTES_TOOL not in (scope.get("tools") or ()) or not action \
+                or action["object"] != "notes" or NOTES_TOOL not in action["hub_tools"]:
+            return {"ok": False, "refused": True, "error": f"this session can't use {NOTES_TOOL}"}
+        try:
+            return {"ok": True, **await self.notes.find(req.get("words"), req.get("limit"))}
+        except notes.NotesError as e:
+            return {"ok": False, "error": str(e)}
 
     # --- merges ------------------------------------------------------------------------
     @staticmethod
@@ -1253,6 +1273,16 @@ class Hubd:
             chosen = [issues[i] for i in indexes]
             needed = {"label_issue"} if any(i["add"] or i["remove"] for i in chosen) else set()
             needed |= {"edit_issue"} if any(i["part_of"] for i in chosen) else set()
+        elif record["type"] == "notes":
+            ops = record["payload"]["ops"]
+            open_ = [n for n, o in enumerate(ops) if o["state"] != "applied"]
+            if indexes is None:
+                indexes = open_
+            if not isinstance(indexes, list) or not indexes or len(set(map(str, indexes))) != len(indexes) or not all(
+                    isinstance(i, int) and not isinstance(i, bool) and i in open_ for i in indexes):
+                raise results.ResultError("choose at least one operation that isn't applied yet")
+            chosen = sorted(indexes)
+            needed = {"notes_apply"}
         else:
             needed = set(results.APPLY_TOOLS.get(record["type"], ()))
         if needed - allowed:
@@ -1261,6 +1291,8 @@ class Hubd:
         self.results.claim(record["id"])
         by = self.sessions.own_user()
         try:
+            if record["type"] == "notes":  # the notes tool on this host: no App, no GitHub
+                return self._settle_notes(record, chosen, await self._apply_notes(record, chosen), by)
             token = await self.apps.token(record["persona"]) if self.apps and record.get("persona") else None
             if record["type"] == "comment":
                 note = await self._post_review(record, token)
@@ -1271,6 +1303,30 @@ class Hubd:
             raise results.ResultError(f"it didn't go out: {e}") from None
         self.results.settle(record["id"], True, by, note)
         self._settle_launch(record, "filed")
+        return record
+
+    async def _apply_notes(self, record: dict, chosen: list[int]) -> list[dict]:
+        """009 FR-006: by a login only, the ops hubd cleaned when they were handed in, rebuilt from their fields."""
+        if self.notes is None:
+            raise results.ResultError("notes aren't set up on this host")
+        try:
+            ops = [notes.clean_op({k: v for k, v in record["payload"]["ops"][i].items() if k not in ("command", "state", "said")}) for i in chosen]
+            return await self.notes.apply(ops)
+        except (notes.NotesError, notes.OpError) as e:
+            raise results.ResultError(str(e)) from None
+
+    def _settle_notes(self, record: dict, chosen: list[int], done: list[dict], by) -> dict:
+        for i, outcome in zip(chosen, done):
+            record["payload"]["ops"][i].update(outcome)
+        ops = record["payload"]["ops"]
+        failed = next((o for o in ops if o["state"] == "failed"), None)
+        if all(o["state"] == "applied" for o in ops):
+            self.results.settle(record["id"], True, by, f"Applied {len(ops)} note operation{'s' if len(ops) != 1 else ''}.")
+            self._settle_launch(record, "filed")
+        else:
+            left = sum(o["state"] != "applied" for o in ops)
+            self.results.settle(record["id"], False, by, f"{'The notes tool refused one: ' + failed['said'] if failed else ''}"
+                                f"{' ' if failed else ''}{left} still to apply.".strip())
         return record
 
     async def _post_review(self, record: dict, token) -> str:
