@@ -1100,13 +1100,14 @@ def test_the_header_has_six_views_needs_you_new_work_and_the_meter():
     assert '["queue", "Queue"]' in script and 'query.tab === "queue" ? html`<${WorkQueue} />`' in script
     # Needs you: yellow (data-waits) only when something blocks, outlined while anything waits, plain at none.
     button = _component(script, "NeedsButton")
-    assert 'c.blocking > 0 ? "blocking" : c.pending > 0 ? "pending" : "none"' in button
+    assert 'c.blocking > 0 ? "blocking" : c.pending > 0 ? "pending" : "none"' in script and "const state = needsState(c);" in button
     assert 'data-waits=${state === "blocking" ? "" : undefined}' in button and "aria-label=${needsLabel(asks)}" in button
     css = (Path(__file__).resolve().parents[1] / "app" / "hub" / "static" / "style.css").read_text()
     assert '.needs-open[data-waits]' in css and '.top .needs-open[data-state="none"]' in css
     assert ".top nav a[aria-current] { background: var(--mark)" not in css, "yellow is only for what waits for you"
     hub = _component(script, "Hub")
-    assert "<${NeedsButton} asks=${asks} />" in hub and 'class="primary new-work" onClick=${() => launch({ from: { view: SEEN_SCREEN[here] || "Overview" } })}' in hub
+    assert "<${NeedsButton} asks=${asks} />" in hub and 'const newWork = () => launch({ from: { view: SEEN_SCREEN[here] || "Overview" } });' in hub
+    assert 'class="primary new-work" onClick=${newWork}>＋ New work</button>' in hub
     assert "<${UsageMeter} />" in hub and "host.hubd" in hub and "hubd can't be reached" in hub and 'api("host"), [], 15000' in hub
     overview = _component(script, "Overview")
     assert "<${NeedsYouCard} asks=${asks} />" in overview and "<${BudgetStat} />" in overview and "<${DeviceCard} asks=${asks} />" in overview
@@ -2510,3 +2511,66 @@ def test_the_steward_panel_shows_what_hubd_says_it_was_told():
     assert "＋ Plan new work with the Steward" in panel
     # 010 FR-003: the compact session view, with the model and its select.
     assert "<${StewardModel}" in panel and 'mode="compact"' in _component(script, "StewardSession")
+
+
+def _phone_block(css):
+    start = css.index("@media (max-width: 760px) {")
+    depth, i = 0, css.index("{", start)
+    for i in range(i, len(css)):
+        depth += {"{": 1, "}": -1}.get(css[i], 0)
+        if depth == 0:
+            return css[start:i + 1]
+    raise AssertionError("the phone block isn't closed")
+
+
+def test_one_phone_block_and_no_wide_fixed_widths_in_it():
+    """A static check (001 FR-009): one @media block at 760 px holds the phone rules, and nothing in it is fixed wider
+    than 360 px outside the boxes that scroll on their own."""
+    css = _style_css()
+    assert css.count("@media (max-width: 760px)") == 1
+    assert "max-width: 1000px" not in css and "max-width: 720px" not in css, "the phone rules are in the one block"
+    block = _phone_block(css)
+    scroll_boxes = (".board", ".diffbox", ".log", ".term", ".ask-code", ".ask-lines", ".steplog")
+    for rule in re.findall(r"([^{}]+)\{([^{}]*)\}", block[block.index("{") + 1:]):
+        selector, body = rule
+        if any(box in selector for box in scroll_boxes):
+            continue
+        for prop, value in re.findall(r"(?<![-\w])((?:min-|max-)?width)\s*:\s*(\d+)px", body):
+            assert int(value) <= 360, f"{selector.strip()}: {prop} {value}px"
+    # Sheets fill the screen at phone width (001 FR-010), and the controls reach 44 px (001 FR-017).
+    for sheet in ("dialog.sheet", "dialog.nw", "dialog.needs", "dialog.flyout", "dialog.transcript"):
+        assert sheet in block, sheet
+    assert ".dock-handle { display: none; }" in block and ".tick { width: 44px" in block
+    assert "input[type=\"checkbox\"] { width: 24px; height: 24px; }" in block and "label:has(> input[type=\"checkbox\"]) { min-height: 44px; }" in block
+
+
+def test_reduced_motion_turns_motion_off():
+    """001 FR-018: a reduced-motion block turns transitions and animations off; the app has no motion of its own."""
+    css, script = _style_css(), _app_js()
+    motion = css[css.index("@media (prefers-reduced-motion: reduce)"):]
+    motion = motion[:motion.index("\n}")]
+    assert "transition: none !important" in motion and "animation: none !important" in motion
+    assert 'behavior: "smooth"' not in script and "@keyframes" not in css
+    assert "cursorBlink: !reducedMotion()," in script
+
+
+def test_the_phone_header_is_new_and_menu():
+    """001 FR-007, FR-008: at 760 px or less the header has only "New" and "Menu", Menu holds the navigation, Needs you
+    and the user line, and the Steward is a floating button opening a sheet."""
+    script = _app_js()
+    assert 'const PHONE = "(max-width: 760px)";' in script
+    hub = _component(script, "Hub")
+    phone = hub[hub.index("const header = phone ?"):hub.index(": html`<header class=\"top\">")]
+    assert re.findall(r"<button|<\$\{(\w+)\}", phone) == ["", "MenuButton"], "one button (New) and the Menu button"
+    assert "＋ New</button>" in phone and 'aria-label="New work"' in phone
+    menu = _component(script, "MenuSheet")
+    assert "showModal()" in menu and "NAV.map" in menu and "aria-current" in menu
+    assert "<${NeedsButton} asks=${asks} before=${close} />" in menu and "<${UsageMeter} />" in menu and "host.user" in menu
+    button = _component(script, "MenuButton")
+    assert "needsState(c)" in button and 'data-waits=${state === "blocking" ? "" : undefined}' in button and "aria-label=${`Menu${waits}`}" in button
+    steward = _component(script, "Steward")
+    assert 'class="dock-s steward-fab"' in steward and "<${StewardSheet}" in steward
+    # On a phone the sheet opens and closes without touching the wide panel's choice per view.
+    assert "if (phone) { setSheet(!next); return; }" in steward
+    assert "showModal()" in _component(script, "StewardSheet")
+

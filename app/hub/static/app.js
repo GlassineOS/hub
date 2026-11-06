@@ -72,6 +72,24 @@ function useRoute() {
   return route;
 }
 
+// 001 FR-007–FR-010: at 760 px or less the header folds into Menu and the Steward into a floating button. The same
+// width as the one phone block in style.css.
+const PHONE = "(max-width: 760px)";
+function usePhone() {
+  const query = typeof window.matchMedia === "function" ? window.matchMedia(PHONE) : null;
+  const [phone, setPhone] = useState(() => Boolean(query && query.matches));
+  useEffect(() => {
+    if (!query || !query.addEventListener) return undefined;
+    const on = () => setPhone(Boolean(query.matches));
+    query.addEventListener("change", on);
+    return () => query.removeEventListener("change", on);
+  }, []);
+  return phone;
+}
+
+// 001 FR-018: no blinking cursor when the viewer asks for reduced motion (and an e-ink browser isn't asked to repaint it).
+const reducedMotion = () => typeof window.matchMedia === "function" && Boolean(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+
 // --- loading ---------------------------------------------------------------------
 // A failed reload keeps what the last good one read, with the error beside it: when hubd goes away the views stay as
 // they were and the header's banner says so. Data read for other deps (another issue, say) is not kept.
@@ -2079,7 +2097,7 @@ function TerminalView({ name, onGone, focusRef, quiet }) {
   const [typing, setTyping] = useState(true);
   useEffect(() => {
     const term = new Terminal({
-      cursorBlink: true, fontFamily: '"IBM Plex Mono", ui-monospace, monospace', fontSize: 14, scrollback: 5000,
+      cursorBlink: !reducedMotion(), fontFamily: '"IBM Plex Mono", ui-monospace, monospace', fontSize: 14, scrollback: 5000,
       theme: { background: nightPaper(), foreground: "#eeeeee", cursor: "#eeeeee" },
     });
     const fit = new FitAddon();
@@ -2532,7 +2550,7 @@ function DraftsResult({ item, reload, onNote }) {
     ${drafts.map((d, i) => {
       const on = d.state === "draft" && picked[i] === true;
       return html`<div class="nw-draft ${on ? "on" : ""}" key=${i}>
-        ${d.state === "draft" && html`<input type="checkbox" aria-label=${`Select draft: ${d.title}`} checked=${on} onChange=${() => setPicked({ ...picked, [i]: !on })} />`}
+        ${d.state === "draft" && html`<label class="boxhit"><input type="checkbox" aria-label=${`Select draft: ${d.title}`} checked=${on} onChange=${() => setPicked({ ...picked, [i]: !on })} /></label>`}
         <div class="stack" style="gap: 4px; flex: 1; min-width: 0">
           <div class="row" style="gap: 6px 10px">
             ${d.severity && html`<span class="nw-sev ${d.severity}">${d.severity.toUpperCase()}</span>`}
@@ -3247,7 +3265,7 @@ function Cleanup() {
     ${!data && !error && html`<p role="status" class="small soft">Checking each worktree and its pull request…</p>`}
     ${data && rows.length === 0 && html`<p class="small soft">No worktrees.</p>`}
     <div class="stack" style="gap: 6px">${rows.map((r) => html`<div class="clean-row" key=${r.id}>
-      <input type="checkbox" aria-label=${`Select ${r.id}`} disabled=${r.state !== "safe"} checked=${!!picked[r.id] && r.state === "safe"} onChange=${() => setPicked({ ...picked, [r.id]: !picked[r.id] })} />
+      <label class="boxhit"><input type="checkbox" aria-label=${`Select ${r.id}`} disabled=${r.state !== "safe"} checked=${!!picked[r.id] && r.state === "safe"} onChange=${() => setPicked({ ...picked, [r.id]: !picked[r.id] })} /></label>
       <div class="stack" style="gap: 2px; flex: 999 1 280px; min-width: 0"><span class="mono small clean-path">${r.path}</span><span class="small soft">${r.what}</span>
         ${r.commands.length > 0 && html`<pre class="mono small clean-cmd" aria-label="What removing it runs">${r.commands.join("\n")}</pre>`}</div>
       <span class="past-tag ${r.state}">${CLEAN_TAG[r.state]}</span><span class="mono small" style="flex: none; min-width: 64px; text-align: right">${bytes(r.size)}</span></div>`)}</div>
@@ -3263,11 +3281,42 @@ const needsLabel = (asks) => {
 };
 
 // 001 FR-002, 001 FR-003: yellow only when a session's turn waits on you, outlined while anything waits, plain at none.
-function NeedsButton({ asks }) {
+const needsState = (c) => (c.blocking > 0 ? "blocking" : c.pending > 0 ? "pending" : "none");
+function NeedsButton({ asks, before }) {
   const c = asks.interactions.counts;
-  const state = c.blocking > 0 ? "blocking" : c.pending > 0 ? "pending" : "none";
+  const state = needsState(c);
   return html`<button class="needs-open ${state === "none" ? "plain" : ""}" data-state=${state} data-waits=${state === "blocking" ? "" : undefined}
-    aria-label=${needsLabel(asks)} onClick=${() => needsYou()}>Needs you <span class="ask-tally">${c.pending}</span></button>`;
+    aria-label=${needsLabel(asks)} onClick=${() => { if (before) before(); needsYou(); }}>Needs you <span class="ask-tally">${c.pending}</span></button>`;
+}
+
+// 001 FR-007: at phone width the header is "New" and "Menu". Menu carries the Needs you count, in the same three states
+// as the Needs you button, so what waits for you still shows on every view.
+function MenuButton({ asks, onOpen }) {
+  const c = asks.interactions.counts;
+  const state = needsState(c);
+  const waits = c.pending ? `, ${count(c.pending, "thing")} waiting for you${c.blocking ? `, ${c.blocking} blocking a session` : ""}` : "";
+  return html`<button class="needs-open menu-open ${state === "none" ? "plain" : ""}" data-state=${state} data-waits=${state === "blocking" ? "" : undefined}
+    aria-haspopup="dialog" aria-label=${`Menu${waits}`} onClick=${onOpen}>Menu${c.pending > 0 && html` <span class="ask-tally" aria-hidden="true">${c.pending}</span>`}</button>`;
+}
+
+// The Menu sheet: the navigation, Needs you and the user line (001 FR-007), a full sheet that traps focus and closes on
+// Esc (001 FR-016).
+function MenuSheet({ here, asks, host, onOut, onClose }) {
+  const ref = useRef(null);
+  useEffect(() => { ref.current.showModal(); }, []);
+  const close = () => { if (ref.current && ref.current.open) ref.current.close(); };
+  return html`<dialog ref=${ref} class="sheet menu" aria-labelledby="menu-h" onClose=${onClose}>
+    <div class="needs-head"><h2 id="menu-h">Menu</h2><button class="square" aria-label="Close the menu" onClick=${close}>×</button></div>
+    <div class="menu-body">
+      <nav aria-label="Primary"><ul>${NAV.map(([key, label]) => html`<li><a href=${key === "shells" ? hash("shells", { tab: "all" }) : `#/${key}`}
+        aria-current=${here === key ? "page" : null} onClick=${close}>${label}</a></li>`)}</ul></nav>
+      <${NeedsButton} asks=${asks} before=${close} />
+      <div class="menu-user stack tight">
+        ${!host.gh && html`<span class="badge bad">no gh on the host</span>`}
+        ${!host.tmux && html`<span class="badge bad">no tmux on the host</span>`}
+        <${UsageMeter} />
+        <span class="small whoami"><span class="mono">${host.user}</span>${host.hubd && html` · <span class="soft">hubd</span> <span class="mono soft">${host.hubd}</span>`}</span>
+        <button class="plain" style="align-self: flex-start" onClick=${async () => { await post("logout"); onOut(); }}>Sign out</button></div></div></dialog>`;
 }
 
 function SessionHistory({ asks }) {
@@ -3819,13 +3868,26 @@ function StewardModel({ running, current, open }) {
     <${Err} text=${act.error} /></div>`;
 }
 
+// 001 FR-008: at phone width the Steward is a floating button that opens it as a full sheet. Opening it there leaves the
+// open-or-rail choice of the wide panel alone.
+function StewardSheet({ onClose, children }) {
+  const ref = useRef(null);
+  useEffect(() => { ref.current.showModal(); }, []);
+  return html`<dialog ref=${ref} class="sheet steward-sheet" aria-labelledby="dock-h" onClose=${onClose}>${children}</dialog>`;
+}
+
 function Steward({ route, asks }) {
   const seen = seenFrom(route);
   const view = stewardView(seen);
+  const phone = usePhone();
+  const [sheet, setSheet] = useState(false);
   const [panels, setPanels] = useState(() => ({ [view]: panelOpen(view) }));
-  const open = view in panels ? panels[view] : panelOpen(view);
+  const open = phone ? sheet : view in panels ? panels[view] : panelOpen(view);
   const rail = !open;
-  const setRail = (next) => { keepPanel(view, !next); setPanels({ ...panels, [view]: !next }); };
+  const setRail = (next) => {
+    if (phone) { setSheet(!next); return; }
+    keepPanel(view, !next); setPanels({ ...panels, [view]: !next });
+  };
   const [width, setWidthState] = useState(readWidth);
   const setWidth = (w) => { setWidthState(w); try { localStorage.setItem("steward-width", String(w)); } catch { /* it only helps */ } };
   const [modelOpen, setModelOpen] = useState(false);
@@ -3861,19 +3923,23 @@ function Steward({ route, asks }) {
     () => stopping.run(() => api(`shells/${encodeURIComponent(STEWARD)}`, { method: "DELETE" })),
   );
   const plan = () => { setRail(false); setPlanning(true); };
+  const fabLabel = `Open the Steward, ${words}${waiting ? `, ${waiting} waiting for you` : ""}`;
+  // The floating button stays while the sheet is open, so focus has it to go back to.
+  const fab = phone && html`<button class="dock-s steward-fab" aria-haspopup="dialog" aria-label=${fabLabel} onClick=${() => setRail(false)}>S${waiting > 0 && html`<span class="dock-count" aria-hidden="true">${waiting}</span>`}</button>`;
+  if (phone && rail) return fab;
   if (rail) {
     return html`<nav class="dock-rail" aria-label="Steward">
-      <button class="dock-s" aria-label=${`Open the Steward, ${words}${waiting ? `, ${waiting} waiting for you` : ""}`} title=${`Steward: ${words}`} onClick=${() => setRail(false)}>S${waiting > 0 && html`<span class="dock-count">${waiting}</span>`}</button>
+      <button class="dock-s" aria-label=${fabLabel} title=${`Steward: ${words}`} onClick=${() => setRail(false)}>S${waiting > 0 && html`<span class="dock-count">${waiting}</span>`}</button>
       <button class="dock-item" aria-label="Plan new work with the Steward" title="Plan new work with the Steward" onClick=${plan}>＋</button></nav>`;
   }
-  return html`<aside class="dock" aria-labelledby="dock-h" style=${`--dock-w: ${width}px`}>${dialog}
-    <${WidthHandle} width=${width} onWidth=${setWidth} />
+  const body = html`${dialog}
     <div class="dock-head"><span class="dock-s small" aria-hidden="true">S</span>
       <span class="stack" style="gap: 0; flex: 1; min-width: 0"><h2 id="dock-h" style="font-size: 17px; font-weight: 600">Steward</h2>
         <button class="link dock-modelname mono" aria-expanded=${modelOpen ? "true" : "false"} aria-label=${`Steward model${state && state.model ? `: ${state.model}` : ""}. Change`} onClick=${() => setModelOpen(!modelOpen)}>${(state && state.model) || "model"}</button></span>
       <span class="badge ${STATE_BADGE[words] || ""}">${words}</span>
       ${running && html`<button class="plain" disabled=${stopping.busy} onClick=${stop}>Stop…</button>`}
-      <button class="square" aria-label="Collapse the Steward to a rail" onClick=${() => setRail(true)}>›</button></div>
+      ${phone ? html`<button class="square" aria-label="Close the Steward" onClick=${(e) => e.currentTarget.closest("dialog").close()}>×</button>`
+        : html`<button class="square" aria-label="Collapse the Steward to a rail" onClick=${() => setRail(true)}>›</button>`}</div>
     <${StewardModel} running=${running} current=${state && state.model} open=${modelOpen} />
     <${Err} text=${stopping.error} />
     <div class="dock-sees"><${Eyebrow} soft>Sees<//>${chips ? chips.map((c) => html`<span class="label ${c.kind === "view" ? "" : "mono"}" style="padding-right: 8px">${c.label}</span>`)
@@ -3882,8 +3948,10 @@ function Steward({ route, asks }) {
     ${planning ? html`<${PlanWithSteward} chips=${chips || [{ kind: "view", label: seen.screen }]} running=${running} where=${seen.screen} onClose=${() => setPlanning(false)} />`
       : html`<button class="plain dock-planbtn" onClick=${() => setPlanning(true)}>＋ Plan new work with the Steward</button>`}
     <${StewardSession} state=${state || { state: "Not started", queued: 0 }} seen=${seen} buttons=${buttons} reload=${reload} asks=${asks} />
-    <p class="small soft" style="margin: 0; padding: 0 12px 12px">A configured session like any other: no shell, reads everything, and every write asks you first.</p>
-  </aside>`;
+    <p class="small soft" style="margin: 0; padding: 0 12px 12px">A configured session like any other: no shell, reads everything, and every write asks you first.</p>`;
+  if (phone) return html`${fab}<${StewardSheet} onClose=${() => setRail(true)}><div class="dock">${body}</div><//>`;
+  return html`<aside class="dock" aria-labelledby="dock-h" style=${`--dock-w: ${width}px`}>
+    <${WidthHandle} width=${width} onWidth=${setWidth} />${body}</aside>`;
 }
 
 function App() {
@@ -3934,6 +4002,8 @@ function Hub({ host: first, route, onOut }) {
     decisions: { items: [...inter.items, ...inter.grants].filter((r) => r.kind === "decision").map((r) => r.detail), holding: inter.holding, reload: listed.reload, error: listed.error } };
   asks.waiting = inter.counts.pending;
   const [needs, setNeeds] = useState(null); // the Needs you modal, and what had focus when it opened
+  const phone = usePhone();
+  const [menu, setMenu] = useState(false); // the Menu sheet, at phone width
 
   const [launching, setLaunching] = useState(null);
   const [behind, setBehind] = useState(null); // a Launch sent to the background (005 FR-008)
@@ -3965,18 +4035,24 @@ function Hub({ host: first, route, onOut }) {
   const View = views[path] || Overview;
   const here = path;
   const unreachable = Boolean(hostPoll.error || listed.error);
-  return html`<div class="with-dock"><div class="dock-main">
-    <header class="top"><${Logo} />
+  const newWork = () => launch({ from: { view: SEEN_SCREEN[here] || "Overview" } });
+  const header = phone ? html`<header class="top phone">
+      <button class="primary new-work" aria-label="New work" onClick=${newWork}>＋ New</button>
+      <${MenuButton} asks=${asks} onOpen=${() => setMenu(true)} /></header>`
+    : html`<header class="top"><${Logo} />
       <nav aria-label="Primary">${NAV.map(([key, label]) => html`<a href=${key === "shells" ? hash("shells", { tab: "all" }) : `#/${key}`} aria-current=${here === key ? "page" : null}>${label}</a>`)}</nav>
       <div class="end">
         <${NeedsButton} asks=${asks} />
-        <button class="primary new-work" onClick=${() => launch({ from: { view: SEEN_SCREEN[here] || "Overview" } })}>＋ New work</button>
+        <button class="primary new-work" onClick=${newWork}>＋ New work</button>
         ${!host.gh && html`<span class="badge bad">no gh on the host</span>`}
         ${!host.tmux && html`<span class="badge bad">no tmux on the host</span>`}
         <${UsageMeter} />
         <span class="small whoami"><span class="mono">${host.user}</span>${host.hubd && html` · <span class="soft">hubd</span> <span class="mono soft">${host.hubd}</span>`}</span>
         <button class="plain" onClick=${async () => { await post("logout"); onOut(); }}>Sign out</button>
-      </div></header>
+      </div></header>`;
+  return html`<div class="with-dock"><div class="dock-main">
+    ${header}
+    ${menu && phone && html`<${MenuSheet} here=${here} asks=${asks} host=${host} onOut=${onOut} onClose=${() => setMenu(false)} />`}
     ${unreachable && html`<div class="unreachable" role="status">hubd can't be reached — showing what was last read.</div>`}
     <${View} key=${path + JSON.stringify(path === "shells" || path === "work" || path === "knowledge" ? {} : query)} query=${query} asks=${asks} /></div>
     <${Steward} route=${route} asks=${asks} />
