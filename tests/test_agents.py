@@ -1087,6 +1087,7 @@ def test_manifest_and_preview_show_what_runs(tmp_path, remote):
     manifest = a.manifest(name)
     assert manifest["config"]["persona"] == "reviewer" and "look at x" in manifest["prompt"] and manifest["ceiling"]
     assert "search-the-docs" in manifest["skills"] and manifest["checkout"]
+    assert manifest["branch"] and "run.sh" in manifest["command"] and "SECRET" not in manifest["command"]
     for bad in ("../x", "nope", None):
         with pytest.raises(AgentError):
             a.manifest(bad)

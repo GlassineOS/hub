@@ -413,6 +413,21 @@ def _mode(action: dict) -> str:
     return action["permission_mode"] if _full(action) else "dontAsk"
 
 
+def _branch_of(checkout: Path) -> str | None:
+    """The branch a worktree is on, read from its HEAD, or the commit it's detached at. No git run for a page's read."""
+    git = Path(checkout) / ".git"
+    try:
+        gitdir = Path(git.read_text().split(":", 1)[1].strip()) if git.is_file() else git
+        if not gitdir.is_absolute():
+            gitdir = Path(checkout) / gitdir
+        head = (gitdir / "HEAD").read_text().strip()
+    except (OSError, IndexError, UnicodeError):
+        return None
+    if head.startswith("ref: "):
+        return head.removeprefix("ref: ").removeprefix("refs/heads/")
+    return f"detached at {head[:12]}"
+
+
 def _number_ok(n) -> bool:
     return isinstance(n, int) and not isinstance(n, bool) and n > 0
 
@@ -1851,10 +1866,13 @@ class Agents:
         directory = self.sessions / name
         record = json.loads((directory / "session.json").read_text())
         checkouts = self._present(name)
+        script = directory / ("resume.sh" if (directory / "resume.sh").exists() else "run.sh")
         return {**summary, "config": record["config"], "prompt": (directory / "prompt.md").read_text(),
                 "persona_text": (directory / "persona.md").read_text(), "skills": self.library.skills(),
                 "ceiling": self.library.action(record["config"]["action"])["ceiling"],
-                "checkout": str(checkouts[0]) if checkouts else None, "checkouts": [str(c) for c in checkouts]}
+                "checkout": str(checkouts[0]) if checkouts else None, "checkouts": [str(c) for c in checkouts],
+                # 004 FR-009: the branch it's on and what tmux runs, for the Session spec. The token is in its environment, not here.
+                "branch": _branch_of(checkouts[0]) if checkouts else None, "command": self._command(directory, script)}
 
     def _present(self, name: str) -> list[Path]:
         found = sorted(c for folder in (self.work / name, self.sessions / name / "checkout") if folder.is_dir()
