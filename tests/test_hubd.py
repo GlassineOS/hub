@@ -1018,7 +1018,7 @@ def test_usage_takes_a_login_and_reads_only_the_session_folders(tmp_path, fake_g
     run(go())
 
 
-# --- results: handed in by a token, applied by a login (005 R2) --------------------------------------
+# --- results: handed in by a token, applied by a login --------------------------------------
 from pathlib import Path as _Path  # noqa: E402
 
 from hubd import results as results_module  # noqa: E402

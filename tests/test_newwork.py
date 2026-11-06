@@ -152,7 +152,7 @@ def test_a_model_the_action_doesnt_list_is_refused(hub):
 
 
 def test_run_fix_starts_on_a_run_and_is_refused_on_an_issue(hub):
-    """006 T018: run-fix's object is a run."""
+    """run-fix's object is a run."""
     error = call(hub, "work.start", token="login", action="run-fix", covers=[{"kind": "issue", "repo": "kernel", "number": 204}])["error"]
     assert "works on a run, and kernel#204 is an issue, so it can't start there" in error
     reply = call(hub, "work.start", token="login", action="run-fix", covers=[{"kind": "run", "repo": "kernel", "number": 4242}])
@@ -896,7 +896,7 @@ def test_a_suggested_session_can_be_declined(hub):
     assert hub.work.get(work)["state"] == "dismissed"
 
 
-# --- Launch records (005 R1) ---------------------------------------------------------------------
+# --- Launch records ---------------------------------------------------------------------
 TWO_ISSUES = [{"kind": "issue", "repo": "kernel", "number": 204}, {"kind": "issue", "repo": "kernel", "number": 219}]
 
 

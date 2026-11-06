@@ -129,7 +129,7 @@ RESULT_STATUS = {"pending": "pending", "applying": "started", "applied": "answer
 
 
 def from_result(record: dict, agents: dict, now: float) -> dict:
-    """005 R2: what a session handed in (or the pull request it opened), waiting for a login to apply, keep or set aside."""
+    """What a session handed in (or the pull request it opened), waiting for a login to apply, keep or set aside."""
     status = RESULT_STATUS.get(record["state"], "ended")
     if status == "pending" and record.get("kept"):  # a report kept for Knowledge is settled
         status = "answered"

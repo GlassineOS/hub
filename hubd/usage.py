@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""How much of the sessions' usage allowance is used, for the header's meter (001 FR-006, 001 R1).
+"""How much of the sessions' usage allowance is used, for the header's meter (001 FR-006).
 
 Each session's settings carry a status-line command (agents._hooks) that copies Claude Code's status-line JSON into
 that session's own folder as status.json, at most MAX_BYTES. Nothing here asks Claude Code or the network.
