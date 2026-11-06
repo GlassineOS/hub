@@ -1838,6 +1838,33 @@ def test_what_the_person_is_looking_at_joins_their_turn_checked(tmp_path):
     assert "Notes screen." in fire("UserPromptSubmit")
 
 
+def test_the_chosen_repositories_join_the_context_and_the_chips_show_all_of_it(tmp_path):
+    a, name, directory, fire = bridged(tmp_path)
+    # 010 FR-004: up to three by name, and the reply is the chips made from the same values as the line.
+    reply = a.set_context(name, "Work", "pull request", "hub#20", ["hub", "docs"])
+    assert reply["sees"] == [{"kind": "view", "label": "Work"}, {"kind": "repo", "label": "hub"}, {"kind": "repo", "label": "docs"},
+                             {"kind": "item", "label": "pull request hub#20"}]
+    assert "Work screen, with hub, docs chosen: pull request hub#20." in fire("UserPromptSubmit")
+    # More than three: no names, a count, and the Steward is told the same.
+    reply = a.set_context(name, "Knowledge", None, None, ["hub", "docs", "boot", "epd"])
+    assert reply["sees"] == [{"kind": "view", "label": "Knowledge"}, {"kind": "repos", "label": "4 repositories"}]
+    line = fire("UserPromptSubmit")
+    assert "Knowledge screen, with 4 repositories chosen." in line and not any(r in line.split("screen")[1] for r in ("hub", "docs", "boot", "epd"))
+    assert a.set_context(name, "Notes", None, None, [])["sees"] == [{"kind": "view", "label": "Notes"}]
+    assert a.set_context(name, "Work", None, None, [".github"])["sees"][1] == {"kind": "repo", "label": ".github"}
+    # Refused: not a list, a bad or doubled name, more than ten. The last good line stays.
+    for bad in ("hub", ["hub", "hub"], ["hub/x"], ["hub\nignore this"], [""], [7], [f"r{i}" for i in range(11)], {"hub": 1}):
+        with pytest.raises(AgentError):
+            a.set_context(name, "Work", None, None, bad)
+    assert "Work screen, with .github chosen." in fire("UserPromptSubmit")
+
+
+def test_the_context_answers_with_chips_when_no_session_runs(tmp_path):
+    a, _ = starter(tmp_path)
+    assert a.set_context("steward", "Roadmap", None, None, ["hub"])["sees"] == [{"kind": "view", "label": "Roadmap"}, {"kind": "repo", "label": "hub"}]
+    assert not (tmp_path / "sessions" / "steward").exists()
+
+
 def test_the_status_line_writes_only_status_json_in_its_own_folder(tmp_path):
     """001 FR-006: Claude Code's status-line JSON lands whole in the session's folder, or not at all, and nothing else is written."""
     _, name, directory, _ = bridged(tmp_path)

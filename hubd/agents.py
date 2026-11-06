@@ -151,6 +151,8 @@ def screen_of(screen):
     return OLD_SCREENS.get(screen, screen) if isinstance(screen, str) else screen
 SEEN_KINDS = ("issue", "pull request", "run")
 _SELECTION_RE = re.compile(r"[A-Za-z0-9._-]+#[0-9]+")
+MAX_SEEN_REPOS = 10  # as many as Knowledge lets you choose
+SEES_NAMED = 3  # more than this are told, and shown, only as a count (010 FR-004)
 SEND_POLL = 1  # seconds, while something waits to be sent
 INTERRUPT_SETTLE = 0.5  # seconds for Claude Code to get back to its prompt
 GIT_TIMEOUT = 900  # a start holds the lock on starting while it clones, so a stalled git can't hold it for good
@@ -226,6 +228,40 @@ def _check_seen(kind, selection) -> None:
         raise AgentError("not a kind of item")
     if selection is not None and not (isinstance(selection, str) and _SELECTION_RE.fullmatch(selection)):
         raise AgentError("not an item")
+
+
+def _check_repos(repos) -> list[str]:
+    """The repositories chosen on the page: names only, each once. 010 FR-004."""
+    if repos is None:
+        return []
+    if not isinstance(repos, list) or len(repos) > MAX_SEEN_REPOS:
+        raise AgentError(f"repos is a list of at most {MAX_SEEN_REPOS} names")
+    if not all(isinstance(r, str) and _REPO_RE.fullmatch(r) for r in repos) or len(set(repos)) != len(repos):
+        raise AgentError("not a repository name, or one named twice")
+    return repos
+
+
+def sees(screen, kind=None, selection=None, repos=None) -> list[dict]:
+    """What the Steward is told about the page, as the chips the panel shows (010 FR-004): the screen, the chosen
+    repositories (up to SEES_NAMED by name, else only how many), the open item. The context line is made from these, so
+    it says nothing the chips don't."""
+    chips = [{"kind": "view", "label": screen}]
+    if len(repos or []) > SEES_NAMED:
+        chips.append({"kind": "repos", "label": f"{len(repos)} repositories"})
+    else:
+        chips += [{"kind": "repo", "label": r} for r in repos or []]
+    if selection:
+        chips.append({"kind": "item", "label": f"{kind or 'item'} {selection}"})
+    return chips
+
+
+def sees_line(chips: list[dict]) -> str:
+    screen = chips[0]["label"]
+    named = [c["label"] for c in chips if c["kind"] == "repo"]
+    counted = [c["label"] for c in chips if c["kind"] == "repos"]
+    item = [c["label"] for c in chips if c["kind"] == "item"]
+    chosen = f", with {counted[0]} chosen" if counted else f", with {', '.join(named)} chosen" if named else ""
+    return f"The person is on the hub's {screen} screen{chosen}{f': {item[0]}' if item else ''}.\n"
 
 
 FAMILIES = ("build", "review", "investigate", "write", "organise")  # a persona's family picks its badge's tint
@@ -1609,16 +1645,17 @@ class Agents:
             (directory / IDLE_FILE).touch()
         return {"queued": 0}
 
-    def set_context(self, name, screen, kind=None, selection=None) -> dict:
-        """Checked here, as it joins the session's turn as the hub's own words."""
+    def set_context(self, name, screen, kind=None, selection=None, repos=None) -> dict:
+        """Checked here, as it joins the session's turn as the hub's own words. The reply is the chips the panel shows,
+        made by the same function as the line, so the panel shows all the session is told (010 FR-004)."""
         screen = screen_of(screen)
         if screen not in SCREENS:
             raise AgentError("not a screen")
         _check_seen(kind, selection)
+        chips = sees(screen, kind, selection, _check_repos(repos))
         if self.is_session(name):
-            seen = f": {kind or 'item'} {selection}" if selection else ""
-            (self.sessions / name / CONTEXT_FILE).write_text(f"The person is on the hub's {screen} screen{seen}.\n")
-        return {}
+            (self.sessions / name / CONTEXT_FILE).write_text(sees_line(chips))
+        return {"sees": chips}
 
     def check_message(self, by, name, text) -> None:
         """Whether a message can go anywhere, before you're asked about one."""
