@@ -839,6 +839,22 @@ class Agents:
             raise AgentError(f"not a branch name to work on: {branch}")
         return branch
 
+    async def _run_branch(self, repo: str, run_id: int) -> str:
+        """The branch a run ran on, if it is one of this repository's own: a full session would otherwise start from an outsider's tree."""
+        if self.gh is None:
+            raise AgentError("no gh to look up the run")
+        reply = await self.gh.run(["api", f"repos/{ORG}/{repo}/actions/runs/{int(run_id)}"])
+        if reply["code"] != 0:
+            raise AgentError(f"can't read the run: {reply['stderr'].strip()[-300:]}")
+        run = json.loads(reply["stdout"])
+        head = (run.get("head_repository") or {}).get("full_name")
+        if not isinstance(head, str) or head.lower() != f"{ORG}/{repo}".lower():
+            raise AgentError("this run is of a fork's branch: a full session would run an outsider's tree with your rights")
+        branch = run.get("head_branch")
+        if not isinstance(branch, str) or not _BRANCH_RE.fullmatch(branch) or ".." in branch:
+            raise AgentError(f"not a branch name to start from: {branch}")
+        return branch
+
     def main_checkout(self, repo: str) -> Path:
         # The workspace repository's checkout is the workspace itself, not a folder inside it.
         return self.workspace if repo == WORKSPACE_REPO else self.workspace / repo.lstrip(".")
@@ -935,7 +951,7 @@ class Agents:
                 return path
         return None
 
-    async def _checkout(self, kind: str, repo: str, number: int, name: str, into: Path, restoring: bool = False) -> dict | None:
+    async def _checkout(self, kind: str, repo: str, number: int, name: str, into: Path, restoring: bool = False, start: str | None = None) -> dict | None:
         """A worktree of the workspace's checkout, which itself stays as it is: fetching moves no files.
         Says so if it isn't on the branch you'd expect, because another worktree has that."""
         beside = None
@@ -984,12 +1000,14 @@ class Agents:
                     await self._git("worktree", "add", "--quiet", "-B", branch, str(into), _start_ref(name), cwd=main)
             elif kind == "new-branch":
                 await self._guard_branch(main, f"agent/{name}")
-                # Kept as a remote ref: what the session starts from isn't work of its own.
-                await self._git(*_OVER_HTTPS, "fetch", "--quiet", "origin", f"+HEAD:{_start_ref(name)}", cwd=main)
+                # Kept as a remote ref: what the session starts from isn't work of its own. start: a run's branch (run-fix).
+                await self._git(*_OVER_HTTPS, "fetch", "--quiet", "origin", f"+{f'refs/heads/{start}' if start else 'HEAD'}:{_start_ref(name)}", cwd=main)
                 await self._git("worktree", "add", "--quiet", "-B", f"agent/{name}", str(into), _start_ref(name), cwd=main)
             else:
                 raise AgentError(f"unknown kind of checkout: {kind}")
             await self._isolate(into)  # writes the shared config, so inside the lock
+            if start:
+                return {"from": start}
             if beside:
                 await self._git("config", "--worktree", "push.default", "upstream", cwd=into)
         # CLAUDE.md imports the organization's guidance from a submodule.
@@ -1041,7 +1059,10 @@ class Agents:
             repo=config["repo"], number=config["number"], checkout=checkout or "(none)")
         if commit:
             prompt += f"\n\nThe checkout is at commit {commit}."
-        if beside:
+        if beside and beside.get("from"):
+            prompt += (f"\n\nThe run ran on {beside['from']}. Your branch, agent/<session name>, starts from it; "
+                       f"open the pull request into {beside['from']}.")
+        elif beside:
             prompt += (f"\n\nThe pull request's branch, {beside['branch']}, is checked out in {beside['held']}, so you're on {beside['own']}, "
                        "which tracks it. A plain `git push` updates the pull request; don't name a branch. Someone may be working there "
                        "too: if the push is refused, pull, and if that doesn't settle it, tell me. Never force it.")
@@ -1285,9 +1306,12 @@ class Agents:
         try:
             checkouts = self._checkouts(name, config, action)
             beside = None
+            # A fix of a run starts from the branch it ran on (006 T018), looked up before anything is fetched.
+            from_run = await self._run_branch(config["repo"], config["number"]) if checkouts and action["object"] == "run" and action["checkout"] == "new-branch" else None
             for index, (repo, into) in enumerate(checkouts):
                 # What else a session works on starts from that repository's default branch.
-                placed = await self._checkout(action["checkout"] if index == 0 else "new-branch", repo, config["number"], name, into)
+                placed = await self._checkout(action["checkout"] if index == 0 else "new-branch", repo, config["number"], name, into,
+                                              start=from_run if index == 0 else None)
                 if index == 0:
                     beside = placed
             checkout = checkouts[0][1] if checkouts else None

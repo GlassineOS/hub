@@ -1522,19 +1522,25 @@ def test_the_work_item_has_its_black_github_button_and_its_sections():
     assert "＋ New work from this…" in _component(script, "LaunchRow") and "bestAction(kind, facts, offered)" in _component(script, "LaunchRow")
 
 
-@pytest.mark.parametrize("facts, kind, verb", [
-    ({"failing": True}, "pr", "fix"), ({"failing": True}, "run", "investigate"), ({"changesRequested": True, "openThreads": 0}, "pr", "address"),
-    ({"openThreads": 2}, "pr", "address"), ({"untriaged": True}, "issue", "triage"), ({}, "pr", "review"), ({}, "issue", "implement"),
+ALL_VERBS = ("review", "fix", "address", "triage", "implement", "investigate")
+
+
+@pytest.mark.parametrize("facts, kind, verb, offered", [
+    ({"failing": True}, "pr", "fix", ALL_VERBS), ({"failing": True}, "run", "fix", ALL_VERBS),
+    ({"failing": True}, "run", "investigate", ("investigate", "review")),  # no fix offered: investigate
+    ({"changesRequested": True, "openThreads": 0}, "pr", "address", ALL_VERBS),
+    ({"openThreads": 2}, "pr", "address", ALL_VERBS), ({"untriaged": True}, "issue", "triage", ALL_VERBS), ({}, "pr", "review", ALL_VERBS),
+    ({}, "issue", "implement", ALL_VERBS), ({}, "run", "investigate", ALL_VERBS),
 ])
-def test_best_action_picks_by_the_items_state(facts, kind, verb):
-    """bestAction runs in node, on the function as it is in app.js."""
+def test_best_action_picks_by_the_items_state(facts, kind, verb, offered):
+    """bestAction (006 FR-007) runs in node, on the function as it is in app.js. Work's rows and the item page share it."""
     import shutil
     import subprocess
     if not shutil.which("node"):
         pytest.skip("node isn't installed")
     script = _app_js()
     src = script[script.index("const BEST_VERB"):script.index("const useKindActions")]
-    actions = [{"id": v, "verb": v} for v in ("review", "fix", "address", "triage", "implement", "investigate")]
+    actions = [{"id": v, "verb": v} for v in offered]
     code = src + f"\nconsole.log(bestAction({json.dumps(kind)}, {{openThreads: 0, ...{json.dumps(facts)}}}, {json.dumps(actions)}).verb);"
     assert subprocess.run(["node", "-e", code], capture_output=True, text=True, check=True).stdout.strip() == verb
 
@@ -1757,3 +1763,175 @@ def test_sessions_running_groups_badges_and_history_filters():
     assert "[persona, repo, filter, running]" in past and "const runningAgain = (r) => r.running_again;" in past and "${r.transcript && html`<button disabled=${act.busy} onClick=${() => setReading(r)}>Transcript</button>`}" in past
     clean = _component(script, "Cleanup")
     assert "safe.filter((r) => r.pr_settled)" in clean and ">Select safe<" in clean and "r.commands.join" in clean and 'role="switch"' in clean
+
+
+# --- Work (006/PR 2) --------------------------------------------------------------------------
+WORKFLOW = """name: Release
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      level:
+        description: "How loud"
+        required: true
+        default: 'warning'
+        type: choice
+        options:
+        - info
+        - warning
+      dry:
+        type: boolean
+        default: true
+      target:
+        type: environment
+      note: # a plain one
+        description: free text
+jobs:
+  a:
+    runs-on: ubuntu-latest
+"""
+
+
+@pytest.mark.parametrize("text, dispatchable, names", [
+    (WORKFLOW, True, ["level", "dry", "target", "note"]),
+    ("on: workflow_dispatch\njobs: {}", True, []),
+    ("on: [push, workflow_dispatch]", True, []),
+    ('"on":\n  - pull_request\n  - workflow_dispatch', True, []),
+    ("on:\n  workflow_dispatch:\n  push:", True, []),
+    ("on:\n  push:\n    branches: [main]\njobs:\n  x:\n    steps: []", False, []),
+    ("on: push", False, []),
+    ("name: no trigger at all", False, []),
+    ("on:\n  workflow_dispatch:\n    inputs:\n      who:\n        type: choice\n        options: [a, 'b c']", True, ["who"]),
+])
+def test_the_workflow_reader_finds_dispatch_and_its_inputs(text, dispatchable, names):
+    from hub.workflowfile import dispatch_inputs
+    found, inputs = dispatch_inputs(text)
+    assert found is dispatchable and [i["name"] for i in inputs] == names
+
+
+def test_the_workflow_reader_types_each_input():
+    from hub.workflowfile import dispatch_inputs
+    inputs = {i["name"]: i for i in dispatch_inputs(WORKFLOW)[1]}
+    assert inputs["level"] == {"name": "level", "type": "choice", "required": True, "description": "How loud", "default": "warning", "options": ["info", "warning"]}
+    assert inputs["dry"]["type"] == "boolean" and inputs["dry"]["default"] is True
+    assert inputs["target"]["type"] == "environment" and inputs["note"]["type"] == "string" and "default" not in inputs["note"]
+    assert dispatch_inputs("on:\n  workflow_dispatch:\n    inputs:\n      w:\n        type: choice\n        options: [x, y]")[1][0]["options"] == ["x", "y"]
+
+
+@pytest.mark.parametrize("text, words", [
+    ("on:\n  workflow_dispatch:\n    inputs:\n      a: &anchor\n        type: string", "settings aren't a block"),
+    ("on:\n  workflow_dispatch:\n    inputs:\n      a:\n        type: secret", "type secret"),
+    ("on:\n  workflow_dispatch:\n    inputs:\n      a:\n        type: choice", "no options"),
+    ("on: {workflow_dispatch: {}}", "braces"),
+])
+def test_the_workflow_reader_says_what_it_cant_read(text, words):
+    from hub.workflowfile import Unreadable, dispatch_inputs
+    with pytest.raises(Unreadable, match=re.escape(words)):
+        dispatch_inputs(text)
+
+
+def _contents(text):
+    import base64
+    return json.dumps({"encoding": "base64", "content": base64.b64encode(text.encode()).decode()})
+
+
+def test_workflows_say_which_can_be_started_by_hand(client, hubd):
+    signed_in(client)
+    hubd.answers["workflow list"] = json.dumps([
+        {"id": 1, "name": "Release", "path": ".github/workflows/release.yml", "state": "active"},
+        {"id": 2, "name": "CI", "path": ".github/workflows/ci.yml", "state": "active"},
+        {"id": 3, "name": "Old", "path": ".github/workflows/old.yml", "state": "disabled_manually"},
+        {"id": 4, "name": "CodeQL", "path": "dynamic/github-code-scanning/codeql", "state": "active"},
+        {"id": 5, "name": "Broken", "path": ".github/workflows/broken.yml", "state": "active"}])
+    hubd.answers["api repos/GlassineOS/boot/contents/.github/workflows/release.yml"] = _contents(WORKFLOW)
+    hubd.answers["api repos/GlassineOS/boot/contents/.github/workflows/ci.yml"] = _contents("on: push")
+    hubd.answers["api repos/GlassineOS/boot/contents/.github/workflows/broken.yml"] = GhError("HTTP 404")
+    rows = {w["name"]: w for w in client.get("/api/workflows/boot").json()}
+    assert [rows[n]["dispatchable"] for n in ("Release", "CI", "Old", "CodeQL", "Broken")] == [True, False, False, False, None]
+    assert "couldn't read broken.yml" in rows["Broken"]["inputs_error"]
+    read = client.get("/api/workflows/boot?inputs=release.yml&ref=feature/x").json()
+    assert read["dispatchable"] is True and [i["type"] for i in read["inputs"]] == ["choice", "boolean", "environment", "string"]
+    assert ["api", "repos/GlassineOS/boot/contents/.github/workflows/release.yml?ref=feature%2Fx"] in [c for c, _ in hubd.commands]
+
+
+@pytest.mark.parametrize("query", ["inputs=../x.yml", "inputs=a/b.yml", "inputs=x.sh", "inputs=x.yml&ref=a..b", "inputs=x.yml&ref=-x", "inputs=x.yml&ref={x}"])
+def test_a_workflows_inputs_are_read_only_by_a_plain_file_and_ref(client, hubd, query):
+    signed_in(client)
+    assert client.get(f"/api/workflows/boot?{query}").status_code == 400
+    assert not [c for c, _ in hubd.commands if c and c[0] == "api"]
+
+
+def test_a_new_issue_writes_part_of_as_its_first_line(client, hubd):
+    signed_in(client)
+    hubd.answers["issue create"] = "https://github.com/GlassineOS/boot/issues/7\n"
+    r = client.post("/api/issues/boot", json={"title": "T", "body": "The text.", "labels": ["bug"], "part_of": "hub#40"}, headers=ORIGIN)
+    assert r.status_code == 200 and r.json()["number"] == 7
+    argv, stdin = next((c, s) for c, s in hubd.commands if c[:2] == ["issue", "create"])
+    assert stdin == "Part of GlassineOS/hub#40\n\nThe text.\n" and argv[argv.index("--label") + 1] == "bug"
+    assert client.post("/api/issues/boot", json={"title": "T", "part_of": "hub 40"}, headers=ORIGIN).status_code == 400
+
+
+def test_lists_ask_for_as_many_rows_as_the_page_wants(client, hubd):
+    """001 FR-019: Work loads one page, and more on request."""
+    signed_in(client)
+    client.get("/api/prs?repo=boot&limit=100")
+    client.get("/api/runs?repo=boot&limit=25")
+    argv = [c for c, _ in hubd.commands]
+    assert any(c[:2] == ["pr", "list"] and c[c.index("--limit") + 1] == "100" for c in argv)
+    assert any(c[:2] == ["run", "list"] and c[c.index("--limit") + 1] == "25" for c in argv)
+    assert client.get("/api/prs?limit=lots").status_code == 400
+
+
+def _work_js(fn):
+    """The Work rows' code, run in node with the bits of the app it needs."""
+    import shutil
+    import subprocess
+    if not shutil.which("node"):
+        pytest.skip("node isn't installed")
+    script = _app_js()
+    src = script[script.index("const sizeWords"):script.index("function readWorkFilter")]
+    best = script[script.index("function offeredFor"):script.index("const useKindActions")]
+    stubs = "const count = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`; const pillState = () => null;\n"
+    return subprocess.run(["node", "-e", stubs + src + best + fn], capture_output=True, text=True, check=True).stdout
+
+
+def test_work_groups_rows_by_what_they_need():
+    """006 FR-003–FR-005, FR-007 on store-shaped rows: each row's group and its one blue action."""
+    pr = lambda **kw: {"repo": "boot", "number": 1, "title": "t", "state": "OPEN", "isDraft": False, "labels": [], "author": {"login": "a"},
+                       "headRefName": "x", "baseRefName": "main", "checks": "passing", "reviewDecision": "", "updatedAt": "2026-11-01T00:00:00Z",
+                       "additions": 3, "deletions": 1, "part_of": "hub#40", **kw}
+    issue = lambda **kw: {"repo": "boot", "number": 2, "title": "t", "state": "OPEN", "labels": [{"name": "bug"}], "author": {"login": "a"},
+                          "comments": 0, "updatedAt": "2026-11-01T00:00:00Z", **kw}
+    run = lambda **kw: {"repo": "boot", "databaseId": 3, "workflowName": "CI", "displayTitle": "t", "status": "completed", "conclusion": "success",
+                        "event": "push", "headBranch": "main", "headSha": "abc", "createdAt": "2026-11-01T00:00:00Z", "updatedAt": "2026-11-01T00:01:05Z", **kw}
+    cases = [("prs", pr(checks="failing"), False, "Needs you", "fix"), ("prs", pr(reviewDecision="CHANGES_REQUESTED", checks="pending"), False, "Needs you", "address"),
+             ("prs", pr(checks="pending", headRefName="agent/x"), False, "From agent sessions", "review"),
+             ("prs", pr(checks="pending"), True, "From agent sessions", "review"), ("prs", pr(checks="none"), False, "Everything else", "review"),
+             ("issues", issue(labels=[]), False, "Untriaged", "triage"), ("issues", issue(), True, "In sessions", "implement"),
+             ("issues", issue(), False, "Backlog", "implement"),
+             ("actions", run(conclusion="failure"), False, "Failed", "fix"), ("actions", run(status="in_progress", conclusion=None), False, "Running", None),
+             ("actions", run(), False, "Recent", "investigate")]
+    offered = {"prs": [{"id": "pr-review", "verb": "review"}, {"id": "pr-fix-checks", "verb": "fix", "when": "failing"},
+                       {"id": "pr-address-review", "verb": "address", "needs": "review"}],
+               "issues": [{"id": "issue-triage", "verb": "triage"}, {"id": "issue-implement", "verb": "implement"}],
+               "actions": [{"id": "run-diagnose", "verb": "investigate"}, {"id": "run-fix", "verb": "fix", "when": "failing"}]}
+    kinds = {"prs": "pr", "issues": "issue", "actions": "run"}
+    code = "".join(f"""{{const r = ROWS[{json.dumps(tab)}]({json.dumps(row)}); const s = {"{agent: {waiting: false}}" if in_session else "undefined"};
+      const a = r.startable ? bestAction({json.dumps(kinds[tab])}, r.facts, offeredFor({json.dumps(offered[tab])}, r.facts)) : null;
+      console.log(JSON.stringify([groupOf({json.dumps(tab)}, r, s), a && a.verb, r.sub]));}}""" for tab, row, in_session, _g, _v in cases)
+    out = [json.loads(line) for line in _work_js(code).splitlines()]
+    assert [(g, v) for g, v, _ in out] == [(g, v) for *_, g, v in cases]
+    assert out[0][2] == "Part of hub#40 · +3 −1 · a · x → main" and out[-1][2] == "push on main · abc · 1m 5s"
+
+
+def test_work_shows_github_actions_for_work_and_the_queue():
+    """006 FR-008, FR-034, FR-009: the black button offers the two forms; the queue stays a Work view."""
+    script = _app_js()
+    entries = _component(script, "ghEntries")
+    assert '{ id: "new-issue", label: "New issue…", panel: "new"' in entries and '{ id: "dispatch", label: "Run workflow…", panel: "dispatch"' in entries
+    lists = _component(script, "WorkLists")
+    assert '<${GhActions} kind="work"' in lists and "allowAll onChange=${chooseRepo}" in lists and "writeWorkRepo(name)" in lists
+    assert 'query.tab === "queue" ? html`<${WorkQueue} />`' in _component(script, "Work")
+    assert 'launch({ action: "new-issue", repos: [repo], describe: text' in _component(script, "NewIssue")
+    assert "No workflow of ${repo} can be started by hand" in _component(script, "Dispatch")
