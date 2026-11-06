@@ -1000,7 +1000,12 @@ function WorkRow({ row, tab, scope, session, sessions, phase, action }) {
   </div>`;
 }
 
+// Work's tabs. The queue is its own view of the pull requests, so it has the page to itself.
 function Work({ query }) {
+  return query.tab === "queue" ? html`<${WorkQueue} />` : html`<${WorkLists} query=${query} />`;
+}
+
+function WorkLists({ query }) {
   const overview = useLoad(() => api("overview"), []);
   const sessions = useSessions();
   // What the address says, so an item can be linked to and Back returns to the list as it was.
@@ -1082,7 +1087,7 @@ function Work({ query }) {
   const switchTab = (t) => { setPanel(null); go({ tab: t }); };
   const counts = overview.data ? overview.data.totals : null;
   const scoped = groups.flatMap((g) => g.repos).find((r) => r.name === repo);
-  const TABS = [["issues", "Issues", scoped ? scoped.issues : counts && counts.issues], ["prs", "Pull requests", scoped ? scoped.prs : counts && counts.prs], ["actions", "Actions", null]];
+  const TABS = [["issues", "Issues", scoped ? scoped.issues : counts && counts.issues], ["prs", "Pull requests", scoped ? scoped.prs : counts && counts.prs], ["actions", "Actions", null], ["queue", "Queue", null]];
   const stateWord = (STATES[tab].find(([v]) => v === state) || [state, state])[1];
   if (current) {
     const session = sessionOf(current);
@@ -1165,7 +1170,17 @@ function urlPath(url) {
   try { const u = new URL(url); return u.pathname.replace(/^\//, "") + u.hash; } catch (e) { return url; }
 }
 
-function Docs() {
+function DocsTabs({ tab }) {
+  return html`<div role="tablist" aria-label="Docs" class="tabs">
+    <a role="tab" aria-selected=${tab === "docs" ? "true" : "false"} href=${hash("docs")}>Docs</a>
+    <a role="tab" aria-selected=${tab === "notes" ? "true" : "false"} href=${hash("docs", { tab: "notes" })}>Notes</a></div>`;
+}
+
+function Docs({ query }) {
+  return query.tab === "notes" ? html`<${NotesPage} />` : html`<${DocsSearch} />`;
+}
+
+function DocsSearch() {
   const status = useLoad(() => api("docs/status"), [], 60000);
   const [q, setQ] = useState("");
   const [results, setResults] = useState(null);
@@ -1178,6 +1193,7 @@ function Docs() {
   const run = s && s.latest_run;
   return html`<main class="page"><div class="columns">
     <section class="wide stack" style="gap: 20px" aria-labelledby="h-search">
+      <${DocsTabs} tab="docs" />
       <div class="stack tight"><${Eyebrow} soft>docs.glassine.org · search by meaning<//><h1 id="h-search">Docs</h1></div>
       <form role="search" class="row" style="gap: 12px" onSubmit=${(e) => { e.preventDefault(); search.run(async () => setResults(await api(`docs/search${params({ q })}`))); }}>
         <div class="searchbox big" style="flex: 1 1 360px"><${SearchIcon} /><label class="sr" for="docs-q">Search the docs</label>
@@ -2000,6 +2016,7 @@ function Inbox({ asks }) {
     <div class="inbox">
       <section class="stack" style="gap: 18px; flex: 999 1 560px; min-width: 0" aria-label="Needs you">
         <div role="group" aria-label="Show" class="row" style="gap: 6px">${ASK_FILTERS.map(([id, label]) => html`<button class="ask-filter" aria-pressed=${filter === id ? "true" : "false"} onClick=${() => setFilter(id)}>${label}</button>`)}</div>
+        ${(filter === "all" || filter === "go") && html`<${GoPanel} asks=${asks} />`}
         ${planned.length > 0 && html`<div class="stack" style="gap: 10px"><h2 class="eyebrow">Suggested sessions and new work</h2>${planned.map((item) => html`<${WorkWaiting} key=${item.id} item=${item} reload=${asks.reload} />`)}</div>`}
         ${asks.waiting === 0 && html`<div role="status" class="ask-clear"><span class="ask-clear-word">all clear</span><span>Nothing is waiting on you. Sessions keep working, and anything new shows up here and on the Sessions badge.</span></div>`}
         ${decisions.length > 0 && html`<div class="stack" style="gap: 10px"><div class="row" style="gap: 10px"><h2 class="eyebrow">Decisions asked for</h2><span class="small soft">Nothing happens until you approve. Only a login records one, and what a session says in its own words isn't yours.</span></div>${decisions.map((d) => html`<${DecisionRow} key=${`${d.id}-${d.state}`} d=${d} onChanged=${asks.decisions.reload} />`)}</div>`}
@@ -2146,7 +2163,7 @@ function ActiveDecisions({ asks }) {
       ${asks.decisions.error && html`<${Err} text=${asks.decisions.error} />`}
       ${active.map((d) => html`<${DecisionRow} key=${`${d.id}-${d.state}`} d=${d} onChanged=${asks.decisions.reload} />`)}
       ${!active.length && html`<p class="small soft">Nothing you've allowed is standing.</p>`}
-      <p class="small"><a href=${hash("decisions")}>All decisions, including ended ones →</a> <a href=${hash("device")}>Device, to record a go →</a></p>
+      <p class="small"><a href=${hash("decisions")}>All decisions, including ended ones →</a> <a href=${hash("shells", { tab: "needs" })}>Record a go, under Needs you →</a></p>
     </section></main>`;
 }
 
@@ -2416,11 +2433,10 @@ function DeviceView() {
       ${d.device && html`<h3 class="mono" style="font-size: 15px">${d.device}</h3>`}
       ${d.lines.map((line) => html`<p style="overflow-wrap: anywhere">${line}.</p>`)}</article>`)}
     ${data && html`<p class="small soft">${data.only}</p>`}
-    <${DeviceGoes} devices=${(data ? data.devices : []).map((d) => d.device).filter(Boolean)} />
+    <p class="small">Recording a go, and “I've got the device”, are under <a href=${hash("shells", { tab: "needs" })}>Sessions › Needs you</a>. What stands is under <a href=${hash("shells", { tab: "active" })}>Active</a>.</p>
   </main>`;
 }
 
-// A go for the device, and "I've got the device". Both are yours: no tool makes one.
 const GO_ACTIONS = ["reboot", "suspend", "load-test", "close-apps", "eye-test"];
 
 function GoForm({ devices, onDone, onCancel }) {
@@ -2453,26 +2469,25 @@ function GoForm({ devices, onDone, onCancel }) {
   </div>`;
 }
 
-function DeviceGoes({ devices }) {
-  const { data, error, reload } = useLoad(() => api("decisions"), [], 15000);
+// A go for the device, and "I've got the device", in Needs you. Both are yours: the ops are behind the login, and no tool makes one.
+function GoPanel({ asks }) {
+  const device = useLoad(() => api("device").catch(() => ({ devices: [] })), []);
   const [form, setForm] = useState(false);
   const [note, setNote] = useState(null);
-  const act = useAct(reload);
-  const holding = data && data.holding.holding;
+  const act = useAct(asks.decisions.reload);
+  const holding = asks.decisions.holding;
   const hold = (on) => act.run(async () => { const r = await post("device/holding", { holding: on }); setNote(on ? `${count(r.ended, "device go")} ended.` : null); });
-  const goes = data ? data.decisions.filter((d) => d.kind === "go" && d.state === "current") : [];
-  return html`<div class="stack" style="gap: 10px">
-    <${Err} text=${error || act.error} />
-    ${data && html`<p role="status">${data.holding.words}${note ? ` ${note}` : ""}</p>`}
+  return html`<section class="stack" style="gap: 10px" aria-labelledby="h-go"><h2 id="h-go" class="eyebrow">The device</h2>
+    <${Err} text=${act.error} />
+    ${holding && html`<p role="status">${holding.words}${note ? ` ${note}` : ""}</p>`}
     <div class="row" style="gap: 8px">
       ${!form && html`<button class="primary" onClick=${() => setForm(true)}>Go…</button>`}
-      ${data && (holding
+      ${holding && (holding.holding
         ? html`<button disabled=${act.busy} onClick=${() => hold(false)}>Done</button>`
         : html`<button disabled=${act.busy} onClick=${() => hold(true)}>I've got the device</button>`)}
       <span class="small soft">Ends every device go but an eye test, and refuses a take that names actions until you press Done. It can't stop a running command.</span></div>
-    ${form && html`<${GoForm} devices=${devices} onDone=${() => { setForm(false); return reload(); }} onCancel=${() => setForm(false)} />`}
-    ${goes.length > 0 && html`<div class="stack" style="gap: 4px"><${Eyebrow} soft>Current goes<//>${goes.map((g) => html`<p class="small" key=${g.id}><span class="mono">${g.id}</span> ${g.says}.</p>`)}<a class="small" href=${hash("decisions")}>All decisions →</a></div>`}
-  </div>`;
+    ${form && html`<${GoForm} devices=${(device.data ? device.data.devices : []).map((d) => d.device).filter(Boolean)} onDone=${() => { setForm(false); return asks.decisions.reload(); }} onCancel=${() => setForm(false)} />`}
+  </section>`;
 }
 
 // --- the Decisions page ---------------------------------------------------------------------------
@@ -2561,14 +2576,19 @@ function QueueRow({ r, onChanged }) {
     <${Err} text=${act.error} /></article>`;
 }
 
-function QueuePage() {
+const WORK_TABS = [["issues", "Issues"], ["prs", "Pull requests"], ["actions", "Actions"], ["queue", "Queue"]];
+
+function WorkQueue() {
   const { data, error, reload } = useLoad(() => api("queue"), [], 15000);
   const row = (r) => html`<${QueueRow} key=${`${r.repo}#${r.number}`} r=${r} onChanged=${reload} />`;
   const blocker = (b) => html`<div class="stack tight" key=${`${b.repo}#${b.number}`} style="padding: 6px 0">
     <div><a class="mono small" href=${hash("work", { tab: "issues", repo: b.repo, item: b.number })}>${b.repo}#${b.number}</a> <span style="overflow-wrap: anywhere">${b.title}</span>${b.linked ? "" : html` <span class="small soft">No open pull request links to it.</span>`}</div>
     ${b.why && html`<span class="small soft" style="overflow-wrap: anywhere">${b.why}</span>`}</div>`;
   return html`<main class="page close" aria-labelledby="h-queue">
-    <div class="stack tight"><h1 id="h-queue">Queue</h1>
+    <h1 class="sr">Work</h1>
+    <div role="tablist" aria-label="Work type" class="tabs">
+      ${WORK_TABS.map(([id, label]) => html`<a role="tab" aria-selected=${id === "queue" ? "true" : "false"} href=${hash("work", { tab: id })}>${label}</a>`)}</div>
+    <div class="stack tight"><h2 id="h-queue" style="font-size: 21px; font-weight: 600">Queue</h2>
       <span class="small soft">Open pull requests by set and order, from the work store. This page merges, reviews and starts nothing. Approving records your decision for the head shown, which is what lets a session merge it; "Set:" and "Tested:" are what each pull request's text says, and nothing checks them.</span></div>
     <${Err} text=${error} />
     ${data && !data.ready && html`<p role="status">${data.says}</p>`}
@@ -2596,6 +2616,7 @@ function NotesPage() {
   const search = (asked, limit) => act.run(async () => { setFound(null); setSearched(asked); setFound(await post("notes/find", { words: asked, limit })); });
   const said = found && !found.here ? found.says : data && !data.here ? data.says : null;
   return html`<main class="page close" aria-labelledby="h-notes">
+    <${DocsTabs} tab="notes" />
     <div class="stack tight"><h1 id="h-notes">Notes</h1>
       <span class="small soft">The same search as <span class="mono">notes find</span>, by word. Only a login reads this: no session's token can, and the Steward has no tool for it. Every row says what it is, and current comes first.</span></div>
     <${Err} text=${error || act.error} />
@@ -2616,17 +2637,17 @@ function NotesPage() {
   </main>`;
 }
 
-const NAV = [["overview", "Overview"], ["roadmap", "Roadmap"], ["work", "Work"], ["docs", "Docs"], ["shells", "Sessions"], ["device", "Device"], ["queue", "Queue"], ["notes", "Notes"]];
+const NAV = [["overview", "Overview"], ["roadmap", "Roadmap"], ["work", "Work"], ["docs", "Docs"], ["shells", "Sessions"], ["device", "Device"]];
 
 // --- the Steward ---------------------------------------------------------------------------------
 const STEWARD = "steward";
 const SEEN_KIND = { issues: "issue", prs: "pull request", actions: "run" };
-const SEEN_SCREEN = { overview: "Overview", roadmap: "Roadmap", work: "Work", docs: "Docs", shells: "Sessions", launch: "Sessions", device: "Device", decisions: "Decisions", queue: "Queue", notes: "Notes" };
+const SEEN_SCREEN = { overview: "Overview", roadmap: "Roadmap", work: "Work", docs: "Docs", shells: "Sessions", launch: "Sessions", device: "Device", decisions: "Decisions" };
 const STATE_BADGE = { "Waiting for you": "mark", Stopped: "dim", "Not started": "dim" };
 
 function seenFrom(route) {
   const q = route.query;
-  const path = { issues: "work", prs: "work", actions: "work" }[route.path] || route.path;
+  const path = { issues: "work", prs: "work", actions: "work", queue: "work", notes: "docs" }[route.path] || route.path;
   const tab = route.path === "work" ? q.tab || "issues" : route.path;
   // From the address, which a link can fill with anything. Same pattern as hubd's.
   const item = (repo, n) => (/^[A-Za-z0-9._-]+$/.test(repo || "") && /^[0-9]+$/.test(n || "") ? `${repo}#${n}` : null);
@@ -2747,11 +2768,11 @@ function Hub({ host, route, onOut }) {
   const knownWork = useRef({ templates: [], items: [] });
   if (planned.data) knownWork.current = planned.data;
   const decided = useLoad(() => api("decisions"), [], 5000);
-  const knownDecisions = useRef([]);
-  if (decided.data) knownDecisions.current = decided.data.decisions;
+  const knownDecisions = useRef({ decisions: [], holding: null });
+  if (decided.data) knownDecisions.current = decided.data;
   const reloadAll = () => { loaded.reload(); decided.reload(); return planned.reload(); };
   const asks = { ...known.current, work: knownWork.current, reload: reloadAll,
-    decisions: { items: knownDecisions.current, reload: decided.reload, error: decided.error } };
+    decisions: { items: knownDecisions.current.decisions, holding: knownDecisions.current.holding, reload: decided.reload, error: decided.error } };
   asks.waiting = asks.open.length + asks.work.items.filter(nwWaits).length + decisionsAsked(asks).length;
   const waiting = asks.waiting;
   const [planner, setPlanner] = useState(null);
@@ -2765,10 +2786,12 @@ function Hub({ host, route, onOut }) {
     return () => { window.removeEventListener("hub-new-work", show); window.removeEventListener("hub-start-form", form); };
   }, []);
   // Links from before Work was one page, and the items a card points to.
-  const legacy = { issues: "issues", prs: "prs", actions: "actions" }[route.path];
-  const path = legacy ? "work" : route.path;
-  const query = legacy ? { ...route.query, tab: legacy } : route.query;
-  const views = { overview: Overview, roadmap: Roadmap, work: Work, docs: Docs, shells: Sessions, launch: Launch, device: DeviceView, decisions: DecisionsPage, queue: QueuePage, notes: NotesPage };
+  // The queue is a tab of Work and the notes search is a tab of Docs; their old addresses go there.
+  const legacy = { issues: "issues", prs: "prs", actions: "actions", queue: "queue" }[route.path];
+  const notes = route.path === "notes";
+  const path = legacy ? "work" : notes ? "docs" : route.path;
+  const query = legacy ? { ...route.query, tab: legacy } : notes ? { ...route.query, tab: "notes" } : route.query;
+  const views = { overview: Overview, roadmap: Roadmap, work: Work, docs: Docs, shells: Sessions, launch: Launch, device: DeviceView, decisions: DecisionsPage };
   const View = views[path] || Overview;
   const here = path === "launch" ? "shells" : path;
   return html`<div class="with-dock"><div class="dock-main">
