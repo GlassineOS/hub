@@ -116,7 +116,8 @@ def test_every_persona_has_a_family_and_every_action_a_result():
     assert {v: i for (_o, v), i in verbs.items() if i != "run-fix"} == {"review": "pr-review", "address": "pr-address-review", "fix": "pr-fix-checks",
                      "implement": "issue-implement", "triage": "issue-triage", "investigate": "run-diagnose",
                      "issue": "new-issue", "sec": "new-security-audit", "arch": "new-architecture-audit",
-                     "road": "new-roadmap-item", "docs": "new-docs-sweep", "deps": "new-dependency-review"}
+                     "road": "new-roadmap-item", "docs": "new-docs-sweep", "deps": "new-dependency-review",
+                     "research": "knowledge-research"}
     assert verbs[("run", "fix")] == "run-fix"  # fix on a run, beside fix on a pull request
     # The rest stay in the library, under "More…". Those that post or open a PR say so.
     handed = {"pr-security-audit": "comment", "issue-docs": "pr"}
@@ -3011,3 +3012,46 @@ def test_plan_steps_reach_the_prompt_below_the_planners_banner(tmp_path):
         with pytest.raises(AgentError, match="steps"):
             validate(LIBRARY, {**good(), "steps": bad})
     assert validate(LIBRARY, good())["steps"] == []
+
+
+# --- Knowledge's research action: about a question, not a repository (008 FR-007) ---------------------
+def test_research_needs_no_repository_and_refuses_one(tmp_path):
+    a = steward(tmp_path)
+    config = a.defaults("knowledge-research", None, None)
+    assert config["repo"] is None and config["number"] is None and config["covers"] == []
+    with pytest.raises(AgentError, match="isn't about one"):
+        validate(LIBRARY, {**config, "repo": "boot"})
+    with pytest.raises(AgentError, match="isn't about items"):
+        validate(LIBRARY, {**config, "covers": [{"repo": "boot", "number": 1}]})
+
+
+def test_research_reads_the_whole_project_and_posts_nothing(tmp_path):
+    a = steward(tmp_path)
+    started = asyncio.run(a.start(a.defaults("knowledge-research", None, None)))
+    scope = a.scope((a.sessions / started["name"] / "tool-token").read_text().strip())
+    assert scope["all_repos"] is True and "code_search" in scope["tools"] and scope["asks_first"] == []
+    assert not {"create_issue", "comment_issue", "comment_pr", "review_pr", "plan_work", "message_session"} & set(scope["tools"])
+    action = LIBRARY.action("knowledge-research")
+    assert (action["object"], action["result"], action["checkout"], action.get("access")) == ("knowledge", "report", False, None)
+    assert "submit_result" in action["hub_tools"] and set(action["tools"]) <= agents_module.READING_TOOLS
+    assert set(action["hub_tools"]) - {"submit_result"} <= agents_module.READS_ONLY
+
+
+def test_research_plans_without_a_repository(tmp_path):
+    a = agents(tmp_path, planned(persona="researcher", hub_tools=["docs_search", "submit_result"], tools=["AskUserQuestion"]))
+    config = asyncio.run(a.plan("knowledge-research", None, None, notes="Question: why LUT version 3"))["config"]
+    assert config["repo"] is None and config["notes"] == "Question: why LUT version 3"
+    args = (tmp_path / "args").read_text()
+    assert "GlassineOS/None" not in args and "mcp__glassine-hub__docs_search" in args
+
+
+def test_research_starts_with_no_checkout_under_its_own_name(tmp_path):
+    a = steward(tmp_path)
+    started = asyncio.run(a.start(a.defaults("knowledge-research", None, None)))
+    assert started["name"] == "knowledge-research" and "None" not in started["name"]
+    assert not (a.work / started["name"]).exists()
+
+
+def test_a_session_cant_spawn_research():
+    with pytest.raises(AgentError, match="plan_work"):
+        Agents.check_spawn(type("A", (), {"library": LIBRARY})(), {"action": "knowledge-research"})

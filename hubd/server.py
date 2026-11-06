@@ -61,7 +61,8 @@ WORK_TOOL_OPS = {"work.offer": "plan_work", "work.suggest": "suggest_session", "
 STEWARD = "steward"
 RESULT_TOOL_OPS = {"result.submit": "submit_result"}  # By a session's own token, checked like WORK_TOOL_OPS
 ITEM_OBJECTS = ("issue", "pr", "run")  # what a Launch's covered items can be (005 FR-011)
-KIND_WORDS = {"issue": "an issue", "pr": "a pull request", "run": "a run", "repo": "a repository", "project": "the whole project"}
+KIND_WORDS = {"issue": "an issue", "pr": "a pull request", "run": "a run", "repo": "a repository", "project": "the whole project",
+              "knowledge": "a question"}
 _ITEM_REF_RE = re.compile(r"\.?[A-Za-z0-9_][A-Za-z0-9._-]{0,99}#[1-9][0-9]{0,9}")
 REVIEW_EVENT = {"comment": "COMMENT", "request-changes": "REQUEST_CHANGES", "approve": "APPROVE"}
 PLANNER_CHOOSES = ("effort", "brief", "docs_query", "docs", "steps")  # the model it suggests is planner_pick: you choose on its plan

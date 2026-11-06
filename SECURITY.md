@@ -79,8 +79,10 @@ A new restriction has to name the threat it stops, or be listed here as a guard.
   into git, and it matches file types, keys, tokens, addresses and paths, so it can't recognise private code.
 - **The repository copies.** The hub keeps a clone of each repository in the organization under
   `~/.local/state/glassine-hub/seeds`, private ones included. `request_repository` gives a session with
-  file tools a snapshot in its own folder, and `list_repo_files`, `read_repo_file` and `code_search` serve the Steward
-  and every planner, none of which have file tools. There's no question asked and no difference by repository, by your
+  file tools a snapshot in its own folder, and `list_repo_files`, `read_repo_file` and `code_search` serve the Steward,
+  Knowledge's research session (`knowledge-research`) and every planner, none of which have file tools. The research
+  session reads the whole project like the Steward, but has nothing that writes or posts: its one way out is the report it
+  hands in, which only a login reads (and keeps), so private text it read reaches you and no one else. There's no question asked and no difference by repository, by your
   decision, so what was said above about private text reaches all of them. Actions with neither those tools nor
   file tools, such as `issue-triage` and the `run-*` actions, have no direct way in, but their planners do, and a
   planner writes the session's brief, which you see before it starts.

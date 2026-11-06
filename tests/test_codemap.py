@@ -817,7 +817,8 @@ def test_the_tools_go_where_the_other_repository_readers_go():
     for action in LIBRARY.actions.values():
         if "request_repository" in action["hub_tools"]:
             assert set(MAP_TOOLS) <= set(action["hub_tools"]), action["id"]
-        if "request_repository" not in action["hub_tools"] and action["id"] != "project-steward":
+        # The Steward and the research session read the whole project with no checkout, through the readers (SECURITY.md).
+        if "request_repository" not in action["hub_tools"] and action["id"] not in ("project-steward", "knowledge-research"):
             assert not set(MAP_TOOLS) & set(action["hub_tools"]), action["id"]
 
 

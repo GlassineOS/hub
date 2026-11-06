@@ -18,6 +18,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from . import tools as tools_module
+from . import knowledge
 from .docsearch import DocSearch
 from .github import BadRequest, GitHub
 from .hubd_client import FRAME_DATA, FRAME_EXIT, FRAME_RESIZE, HEADER, Hubd, HubdError
@@ -341,6 +342,14 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
     async def docs_reindex(_r, _b, _t):
         return await docs.reindex()
 
+    # --- Knowledge: both indexes in one search (008 FR-001-FR-010) --------------------
+    async def knowledge_search(r, _b, _t):
+        a = r.query_params
+        return await knowledge.search(docs, github, a.get("q"), a.get("mode") or "meaning", a.get("domains"), a.get("repos"), a.get("open") == "1")
+
+    async def knowledge_indexes(_r, _b, _t):
+        return await knowledge.indexes(docs, github)
+
     # --- shells ------------------------------------------------------------------
     async def shells(_r, _b, token):
         return (await hubd.call(op="shell.list", token=token))["sessions"]
@@ -522,6 +531,8 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         Route("/api/work/sync", api(work_sync), methods=["POST"]),
         Route("/api/work/search", api(work_search)),
         Route("/api/docs/search", api(docs_search)),
+        Route("/api/knowledge/search", api(knowledge_search)),
+        Route("/api/knowledge/indexes", api(knowledge_indexes)),
         Route("/api/docs/status", api(docs_status)),
         Route("/api/docs/reindex", api(docs_reindex), methods=["POST"]),
         Route("/api/agents/actions", api(agent_actions)),
