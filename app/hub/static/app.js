@@ -814,24 +814,73 @@ function AddToBoard({ onDone, onCancel }) {
     <button onClick=${onCancel}>Cancel</button><${Err} text=${act.error} /></div>`;
 }
 
+// 007 FR-011: "Plan issues…" opens Launch with the road action, on the roadmap item.
+const planIssues = (repo, number, view) => launch({ action: "new-roadmap-item", repos: [repo], context: `${repo}#${number}`,
+  pins: [{ kind: "ref", label: `${repo}#${number}` }], from: { view, ref: `${repo}#${number}` } });
+
+// 007 FR-010: progress per repository, a bar each with the counts in words.
+function Progress({ rows }) {
+  if (!rows.length) return html`<p class="small soft">No issues are part of it yet.</p>`;
+  return html`<ul class="stack tight progress">${rows.map((p) => {
+    const pct = p.total ? Math.round(p.done / p.total * 100) : 0;
+    const words = `${p.done} of ${p.total} done`;
+    return html`<li class="row" style="flex-wrap: nowrap; gap: 8px"><span class="mono" style="flex: 0 0 auto; font-size: 12.5px">${p.repo}</span>
+      <span class="bar grow" role="progressbar" aria-label=${`${p.repo}: ${words}`} aria-valuenow=${pct} aria-valuemin="0" aria-valuemax="100" style="height: 8px"><i style="width: ${pct}%"></i></span>
+      <span class="small" style="flex: 0 0 auto">${words}</span></li>`;
+  })}</ul>`;
+}
+
+function RoadmapCard({ item, sessions, left, right, busy, onMove, url }) {
+  const ref = item.repo ? `${item.repo}#${item.number}` : null;
+  const kind = item.kind === "PullRequest" ? "pr" : "issue";
+  const open = item.repo ? hash("work", { tab: kind === "pr" ? "prs" : "issues", repo: item.repo, item: item.number, ...(kind === "issue" ? { road: 1 } : {}) }) : url;
+  const on = item.repo ? sessionsOn({ kind, repo: item.repo, number: item.number }, sessions) : [];
+  const targets = item.progress.map((p) => p.repo).filter((r) => r !== item.repo);
+  return html`<article class="card keycap">
+    <div class="row" style="justify-content: space-between; align-items: baseline; gap: 4px 8px">
+      ${ref && html`<span class="ref">${ref}</span>`}
+      <span class="small soft">${targets.length ? `→ ${targets.join(", ")}` : item.repo ? `→ ${item.repo}` : "draft"}</span></div>
+    <a class="title" href=${open}>${item.title}</a>
+    ${item.note && html`<p class="small soft">${item.note}</p>`}
+    ${kind === "issue" && item.repo && html`<${Progress} rows=${item.progress} />`}
+    <div class="small"><span class="soft">Who: </span>${item.assignees.join(", ") || "nobody assigned"}</div>
+    ${on.length > 0 && html`<div class="row" style="gap: 6px">${on.slice(0, MAX_ROW_CHIPS).map((s) => html`<${SessionChip} key=${s.name} session=${s} />`)}
+      ${on.length > MAX_ROW_CHIPS && html`<a class="small" href=${hash("shells")}>${on.length - MAX_ROW_CHIPS} more</a>`}</div>`}
+    <div class="row" style="flex-wrap: nowrap; gap: 6px">
+      ${kind === "issue" && item.repo && html`<button type="button" class="pen grow" onClick=${() => planIssues(item.repo, item.number, "Roadmap")}><${TermIcon} />Plan issues…</button>`}
+      <span class=${kind === "issue" && item.repo ? "" : "grow"}></span>
+      <button class="icon" aria-label="Move left${left ? ` to ${left.name}` : ""}" disabled=${busy || !left} onClick=${() => onMove(left)}><${Chevron} /></button>
+      <button class="icon" aria-label="Move right${right ? ` to ${right.name}` : ""}" disabled=${busy || !right} onClick=${() => onMove(right)}><${Chevron} right /></button>
+    </div></article>`;
+}
+
 function Roadmap() {
   const { data, error, reload } = useLoad(() => api("project"), [], 120000);
   const hubIssues = useLoad(() => api("issues?repo=hub"), []);
+  const sessions = useSessions();
   const [adding, setAdding] = useState(false);
   const act = useAct(async () => { await reload(); await hubIssues.reload(); });
   const title = html`<div class="stack tight" style="max-width: 68ch"><${Eyebrow} soft>Org project · ${data && data.title ? data.title : "GlassineOS roadmap"}<//>
     <h1>Roadmap</h1>
-    <p class="soft" style="font-size: 17px; line-height: 1.65">Strategic issues live in GlassineOS/hub. Each card rolls up its sub-issues from the repositories that do the work.</p></div>`;
+    <p class="soft" style="font-size: 17px; line-height: 1.65">Strategic issues live in GlassineOS/hub. A card's progress counts its sub-issues and the issues that say they're "Part of" it, per repository.</p></div>`;
   if (data && data.needs_scope) {
     return html`<main class="page close">${title}<div class="notice"><span>The host's GitHub login can't see Projects yet. Run this on the host, then reload:</span><pre class="mono">${data.command}</pre></div></main>`;
   }
   if (data && data.missing) {
     return html`<main class="page close">${title}<div class="notice"><span>The organization has no open project called “${data.title}”. Create it once on the host:</span><pre class="mono">gh project create --owner GlassineOS --title "${data.title}"</pre></div></main>`;
   }
-  const columns = data ? data.columns.filter((c) => c.id) : [];
   const onBoard = new Set(data ? data.columns.flatMap((c) => c.items.filter((i) => i.repo === "hub").map((i) => i.number)) : []);
   const orphans = data && hubIssues.data ? hubIssues.data.filter((i) => !onBoard.has(i.number)) : [];
-  const move = (item, option) => act.run(() => post("project/move", { project: data.id, item: item.id, field: data.status_field, option }));
+  // A move sets the Status to the first mapped option of the nearest column that way which has one (a column with none is
+  // skipped): an option the map doesn't name would land the card back under Planned.
+  const target = (index, step) => {
+    for (let i = index + step; i >= 0 && i < data.columns.length; i += step) {
+      const option = data.columns[i].options.find((o) => o.mapped);
+      if (option) return { name: data.columns[i].name, option: option.id };
+    }
+    return null;
+  };
+  const move = (item, to) => act.run(() => post("project/move", { project: data.id, item: item.id, field: data.status_field, option: to.option }));
   return html`<main class="page close">
     <div class="row" style="align-items: flex-end; justify-content: space-between">${title}
       <div class="row">
@@ -843,33 +892,14 @@ function Roadmap() {
     ${adding && html`<${AddToBoard} onCancel=${() => setAdding(false)} onDone=${async () => { setAdding(false); await reload(); }} />`}
     ${orphans.length > 0 && html`<div class="notice"><span>Strategic issues in hub that aren't on the board yet:</span>
       ${orphans.slice(0, 6).map((o) => html`<button class="plain" disabled=${act.busy} onClick=${() => act.run(() => post("project/add", { repo: "hub", number: o.number }))}>Add <span class="mono">hub#${o.number}</span> · ${o.title}</button>`)}</div>`}
+    ${data && data.unmapped && data.unmapped.length > 0 && html`<p class="small soft">Status ${data.unmapped.length === 1 ? "option" : "options"} with no column, shown under Planned: ${data.unmapped.join(", ")}. The map is <code>[roadmap]</code> in <code>config/repos.toml</code>.</p>`}
     ${!data && !error && html`<p class="soft">Loading…</p>`}
-    ${data && html`<div class="board">${data.columns.map((col) => {
-      const index = columns.findIndex((c) => c.id === col.id);
-      return html`<section class="column" aria-label=${col.name}>
+    ${data && html`<div class="board">${data.columns.map((col, index) => html`<section class="column" aria-label=${col.name}>
         <header class="dotted"><h2 class="eyebrow">${col.name}</h2><span class="mono" style="font-size: 13px; font-weight: 600">${col.items.length}</span></header>
-        ${col.items.map((item) => {
-          const done = item.sub_issues.reduce((n, s) => n + s.done, 0);
-          const total = item.sub_issues.reduce((n, s) => n + s.total, 0);
-          const pct = total ? Math.round(done / total * 100) : 0;
-          const left = index > 0 ? columns[index - 1] : null;
-          const right = index >= 0 ? columns[index + 1] : columns[0];
-          return html`<article class="card keycap">
-            <div class="row" style="justify-content: space-between; align-items: flex-start; flex-wrap: nowrap">
-              <a class="title" href=${item.repo ? hash("work", { tab: item.kind === "PullRequest" ? "prs" : "issues", repo: item.repo, item: item.number }) : data.url}>${item.title}</a>
-              ${item.repo && html`<span class="ref">${item.repo}#${item.number}</span>`}</div>
-            ${total > 0 && html`<div class="row" style="flex-wrap: nowrap">
-              <span class="bar grow" role="progressbar" aria-label="Sub-issues closed" aria-valuenow=${pct} aria-valuemin="0" aria-valuemax="100" style="height: 8px"><i style="width: ${pct}%"></i></span>
-              <span class="mono" style="font-size: 12.5px; font-weight: 600">${done}/${total}</span></div>
-              <div class="row" style="gap: 6px">${item.sub_issues.map((s) => html`<span class="chip">${s.repo} ${s.done}/${s.total}</span>`)}</div>`}
-            <div class="row small soft" style="flex-wrap: nowrap">
-              <span class="grow">${item.assignees.join(", ") || "unassigned"}</span>
-              <button class="icon" aria-label="Move left${left ? ` to ${left.name}` : ""}" disabled=${act.busy || !left} onClick=${() => move(item, left.id)}><${Chevron} /></button>
-              <button class="icon" aria-label="Move right${right ? ` to ${right.name}` : ""}" disabled=${act.busy || !right} onClick=${() => move(item, right.id)}><${Chevron} right /></button>
-            </div></article>`;
-        })}</section>`;
-    })}</div>
-    <p class="small soft">Arrows move a card one status column. Sub-issue counts are closed / total.</p>`}
+        ${col.items.map((item) => html`<${RoadmapCard} key=${item.id} item=${item} sessions=${sessions.data} url=${data.url} busy=${act.busy}
+          left=${target(index, -1)} right=${target(index, 1)} onMove=${(to) => move(item, to)} />`)}
+        ${!col.items.length && html`<p class="small soft">Nothing here.</p>`}</section>`)}</div>
+    <p class="small soft">Arrows move a card one column, past any column no Status option maps to. Progress counts an issue once, closed as done${data.from_store ? "" : "; without the work store only sub-issues count"}.</p>`}
   </main>`;
 }
 
@@ -934,7 +964,7 @@ function bestAction(kind, facts, offered) {
 const useKindActions = (kind) => useLoad(() => api(`agents/actions${params({ object: kind })}`), [kind]);
 
 // 006 FR-015: the kind's agent actions as blue buttons, the best one filled, and "New work from this…". Each opens Launch on the item.
-function LaunchRow({ kind, repo, number, facts }) {
+function LaunchRow({ kind, repo, number, facts, road }) {
   const { data, error } = useKindActions(kind);
   const offered = offeredFor(data, facts);
   const best = bestAction(kind, facts, offered);
@@ -948,6 +978,7 @@ function LaunchRow({ kind, repo, number, facts }) {
       <span class="small soft">Each opens Launch on this item: a planner reads first, and nothing runs until you've read its plan.</span></div>
     <${Err} text=${error} />
     <div class="row">${ordered.map((a) => html`<button class=${a === best ? "primary" : "pen"} title=${`${a.summary} ${a.ceiling}`} onClick=${() => open(a)}><${TermIcon} />${titleOf(a)}</button>`)}
+      ${road && html`<button class="pen" onClick=${() => planIssues(repo, number, "Work")}><${TermIcon} />Plan issues…</button>`}
       <button class="pen" onClick=${() => launch({ repos: [repo], context: here, pins: [{ kind: "ref", label: here }], from: { view: "Work", ref: here } })}>＋ New work from this…</button></div>
   </section>`;
 }
@@ -1746,7 +1777,7 @@ function WorkLists({ query, asks }) {
       post("agents/view", { name, mode, where: "Work", ref: here }).then(() => sessions.reload(), () => {});
     };
     const frame = {
-      launchRow: ({ kind, facts }) => html`<${LaunchRow} key=${current.key} kind=${kind} repo=${current.repo} number=${current.number} facts=${facts} />`,
+      launchRow: ({ kind, facts }) => html`<${LaunchRow} key=${current.key} kind=${kind} repo=${current.repo} number=${current.number} facts=${facts} road=${kind === "issue" && query.road === "1"} />`,
       sessions: ({ kind, facts }) => html`<${SessionsOn} key=${current.key} kind=${kind} repo=${current.repo} number=${current.number} facts=${facts} sessions=${on}
         phaseOf=${phaseOf} place=${place} setPhase=${(name, m) => setPhases((p) => ({ ...p, [name]: m }))} asks=${asks} onReload=${() => sessions.reload()} />`,
     };
