@@ -282,7 +282,8 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
 .dock-main { flex: 1 1 0; min-width: 0; }
 .dock, .dock-rail { position: sticky; top: 0; height: 100vh; flex: none; border-left: 1.5px solid var(--ink); background: var(--paper); }
 .dock-rail { width: 64px; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 12px 0; background: var(--sheet); }
-.dock { width: var(--dock-w, 440px); display: flex; flex-direction: column; }
+/* Beside a narrow page (761 to about 1000 px) the panel takes at most 45 % of the width, so the view keeps the rest. */
+.dock { width: var(--dock-w, 440px); max-width: 45vw; display: flex; flex-direction: column; }
 /* 010 FR-001: the left edge resizes the panel; it takes focus, and the arrow keys move it. */
 .dock-handle { position: absolute; top: 0; bottom: 0; left: -6px; z-index: 2; width: 11px; cursor: col-resize; touch-action: none; }
 .dock-handle::after { content: ""; position: absolute; top: 50%; left: 4px; width: 3px; height: 44px; margin-top: -22px; border-radius: 2px; background: var(--ink); opacity: 0.35; }
@@ -302,20 +303,6 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
 .dock-waiting { justify-content: space-between; margin: 8px 12px 0; background: var(--mark); box-shadow: none; }
 .dock-msg { min-height: 36px; padding: 0 10px; font-size: 13px; box-shadow: none; }
 .msgfield textarea { min-height: 56px; }
-@media (max-width: 1000px) {
-  .dock { position: fixed; inset: 0; z-index: 30; width: auto; border-left: 0; }
-  .dock-handle { display: none; }
-  .dock-rail { position: fixed; right: 12px; bottom: 12px; z-index: 30; width: auto; height: auto; padding: 0; border: 0; background: none; }
-  .dock-rail .dock-item { display: none; }
-}
-@media (max-width: 720px) {
-  .top { padding: 8px 16px; }
-  .page, .page.wide { padding: 20px 16px; }
-  h1 { font-size: 32px; }
-  .layer .name { flex-basis: 100%; }
-  .board { grid-auto-columns: minmax(260px, 85vw); }
-  .term { height: 420px; }
-}
 
 .term-copied { position: fixed; right: 24px; bottom: 24px; z-index: 20; padding: 6px 12px; background: var(--ink); color: var(--paper, #fff); border-radius: 8px; }
 
@@ -520,10 +507,6 @@ dialog.needs h2 { margin: 0; flex: 1; font-size: 20px; font-weight: 600; }
 dialog.needs .row { margin-top: 0; }
 .needs-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 14px 20px; border-bottom: 1.5px solid var(--ink); }
 .needs-body { padding: 18px 20px 22px; overflow-y: auto; }
-@media (max-width: 760px) {
-  dialog.sheet { width: 100vw; max-width: none; height: 100dvh; max-height: none; margin: 0; border: 0; border-radius: 0; }
-  .needs-body { padding: 16px; }
-}
 .ask.calm .ask-head { background: var(--paper); border-bottom: 1px dotted var(--ink); }
 .icard-links { min-height: 32px; }
 .icard.dense { border: 1.5px solid var(--ink); border-radius: 12px; }
@@ -589,3 +572,62 @@ table.diff tr.notes td { padding: 6px 8px; white-space: normal; background: var(
 .steplog li.err { background: rgb(255 154 107 / .22); outline: 1px solid #ff9a6b; }
 /* Knowledge (008 FR-004): marked words keep the text's colour, so the mark is never the only signal of the words. */
 .kn-hit mark { background: var(--mark); color: inherit; padding: 0 1px; border-bottom: 1.5px solid var(--ink); }
+/* Reduced motion (001 FR-018): nothing moves when the viewer asks for that, and no state needs motion to be read. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}
+/* Phone, 760 px or less: the one block for it (001 FR-007–FR-010, FR-017). One column with 16 px gutters; wide content
+   (diffs, logs, terminals, the board) scrolls in its own box; sheets fill the screen; every target is 44 px or more. */
+dialog.menu { padding: 0; }
+.menu-body { display: flex; flex-direction: column; gap: 20px; padding: 16px; }
+.menu-body nav ul { display: flex; flex-direction: column; gap: 4px; }
+.menu-body nav a { display: flex; align-items: center; min-height: 48px; padding: 0 14px; border-radius: 12px; color: var(--ink); font-size: 17px; text-decoration: none; }
+.menu-body nav a[aria-current] { box-shadow: inset 0 0 0 1.5px var(--ink); font-weight: 600; }
+.menu-body .needs-open { align-self: flex-start; }
+.boxhit { display: inline-flex; align-items: center; justify-content: center; flex: none; min-width: 44px; min-height: 44px; cursor: pointer; }
+.steward-fab { position: fixed; right: 16px; bottom: 16px; z-index: 30; width: 56px; min-width: 56px; height: 56px; box-shadow: 0 3px 0 var(--shade); }
+@media (max-width: 760px) {
+  .top { padding: 8px 16px; gap: 12px; }
+  .top.phone { flex-wrap: nowrap; justify-content: space-between; }
+  .page, .page.wide { padding: 20px 16px 88px; }
+  .unreachable { padding: 8px 16px; }
+  h1 { font-size: 32px; }
+  .itemtitle { font-size: 26px; }
+  .layer .name { flex-basis: 100%; }
+  .board { grid-auto-columns: minmax(260px, 85vw); }
+  .term { height: 420px; }
+  .with-dock { display: block; }
+  .dock-handle { display: none; }
+  dialog.sheet .dock { width: auto; max-width: none; height: auto; min-height: 100%; border-left: 0; }
+  dialog.sheet .dock-term .term { flex: none; height: 60dvh; }
+  .nw-toast, .term-copied { right: 16px; left: 16px; bottom: 84px; }
+  /* Sheets (001 FR-010): Launch, Needs you, the Menu, the Steward and the flyouts fill the screen; a small confirmation stays centred. */
+  dialog { max-width: calc(100vw - 32px); }
+  dialog.sheet, dialog.nw, dialog.needs, dialog.flyout, dialog.transcript { width: 100%; max-width: none; height: 100%; max-height: none; margin: 0; border: 0; border-radius: 0; }
+  dialog.steward-sheet { padding: 0; }
+  .needs-body { padding: 16px; }
+  .nw-head, .nw-why, .nw-body, .nw-foot { padding-left: 16px; padding-right: 16px; }
+  .nw-rail { flex-basis: 100%; max-width: none; padding: 8px 16px 10px; border-right: 0; border-bottom: 1.5px solid var(--ink); }
+  .nw-rail ol { flex-direction: row; gap: 2px; overflow-x: auto; }
+  .nw-rail li { flex: 1 1 0; min-width: 0; }
+  .nw-step { flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; text-align: center; font-size: 13px; }
+  .nw-step .small { display: none; }
+  .nw-railnote { margin-top: 8px; padding-top: 8px; }
+  /* Touch targets (001 FR-017): at least 44 x 44 px. */
+  .top .needs-open, .top .new-work, .needs-open, .wrow .start, .seg button, .ask-filter, .small-btn, .dock-planbtn, .dock-msg,
+  .picker-button, .ask-other-text input, .ask-answered summary { min-height: 44px; }
+  button.icon { height: 44px; min-height: 44px; }
+  .itempill, .sesschip, .checkchip, .wrow .t { min-height: 44px; }
+  .layer-toggle, .dock-modelname, .addlabel { min-height: 44px; }
+  .label button, .pillwrap .remove { width: 44px; min-width: 44px; height: 44px; min-height: 44px; }
+  .tick { width: 44px; min-width: 44px; height: 44px; min-height: 44px; }
+  .ghsplit .gh.arrow { min-width: 44px; }
+  .ghmenu { min-width: 0; width: min(320px, calc(100vw - 32px)); }
+  input[type="checkbox"] { width: 24px; height: 24px; }
+  label:has(> input[type="checkbox"]) { min-height: 44px; }
+  .row > a { display: inline-flex; align-items: center; min-height: 44px; }
+  .ask-filter, .dock-modelname, .dock-msg { min-width: 44px; }
+  .crumbs a, .crumbline a { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; }
+  .searchbox input { min-height: 40px; }
+  .svspec summary { min-height: 44px; display: flex; align-items: center; }
+}
