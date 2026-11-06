@@ -926,6 +926,22 @@ def test_decisions_wait_under_needs_you_and_stand_under_active_without_a_nav_ent
         assert kind in script
 
 
+def test_queue_and_notes_are_tabs_and_the_go_is_in_needs_you():
+    """A static check: the page isn't run here. Six entries are left, and the old addresses still land somewhere."""
+    script = _app_js()
+    nav = re.search(r"const NAV = \[(.*?)\];", script)[1]
+    assert re.findall(r'\["(\w+)", "', nav) == ["overview", "roadmap", "work", "docs", "shells", "device"]
+    assert "queue: QueuePage" not in script and "notes: NotesPage" not in script
+    assert '["queue", "Queue"]' in script and 'query.tab === "queue" ? html`<${WorkQueue} />`' in script
+    assert 'query.tab === "notes" ? html`<${NotesPage} />`' in script
+    assert 'queue: "queue" }[route.path]' in script and 'const notes = route.path === "notes"' in script, "old addresses go to the tabs"
+    assert 'queue: "work", notes: "docs"' in script, "the Steward is told Work and Docs for them"
+    assert "<${DeviceGoes}" not in script and "<${GoPanel} asks=${asks} />" in script
+    device = script[script.index("function DeviceView()"):script.index("const GO_ACTIONS")]
+    assert "GoPanel" not in device and "Needs you" in device
+    assert 'post("device/holding"' in script and 'post("decisions", { kind: "go"' in script, "the same login-checked routes"
+
+
 def test_the_merge_tool_makes_the_head_required(github):
     mcp = tools.build(github, FakeDocs())
     merge = next(t for t in asyncio.run(mcp.list_tools()) if t.name == "merge_pr")

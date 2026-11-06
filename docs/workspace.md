@@ -121,7 +121,7 @@ lock, queue for anyone or send messages, and recovery never touches it.
 ## The user's decisions
 
 **Where:** `hubd/decisions.py`, a file per decision in hubd's state folder, each move on disk before it acts, and behind the same
-login check in `Hubd.request`. Requests wait under Sessions › Needs you and what stands under Sessions › Active, with a Decisions page for the ended ones, and a Go button on the device view.
+login check in `Hubd.request`. Requests wait under Sessions › Needs you and what stands under Sessions › Active, with a Decisions page for the ended ones. The Go button and "I've got the device" are under Needs you too, and the Device screen only shows what the device reported.
 
 **A record:** `id`, `kind`, `words` (what you typed), `scope` (device, actions, session or any; or repo, PR, head, base), `ends` (a time, a number of runs), `state`, `why_ended`, `made`.
 
@@ -233,7 +233,7 @@ out with it.
 **Search:** `notes find WORDS` in `workspace`, over a SQLite FTS index in a 0700 cache folder, built from the notes, the
 old tree's docs and diaries, memory and transcripts, which never passed the scan. It works offline. Every row says
 `current`, `history`, `retracted` or `archive, unreviewed` in words. Current ranks first, so a retracted theory can't
-pass as a fact. The hub's Notes page is the same query through a hubd op that needs a login, and no token has one. Words
+pass as a fact. The hub's Notes tab, beside Docs, is the same query through a hubd op that needs a login, and no token has one. Words
 only at first.
 
 **Processing the archive,** on the user's word, area by area, with a budget, by sessions the user starts:
@@ -335,7 +335,7 @@ pull request gets a worktree of the hub's bare review clone: no notes and no art
   that one pull request is the set's merge. A trial pins the branch heads. A platform move keeps its pins on a
   `builders` branch while others keep merging.
 - **Blockers** are issues labelled `blocks-merge`, saying why and who can clear it, linked from the pull request.
-- **The queue view** is a page over the work store: sets, order, tested, your approval, GitHub's reviews apart,
+- **The queue view** is a tab under Work, over the work store: sets, order, tested, your approval, GitHub's reviews apart,
   blockers. It doesn't merge, review or spawn anything. Approving records a merge decision.
 - **Version mismatch:** one set of pins installs both sides, so a true mismatch comes from `loop`. First a protocol
   constant in each source, compared by `loop` and the preflight; a runtime check only if that isn't enough.
