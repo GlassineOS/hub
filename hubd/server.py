@@ -1490,7 +1490,7 @@ class Hubd:
         if op == "agent.view":
             return {"ok": True, **self.agents.set_view(req.get("name"), req.get("mode"), req.get("where"), req.get("ref"))}
         if op == "agent.context":
-            return {"ok": True, **self.agents.set_context(req.get("name"), req.get("screen"), req.get("kind"), req.get("selection"))}
+            return {"ok": True, **self.agents.set_context(req.get("name"), req.get("screen"), req.get("kind"), req.get("selection"), req.get("repos"))}
         if op == "agent.buttons":
             return {"ok": True, "buttons": self.agents.library.buttons()}
         if op == "agent.draft":
