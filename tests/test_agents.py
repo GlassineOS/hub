@@ -115,8 +115,9 @@ def test_every_persona_has_a_family_and_every_action_a_result():
                      "implement": "issue-implement", "triage": "issue-triage", "investigate": "run-diagnose",
                      "issue": "new-issue", "sec": "new-security-audit", "arch": "new-architecture-audit",
                      "road": "new-roadmap-item", "docs": "new-docs-sweep", "deps": "new-dependency-review"}
-    # The rest stay in the library, under "More…", and hand in nothing of their own.
-    assert all(a["result"] == "none" for a in LIBRARY.actions.values() if not a.get("verb"))
+    # The rest stay in the library, under "More…". Those that post or open a PR say so.
+    handed = {"pr-security-audit": "comment", "issue-docs": "pr"}
+    assert all(a["result"] == handed.get(a["id"], "none") for a in LIBRARY.actions.values() if not a.get("verb"))
     assert LIBRARY.action("pr-fix-checks")["personas"] == ["ci-fixer", "engineer"]
 
 
