@@ -185,6 +185,8 @@ REFUSED = [
     ["api", "repos/GlassineOS/boot/compare/%2e%2e/x"],
     ["api", "repos/GlassineOS/boot/compare/main....x"],
     ["api", "repos/GlassineOS/boot/compare/a/../../../other...b"],
+    ["api", "repos/GlassineOS/boot/compare/main...b?x=../../y"],
+    ["api", "repos/GlassineOS/boot/compare/main...b?x={y}"],
     ["api", "repos/GlassineOS/boot/contents/{path}"],
     ["api", "repos/other/boot/labels"],
     # nonsense
