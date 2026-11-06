@@ -450,7 +450,7 @@ def test_shell_command_keeps_a_shell(tmp_path, fake_gh, monkeypatch):
 def test_saying_something_to_a_session_needs_a_login(tmp_path, fake_gh):
     async def go():
         async with Harness(tmp_path, fake_gh) as h:
-            for op in ("agent.send", "agent.interrupt", "agent.state", "agent.context", "agent.buttons"):
+            for op in ("agent.send", "agent.interrupt", "agent.state", "agent.context", "agent.view", "agent.buttons"):
                 for token in ("wrong", None):
                     reply = await h.call(op=op, token=token, agent_token="session", name="steward", text="x")
                     assert not reply["ok"] and reply["denied"], op

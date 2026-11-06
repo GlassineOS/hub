@@ -303,6 +303,19 @@ function sessionState(session, pending) {
   return "running";
 }
 
+// 002 FR-019: every session that covers the item, or has a pull request for it. item: {object|kind, repo, number}.
+// covers come from hubd (old sessions: their number and also_numbers, folded there); prs from the session's own branch.
+function sessionsOn(item, sessions) {
+  const kind = item.object || item.kind;
+  const same = (x) => x && x.repo === item.repo && String(x.number) === String(item.number);
+  return (sessions || []).filter((s) => {
+    const a = s.agent;
+    if (!a) return false;
+    const covers = a.covers || (a.repo && a.number ? [{ repo: a.repo, number: a.number }, ...(a.also_numbers || []).map((n) => ({ repo: a.repo, number: n }))] : []);
+    return (a.object === kind && covers.some(same)) || (kind === "pr" && (a.prs || []).some(same));
+  });
+}
+
 // pending: how many things of this session wait for you, when the place knows. onOpen opens it in place
 // (002 FR-018); otherwise it links to href, or to the session under Sessions.
 function SessionChip({ session, pending, onOpen, href }) {
@@ -1353,8 +1366,7 @@ function WorkLists({ query }) {
   const meaning = useLoad(() => (byMeaning && filter.words && tab !== "actions"
     ? api(`work/search${params({ q: filter.words, kind: tab === "prs" ? "pr" : "issue", repo, state })}`) : Promise.resolve(null)), [byMeaning, filter.words, tab, repo, state]);
   const list = sessions.data || [];
-  const sessionsOf = (row) => list.filter((s) => s.agent && s.agent.object === row.object && s.agent.repo === row.repo && (String(s.agent.number) === String(row.number) || (s.agent.also_numbers || []).some((n) => String(n) === String(row.number))));
-  const sessionOf = (row) => sessionsOf(row)[0];
+  const sessionOf = (row) => sessionsOn(row, list)[0];
   const needle = filter.words.toLowerCase();
   const found = meaning.data && byMeaning && filter.words && tab !== "actions" ? meaning.data.results : null;
   const rows = (found
@@ -1461,7 +1473,7 @@ function WorkLists({ query }) {
     <${Err} text=${error || notice || meaning.error} />
     ${sections().map(([name, group]) => html`<section aria-label=${name || TABS.find((t) => t[0] === tab)[1]} class="stack" style="gap: 6px">
       ${name && html`<h2 class="eyebrow">${name} <span class="soft">${group.length}</span></h2>`}
-      <div class="wlist">${group.map((r) => html`<${WorkRow} key=${r.key} row=${r} tab=${tab} scope=${scope} sessions=${sessionsOf(r)} action=${startFor(r)} />`)}</div></section>`)}
+      <div class="wlist">${group.map((r) => html`<${WorkRow} key=${r.key} row=${r} tab=${tab} scope=${scope} sessions=${sessionsOn(r, list)} action=${startFor(r)} />`)}</div></section>`)}
     ${data && !rows.length && html`<p class="soft">Nothing here.</p>`}
     ${!data && loading && html`<p class="soft">Loading…</p>`}
     ${rows.length > 0 && html`<p class="small soft">Open an item to work on it full width, and k / j steps through this list from there. The button on a row plans its most likely Claude action.</p>`}
@@ -1704,7 +1716,8 @@ function Manifest({ session, work }) {
       <dl class="defs" style="border-top: 1px dotted var(--ink); padding-top: 12px">
         <dt>Posts as</dt><dd class="mono" style="font-size: 13px">${a.posts_as || "you"}</dd>
         <dt>From</dt><dd>${suggested ? `${suggested.by === STEWARD ? "Steward" : suggested.by} suggestion · ` : ""}${a.repo && a.number ? html`<a href=${hash("work", { tab, repo: a.repo, item: a.number })}>${whereFrom(a)}</a>` : whereFrom(a)}</dd>
-        ${(a.also_numbers || []).length > 0 && html`<dt>Covers</dt><dd class="mono" style="font-size: 13px">${a.repo}#${a.number} (primary), ${a.also_numbers.map((n) => `${a.repo}#${n}`).join(", ")}</dd>`}
+        ${(a.covers || []).length > 1 && html`<dt>Covers</dt><dd class="mono" style="font-size: 13px">${a.covers.map((c, i) => `${c.repo}#${c.number}${i ? "" : " (primary)"}`).join(", ")}</dd>`}
+        ${a.permission_mode && html`<dt>Permission mode</dt><dd class="mono" style="font-size: 13px">${a.permission_mode}</dd>`}
         ${closes.length > 0 && html`<dt>PR will say</dt><dd class="mono" style="font-size: 13px">${closes.map((n) => `Closes #${n}`).join(" · ")}</dd>`}
         ${m.checkouts.map((c) => html`<dt>Worktree</dt><dd class="mono" style="font-size: 13px; overflow-wrap: anywhere">${c}</dd>`)}
         <dt>Attach</dt><dd class="mono" style="font-size: 13px">tmux -L glassine-hub attach -t ${session.name}</dd></dl>`}

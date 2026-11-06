@@ -217,6 +217,7 @@ class Hubd:
             if op == "shell.list":
                 sessions = await self.shells.list()
                 if self.agents:
+                    await self.agents.refresh_prs([s["name"] for s in sessions])
                     for session in sessions:
                         session["agent"] = self.agents.describe(session["name"])
                 return {"ok": True, "sessions": sessions}
@@ -994,6 +995,8 @@ class Hubd:
             return {"ok": True, **await self.agents.press(req.get("name"), req.get("button"), req.get("kind"), req.get("selection"))}
         if op == "agent.interrupt":
             return {"ok": True, **await self.agents.interrupt(req.get("name"))}
+        if op == "agent.view":
+            return {"ok": True, **self.agents.set_view(req.get("name"), req.get("mode"), req.get("where"), req.get("ref"))}
         if op == "agent.context":
             return {"ok": True, **self.agents.set_context(req.get("name"), req.get("screen"), req.get("kind"), req.get("selection"))}
         if op == "agent.buttons":

@@ -784,6 +784,26 @@ def test_the_page_says_only_a_button_and_an_item_to_a_session():
     assert client.post("/api/agents/send", json=body, headers=ORIGIN).status_code == 400
 
 
+def test_the_page_says_where_it_shows_a_session():
+    seen = []
+
+    class Hubd(FakeHubd):
+        async def call(self, **request):
+            if not request["op"].startswith("agent."):
+                return await super().call(**request)
+            seen.append(request)
+            return {"ok": True, "view": {"mode": request["mode"], "where": request["where"], "ref": request.get("ref")}}
+    client = TestClient(web.build(Hubd(), None, FakeDocs(), secure_cookie=False, allowed_hosts={"testserver"}))
+    body = {"name": "s1", "mode": "embedded", "where": "Work", "ref": "boot#5", "text": "not this"}
+    assert client.post("/api/agents/view", json=body, headers=ORIGIN).status_code == 401
+    signed_in(client)
+    assert client.post("/api/agents/view", json=body).status_code == 403  # same origin only
+    reply = client.post("/api/agents/view", json=body, headers=ORIGIN)
+    assert reply.status_code == 200 and reply.json()["view"]["mode"] == "embedded"
+    view = next(r for r in seen if r["op"] == "agent.view")
+    assert (view["name"], view["mode"], view["where"], view["ref"]) == ("s1", "embedded", "Work", "boot#5") and "text" not in view
+
+
 def test_a_graphql_call_says_which_session_made_it():
     seen = []
 
@@ -1098,6 +1118,27 @@ def test_every_running_session_row_says_whether_its_repository_is_private(hubd, 
     github._public_repos = public
     rows = asyncio.run(github.running_sessions())
     assert {r["name"]: r["private"] for r in rows} == {"a": False, "b": True}
+
+
+def test_the_session_tools_give_what_a_session_covers_as_refs(hubd, github):
+    """hubd's rows name covered items as repo#N: an item's title is an outsider's text, and these rows reach any session."""
+    real = hubd.call
+    rows = [{"name": "a", "title": "Implement an issue", "repo": "boot", "number": 9, "also_numbers": [11],
+             "covers": ["boot#9", "boot#11", "kernel#2"], "state": "Working"}]
+
+    async def call(**request):
+        if request["op"] in ("started.running", "started.list"):
+            return {"ok": True, "sessions": [dict(r) for r in rows]}
+        return await real(**request)
+
+    async def public():
+        return {"boot"}
+    hubd.call = call
+    github._public_repos = public
+    for found in (asyncio.run(github.running_sessions()), asyncio.run(github.started_sessions())):
+        assert found[0]["covers"] == ["boot#9", "boot#11", "kernel#2"]
+        assert all(isinstance(c, str) and re.fullmatch(r"[A-Za-z0-9._-]+#[0-9]+", c) for c in found[0]["covers"])
+        assert not {"titles", "items"} & set(found[0])
 
 
 def test_an_attribute_takes_one_value():

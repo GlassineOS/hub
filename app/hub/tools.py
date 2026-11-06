@@ -340,7 +340,8 @@ def build(github: GitHub, docs: DocSearch) -> MCPServer:
     @mcp.tool(annotations=READ)
     @_says_why
     async def list_sessions() -> list[dict]:
-        """The sessions you started, with their state in words: Working, Waiting for you, Idle (its turn ended), Stopped."""
+        """The sessions you started, with their state in words: Working, Waiting for you, Idle (its turn ended), Stopped.
+        covers lists the items each is on, as repo#N, the first being its own."""
         return await github.started_sessions()
 
     @mcp.tool(annotations=READ)
@@ -365,7 +366,8 @@ def build(github: GitHub, docs: DocSearch) -> MCPServer:
     @_says_why
     async def list_running_sessions() -> list[dict]:
         """Every session running now but you, whoever started it: its name, what it works on, its state, how many messages wait for it, and who
-        started it. For finding who to write to. It doesn't show what they've said."""
+        started it. covers lists the items each is on, as repo#N, the first being its own. For finding who to write to. It doesn't
+        show what they've said."""
         return await github.running_sessions()
 
     @mcp.tool(annotations=READ)
