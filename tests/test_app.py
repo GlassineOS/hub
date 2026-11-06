@@ -1066,7 +1066,7 @@ def test_needs_you_is_one_modal_with_decisions_go_and_grants_in_it():
     for gone in ("function DecisionsPage(", "function Inbox(", "function ActiveDecisions(", "decisions: DecisionsPage", "ASK_FILTERS", 'tab: "needs"', 'tab: "active"'):
         assert gone not in script, gone
     modal = _component(script, "NeedsYouModal")
-    assert "<${GoPanel} asks=${asks} />" in modal and "<${Feed} " in modal and "showModal()" in modal
+    assert "<${GoPanel} asks=${asks} />" in modal and "<${Feed} " in modal and "useModal(ref);" in modal
     assert '["grants", "Active grants"]' in script and '["decisions", "Decisions"]' in script and '["settled", "Settled"]' in script
     assert "handled in this view" in modal and "<select value=${session}" in modal
     feed = _component(script, "Feed")
@@ -1155,6 +1155,9 @@ def test_interactions_need_a_login_and_answers_the_same_origin():
     assert listed.status_code == 200 and set(listed.json()) == {"items", "grants", "counts", "holding"}
     assert seen[-1]["session"] == "steward"
     assert client.post("/api/interactions/a:x/answer", json={"verdict": "allow"}).status_code == 403, "same origin only"
+    before = len(seen)
+    other = client.post("/api/interactions/a:x/answer", json={"verdict": "allow"}, headers={"origin": "http://evil.example"})
+    assert other.status_code == 403 and len(seen) == before, "another origin is refused before hubd"
     body = {"verdict": "approve", "words": "go on", "scope": {"actions": ["reboot"]}, "ends": {"runs": 1}, "where": "Needs you", "token": "not this"}
     reply = client.post("/api/interactions/d-0123456789ab/answer", json=body, headers=ORIGIN)
     assert reply.status_code == 200 and reply.json() == {"item": {"id": "d-0123456789ab", "status": "allowed"}}
@@ -2564,7 +2567,7 @@ def test_the_phone_header_is_new_and_menu():
     assert re.findall(r"<button|<\$\{(\w+)\}", phone) == ["", "MenuButton"], "one button (New) and the Menu button"
     assert "＋ New</button>" in phone and 'aria-label="New work"' in phone
     menu = _component(script, "MenuSheet")
-    assert "showModal()" in menu and "NAV.map" in menu and "aria-current" in menu
+    assert "useModal(ref);" in menu and "NAV.map" in menu and "aria-current" in menu
     assert "<${NeedsButton} asks=${asks} before=${close} />" in menu and "<${UsageMeter} />" in menu and "host.user" in menu
     button = _component(script, "MenuButton")
     assert "needsState(c)" in button and 'data-waits=${state === "blocking" ? "" : undefined}' in button and "aria-label=${`Menu${waits}`}" in button
@@ -2572,5 +2575,123 @@ def test_the_phone_header_is_new_and_menu():
     assert 'class="dock-s steward-fab"' in steward and "<${StewardSheet}" in steward
     # On a phone the sheet opens and closes without touching the wide panel's choice per view.
     assert "if (phone) { setSheet(!next); return; }" in steward
-    assert "showModal()" in _component(script, "StewardSheet")
+    assert "useModal(ref);" in _component(script, "StewardSheet")
+
+
+# --- checks across all views (001 FR-011, FR-015, FR-016, 006 SC-001) -------------------------------
+def _rules(css):
+    """Each rule's selector and body, outside @media blocks too."""
+    return [(sel.strip(), body) for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css)]
+
+
+def test_yellow_marks_only_what_waits_for_the_maintainer():
+    """001 FR-011: yellow (--mark) is used only by rules for what waits for the maintainer; selections, tags, bars,
+    notices and search marks use outlines or paper. 003 FR-012: of the cards, only blocking asks have a yellow head."""
+    css, script = _style_css(), _app_js()
+    yellow = sorted(sel for sel, body in _rules(css) if re.search(r"var\(--mark\)", body))
+    assert yellow == sorted([
+        ".badge.mark",  # "Waiting for you" only, below
+        "button.stat.blocking",
+        ".waitbar",
+        ".dock-count",
+        ".dock-waiting",
+        ".ask-tally.on",
+        ".ask-head",  # a permission or question card; other cards override it (calm, steward, done)
+        ".sesschip[data-waits], .sesschip[data-waits]:hover:not(:disabled)",
+        ".icard.dense[data-waits] .icard-line .ask-kind",
+        ".needs-open[data-waits], .needs-open[data-waits]:hover:not(:disabled)",
+    ]), yellow
+    for calm in (".ask.steward .ask-head", ".ask.done .ask-head", ".ask.calm .ask-head"):
+        assert re.search(re.escape(calm) + r" \{ background: var\(--(sheet|paper)\)", css), calm
+    # The badge class "mark" is given only to a session's "Waiting for you".
+    marks = re.findall(r'[^\n]{0,60}"mark"[^\n]{0,20}', script)
+    assert marks and all("Waiting for you" in line for line in marks), marks
+    assert 'class="badge mark"' not in script
+
+
+def _tag_end(text, i):
+    depth = 0
+    while i < len(text):
+        if text.startswith("${", i):
+            depth, i = depth + 1, i + 2
+            continue
+        if depth:
+            depth += {"{": 1, "}": -1}.get(text[i], 0)
+        elif text[i] == ">":
+            return i + 1
+        i += 1
+    raise AssertionError("a tag isn't closed")
+
+
+def _without_expressions(text):
+    """An expression may be text, so it counts as some; a component (an icon) and a tag don't."""
+    text = re.sub(r"<\$\{\w+\}[^>]*?/>", "", text)
+    out, depth, i = [], 0, 0
+    while i < len(text):
+        if not depth and text.startswith("${", i):
+            out.append("x")
+            depth, i = 1, i + 2
+            continue
+        if depth:
+            depth += {"{": 1, "}": -1}.get(text[i], 0)
+        else:
+            out.append(text[i])
+        i += 1
+    return re.sub(r"<[^>]*>", "", "".join(out))
+
+
+def _unnamed_controls(script):
+    unnamed = []
+    for tag in ("button", "a"):
+        for m in re.finditer(rf"<{tag}[\s>]", script):
+            end = _tag_end(script, m.start())
+            if "aria-label" in script[m.start():end]:
+                continue
+            if not _without_expressions(script[end:script.index(f"</{tag}>", end)]).strip():
+                unnamed.append(script[m.start():end][:100])
+    return unnamed
+
+
+def test_every_button_and_link_has_a_name_and_every_dialog_the_shared_trap():
+    """001 FR-015, FR-016: a button or link has text or an aria-label; every dialog opens through useModal, which
+    makes it modal (Esc, the page inert) and keeps Tab inside it."""
+    script = _app_js()
+    assert _unnamed_controls('<button class="square" onClick=${f}><${Chevron} /></button>') != [], "the check finds an icon-only button"
+    assert _unnamed_controls('<button aria-label="Close" onClick=${f}>×</button><a href="#">Work</a>') == []
+    assert _unnamed_controls(script) == []
+    assert script.count("showModal()") == 1 and "d.showModal();" in _component(script, "useModal")
+    for name in re.findall(r"\nfunction (\w+)\(", script):
+        body = _component(script, name)
+        if "<dialog" in body:
+            assert "useModal(" in body, f"{name} opens a dialog without the shared trap"
+    trap = _component(script, "trapTab")
+    assert 'e.key !== "Tab"' in trap and "first.focus()" in trap and "last.focus()" in trap
+    # The terminal keeps Tab for itself, so F6 leaves it.
+    assert 'e.key === "F6"' in _component(script, "TerminalView") and "focusPast(" in _component(script, "TerminalView")
+
+
+# The GitHub writes the page makes, by component: the GitHub actions button and its forms, plus the Conversation's
+# comment box and review-thread replies (006 FR-018, FR-019). A write anywhere else fails here (006 SC-001).
+GH_WRITERS = {"LabelsDialog", "ghEntries", "GhActions", "NewIssue", "Dispatch", "Thread", "IssueDetail", "PrDetail"}
+
+
+def test_github_writes_come_only_from_the_github_actions_button_and_its_forms():
+    script = _app_js()
+    writers = set()
+    for m in re.finditer(r"post\((`|\")(\$\{base\}|prs/|issues/|runs/|workflows/)|post\(path,", script):
+        before = script[:m.start()]
+        writers.add(re.findall(r"\n(?:function |const )(\w+)", before)[-1])
+    assert writers == GH_WRITERS, writers
+    entries = _component(script, "ghEntries")
+    # Every entry the button can't run names why (006 SC-001).
+    assert "disabled:" in entries and '<span class="why">${e.disabled}</span>' in _component(script, "GhActions")
+
+
+def test_the_page_no_longer_reads_the_old_routes():
+    """The routes stay for the tools and tests; the page reads Needs you from the one interactions poll and starts
+    sessions through Launch. The Steward's own Start is the one agents/run left."""
+    script = _app_js()
+    for old in ('api("asks")', 'api("decisions")', '"agents/plan"', '"agents/start"', 'post("asks', "post(`asks/"):
+        assert old not in script, old
+    assert script.count('"agents/run"') == 1 and 'post("agents/run", { action: "project-steward" })' in script
 
