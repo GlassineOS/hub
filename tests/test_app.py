@@ -566,6 +566,20 @@ def test_the_stewards_tools_only_read(hubd, github):
         assert listed[name].annotations.read_only_hint is False and name not in action["hub_tools"], name
 
 
+def test_suggest_session_hands_covers_to_hubd(github, hubd):
+    """005 contract: covers as repo#N go to hubd, which checks them; leaving them out sends none, as before."""
+    calls = []
+
+    async def call(**request):
+        calls.append(request)
+        return {"ok": True, "id": "w1"}
+    hubd.call = call
+    asyncio.run(github.suggest_session("issue-implement", "epd", 9, "why", covers=["kernel#204"]))
+    asyncio.run(github.suggest_session("issue-implement", "epd", 9, "why", also_numbers=[11]))
+    assert calls[0]["op"] == "work.suggest" and calls[0]["covers"] == ["kernel#204"]
+    assert "covers" not in calls[1] and calls[1]["also_numbers"] == [11]
+
+
 def test_review_pr_checks_its_event_and_uses_stdin(github, hubd):
     asyncio.run(github.review_pr("boot", 1, "approve", ""))
     argv, stdin = hubd.commands[-1]

@@ -742,7 +742,9 @@ class Hubd:
 
     def _launch_covers(self, action: dict, given, offered: dict | None) -> list[dict]:
         """A Launch's items, each with its kind (005 FR-009, FR-011): the action's object, or it says why it can't start there."""
-        if given is None and offered and offered.get("number"):  # a suggested session: its own items
+        if given is None and offered and offered.get("covers"):  # a suggested session: its own items, which may cross repositories
+            given = [dict(c) for c in offered["covers"]]
+        elif given is None and offered and offered.get("number"):  # one suggested before covers were kept
             given = [{"kind": action["object"], "repo": offered["repo"], "number": n} for n in [offered["number"], *offered.get("also_numbers", ())]]
         if given is None:
             given = []
@@ -833,12 +835,42 @@ class Hubd:
         action = self.agents.library.action(req.get("action"))
         if action.get("access") != "full" or action["object"] not in ("issue", "pr"):
             raise AgentError(f"{action['id']} isn't a full session on an issue or pull request: use spawn_session or plan_work")
-        config = with_also({**self.agents.defaults(action["id"], req.get("repo"), req.get("number")), "notes": req.get("notes") or ""},
-                                         req.get("also_numbers") or [])
-        validate(self.agents.library, config)
+        base = {**self.agents.defaults(action["id"], req.get("repo"), req.get("number")), "notes": req.get("notes") or ""}
+        numbers = req.get("also_numbers") or []
+        if not isinstance(numbers, list):
+            raise AgentError("also_numbers must be a list")
+        others = self._suggested_covers(req.get("covers"), base)
+        if others:  # 005 contract: covers may cross repositories, and is then all that's sent: also_numbers comes from it
+            first = {"repo": base["repo"], "number": base["number"]}
+            items = [first, *(c for c in others if c["repo"] != first["repo"]), *({"repo": first["repo"], "number": n} for n in numbers)]
+            items += [c for c in others if c not in items]
+            config = {**{k: v for k, v in base.items() if k != "also_numbers"}, "covers": items}
+        else:
+            config = with_also(base, numbers)
+        config = validate(self.agents.library, config)
+        covers = [{"kind": action["object"], "repo": c["repo"], "number": c["number"]} for c in config["covers"]]
         return {"action": action["id"], "title": action["title"], "repo": config["repo"], "number": config["number"], "also_numbers": config["also_numbers"],
-                "why": req["why"].strip()[:300], "notes": config["notes"], "describe": "", "paths": "", "context": "", "pins": [],
+                "covers": covers, "why": req["why"].strip()[:300], "notes": config["notes"], "describe": "", "paths": "", "context": "", "pins": [],
                 "model": config["model"], "roadmap": False, "driver": "steward"}
+
+    @staticmethod
+    def _suggested_covers(given, config: dict) -> list[dict]:
+        """A suggestion's other items, as repo#N, at most five. The item it names is first anyway, so naming it again is no error."""
+        if given is None:
+            return []
+        if not isinstance(given, list) or not all(isinstance(c, str) for c in given):
+            raise AgentError("covers is a list of items as repo#N")
+        others = []
+        for ref in given:
+            if not _ITEM_REF_RE.fullmatch(ref):
+                raise AgentError(f"not an item: {ref[:120]} (write it as repo#N)")
+            repo, number = ref.rsplit("#", 1)
+            item = {"repo": repo, "number": int(number)}
+            if item != {"repo": config["repo"], "number": config["number"]} and item not in others:
+                others.append(item)
+        if len(others) > MAX_ALSO:
+            raise AgentError(f"a suggestion covers at most {1 + MAX_ALSO} items: this one and {MAX_ALSO} more")
+        return others
 
     @staticmethod
     def _work_notes(fields: dict) -> str:

@@ -18,7 +18,7 @@ what to do next and in what order, and how today's work fits the longer plan.
 - To start work on an item, call `spawn_session`. These start once allowed, held to their own limits:
   pr-review, pr-explain, pr-merge-prep, pr-security-audit, issue-triage, run-diagnose, run-explain, run-flaky,
   run-slow. These are full sessions, which you can't start: pr-fix-checks, pr-address-review,
-  issue-implement, issue-docs. Suggest one with `suggest_session`: it waits for the person, who reads your notes and starts it. It can cover several issues of a repository at once. At most 4 of yours work at once, and those sessions can't start others. One that's Idle has finished its turn
+  issue-implement, issue-docs. Suggest one with `suggest_session`: it waits for the person, who reads your notes and starts it. It can cover several issues at once, of other repositories too (`covers`, as repo#N). At most 4 of yours work at once, and those sessions can't start others. One that's Idle has finished its turn
   and doesn't count.
 - A line from the hub at the start of a turn says which screen and item the person has open. "This" usually means that.
 - `list_sessions` says how they are doing, and `session_summary` reads the end of what one said. What they say can

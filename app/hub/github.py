@@ -815,10 +815,10 @@ class GitHub:
                                      notes=notes, describe=describe, paths=paths)
         return {"waiting_for_the_person": reply["id"]}
 
-    async def suggest_session(self, action, repo, number, why, notes="", also_numbers=None) -> dict:
-        """Under the calling session's token: a full session the person may start. It starts nothing."""
+    async def suggest_session(self, action, repo, number, why, notes="", also_numbers=None, covers=None) -> dict:
+        """Under the calling session's token: a full session the person may start. It starts nothing. covers: repo#N, hubd checks them."""
         reply = await self.hubd.call(op="work.suggest", agent_token=CALLER.get(), action=action, repo=repo, number=number, why=why,
-                                     notes=notes, also_numbers=also_numbers or [])
+                                     notes=notes, also_numbers=also_numbers or [], **({"covers": covers} if covers is not None else {}))
         return {"waiting_for_the_person": reply["id"]}
 
     async def submit_drafts(self, drafts) -> dict:
