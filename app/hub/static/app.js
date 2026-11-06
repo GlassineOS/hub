@@ -1670,11 +1670,12 @@ function TerminalView({ name, onGone, focusRef, quiet }) {
 // --- sessions -------------------------------------------------------------------------------------
 // Your own words to a Claude session (004 FR-008): through hubd as typed input, a turn of yours. Mid-turn they queue.
 const MAX_MESSAGE = 4000;
+let messageFields = 0;  // the Steward panel and Sessions can both show the Steward's field: each needs its own id
 function MessageField({ name, where, off }) {
   const [text, setText] = useState("");
   const [note, setNote] = useState("");
   const act = useAct();
-  const id = `msg-${name}`;
+  const id = useMemo(() => `msg-${++messageFields}`, []);
   const send = () => act.run(async () => {
     setNote("");
     const r = await post("agents/say", { name, text, where });
