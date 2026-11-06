@@ -542,7 +542,7 @@ class GitHub:
     async def create_issue(self, repo, title, body="", labels=None, roadmap=False, part_of=None) -> dict:
         if not title or not str(title).strip():
             raise BadRequest("an issue needs a title")
-        if part_of:  # 006 FR-035: the body's first line, as filed drafts write it, so Roadmap counts it (007 R2)
+        if part_of:  # 006 FR-035: the body's first line, as filed drafts write it, so Roadmap counts it (007 FR-010)
             if not isinstance(part_of, str) or not _PART_OF_REF_RE.fullmatch(part_of):
                 raise BadRequest("Part of is an item, as repo#N")
             ref = part_of if part_of.startswith(f"{ORG}/") else f"{ORG}/{part_of}"
@@ -889,7 +889,7 @@ class GitHub:
         return {"handed_in": reply["handed_in"]}
 
     async def submit_result(self, kind, payload) -> dict:
-        """Under the calling session's token: hubd holds it to its action's result type (005 R2). Applying is the person's."""
+        """Under the calling session's token: hubd holds it to its action's result type. Applying is the person's."""
         reply = await self.hubd.call(op="result.submit", agent_token=CALLER.get(), type=kind, payload=payload)
         return {"handed_in": reply["id"], "waits_for": "the person, who applies it"}
 

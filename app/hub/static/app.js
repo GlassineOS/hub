@@ -369,7 +369,7 @@ function useOutside(ref, open, close) {
   }, [open]);
 }
 
-// Recents and pins, per viewer, in this browser only (001 R2). A blocked storage just means none.
+// Recents and pins, per viewer, in this browser only. A blocked storage just means none.
 const PICKS_KEY = "repo-picker";
 const MAX_RECENT = 5;
 function readPicks() {
@@ -2623,7 +2623,7 @@ function LaunchRun({ live, asks }) {
   return html`<div class="nw-body"><${SessionView} key=${session.name} session=${session} mode="compact" asks=${asks} onGone=${sessions.reload} /></div>`;
 }
 
-// What this Launch's session handed in, or the pull request it opened (005 R2).
+// What this Launch's session handed in, or the pull request it opened.
 function useLaunchResults(live) {
   const name = live && live.session;
   const named = useLoad(() => (name ? api(`results${params({ session: name })}`).then((r) => r.results) : Promise.resolve([])), [name, live && live.result], 3000);
@@ -2641,7 +2641,7 @@ function LaunchResult({ live, results, reload, onNote }) {
   </div>`;
 }
 
-// One Launch, from brief to result. The record (hubd's, 005 R1) is the stage: the page only holds the brief until Plan.
+// One Launch, from brief to result. The record (hubd's) is the stage: the page only holds the brief until Plan.
 function LaunchModal({ open, work, asks, reload, onClose, onBehind }) {
   const dialog = useRef();
   const [id, setId] = useState(open.id || null);
@@ -3285,7 +3285,7 @@ function UsageMeter() {
     ${u.known ? `${pct}%${u.low ? " · low" : ""}` : "not known"}</span>`;
 }
 
-// --- the device lock, on Overview (007 FR-003, 007 R1) ---------------------------------------------------
+// --- the device lock, on Overview (007 FR-003) ---------------------------------------------------
 // In words from the devices' own reports, which anything on the socket can send: never a bare free or held.
 function DeviceCard({ asks }) {
   const { data, error } = useLoad(() => api("device"), [], 15000);
@@ -3599,7 +3599,7 @@ function Hub({ host: first, route, onOut }) {
   // A failed read keeps what we knew, or a brief hubd error would close the cards you're filling in.
   const known = useRef({ items: [], grants: [], counts: { pending: 0, blocking: 0, by_kind: {}, longest_wait: 0 }, holding: null });
   if (listed.data) known.current = listed.data;
-  // Launch records (005 R1): what LaunchModal draws its stage from, and SetAside reads.
+  // Launch records: what LaunchModal draws its stage from, and SetAside reads.
   const planned = useLoad(() => api("new-work"), [], 3000);
   const knownWork = useRef({ templates: [], items: [] });
   if (planned.data) knownWork.current = planned.data;

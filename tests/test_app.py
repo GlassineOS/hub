@@ -1431,7 +1431,7 @@ def test_the_steward_and_plain_shells_have_their_own_badges():
 
 
 def test_the_shared_components_are_used():
-    """A static check (tasks.md 002 T014): each component has a place in this release, so none is dead code."""
+    """A static check: each component has a place in this release, so none is dead code."""
     script = _app_js()
     for used in ("<${SessionChip} ", "<${ItemPill} ", "<${RepoPicker} ", "<${PersonaBadge} ", "<${FamilyLegend} />", "<${ItemPicker} "):
         assert used in script.replace(_component(script, "FamilyLegend"), "").replace(_component(script, "SessionChip"), ""), used
@@ -1616,7 +1616,7 @@ def test_the_terminal_keeps_your_place():
     assert '"mouse", "on"' in (Path(__file__).resolve().parents[1] / "hubd" / "shells.py").read_text()
 
 
-# --- results (005 R2): who sees submit_result, and sessions started before it ----------------------
+# --- results: who sees submit_result, and sessions started before it ----------------------
 def test_submit_result_is_listed_only_for_a_token_whose_action_has_it():
     from hubd.agents import Library
     library = Library(Path(__file__).parents[1] / "agents")
@@ -1687,7 +1687,7 @@ def test_results_and_the_background_go_through_to_hubd_for_a_login():
 
 
 def test_a_result_card_shows_its_words_as_text_and_applies_through_the_answer():
-    """A static check (005 R2, 003 FR-010): Needs you posts a review or applies labels a session handed in, through the answer."""
+    """A static check (003 FR-010): Needs you posts a review or applies labels a session handed in, through the answer."""
     script = _app_js()
     view = _component(script, "ResultView")
     assert "answerAt(r.id, { verdict, ...extra }, where)" in view and 'answer("dismiss")' in view
@@ -1697,7 +1697,7 @@ def test_a_result_card_shows_its_words_as_text_and_applies_through_the_answer():
 
 
 def test_launch_is_one_modal_with_five_stages_opened_by_one_event():
-    """A static check (005 T028): the page isn't run here. Launch replaces the old planner forms and the advanced page;
+    """A static check: the page isn't run here. Launch replaces the old planner forms and the advanced page;
     every entry point dispatches hub-launch with where it was opened; the brief posts covers and from."""
     script = _app_js()
     for gone in ("hub-new-work", "hub-start-form", "function Spawn(", "function NewWork(", "function StartForm(", "function Launch(",
