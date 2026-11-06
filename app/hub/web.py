@@ -341,6 +341,8 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         move = p(r, "move")
         if move == "file":
             return await github.file_drafts(token, p(r, "id"), b.get("indexes"))
+        if move == "edit":  # 005 FR-015: a draft's title and body, before filing
+            return await hubd.call(op="work.edit", token=token, id=p(r, "id"), index=b.get("index"), title=b.get("title"), body=b.get("body"))
         if move == "background":  # 005 FR-008
             return await hubd.call(op="work.background", token=token, id=p(r, "id"), on=b.get("on"))
         if move not in ("cancel", "dismiss", "discard", "hand", "bring_back", "approve", "plan"):

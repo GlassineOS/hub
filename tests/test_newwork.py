@@ -942,3 +942,18 @@ def test_an_action_with_no_planning_step_goes_straight_to_its_plan(hub):
     assert reply["ok"], reply
     record = hub.work.get(reply["work"]["id"])
     assert record["state"] == "planned" and record["plan"] == {"steps": []} and not hub.agents.planned
+
+
+def test_a_waiting_draft_can_be_edited_before_filing_and_nothing_else(hub):
+    """005 FR-015: edit and file. Only a draft still waiting, only its title and body, within a draft's limits; a login op."""
+    work = done(hub, [DRAFT, {"title": "Second"}])
+    reply = call(hub, "work.edit", token="login", id=work, index=0, title="  Clearer title ", body="Better words")
+    assert reply["ok"]
+    draft = hub.work.get(work)["drafts"][0]
+    assert (draft["title"], draft["body"], draft["target"]) == ("Clearer title", "Better words", "boot")
+    assert "title" in call(hub, "work.edit", token="login", id=work, index=0, title="", body="x")["error"]
+    assert "body" in call(hub, "work.edit", token="login", id=work, index=0, title="t", body="x" * 9000)["error"]
+    call(hub, "work.hand", token="login", id=work, indexes=[1])
+    assert "already" in call(hub, "work.edit", token="login", id=work, index=1, title="t", body="")["error"]
+    assert "choose" in call(hub, "work.edit", token="login", id=work, index=7, title="t", body="")["error"]
+    assert not call(hub, "work.edit", token="nope", id=work, index=0, title="t", body="")["ok"]

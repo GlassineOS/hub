@@ -1039,6 +1039,8 @@ class Hubd:
                 if name:
                     self._keep(self._end_session(name, 0))
                 return {"ok": True, "work": record}
+            if op == "work.edit":
+                return {"ok": True, "work": self.work.edit(req.get("id"), req.get("index"), req.get("title"), req.get("body"))}
             if op == "work.claim":
                 return {"ok": True, "work": self.work.claim(req.get("id"), req.get("indexes"))}
             if op == "work.filed":

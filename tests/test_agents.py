@@ -1131,7 +1131,7 @@ def test_actions_carry_their_verb_result_and_persona_family(tmp_path):
     assert (fix["verb"], fix["result"], fix["family"], fix["persona_name"]) == ("fix", "pr", "build", "CI fixer")
     assert rows["pr-explain"]["verb"] is None and rows["pr-explain"]["result"] == "none"
     assert rows["new-roadmap-item"]["family"] == "organise"
-    assert all(set(x) >= {"verb", "result", "result_words", "family", "persona_name"} for x in rows.values())
+    assert all(set(x) >= {"verb", "result", "result_words", "family", "persona_name", "persona", "initials"} for x in rows.values())
 
 
 def test_the_environment_knob(tmp_path, monkeypatch, caplog):

@@ -391,8 +391,6 @@ dialog.transcript { width: min(860px, calc(100vw - 32px)); max-width: none; max-
 dialog.nw { width: min(1120px, calc(100vw - 32px)); max-width: none; padding: 0; box-shadow: 0 3px 0 var(--shade), 0 16px 40px rgb(0 0 0 / .25); }
 dialog.nw h2 { margin: 0; font-size: 20px; font-weight: 600; }
 dialog.nw .row { margin-top: 0; }
-dialog.sf .nw-head { flex-wrap: nowrap; align-items: flex-start; }
-dialog.sf .nw-head h2 { flex: 1; min-width: 0; }
 dialog.nw h3 { margin: 0; font-size: 17px; font-weight: 600; }
 .nw-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 14px 20px; border-bottom: 1.5px solid var(--ink); background: var(--mark); }
 .nw-head.agent { background: var(--sheet); }
@@ -435,10 +433,6 @@ dialog.nw h3 { margin: 0; font-size: 17px; font-weight: 600; }
 .nw-term { display: flex; flex-direction: column; border: 1.5px solid var(--ink); border-radius: 12px; overflow: hidden; }
 .nw-term .term { height: 420px; }
 .nw-toast { position: fixed; right: 24px; bottom: 24px; z-index: 50; display: flex; align-items: center; gap: 12px; max-width: min(460px, calc(100vw - 32px)); padding: 12px 14px; background: var(--paper); border: 1.5px solid var(--ink); border-radius: 16px; box-shadow: 0 3px 0 var(--shade); }
-dialog.sf { width: min(880px, calc(100vw - 32px)); }
-.sf-covers { display: flex; flex-direction: column; border: 1.5px solid var(--ink); border-radius: 12px; overflow: hidden; }
-.sf-cover { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 12px; border-bottom: 1px solid var(--shade); }
-.sf-add { gap: 8px; padding: 8px 12px; background: var(--sheet); }
 .nw-tag.quiet { background: var(--paper); }
 .small-btn { min-height: 36px; font-size: 13px; }
 .dock-model { padding: 10px 12px; border-bottom: 1px dotted var(--ink); }
