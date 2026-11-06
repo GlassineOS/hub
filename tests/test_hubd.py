@@ -778,3 +778,20 @@ def test_an_empty_name_means_every_device(tmp_path):
     reports = Devices(tmp_path)
     reports.report({"device": "a", "base": "b1"})
     assert reports.status("")["devices"][0]["device"] == "a"
+
+
+def _dev_hubd():
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location("dev_hubd", Path(__file__).with_name("dev_hubd.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)     # main() runs only as a script
+    return module
+
+
+def test_the_dev_hubd_takes_the_tool_server_url_from_the_environment(tmp_path):
+    dev = _dev_hubd()
+    env = {"DEV_PASSWORD": "dev", "DEV_STATE": str(tmp_path / "state"), "DEV_MCP_URL": "http://127.0.0.1:29095/mcp"}
+    assert dev.build(tmp_path / "hubd.sock", env).agents.mcp_url == "http://127.0.0.1:29095/mcp"
+    del env["DEV_MCP_URL"]
+    assert dev.build(tmp_path / "hubd.sock", env).agents.mcp_url == dev.DEFAULT_MCP_URL == "http://127.0.0.1:19095/mcp"
