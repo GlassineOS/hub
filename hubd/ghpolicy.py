@@ -100,7 +100,9 @@ def _check_api(args: list[str]) -> None:
     bare = clean.split("?", 1)[0]
     compare = _COMPARE_RE.fullmatch(bare)
     if compare and not any(".." in ref or ref.endswith(".") for ref in compare.groups()):
-        clean = bare = bare.replace("...", "/", 1)
+        # The query stays in what's checked below: bare is a prefix of clean, so the first "..." is the compare's own.
+        clean = clean.replace("...", "/", 1)
+        bare = clean.split("?", 1)[0]
     if ".." in clean or "%" in bare or "{" in clean or "}" in clean or "\\" in clean or "//" in bare:
         raise Refused("gh api: traversal, escapes and placeholders are not allowed in the path")
     if not any(re.fullmatch(p, bare, re.I) for p in _API_PATHS):
