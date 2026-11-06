@@ -470,12 +470,14 @@ def build(github: GitHub, docs: DocSearch) -> MCPServer:
 
     @mcp.tool(annotations=WRITE)
     @_says_why
-    async def suggest_session(action: str, repo: str, number: int, why: str, notes: str = "", also_numbers: list[int] | None = None) -> dict:
+    async def suggest_session(action: str, repo: str, number: int, why: str, notes: str = "", also_numbers: list[int] | None = None,
+                              covers: list[str] | None = None) -> dict:
         """Suggest a full session the person can start: a planner reads the item first, and nothing runs until they've read
         its plan, changed what they like and pressed Start. action is one of issue-implement, issue-docs, pr-fix-checks or pr-address-review, number the item.
-        why is one sentence on why now. notes are shown to them as yours. also_numbers: other issues of this repository
-        one session should cover, for issue actions only."""
-        return await github.suggest_session(action, repo, number, why, notes, also_numbers)
+        why is one sentence on why now. notes are shown to them as yours. covers: up to 5 other issues one session should
+        cover, as repo#N, which may be in other repositories; for issue actions only. also_numbers is the older way to name
+        other issues of this repository, and still works."""
+        return await github.suggest_session(action, repo, number, why, notes, also_numbers, covers)
 
     @mcp.tool(annotations=WRITE)
     @_says_why
