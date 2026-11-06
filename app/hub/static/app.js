@@ -686,12 +686,12 @@ function RepoCopies() {
 
 function DocsStat() {
   const { data, error } = useLoad(() => api("docs/status"), [], 120000);
-  return html`<a class="stat" href=${hash("docs")}><${Eyebrow} soft>Docs index<//>
+  return html`<a class="stat" href=${hash("knowledge")}><${Eyebrow} soft>Docs index<//>
     <b>${error ? "unknown" : data ? data.state : "…"}</b>
     <span class="small soft">${data ? `site ${data.published.slice(0, 7)} · head ${data.head.slice(0, 7)}` : error || " "}</span></a>`;
 }
 
-function Overview() {
+function Overview({ asks }) {
   const { data, error } = useLoad(() => api("overview"), [], 60000);
   const strips = useLoad(() => api("overview/runs"), [], 300000);
   const prs = useLoad(() => api("prs"), [], 300000);
@@ -718,6 +718,7 @@ function Overview() {
       <${DocsStat} />
       <a class="stat" href=${hash("shells")}><${Eyebrow} soft>Sessions<//><b>${list.length}</b><span class="small soft">${waiting ? `${waiting} waiting for you` : "none waiting"}</span></a>
     </section>
+    <${ApiBudget} />
     <div class="columns">
       <section class="wide stack" style="gap: 24px" aria-labelledby="h-layers">
         <div class="row dotted"><h2 id="h-layers" class="grow" style="font-size: 27px; line-height: 1.2; font-weight: 600">Repositories by layer</h2>
@@ -740,6 +741,7 @@ function Overview() {
       </section>
       <aside class="aside stack" style="gap: 24px">
         ${current && html`<${RepoDetail} key=${current.name} repo=${current} layer=${current.layer} />`}
+        <${DeviceCard} asks=${asks} />
         <${NeedsYou} data=${data} sessions=${list} ready=${ready} />
         <${Workspace} />
         <${RepoCopies} />
@@ -1498,17 +1500,8 @@ function urlPath(url) {
   try { const u = new URL(url); return u.pathname.replace(/^\//, "") + u.hash; } catch (e) { return url; }
 }
 
-function DocsTabs({ tab }) {
-  return html`<div role="tablist" aria-label="Docs" class="tabs">
-    <a role="tab" aria-selected=${tab === "docs" ? "true" : "false"} href=${hash("docs")}>Docs</a>
-    <a role="tab" aria-selected=${tab === "notes" ? "true" : "false"} href=${hash("docs", { tab: "notes" })}>Notes</a></div>`;
-}
-
-function Docs({ query }) {
-  return query.tab === "notes" ? html`<${NotesPage} />` : html`<${DocsSearch} />`;
-}
-
-function DocsSearch() {
+// Knowledge: the docs search, until the Knowledge view of PR 15 replaces it (001 FR-001).
+function Knowledge() {
   const status = useLoad(() => api("docs/status"), [], 60000);
   const [q, setQ] = useState("");
   const [results, setResults] = useState(null);
@@ -1521,8 +1514,7 @@ function DocsSearch() {
   const run = s && s.latest_run;
   return html`<main class="page"><div class="columns">
     <section class="wide stack" style="gap: 20px" aria-labelledby="h-search">
-      <${DocsTabs} tab="docs" />
-      <div class="stack tight"><${Eyebrow} soft>docs.glassine.org · search by meaning<//><h1 id="h-search">Docs</h1></div>
+      <div class="stack tight"><${Eyebrow} soft>docs.glassine.org · search by meaning<//><h1 id="h-search">Knowledge</h1></div>
       <form role="search" class="row" style="gap: 12px" onSubmit=${(e) => { e.preventDefault(); search.run(async () => setResults(await api(`docs/search${params({ q })}`))); }}>
         <div class="searchbox big" style="flex: 1 1 360px"><${SearchIcon} /><label class="sr" for="docs-q">Search the docs</label>
           <input id="docs-q" type="search" placeholder="Ask in plain words: how do I get back into recovery?" value=${q} onInput=${(e) => setQ(e.target.value)} /></div>
@@ -2584,17 +2576,23 @@ const needsLabel = (asks) => {
   return `Needs you: ${c.pending ? `${count(c.pending, "thing")} waiting${c.blocking ? `, ${c.blocking} blocking a session` : ""}` : "nothing waiting"}. Open`;
 };
 
+// 001 FR-002, 001 FR-003: yellow only when a session's turn waits on you, outlined while anything waits, plain at none.
+function NeedsButton({ asks }) {
+  const c = asks.interactions.counts;
+  const state = c.blocking > 0 ? "blocking" : c.pending > 0 ? "pending" : "none";
+  return html`<button class="needs-open ${state === "none" ? "plain" : ""}" data-state=${state} data-waits=${state === "blocking" ? "" : undefined}
+    aria-label=${needsLabel(asks)} onClick=${() => needsYou()}>Needs you <span class="ask-tally">${c.pending}</span></button>`;
+}
+
 function SessionHistory({ asks }) {
   return html`<main class="page wide"><${SessionTabs} tab="history" asks=${asks} /><div class="stack" style="gap: 32px"><${PastSessions} /><${Cleanup} /></div></main>`;
 }
 
 // Until the header has its Needs you button (PR 5), it opens from here too. tab=needs and tab=active open it (Hub).
-function SessionTabs({ tab, asks }) {
-  const blocking = asks.interactions.counts.blocking;
-  return html`<div class="row" style="gap: 8px 16px; margin-bottom: 18px"><div role="tablist" aria-label="Sessions" class="tabs">
+function SessionTabs({ tab }) {
+  return html`<div role="tablist" aria-label="Sessions" class="tabs" style="margin-bottom: 18px">
     <a role="tab" aria-selected=${tab === "all" ? "true" : "false"} href=${hash("shells", { tab: "all" })}>All sessions</a>
-    <a role="tab" aria-selected=${tab === "history" ? "true" : "false"} href=${hash("shells", { tab: "history" })}>History & cleanup</a></div>
-    <button class="needs-open ${blocking ? "" : "calm"}" data-waits=${blocking ? "" : undefined} aria-label=${needsLabel(asks)} onClick=${() => needsYou()}>Needs you <span class="ask-tally">${asks.waiting}</span></button></div>`;
+    <a role="tab" aria-selected=${tab === "history" ? "true" : "false"} href=${hash("shells", { tab: "history" })}>History & cleanup</a></div>`;
 }
 
 function Sessions({ query, asks }) {
@@ -2841,29 +2839,47 @@ const Logo = () => html`<a class="logo" href="#/overview">
   <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="3" width="18" height="22" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="11" y="7" width="18" height="22" rx="2" fill="var(--mark)" stroke="var(--pen)" stroke-width="1.5" /></svg>
   <span><span class="eyebrow">GlassineOS Hub</span><small>GlassineOS/hub</small></span></a>`;
 
-function Budget() {
+// The GitHub API budget, on Overview's stats line: the header's meter is the sessions' usage now (001 R1).
+function ApiBudget() {
   const { data } = useLoad(() => api("limits"), [], 120000);
   if (!data) return null;
   const pct = data.limit ? Math.round(data.remaining / data.limit * 100) : 0;
   const reset = new Date(data.reset * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  return html`<span class="budget" title="GitHub API budget"><b>API</b>
-    <span class="bar ink" style="width: 64px; height: 8px"><i style="width: ${pct}%"></i></span>
-    ${data.remaining.toLocaleString()} / ${data.limit.toLocaleString()} · resets ${reset}</span>`;
+  return html`<p class="budget" style="margin: -8px 0 18px"><b>GitHub API</b>
+    <span class="bar ink" style="width: 64px; height: 8px" aria-hidden="true"><i style="width: ${pct}%"></i></span>
+    ${data.remaining.toLocaleString()} of ${data.limit.toLocaleString()} left · resets ${reset}</p>`;
 }
 
-// --- the device view ------------------------------------------------------------------------------
-function DeviceView() {
+// How much of the sessions' usage allowance is used (001 FR-006): words and a bar, "low" from 80 %. hubd reads it
+// from the sessions' status lines; with no rate limit and no allowance set it says it doesn't know.
+const resetWords = (r) => (typeof r === "number" ? new Date(r * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : String(r));
+function UsageMeter() {
+  const { data, error } = useLoad(() => api("usage"), [], 60000);
+  const u = data || { known: false, says: error ? "usage can't be read" : "usage not known" };
+  const label = `Usage: ${u.says}${u.known && u.resets ? `, resets ${resetWords(u.resets)}` : ""}`;
+  const pct = u.known ? Math.round(u.used * 100) : 0;
+  return html`<span class="budget usage ${u.low ? "low" : ""}" role="img" aria-label=${label} title=${label}><b>Usage</b>
+    <span class="bar ink" style="width: 48px; height: 8px"><i style="width: ${pct}%"></i></span>
+    ${u.known ? `${pct}%${u.low ? " · low" : ""}` : "not known"}</span>`;
+}
+
+// --- the device lock, on Overview (007 FR-003, 007 R1) ---------------------------------------------------
+// In words from the devices' own reports, which anything on the socket can send: never a bare free or held.
+function DeviceCard({ asks }) {
   const { data, error } = useLoad(() => api("device"), [], 15000);
-  return html`<main class="page close" aria-labelledby="h-device">
-    <div class="stack tight"><h1 id="h-device">Device</h1>
-      <span class="small soft">What each device last reported, in words with an age. The hub never asks the device, runs no tests and doesn't take the lock.</span></div>
-    ${error && html`<div class="error" role="alert">No view: the hub can't read it (${error}). Nothing is lost: <span class="mono">dev status</span> asks the device, and its files are there.</div>`}
-    ${data && data.devices.map((d) => html`<article class="stack" style="gap: 6px" key=${d.device || "none"}>
-      ${d.device && html`<h3 class="mono" style="font-size: 15px">${d.device}</h3>`}
-      ${d.lines.map((line) => html`<p style="overflow-wrap: anywhere">${line}.</p>`)}</article>`)}
+  const holding = asks.decisions.holding;
+  const goes = asks.interactions.grants.filter((g) => g.detail.kind === "go");
+  return html`<section class="panel stack" style="gap: 10px; padding: 18px" aria-labelledby="h-device">
+    <h2 id="h-device" class="eyebrow">Device</h2>
+    ${error && html`<p class="small" role="alert">The hub can't read the device reports (${error}). <span class="mono">dev status</span> asks the device itself.</p>`}
+    ${data && data.devices.map((d) => html`<div class="stack" style="gap: 4px" key=${d.device || "none"}>
+      ${d.device && html`<h3 class="mono" style="font-size: 14px">${d.device}</h3>`}
+      ${d.lines.map((line) => html`<p class="small" style="overflow-wrap: anywhere">${line}.</p>`)}</div>`)}
+    ${holding && html`<p class="small" style="font-weight: ${holding.holding ? 600 : 400}">${holding.holding ? `You hold it: ${holding.words}` : holding.words}</p>`}
+    <p class="small">${goes.length ? html`${count(goes.length, "go")} in force: ${goes.map((g, i) => html`${i ? "; " : ""}${g.detail.says}`)}. ` : "No go in force. "}
+      <button class="link" onClick=${() => needsYou({ filter: "grants" })}>Active grants</button></p>
     ${data && html`<p class="small soft">${data.only}</p>`}
-    <p class="small">Recording a go, and “I've got the device”, are in <button class="link" onClick=${() => needsYou()}>Needs you</button>. What stands is under its <button class="link" onClick=${() => needsYou({ filter: "grants" })}>Active grants</button>.</p>
-  </main>`;
+  </section>`;
 }
 
 const GO_ACTIONS = ["reboot", "suspend", "load-test", "close-apps", "eye-test"];
@@ -2992,7 +3008,6 @@ function NotesPage() {
   const search = (asked, limit) => act.run(async () => { setFound(null); setSearched(asked); setFound(await post("notes/find", { words: asked, limit })); });
   const said = found && !found.here ? found.says : data && !data.here ? data.says : null;
   return html`<main class="page close" aria-labelledby="h-notes">
-    <${DocsTabs} tab="notes" />
     <div class="stack tight"><h1 id="h-notes">Notes</h1>
       <span class="small soft">The same search as <span class="mono">notes find</span>, by word. Only a login reads this: no session's token can, and the Steward has no tool for it. Every row says what it is, and current comes first.</span></div>
     <${Err} text=${error || act.error} />
@@ -3013,22 +3028,36 @@ function NotesPage() {
   </main>`;
 }
 
-const NAV = [["overview", "Overview"], ["roadmap", "Roadmap"], ["work", "Work"], ["docs", "Docs"], ["shells", "Sessions"], ["device", "Device"]];
+// 001 FR-001. Knowledge is the docs search until PR 15, Notes the notes search until PR 16. Device is on Overview,
+// decisions are in Needs you; their old addresses go there (Hub's MOVED).
+const NAV = [["overview", "Overview"], ["roadmap", "Roadmap"], ["work", "Work"], ["knowledge", "Knowledge"], ["notes", "Notes"], ["shells", "Sessions"]];
 
 // --- the Steward ---------------------------------------------------------------------------------
 const STEWARD = "steward";
 const SEEN_KIND = { issues: "issue", prs: "pull request", actions: "run" };
-const SEEN_SCREEN = { overview: "Overview", roadmap: "Roadmap", work: "Work", docs: "Docs", shells: "Sessions", launch: "Sessions", device: "Device", decisions: "Decisions" };
+const SEEN_SCREEN = { overview: "Overview", roadmap: "Roadmap", work: "Work", knowledge: "Knowledge", notes: "Notes", shells: "Sessions", launch: "Sessions" };
 const STATE_BADGE = { "Waiting for you": "mark", Stopped: "dim", "Not started": "dim" };
+
+// Old addresses and where they live now. Work's tabs had their own pages once; Docs held the notes as a tab;
+// Device is a card on Overview.
+const OLD_WORK_PAGES = new Set(["issues", "prs", "actions", "queue"]);
+function movedRoute(route) {
+  const q = route.query;
+  if (OLD_WORK_PAGES.has(route.path)) return { path: "work", query: { ...q, tab: route.path }, moved: false };
+  if (route.path === "docs") return { path: q.tab === "notes" ? "notes" : "knowledge", query: {}, moved: true };
+  if (route.path === "device") return { path: "overview", query: {}, moved: true };
+  return { path: route.path, query: q, moved: false };
+}
 
 function seenFrom(route) {
   const q = route.query;
-  const path = { issues: "work", prs: "work", actions: "work", queue: "work", notes: "docs" }[route.path] || route.path;
-  const tab = route.path === "work" ? q.tab || "issues" : route.path;
+  const moved = movedRoute(route);
+  const path = moved.path, tab = path === "work" ? moved.query.tab || "issues" : path;
   // From the address, which a link can fill with anything. Same pattern as hubd's.
   const item = (repo, n) => (/^[A-Za-z0-9._-]+$/.test(repo || "") && /^[0-9]+$/.test(n || "") ? `${repo}#${n}` : null);
   if (path === "work" && item(q.at || q.repo, q.item)) return { screen: "Work", kind: SEEN_KIND[tab] || null, selection: item(q.at || q.repo, q.item) };
   if (path === "launch" && item(q.repo, q.number)) return { screen: "Sessions", kind: null, selection: item(q.repo, q.number) };
+  if (path === "work" && tab === "queue") return { screen: "Queue", kind: null, selection: null };
   return { screen: SEEN_SCREEN[path] || "Overview", kind: null, selection: null };
 }
 
@@ -3135,7 +3164,12 @@ function App() {
   return html`<${Hub} host=${state.host} route=${route} onOut=${() => setState({ out: true })} />`;
 }
 
-function Hub({ host, route, onOut }) {
+function Hub({ host: first, route, onOut }) {
+  // 001 FR-005, 001 FR-020: who you are and which hubd, read again every 15 s; when it or the list fails, the page says so.
+  const hostPoll = useLoad(() => api("host"), [], 15000);
+  const knownHost = useRef(first);
+  if (hostPoll.data) knownHost.current = hostPoll.data;
+  const host = knownHost.current;
   // One list of what waits for you: asks, decisions and new work (interaction.list), every 3 s (003 SC-002).
   const listed = useLoad(() => api("interactions"), [], 3000);
   // A failed read keeps what we knew, or a brief hubd error would close the cards you're filling in.
@@ -3154,7 +3188,6 @@ function Hub({ host, route, onOut }) {
     work: knownWork.current, reload: reloadAll, interactions: inter, stale: Boolean(listed.error),
     decisions: { items: [...inter.items, ...inter.grants].filter((r) => r.kind === "decision").map((r) => r.detail), holding: inter.holding, reload: listed.reload, error: listed.error } };
   asks.waiting = inter.counts.pending;
-  const waiting = asks.waiting;
   const [needs, setNeeds] = useState(null); // the Needs you modal, and what had focus when it opened
 
   const [planner, setPlanner] = useState(null);
@@ -3176,34 +3209,33 @@ function Hub({ host, route, onOut }) {
     needsYou({ filter: oldNeeds });
     history.replaceState(null, "", route.path === "decisions" ? hash("overview") : hash("shells", { tab: "all" }));
   }, [oldNeeds]);
-  // Focus goes back where it was; if that button is gone (its count fell to 0), to the Sessions link it sat beside.
+  // Focus goes back where it was; if that's gone, to the header's Needs you button.
   const closeNeeds = () => {
     const back = needs && needs.opener;
     setNeeds(null);
-    const to = back && back.isConnected && back !== document.body ? back : document.querySelector('header.top a[href^="#/shells"]');
+    const to = back && back.isConnected && back !== document.body ? back : document.querySelector("header.top .needs-open");
     if (to) to.focus();
   };
-  // Links from before Work was one page, and the items a card points to.
-  // The queue is a tab of Work and the notes search is a tab of Docs; their old addresses go there.
-  const legacy = { issues: "issues", prs: "prs", actions: "actions", queue: "queue" }[route.path];
-  const notes = route.path === "notes";
-  const path = legacy ? "work" : notes ? "docs" : route.path;
-  const query = legacy ? { ...route.query, tab: legacy } : notes ? { ...route.query, tab: "notes" } : route.query;
-  const views = { overview: Overview, roadmap: Roadmap, work: Work, docs: Docs, shells: Sessions, launch: Launch, device: DeviceView };
+  // Links from before Work was one page, the Docs and Device pages, and the items a card points to.
+  const { path, query, moved } = movedRoute(route);
+  useEffect(() => { if (moved) history.replaceState(null, "", hash(path)); }, [route.path, route.query.tab]);
+  const views = { overview: Overview, roadmap: Roadmap, work: Work, knowledge: Knowledge, notes: NotesPage, shells: Sessions, launch: Launch };
   const View = views[path] || Overview;
   const here = path === "launch" ? "shells" : path;
+  const unreachable = Boolean(hostPoll.error || listed.error);
   return html`<div class="with-dock"><div class="dock-main">
     <header class="top"><${Logo} />
-      <nav aria-label="Primary">${NAV.map(([key, label]) => (key === "shells"
-        ? html`<span class="row" style="gap: 0; flex-wrap: nowrap"><a href=${hash("shells", { tab: "all" })} aria-current=${here === key ? "page" : null}>${label}</a>${waiting > 0 && html`<button class="nav-count" aria-label=${needsLabel(asks)} title="Needs you" onClick=${() => needsYou()}>${waiting}</button>`}</span>`
-        : html`<a href="#/${key}" aria-current=${here === key ? "page" : null}>${label}</a>`))}</nav>
+      <nav aria-label="Primary">${NAV.map(([key, label]) => html`<a href=${key === "shells" ? hash("shells", { tab: "all" }) : `#/${key}`} aria-current=${here === key ? "page" : null}>${label}</a>`)}</nav>
       <div class="end">
+        <${NeedsButton} asks=${asks} />
+        <button class="primary new-work" onClick=${() => planWork()}>＋ New work</button>
         ${!host.gh && html`<span class="badge bad">no gh on the host</span>`}
         ${!host.tmux && html`<span class="badge bad">no tmux on the host</span>`}
-        <${Budget} />
-        <span class="mono" style="font-size: 13px">${host.user}</span>
+        <${UsageMeter} />
+        <span class="small whoami"><span class="mono">${host.user}</span>${host.hubd && html` · <span class="soft">hubd</span> <span class="mono soft">${host.hubd}</span>`}</span>
         <button class="plain" onClick=${async () => { await post("logout"); onOut(); }}>Sign out</button>
       </div></header>
+    ${unreachable && html`<div class="unreachable" role="status">hubd can't be reached — showing what was last read.</div>`}
     <${View} key=${path + JSON.stringify(path === "shells" || path === "work" ? {} : query)} query=${query} asks=${asks} /></div>
     <${Steward} route=${route} asks=${asks} />
     ${planner && html`<${NewWork} key=${planner.key} open=${planner} work=${asks.work} asks=${asks} reload=${reloadAll} onClose=${(left) => { setPlanner(null); setBehind(left || null); }} />`}

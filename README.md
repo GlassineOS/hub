@@ -165,7 +165,14 @@ CLAUDE_CONFIG_DIR=~/.claude-something
 HUBD_CLAUDE=/path/to/claude
 # seconds between pings to a Steward about changes: 60 to 86400, 300 if unset or not a number
 HUBD_PING_SECONDS=300
+# dollars a day for the header's usage meter, when Claude Code's status line gives no rate limit
+HUBD_DAILY_USAGE_USD=20
 ```
+
+The header's usage meter reads `status.json` in each session's folder: every session's settings run a status-line
+command that copies Claude Code's status-line JSON there (at most 16 KiB, whole or not at all). If the newest has rate
+limits, the meter shows the fullest; otherwise today's cost against `HUBD_DAILY_USAGE_USD`; with neither it says
+"usage not known". It says "low" from 80 %. Which fields your Claude Code version sends hasn't been tried yet.
 
 The work sync records what changed (an issue, a pull request or a run: its state, head commit, who, when and a link,
 never a title or text) in hubd's change feed, `feed.sqlite` in its state folder. Each running Steward reads it from its
@@ -224,7 +231,7 @@ The index is published with the docs site by the docs repository's CI, so keepin
 current means keeping that CI current. The app compares the published commit with the
 docs repository's head. A push starts the CI by itself; if the index is still stale after
 15 minutes and no run is active, the app starts the workflow, once per commit. **Run docs
-CI** on the Docs page and the `docs_reindex` tool do the same on request. Searches pick up
+CI** on the Knowledge page and the `docs_reindex` tool do the same on request. Searches pick up
 a new index by themselves.
 
 ## On the LAN

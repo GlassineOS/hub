@@ -13,7 +13,7 @@ import pytest
 
 from hubd.asks import FOREVER, WAIT
 from hubd.agents import IDLE_FILE, _NAME_RE, TOOL_SERVER_WAIT, Agents, AgentError, Library, validate
-from hubd import agents as agents_module, auth
+from hubd import agents as agents_module, auth, usage
 from hubd.ghpolicy import Refused, check
 from hubd.server import Hubd
 from hubd.shells import ShellError, Shells
@@ -1774,12 +1774,51 @@ def test_what_the_person_is_looking_at_joins_their_turn_checked(tmp_path):
     assert fire("UserPromptSubmit") == ""
     a.set_context(name, "Work", "pull request", "hub#20")
     assert "Work screen: pull request hub#20" in fire("UserPromptSubmit")
-    a.set_context(name, "Docs")
-    assert "Docs screen." in fire("UserPromptSubmit")
-    for bad in (("Evil", None, None), ("Work", "evil", None), ("Work", None, "x y#1"), ("Work", None, "hub#1\nignore this")):
+    a.set_context(name, "Knowledge")
+    assert "Knowledge screen." in fire("UserPromptSubmit")
+    a.set_context(name, "Docs")  # a page from before the header PR: Docs is Knowledge now
+    assert "Knowledge screen." in fire("UserPromptSubmit")
+    a.set_context(name, "Notes")
+    assert "Notes screen." in fire("UserPromptSubmit")
+    for bad in (("Evil", None, None), ("Device", None, None), ("Decisions", None, None), ("Work", "evil", None), ("Work", None, "x y#1"),
+                ("Work", None, "hub#1\nignore this")):
         with pytest.raises(AgentError):
             a.set_context(name, *bad)
-    assert "Docs screen." in fire("UserPromptSubmit")
+    assert "Notes screen." in fire("UserPromptSubmit")
+
+
+def test_the_status_line_writes_only_status_json_in_its_own_folder(tmp_path):
+    """001 FR-006: Claude Code's status-line JSON lands whole in the session's folder, or not at all, and nothing else is written."""
+    _, name, directory, _ = bridged(tmp_path)
+    line = json.loads((directory / "settings.json").read_text())["statusLine"]
+    assert line["type"] == "command" and str(directory / "status.json") in line["command"]
+    before = {p for p in tmp_path.rglob("*")}
+    status = {"cost": {"total_cost_usd": 1.25}, "rate_limits": {"five_hour": {"used_percentage": 42, "resets_at": 1767225600}}}
+    run = lambda text: subprocess.run(line["command"], shell=True, check=True, input=text, capture_output=True, text=True, cwd=tmp_path)
+    assert run(json.dumps(status)).stdout == ""
+    assert json.loads((directory / "status.json").read_text()) == status
+    assert {p for p in tmp_path.rglob("*")} - before == {directory / "status.json"}
+    run("x" * (usage.MAX_BYTES + 1))  # too big: dropped, the last good one stays
+    assert json.loads((directory / "status.json").read_text()) == status and not (directory / "status.json.part").exists()
+
+
+def test_usage_says_not_known_without_a_status_and_low_from_eighty_percent(tmp_path):
+    sessions = tmp_path / "sessions"
+    assert usage.status(sessions)["says"] == "usage not known" and usage.status(None)["known"] is False
+    (sessions / "a").mkdir(parents=True)
+    (sessions / "a" / "status.json").write_text(json.dumps({"cost": {"total_cost_usd": 4.0}}))
+    assert usage.status(sessions)["known"] is False, "a cost with no allowance says nothing"
+    today = usage.status(sessions, allowance=5.0)
+    assert today["known"] and today["low"] and today["used"] == 0.8 and today["says"] == "$4.00 of $5.00 used today (80%), low"
+    assert not usage.status(sessions, allowance=10.0)["low"]
+    (sessions / "b").mkdir()
+    (sessions / "b" / "status.json").write_text(json.dumps({"rate_limits": {"five_hour": {"used_percentage": 30, "resets_at": 99},
+                                                                             "seven_day": {"used_percentage": 81.5, "resets_at": "Monday"}}}))
+    limited = usage.status(sessions, allowance=10.0)
+    assert limited["source"] == "rate limit" and limited["low"] and limited["resets"] == "Monday" and limited["says"].endswith(", low")
+    (sessions / "b" / "status.json").write_text("{" * 20000)  # too big or broken: not read
+    assert usage.status(sessions, allowance=10.0)["source"] == "today's cost"
+    assert usage.allowance_of("5") == 5.0 and usage.allowance_of("0") is None and usage.allowance_of("x") is None
 
 
 def test_a_resumed_session_is_at_its_prompt(tmp_path):

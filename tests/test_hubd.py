@@ -195,7 +195,8 @@ def test_malformed_requests(tmp_path, fake_gh):
             assert not json.loads(await r.readline())["ok"]
             w.close()
             assert not (await h.call(op="nope"))["ok"]
-            assert (await h.call(op="ping"))["user"] == USER
+            pinged = await h.call(op="ping")
+            assert pinged["user"] == USER and pinged["socket"] == str(h.path), "the header names the hubd it reached (001 FR-005)"
     run(go())
 
 
@@ -969,4 +970,18 @@ def test_an_eye_test_go_is_never_always_and_a_go_counts_down(needs):
         used = await hub.request({"op": "decision.use", "agent_token": "full-token", "kind": "go", "actions": "reboot", "id": made["id"]})
         assert used["answer"] == "yes"
         assert grant(await hub.request({"op": "interaction.list", "token": login}))["detail"]["left"] == {"runs": 1}
+    run(go())
+
+
+def test_usage_takes_a_login_and_reads_only_the_session_folders(tmp_path, fake_gh):
+    """001 FR-006: usage.status is behind the login, and with no status line yet it says it doesn't know."""
+    async def go():
+        async with Harness(tmp_path, fake_gh) as h:
+            for token in ("wrong", None):
+                reply = await h.call(op="usage.status", token=token)
+                assert not reply["ok"] and reply["denied"]
+            token = await h.login()
+            reply = await h.call(op="usage.status", token=token)
+            assert reply["ok"] and reply["known"] is False and reply["says"] == "usage not known"
+            assert not (await h.call(op="usage.other", token=token))["ok"]
     run(go())

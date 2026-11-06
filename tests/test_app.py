@@ -65,7 +65,7 @@ class FakeHubd(Hubd):
                 return {"ok": True, "scope": {"session": "s", "tools": ["overview"], "persona": "reviewer"}}
             return {"ok": request.get("token") == "agent", "scope": {"session": None, "tools": None, "persona": None}}
         if op == "ping":
-            return {"ok": True, "user": "u", "gh": True, "tmux": False}
+            return {"ok": True, "user": "u", "gh": True, "tmux": False, "socket": "/run/user/1000/glassine-hub/hubd.sock"}
         if op == "shell.list":
             return {"ok": True, "sessions": [{"name": "a"}]}
         if op.startswith("decision."):
@@ -953,20 +953,58 @@ def test_needs_you_is_one_modal_with_decisions_go_and_grants_in_it():
     assert 'post("device/holding"' in script and 'post("decisions", { kind: "go"' in script, "the same login-checked routes"
     for card in ("Ask", "DecisionRow", "SuggestedSession", "WorkWaiting"):
         assert "answerAt(" in _component(script, card), f"{card} answers through interaction.answer, saying where"
-    device = _component(script, "DeviceView")
-    assert "GoPanel" not in device and "needsYou(" in device
+    assert "GoPanel" not in _component(script, "DeviceCard") and 'needsYou({ filter: "grants" })' in _component(script, "DeviceCard")
 
 
-def test_queue_and_notes_are_tabs():
-    """A static check: the page isn't run here. Six entries are left, and the old addresses still land somewhere."""
+def test_the_header_has_six_views_needs_you_new_work_and_the_meter():
+    """A static check: the page isn't run here. FR-082-FR-086a, 007 FR-003, and the old addresses still land somewhere."""
     script = _app_js()
     nav = re.search(r"const NAV = \[(.*?)\];", script)[1]
-    assert re.findall(r'\["(\w+)", "', nav) == ["overview", "roadmap", "work", "docs", "shells", "device"]
-    assert "queue: QueuePage" not in script and "notes: NotesPage" not in script
+    assert re.findall(r'\["(\w+)", "([^"]+)"\]', nav) == [("overview", "Overview"), ("roadmap", "Roadmap"), ("work", "Work"),
+                                                       ("knowledge", "Knowledge"), ("notes", "Notes"), ("shells", "Sessions")]
+    views = re.search(r"const views = \{(.*?)\};", script)[1]
+    assert "knowledge: Knowledge" in views and "notes: NotesPage" in views and "device" not in views and "docs" not in views
+    for gone in ("function DeviceView(", "function DocsTabs(", "function Docs(", "function Budget(", "nav-count"):
+        assert gone not in script, gone
+    # Old addresses: the Work pages are tabs, Docs is Knowledge (its notes tab is Notes), Device is Overview's card.
+    moved = _component(script, "movedRoute")
+    assert 'route.path === "docs") return { path: q.tab === "notes" ? "notes" : "knowledge"' in moved
+    assert 'route.path === "device") return { path: "overview"' in moved
+    assert 'const OLD_WORK_PAGES = new Set(["issues", "prs", "actions", "queue"])' in script
     assert '["queue", "Queue"]' in script and 'query.tab === "queue" ? html`<${WorkQueue} />`' in script
-    assert 'query.tab === "notes" ? html`<${NotesPage} />`' in script
-    assert 'queue: "queue" }[route.path]' in script and 'const notes = route.path === "notes"' in script, "old addresses go to the tabs"
-    assert 'queue: "work", notes: "docs"' in script, "the Steward is told Work and Docs for them"
+    # Needs you: yellow (data-waits) only when something blocks, outlined while anything waits, plain at none.
+    button = _component(script, "NeedsButton")
+    assert 'c.blocking > 0 ? "blocking" : c.pending > 0 ? "pending" : "none"' in button
+    assert 'data-waits=${state === "blocking" ? "" : undefined}' in button and "aria-label=${needsLabel(asks)}" in button
+    css = (Path(__file__).resolve().parents[1] / "app" / "hub" / "static" / "style.css").read_text()
+    assert '.needs-open[data-waits]' in css and '.top .needs-open[data-state="none"]' in css
+    assert ".top nav a[aria-current] { background: var(--mark)" not in css, "yellow is only for what waits for you"
+    hub = _component(script, "Hub")
+    assert "<${NeedsButton} asks=${asks} />" in hub and 'class="primary new-work" onClick=${() => planWork()}' in hub
+    assert "<${UsageMeter} />" in hub and "host.hubd" in hub and "hubd can't be reached" in hub and 'api("host"), [], 15000' in hub
+    assert "<${ApiBudget} />" in _component(script, "Overview") and "<${DeviceCard} asks=${asks} />" in _component(script, "Overview")
+    meter = _component(script, "UsageMeter")
+    assert 'api("usage")' in meter and '" · low"' in meter and '"not known"' in meter and "aria-label=${label}" in meter
+    # The Steward is told where the person is, in the screens hubd knows.
+    seen = re.search(r"const SEEN_SCREEN = \{(.*?)\};", script)[1]
+    assert 'knowledge: "Knowledge"' in seen and 'notes: "Notes"' in seen and "Device" not in seen and "Decisions" not in seen
+    assert 'tab === "queue") return { screen: "Queue"' in _component(script, "seenFrom")
+
+
+def test_the_header_reads_the_hubd_address_and_the_usage():
+    class Hubd(FakeHubd):
+        async def call(self, **request):
+            if request["op"] == "usage.status":
+                self.commands.append(("usage.status", request))
+                return {"ok": True, "known": True, "used": 0.85, "low": True, "says": "85% of the rate limit used, low", "resets": 1, "source": "rate limit", "extra": "x"}
+            return await super().call(**request)
+    hubd = Hubd()
+    client = TestClient(web.build(hubd, None, FakeDocs(), secure_cookie=False, allowed_hosts={"testserver"}))
+    assert client.get("/api/usage").status_code == 401
+    signed_in(client)
+    assert client.get("/api/host").json()["hubd"] == "/run/user/1000/glassine-hub/hubd.sock"
+    usage = client.get("/api/usage").json()
+    assert usage["low"] is True and "extra" not in usage and hubd.commands[-1][1]["token"] == "good"
 
 
 def test_interactions_need_a_login_and_answers_the_same_origin():
@@ -1281,3 +1319,20 @@ def test_every_component_the_page_renders_is_defined():
     defined = set(re.findall(r"(?:function|const|let|class)\s+([A-Za-z_]\w*)", script))
     defined |= {n.strip() for group in re.findall(r"import\s*\{([^}]*)\}", script) for n in group.split(",")}
     assert used - defined == set()
+
+
+def test_a_page_that_cant_reach_hubd_is_told_so_not_signed_out():
+    """001 FR-005, 001 FR-020: no hubd is a 503 the page shows as a banner; a refused login is still a 401. Neither reads anything."""
+    class Gone(FakeHubd):
+        async def call(self, **request):
+            if request["op"] == "auth.check":
+                raise HubdError("hubd is not reachable: no such file", unreachable=True)
+            return await super().call(**request)
+    client = TestClient(web.build(Gone(), None, FakeDocs(), secure_cookie=False, allowed_hosts={"testserver"}))
+    client.cookies.set("hub_session", "good")
+    reply = client.get("/api/interactions")
+    assert reply.status_code == 503 and reply.json() == {"error": "hubd can't be reached", "unreachable": True}
+    client = TestClient(web.build(FakeHubd(), None, FakeDocs(), secure_cookie=False, allowed_hosts={"testserver"}))
+    client.cookies.set("hub_session", "nope")
+    assert client.get("/api/interactions").status_code == 401
+    assert "hostPoll.error || listed.error" in _component(_app_js(), "Hub")

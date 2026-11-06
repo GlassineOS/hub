@@ -24,10 +24,11 @@ SEES = contextvars.ContextVar("hub_sees", default=None)
 
 
 class HubdError(Exception):
-    def __init__(self, message: str, refused: bool = False, denied: bool = False):
+    def __init__(self, message: str, refused: bool = False, denied: bool = False, unreachable: bool = False):
         super().__init__(message)
         self.refused = refused
         self.denied = denied
+        self.unreachable = unreachable  # no answer at all: hubd isn't running, or went away mid-request
 
 
 class GhError(HubdError):
@@ -42,7 +43,7 @@ class Hubd:
         try:
             reader, writer = await asyncio.open_unix_connection(self.path, limit=LIMIT)
         except OSError as e:
-            raise HubdError(f"hubd is not reachable: {e}") from e
+            raise HubdError(f"hubd is not reachable: {e}", unreachable=True) from e
         try:
             writer.write(json.dumps(request).encode() + b"\n")
             await writer.drain()
@@ -50,7 +51,7 @@ class Hubd:
         finally:
             writer.close()
         if not line:
-            raise HubdError("hubd closed the connection")
+            raise HubdError("hubd closed the connection", unreachable=True)
         reply = json.loads(line)
         if not reply.get("ok"):
             raise HubdError(reply.get("error", "failed"), reply.get("refused", False), reply.get("denied", False))
