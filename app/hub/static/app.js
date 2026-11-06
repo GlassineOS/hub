@@ -590,34 +590,6 @@ function RepoDetail({ repo, layer }) {
   </section>`;
 }
 
-function NeedsYou({ data, sessions, ready }) {
-  // No project scope yet just means no board rows here: the Roadmap page explains that.
-  const board = useLoad(async () => {
-    const [project, issues] = await Promise.all([api("project"), api("issues?repo=hub")]);
-    if (!project.columns) return [];
-    const on = new Set(project.columns.flatMap((c) => c.items.filter((i) => i.repo === "hub").map((i) => i.number)));
-    return issues.filter((i) => !on.has(i.number));
-  }, [], 300000);
-  const rows = [];
-  for (const s of sessions) {
-    if (s.agent && s.agent.waiting) rows.push({ kind: "Waiting", cls: "mark", title: `${s.name} is waiting for you`, ref: whereFrom(s.agent), href: hash("shells", { name: s.name }) });
-  }
-  for (const g of data.groups) {
-    for (const r of g.repos) {
-      if (r.ci === "failure" || r.ci === "error") rows.push({ kind: "Failed", cls: "bad", title: `CI is failing on ${r.branch || "the default branch"}`, ref: r.name, href: hash("work", { tab: "actions", repo: r.name, status: "failure" }) });
-    }
-  }
-  for (const p of ready) rows.push({ kind: "Merge", cls: "dim", title: `${p.title}: checks green`, ref: `${p.repo}#${p.number}`, href: hash("work", { tab: "prs", repo: p.repo, item: p.number }) });
-  for (const i of board.data || []) rows.push({ kind: "Board", cls: "dim", title: `${i.title}: not on the roadmap`, ref: `hub#${i.number}`, href: hash("roadmap") });
-  return html`<section aria-labelledby="h-attn" class="stack tight">
-    <h2 id="h-attn" class="dotted" style="font-size: 21px; font-weight: 600">Needs you</h2>
-    ${rows.map((a) => html`<a class="attn" href=${a.href}><span class="badge ${a.cls}">${a.kind}</span>
-      <span class="t"><span style="font-weight: 500; line-height: 1.35">${a.title}</span>
-        <span class="mono soft" style="font-size: 12.5px">${a.ref}</span></span></a>`)}
-    ${!rows.length && html`<p class="small soft">Nothing right now.</p>`}
-  </section>`;
-}
-
 // A discard that found more than a little that git ignores: it stays until you've seen what would go.
 function DiscardIgnored({ item, onNo, onYes }) {
   return html`<${Confirm} title=${`Discard ${item.name} and its ignored files?`} danger label="Discard them too"
@@ -682,65 +654,147 @@ function RepoCopies() {
   </section>`;
 }
 
-function DocsStat() {
+// 007 FR-001: what waits for you, from the interactions' counts: how many, of which kinds, and the longest wait. It opens Needs you.
+const KIND_PLURAL = { permission: "permissions", question: "questions", decision: "decisions", suggestion: "suggestions", result: "results" };
+const waitWords = (s) => (s < 90 ? "under a minute" : s < 5400 ? `${Math.round(s / 60)} min` : s < 129600 ? `${Math.round(s / 3600)} h` : `${Math.round(s / 86400)} d`);
+function NeedsYouCard({ asks }) {
+  const c = asks.interactions.counts;
+  const kinds = Object.entries(c.by_kind || {}).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${n === 1 ? k : KIND_PLURAL[k] || k}`);
+  return html`<button type="button" class="stat needs-card ${c.blocking ? "blocking" : ""}" onClick=${() => needsYou()} aria-label=${needsLabel(asks)}>
+    <${Eyebrow} soft>Needs you<//><b>${c.pending || "Nothing"}</b>
+    <span class="small">${c.pending ? kinds.join(" · ") : "nothing waiting"}${c.blocking ? ` · ${c.blocking} blocking a session` : ""}</span>
+    <span class="small soft">${c.pending ? `longest wait ${waitWords(c.longest_wait)}` : asks.stale ? "hubd can't be reached" : " "}</span></button>`;
+}
+
+// The repositories a session works in: what it covers, else its own.
+const sessionRepos = (s) => {
+  const a = s.agent || {};
+  return new Set([...(a.covers || []).map((c) => c.repo), ...(a.repo ? [a.repo] : [])]);
+};
+
+// 007 FR-004: failing runs, waiting sessions, open pull requests, then the latest activity, as github.attention_key.
+function byAttention(a, b) {
+  const x = a.attention, y = b.attention;
+  return (y.failing_runs - x.failing_runs) || (b.waiting - a.waiting) || (y.open_prs - x.open_prs)
+    || String(y.last_activity || "").localeCompare(String(x.last_activity || ""));
+}
+const needsAttention = (r) => r.attention.failing_runs > 0 || r.waiting > 0;
+const LAYER_SHOWN = 5; // 007 FR-005: then "Show N more"
+// 007 FR-004–FR-006: a layer's repositories that fit the filter, in attention order; the first LAYER_SHOWN of them unless
+// all are asked for or a filter is typed; and how many more there are.
+function layerRows(rows, { needle = "", attentionOnly = false, all = false } = {}) {
+  const fits = rows.filter((r) => (!needle || `${r.name} ${r.description || ""}`.toLowerCase().includes(needle)) && (!attentionOnly || needsAttention(r)));
+  const sorted = [...fits].sort(byAttention);
+  const shown = all || needle ? sorted : sorted.slice(0, LAYER_SHOWN);
+  return { rows: sorted, shown, more: sorted.length - shown.length };
+}
+
+// 007 FR-007: one repository, as a row of its layer. The name opens its details beside the list.
+function RepoCard({ r, marks, picked, onPick }) {
+  const kind = r.attention.failing_runs > 0 ? "fail" : CI_KIND[r.ci] || "open";
+  const shown = r.sessions.slice(0, MAX_ROW_CHIPS);
+  return html`<div class="repo keycap" data-picked=${picked ? "" : undefined}>
+    <button type="button" class="title plain" aria-pressed=${picked ? "true" : "false"} onClick=${onPick}>
+      <${StateIcon} kind=${kind} label=${r.attention.failing_runs > 0 ? `${count(r.attention.failing_runs, "workflow")} failing` : CI_WORD[kind]} /><span class="grow">${r.name}</span></button>
+    <span class="mono" style="font-size: 12.5px">${count(r.issues, "issue")} · ${r.prs} PR${r.prs === 1 ? "" : "s"}${r.failing_prs ? ` (${r.failing_prs} failing)` : ""}</span>
+    <${Strip} marks=${marks} />
+    <span class="small" style="overflow-wrap: anywhere">${r.last_commit ? html`<span class="soft">Last commit</span> ${r.last_commit.title || r.last_commit.oid.slice(0, 7)}` : html`<span class="soft">No commits</span>`}</span>
+    <span class="soft" style="font-size: 12.5px">${r.last_activity ? `active ${ago(r.last_activity)}` : "no activity"} · ${r.release || "no release"}</span>
+    <span class="row" style="gap: 6px; width: 100%">${shown.map((s) => html`<${SessionChip} key=${s.name} session=${s} href=${hash("shells", { name: s.name })} />`)}
+      ${r.sessions.length > shown.length && html`<a class="small" href=${hash("shells")}>${r.sessions.length - shown.length} more</a>`}
+      <span class="grow"></span>
+      <button type="button" class="pen" onClick=${() => launch({ repos: [r.name], from: { view: "Overview" } })}><${TermIcon} />Launch…</button></span>
+  </div>`;
+}
+
+function KnowledgeStat() {
   const { data, error } = useLoad(() => api("docs/status"), [], 120000);
-  return html`<a class="stat" href=${hash("knowledge")}><${Eyebrow} soft>Docs index<//>
-    <b>${error ? "unknown" : data ? data.state : "…"}</b>
-    <span class="small soft">${data ? `site ${data.published.slice(0, 7)} · head ${data.head.slice(0, 7)}` : error || " "}</span></a>`;
+  return html`<a class="stat" href=${hash("knowledge")}><${Eyebrow} soft>Knowledge<//>
+    <b>${error ? "unknown" : data ? (data.chunks == null ? data.state : data.chunks.toLocaleString()) : "…"}</b>
+    <span class="small soft">${data ? `passages indexed · index ${data.state}` : error || " "}</span></a>`;
+}
+
+// The host login's GitHub API budget, as one of Overview's stats.
+function BudgetStat() {
+  const { data, error } = useLoad(() => api("limits"), [], 120000);
+  const pct = data && data.limit ? Math.round(data.remaining / data.limit * 100) : 0;
+  const reset = data ? new Date(data.reset * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+  return html`<div class="stat"><${Eyebrow} soft>GitHub API<//><b>${data ? `${pct}%` : error ? "unknown" : "…"}</b>
+    ${data && html`<span class="bar ink" style="width: 100%; height: 8px" aria-hidden="true"><i style="width: ${pct}%"></i></span>`}
+    <span class="small soft">${data ? `${data.remaining.toLocaleString()} of ${data.limit.toLocaleString()} left · resets ${reset}` : error || " "}</span></div>`;
 }
 
 function Overview({ asks }) {
   const { data, error } = useLoad(() => api("overview"), [], 60000);
   const strips = useLoad(() => api("overview/runs"), [], 300000);
-  const prs = useLoad(() => api("prs"), [], 300000);
-  const ready = (prs.data || []).filter((p) => p.checks === "passing" && !p.isDraft);
   const sessions = useSessions();
   const [picked, setPicked] = useState(null);
+  const [filter, setFilter] = useState("");
+  const [attentionOnly, setAttentionOnly] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => new Set());
+  const [opened, setOpened] = useState(() => new Set()); // layers showing all their repositories
   const list = sessions.data || [];
   if (!data) return html`<main class="page"><h1>Overview</h1><${Err} text=${error} />${!error && html`<p class="soft">Loading…</p>`}</main>`;
+  const withSessions = (r) => {
+    const on = list.filter((s) => sessionRepos(s).has(r.name));
+    return { ...r, sessions: on, waiting: on.filter((s) => s.agent && s.agent.waiting).length };
+  };
   const placed = data.groups.filter((g) => g.key !== "unplaced");
   const unplaced = data.groups.find((g) => g.key === "unplaced");
-  const every = data.groups.flatMap((g) => g.repos.map((r) => ({ ...r, layer: g.title })));
-  const current = every.find((r) => r.name === picked) || every.find((r) => r.ci === "failure") || every[0];
-  const failing = every.filter((r) => r.ci === "failure" || r.ci === "error");
+  const every = data.groups.flatMap((g) => g.repos.map((r) => ({ ...withSessions(r), layer: g.title })));
+  const current = every.find((r) => r.name === picked) || [...every].sort(byAttention)[0];
+  const needle = filter.trim().toLowerCase();
+  const layers = placed.map((g) => ({ ...g, ...layerRows(g.repos.map(withSessions), { needle, attentionOnly, all: opened.has(g.key) }) }));
+  const running = list.filter((s) => s.agent && !s.agent.ended).length;
   const waiting = list.filter((s) => s.agent && s.agent.waiting).length;
+  const toggle = (set, key) => { const x = new Set(set); if (!x.delete(key)) x.add(key); return x; };
+  const shownUnplaced = unplaced ? layerRows(unplaced.repos.map(withSessions), { needle, attentionOnly, all: true }).rows : [];
   return html`<main class="page">
     <div class="row" style="justify-content: space-between; align-items: flex-end; gap: 12px 24px">
       <div class="stack tight"><${Eyebrow} soft>GlassineOS org · ${data.totals.repos} repositories · ${placed.length} layers<//><h1>Overview</h1></div>
 </div>
     <${Err} text=${error} />
     <section class="stats" aria-label="Org totals">
+      <${NeedsYouCard} asks=${asks} />
+      <a class="stat" href=${hash("shells")}><${Eyebrow} soft>Running sessions<//><b>${running}</b><span class="small soft">${waiting ? `${waiting} waiting for you` : "none waiting"}</span></a>
       <a class="stat" href=${hash("work", { tab: "issues" })}><${Eyebrow} soft>Open issues<//><b>${data.totals.issues}</b><span class="small soft">across ${data.totals.repos} repositories</span></a>
-      <a class="stat" href=${hash("work", { tab: "prs" })}><${Eyebrow} soft>Open PRs<//><b>${data.totals.prs}</b><span class="small soft">${ready.length} ready to merge</span></a>
-      <a class="stat" href=${hash("work", { tab: "actions", status: "failure" })}><${Eyebrow} soft>CI<//><b>${failing.length ? `${failing.length} failing` : "passing"}</b><span class="small soft">${failing.map((r) => r.name).join(", ") || "on the default branches"}</span></a>
-      <${DocsStat} />
-      <a class="stat" href=${hash("shells")}><${Eyebrow} soft>Sessions<//><b>${list.length}</b><span class="small soft">${waiting ? `${waiting} waiting for you` : "none waiting"}</span></a>
+      <a class="stat" href=${hash("work", { tab: "prs" })}><${Eyebrow} soft>Open PRs<//><b>${data.totals.prs}</b><span class="small soft">${data.totals.failing_prs == null ? "checks not counted until the first sync" : data.totals.failing_prs ? `${data.totals.failing_prs} failing` : "none failing"}</span></a>
+      <${KnowledgeStat} />
+      <${BudgetStat} />
     </section>
-    <${ApiBudget} />
     <div class="columns">
       <section class="wide stack" style="gap: 24px" aria-labelledby="h-layers">
         <div class="row dotted"><h2 id="h-layers" class="grow" style="font-size: 27px; line-height: 1.2; font-weight: 600">Repositories by layer</h2>
-          <span class="small soft">Layers from <code>config/repos.toml</code></span></div>
-        ${placed.map((g, i) => html`<div class="layer">
-          <div class="name" title=${g.summary}><span class="num" aria-hidden="true">${i + 1}</span><h3>${g.title}</h3></div>
-          <div class="repos">${g.repos.map((r) => {
-            const kind = CI_KIND[r.ci] || "open";
-            return html`<button type="button" class="repo keycap" aria-pressed=${current && current.name === r.name ? "true" : "false"} onClick=${() => setPicked(r.name)}>
-              <span class="title"><${StateIcon} kind=${kind} label=${CI_WORD[kind]} /><span class="grow">${r.name}</span></span>
-              <span class="mono" style="font-size: 12.5px">${count(r.issues, "issue")} · ${r.prs} PR${r.prs === 1 ? "" : "s"}</span>
-              <${Strip} marks=${strips.data ? strips.data[r.name] : null} />
-              <span class="soft" style="font-size: 12.5px">${r.head_date ? ago(r.head_date) : "no commits"} · ${r.release || "no release"}</span>
-            </button>`;
-          })}</div></div>`)}
+          <span class="small soft">Layers from <code>config/repos.toml</code>, each sorted by what needs attention</span></div>
+        <div class="filters">
+          <form class="searchbox" role="search" onSubmit=${(e) => e.preventDefault()}><${SearchIcon} /><label class="sr" for="ov-filter">Filter repositories</label>
+            <input id="ov-filter" type="search" placeholder="Filter by name or description" value=${filter} onInput=${(e) => setFilter(e.target.value)} /></form>
+          <label class="row small" style="gap: 8px"><input type="checkbox" role="switch" style="min-height: 0" checked=${attentionOnly} onChange=${(e) => setAttentionOnly(e.target.checked)} /> Needs attention only</label>
+          <button class="plain" onClick=${() => setCollapsed(new Set(placed.map((g) => g.key)))}>Collapse all</button>
+          <button class="plain" onClick=${() => setCollapsed(new Set())}>Expand all</button>
+        </div>
+        ${layers.map((g, i) => {
+          const shut = collapsed.has(g.key);
+          const failing = g.rows.filter((r) => r.attention.failing_runs > 0).length;
+          return html`<div class="layer" key=${g.key}>
+          <div class="name" title=${g.summary}><span class="num" aria-hidden="true">${i + 1}</span>
+            <h3><button type="button" class="plain layer-toggle" aria-expanded=${shut ? "false" : "true"} onClick=${() => setCollapsed(toggle(collapsed, g.key))}>${shut ? "▸" : "▾"} ${g.title}</button></h3>
+            ${shut && html`<span class="small soft">${g.rows.length} ${g.rows.length === 1 ? "repository" : "repositories"}${failing ? `, ${failing} failing` : ""}</span>`}</div>
+          ${!shut && html`<div class="repos">${g.shown.map((r) => html`<${RepoCard} key=${r.name} r=${r} marks=${strips.data ? strips.data[r.name] : null}
+              picked=${current && current.name === r.name} onPick=${() => setPicked(r.name)} />`)}
+            ${!g.rows.length && html`<span class="small soft">${attentionOnly ? "Nothing here needs attention." : "No repository matches."}</span>`}
+            ${g.more > 0 && html`<button type="button" class="plain" onClick=${() => setOpened(toggle(opened, g.key))}>Show ${g.more} more</button>`}
+            ${!needle && opened.has(g.key) && g.rows.length > LAYER_SHOWN && html`<button type="button" class="plain" onClick=${() => setOpened(toggle(opened, g.key))}>Show fewer</button>`}</div>`}
+        </div>`;
+        })}
         ${unplaced && html`<div class="unplaced"><span class="eyebrow" style="flex: 0 0 170px">Unplaced · ${unplaced.repos.length}</span>
-          <span class="mono" style="font-weight: 600">${unplaced.repos.map((r) => r.name).join(", ")}</span>
+          <span class="mono" style="font-weight: 600">${(needle || attentionOnly ? shownUnplaced : unplaced.repos).map((r) => r.name).join(", ") || "none match"}</span>
           <span class="small soft" style="flex: 1 1 240px">In the org but not in <code>config/repos.toml</code>. Add to a layer there.</span></div>`}
-        <p class="small soft">Run strip: last 10 workflow runs on the default branch, oldest first. Outlined: passed · filled: failed · dashed: running.</p>
+        <p class="small soft">Run strip: last 10 workflow runs on the default branch, oldest first. Outlined: passed · filled: failed · dashed: running. A repository's failing count is its workflows whose newest run there failed.</p>
       </section>
       <aside class="aside stack" style="gap: 24px">
         ${current && html`<${RepoDetail} key=${current.name} repo=${current} layer=${current.layer} />`}
         <${DeviceCard} asks=${asks} />
-        <${NeedsYou} data=${data} sessions=${list} ready=${ready} />
         <${Workspace} />
         <${RepoCopies} />
       </aside>
@@ -3136,17 +3190,6 @@ function Login({ onIn }) {
 const Logo = () => html`<a class="logo" href="#/overview">
   <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="3" width="18" height="22" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="11" y="7" width="18" height="22" rx="2" fill="var(--mark)" stroke="var(--pen)" stroke-width="1.5" /></svg>
   <span><span class="eyebrow">GlassineOS Hub</span><small>GlassineOS/hub</small></span></a>`;
-
-// The GitHub API budget, on Overview's stats line: the header's meter is the sessions' usage now (001 R1).
-function ApiBudget() {
-  const { data } = useLoad(() => api("limits"), [], 120000);
-  if (!data) return null;
-  const pct = data.limit ? Math.round(data.remaining / data.limit * 100) : 0;
-  const reset = new Date(data.reset * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  return html`<p class="budget" style="margin: -8px 0 18px"><b>GitHub API</b>
-    <span class="bar ink" style="width: 64px; height: 8px" aria-hidden="true"><i style="width: ${pct}%"></i></span>
-    ${data.remaining.toLocaleString()} of ${data.limit.toLocaleString()} left · resets ${reset}</p>`;
-}
 
 // How much of the sessions' usage allowance is used (001 FR-006): words and a bar, "low" from 80 %. hubd reads it
 // from the sessions' status lines; with no rate limit and no allowance set it says it doesn't know.
