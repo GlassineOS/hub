@@ -1542,8 +1542,11 @@ class Agents:
         except (OSError, ValueError):
             return None
         config = record["config"]
+        # A persona the library no longer has (an old session's) shows its id, with no family.
+        badge = self.library.family(config["persona"]) or {"name": config["persona"], "initials": None, "family": None}
         return {"title": record["title"], "object": record["object"], "repo": config["repo"], "number": config["number"], "also_numbers": config.get("also_numbers", []),
                 "model": config["model"], "effort": config["effort"], "persona": config["persona"], "action": config["action"],
+                "persona_name": badge["name"], "initials": badge["initials"], "family": badge["family"],
                 "posts_as": self.apps.posts_as(config["persona"]) if self.apps else None,
                 "full": record.get("full", False), "waiting": (self.sessions / name / "waiting").exists(), "idle": (self.sessions / name / IDLE_FILE).exists(),
                 "ended": (self.sessions / name / ENDED_FILE).exists(),

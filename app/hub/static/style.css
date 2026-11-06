@@ -13,12 +13,16 @@
   color-scheme: light dark;
   --paper: #ffffff; --sheet: #f2f2f2; --ink: #111111; --soft: #4a4a4a; --rule: #d0d0d0; --shade: #b4b4b4;
   --pen: #2747b8; --on-pen: #ffffff; --signal: #b4380a; --mark: #ffd86b; --mark-2: #ffd9b8; --mark-3: #e2e2e2;
+  /* Persona families (the badge's tint). Investigate and organise share their value with --mark-2 and --mark-3. */
+  --family-build: #d6e2ff; --family-review: #eadcff; --family-investigate: var(--mark-2); --family-write: #d4efdc; --family-organise: var(--mark-3);
+  --night: #121212; --on-night: #eeeeee; /* terminals and logs */
   --sans: "IBM Plex Sans", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, monospace; --hand: "Kalam", cursive;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --paper: #121212; --sheet: #222222; --ink: #eeeeee; --soft: #bbbbbb; --rule: #3d3d3d; --shade: #3d3d3d;
     --pen: #9db2ff; --on-pen: #121212; --signal: #ff9a6b; --mark: #5a4710; --mark-2: #5a2e12; --mark-3: #3a3a3a;
+    --family-build: #22355f; --family-review: #3d2c5c; --family-write: #1f4630;
   }
 }
 * { box-sizing: border-box; }
@@ -80,8 +84,8 @@ button.pill { border-radius: 999px; font: 400 14px var(--sans); box-shadow: none
 button.pill[aria-pressed="true"], button.pill[aria-checked="true"], button.pill[aria-selected="true"] { background: var(--ink); color: var(--paper); font-weight: 600; }
 input, select, textarea { min-height: 44px; padding: 0 12px; border: 1.5px solid var(--ink); border-radius: 12px; background: var(--paper); color: var(--ink); font: inherit; }
 textarea { padding: 10px 12px; width: 100%; resize: vertical; }
-label.field { display: flex; flex-direction: column; gap: 2px; }
-label.field > span { font: 500 11.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+label.field, div.field { display: flex; flex-direction: column; gap: 2px; }
+label.field > span, div.field > span { font: 500 11.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
 .searchbox { flex: 1 1 220px; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; border: 1.5px solid var(--ink); border-radius: 12px; }
 .searchbox input { border: 0; outline: 0; padding: 0; min-height: 0; width: 100%; min-width: 0; background: transparent; }
 .searchbox:focus-within { outline: 2px solid var(--pen); outline-offset: 2px; }
@@ -111,7 +115,7 @@ label.field > span { font: 500 11.5px var(--mono); letter-spacing: .08em; text-t
 .body pre, .codeblock { padding: 10px 12px; background: var(--sheet); border-radius: 6px; font: 400 13px/1.6 var(--mono); overflow-x: auto; }
 .body pre code { background: none; padding: 0; }
 .body blockquote { margin: 0; padding-left: 12px; border-left: 3px solid var(--rule); color: var(--soft); }
-.log { background: #121212; color: #eeeeee; border-radius: 6px; padding: 10px 12px; font: 400 12.5px/1.55 var(--mono); max-height: 480px; overflow: auto; white-space: pre; }
+.log { background: var(--night); color: var(--on-night); border-radius: 6px; padding: 10px 12px; font: 400 12.5px/1.55 var(--mono); max-height: 480px; overflow: auto; white-space: pre; }
 
 /* overview */
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px; }
@@ -163,17 +167,15 @@ label.field > span { font: 500 11.5px var(--mono); letter-spacing: .08em; text-t
 .wlist { border: 1.5px solid var(--ink); border-radius: 12px; overflow: hidden; }
 .wrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
 .wrow:last-child { border-bottom: 0; }
-.wrow .ic { flex: none; width: 18px; display: flex; justify-content: center; }
+.wrow > .itempill { flex: none; }
 .wrow .t { flex: 1 1 360px; min-width: 0; display: flex; flex-direction: column; color: var(--ink); text-decoration: none; }
 .wrow .t:hover b { text-decoration: underline; }
 .wrow .line { display: flex; gap: 10px; align-items: baseline; min-width: 0; }
-.wrow .ref { flex: none; font-size: 13px; }
 .wrow .line b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wrow .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wrow .state { flex: none; width: 96px; font: 500 11.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
 .wrow .age { flex: none; width: 44px; font: 400 13px var(--mono); color: var(--soft); text-align: right; }
 .wrow .start { flex: none; min-height: 40px; padding: 0 12px; font-size: 13.5px; box-shadow: none; }
-.sesschip { display: flex; align-items: center; gap: 6px; padding: 2px 8px; border: 1.5px solid var(--ink); border-radius: 999px; background: var(--mark); color: var(--ink); font: 400 12px var(--mono); text-decoration: none; }
 .thread { display: flex; flex-direction: column; gap: 8px; margin-left: 24px; padding: 12px 14px; border: 1.5px solid var(--ink); border-radius: 12px; }
 .thread.done { opacity: .7; }
 .tick { display: flex; align-items: center; justify-content: center; width: 24px; min-width: 24px; min-height: 24px; height: 24px; padding: 0; border-radius: 4px; box-shadow: none; }
@@ -197,7 +199,7 @@ label.field > span { font: 500 11.5px var(--mono); letter-spacing: .08em; text-t
 .embedded { display: flex; flex-direction: column; border: 1.5px solid var(--ink); border-radius: 16px; overflow: hidden; box-shadow: 0 3px 0 var(--shade); }
 .termhead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 8px 16px; border-bottom: 1.5px solid var(--ink); background: var(--sheet); }
 .termhead h2 { font: 600 15px var(--mono); }
-.term { background: #121212; padding: 8px 12px; height: 520px; }
+.term { background: var(--night); padding: 8px 12px; height: 520px; }
 .embedded .term { height: 380px; }
 .waitbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 16px; border-bottom: 1.5px solid var(--ink); background: var(--mark); }
 .waitbar span { flex: 1 1 260px; font-weight: 500; }
@@ -433,3 +435,62 @@ dialog.sf { width: min(880px, calc(100vw - 32px)); }
 .dock-model { padding: 10px 12px; border-bottom: 1px dotted var(--ink); }
 .dock-modelname { align-self: flex-start; min-height: 24px; padding: 0; font-size: 12px; text-align: left; }
 .nw-open { align-self: flex-start; margin-bottom: 8px; }
+
+/* --- shared components (spec 002/PR 2) -------------------------------------------------------- */
+/* Severity is the outline, never the fill (001 FR-012): double = high or failed, heavy = medium or
+   blocked, solid = low, dashed = info, running or draft. */
+.sev-high { border: 3.5px double var(--ink); }
+.sev-medium { border: 2.5px solid var(--ink); }
+.sev-low { border: 1.5px solid var(--ink); }
+.sev-info { border: 1.5px dashed var(--ink); }
+
+/* ItemPill: state in its outline, its icon and its accessible name; the fill is always paper. */
+.itempill { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 32px; padding: 0 10px; border-radius: 999px;
+  background: var(--paper); color: var(--ink); font: 400 13px var(--sans); text-decoration: none; }
+.itempill:hover { color: var(--ink); }
+a.itempill:hover .ref { text-decoration: underline; }
+.itempill .ref { flex: none; font: 500 12.5px var(--mono); white-space: nowrap; }
+.itempill .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.itempill.closed, .itempill.merged, .itempill.passed { color: var(--soft); }
+.pillwrap { display: inline-flex; align-items: center; gap: 0; max-width: 100%; }
+.pillwrap .remove { width: 32px; min-width: 32px; min-height: 32px; height: 32px; margin-left: -4px; padding: 0; border: 0; border-radius: 999px; background: transparent; box-shadow: none; font-weight: 400; }
+
+/* PersonaBadge: initials on the family tint; the Steward's own pen-blue S; plain shells outlined. */
+.pbadge { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 28px; height: 28px; border: 1.5px solid var(--ink);
+  border-radius: 8px; color: var(--ink); font: 600 11.5px/1 var(--mono); letter-spacing: .02em; }
+.pbadge.build { background: var(--family-build); }
+.pbadge.review { background: var(--family-review); }
+.pbadge.investigate { background: var(--family-investigate); }
+.pbadge.write { background: var(--family-write); }
+.pbadge.organise { background: var(--family-organise); }
+.pbadge.steward { background: var(--pen); color: var(--on-pen); border-color: var(--pen); border-radius: 999px; font-size: 13px; }
+.pbadge.shell { background: var(--paper); border-style: dashed; }
+.pbadge.unknown { background: var(--paper); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; }
+.legend li { display: flex; align-items: center; gap: 6px; }
+.legend .pbadge { width: 20px; height: 20px; font-size: 9.5px; }
+
+/* SessionChip: state in words; yellow only for a session that waits for you (002 FR-017, 001 FR-011). */
+.sesschip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 32px; padding: 0 10px 0 2px; border: 1.5px solid var(--ink);
+  border-radius: 999px; background: var(--paper); color: var(--ink); font: 400 12px var(--mono); text-decoration: none; box-shadow: none; }
+.sesschip:hover, .sesschip:hover:not(:disabled) { color: var(--ink); background: var(--sheet); }
+.sesschip .pbadge { width: 26px; height: 26px; border-radius: 999px; font-size: 10px; }
+.sesschip .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 22ch; }
+.sesschip .word { font: 500 11px var(--mono); letter-spacing: .08em; }
+.sesschip.done { border-style: dashed; color: var(--soft); }
+.sesschip[data-waits], .sesschip[data-waits]:hover:not(:disabled) { background: var(--mark); font-weight: 600; }
+
+/* RepoPicker and ItemPicker: a field that opens a filtered list. */
+.picker { position: relative; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.picker-button { align-self: flex-start; justify-content: space-between; min-width: 200px; max-width: 100%; font: 400 14px var(--mono); box-shadow: none; }
+.picker .chosen { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.picker .pop { position: absolute; top: calc(100% + 4px); left: 0; z-index: 25; display: flex; flex-direction: column; gap: 6px; width: min(420px, calc(100vw - 32px));
+  padding: 8px; border: 1.5px solid var(--ink); border-radius: 12px; background: var(--paper); box-shadow: 0 3px 0 var(--shade); }
+.picker .pop.inline { position: static; width: 100%; }
+.picker [role="listbox"] { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; }
+.picker [role="group"] > .eyebrow { display: block; padding: 6px 8px 2px; }
+.picker [role="option"] { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 8px; border-radius: 8px; cursor: pointer; font: 400 14px var(--mono); overflow-wrap: anywhere; }
+.picker [role="option"][data-active] { outline: 2px solid var(--pen); outline-offset: -2px; background: var(--sheet); }
+.picker [role="option"] .tick { flex: none; width: 18px; text-align: center; font-weight: 600; }
+.picker [role="option"][aria-selected="true"] { font-weight: 600; }
+.picker .foot { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; justify-content: space-between; }

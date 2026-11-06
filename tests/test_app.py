@@ -1105,3 +1105,90 @@ def test_an_attribute_takes_one_value():
     from pathlib import Path
     text = (Path(__file__).parents[1] / "app/hub/static/app.js").read_text()
     assert "</button>`}${open && spawn(" not in text
+
+
+def _style_css():
+    return (Path(__file__).resolve().parents[1] / "app" / "hub" / "static" / "style.css").read_text()
+
+
+def _component(script, name):
+    """The source of one function in app.js, up to the next top-level function."""
+    start = script.index(f"function {name}(")
+    following = re.search(r"\n(?:function |const |let |// ---)", script[start + 1:])
+    return script[start:start + 1 + following.start()] if following else script[start:]
+
+
+def test_family_tints_pen_and_mark_are_tokens_defined_once():
+    """A static check (002 FR-012, 001 FR-011, 001 FR-013): each colour is one token, and nothing else writes the value."""
+    css, script = _style_css(), _app_js()
+    for token, value in (("--family-build", "#d6e2ff"), ("--family-review", "#eadcff"), ("--mark-2", "#ffd9b8"),
+                         ("--family-write", "#d4efdc"), ("--mark-3", "#e2e2e2"), ("--pen", "#2747b8"), ("--mark", "#ffd86b")):
+        assert css.lower().count(value) == 1, value
+        assert re.search(rf"{token}:\s*{value}", css, re.I), token
+        assert value not in script.lower(), f"{value} is written into app.js instead of using its token"
+    for family in ("investigate", "organise"):
+        assert re.search(rf"--family-{family}:\s*var\(--mark-[23]\)", css)
+    for family in ("build", "review", "investigate", "write", "organise"):
+        assert f".pbadge.{family} {{ background: var(--family-{family}); }}" in css
+    # Night paper for terminals and logs (001 FR-014); the dark block gives the light tints dark values.
+    assert "--night: #121212" in css and ".term { background: var(--night)" in css
+    dark = css[css.index("@media (prefers-color-scheme: dark)"):]
+    dark = dark[:dark.index("\n}")]
+    assert all(f"--family-{f}:" in dark for f in ("build", "review", "write"))
+
+
+def test_severity_is_an_outline_and_pills_never_fill_by_state():
+    """A static check (002 FR-003, 001 FR-012): no ItemPill rule sets a background but paper; states pick an outline class."""
+    css, script = _style_css(), _app_js()
+    for cls, border in (("high", "double"), ("medium", "solid"), ("low", "solid"), ("info", "dashed")):
+        assert re.search(rf"\.sev-{cls} {{ border: [\d.]+px {border} var\(--ink\); }}", css), cls
+    pill_rules = [line for line in css.splitlines() if ".itempill" in line]
+    assert pill_rules and all("background" not in line or "background: var(--paper)" in line for line in pill_rules)
+    pill = _component(script, "ItemPill")
+    assert "background" not in pill and "style=" not in pill.replace('style="gap: 6px; flex-wrap: nowrap; min-width: 0"', "")
+    states = re.search(r"const PILL_STATE = \{(.*?)\};", script, re.S)[1]
+    assert set(re.findall(r"(\w+): \[", states)) == {"open", "draft", "merged", "closed", "failing", "running", "passed"}
+    assert all(re.search(rf'{s}: \["{s}", "sev-', states) for s in ("open", "failing", "draft")), "each state has its word"
+    assert "aria-label=${name}" in pill and "Remove ${ref(item)}" in pill
+
+
+def test_the_repo_picker_shows_a_count_past_three():
+    """A static check (002 FR-007): more than 3 chosen repositories read as a count, never as a list of pills."""
+    picker = _component(_app_js(), "RepoPicker")
+    assert "chosen.length > 3 ? `${chosen.length} repos`" in picker
+    assert "localStorage" not in picker and "readPicks" in picker, "storage goes through the try/catch helpers"
+    keys = _component(_app_js(), "listKeys")
+    assert all(k in keys for k in ('"ArrowDown"', '"ArrowUp"', '"Enter"', '"Escape"')), "002 FR-010"
+    picks = _component(_app_js(), "readPicks") + _component(_app_js(), "writePicks")
+    assert picks.count("try {") == 2
+
+
+def test_yellow_marks_only_a_session_that_waits():
+    """A static check (002 FR-017, 001 FR-011): a chip is yellow only under [data-waits], set only when it waits."""
+    css, script = _style_css(), _app_js()
+    chip_rules = [line for line in css.splitlines() if line.startswith(".sesschip")]
+    assert [line for line in chip_rules if "var(--mark)" in line] == [
+        ".sesschip[data-waits], .sesschip[data-waits]:hover:not(:disabled) { background: var(--mark); font-weight: 600; }"]
+    chip = _component(script, "SessionChip")
+    assert '"data-waits": waits ? "" : undefined' in chip and "aria-label" in chip
+    assert "${pending} waiting" in chip and "state.toUpperCase()" in chip
+    state = _component(script, "sessionState")
+    assert all(f'"{s}"' in state for s in ("done", "waiting", "attached", "running"))
+
+
+def test_the_steward_and_plain_shells_have_their_own_badges():
+    """A static check (002 FR-013, 002 FR-014): the pen-blue S is drawn for the Steward only; a plain shell is no family."""
+    badge = _component(_app_js(), "PersonaBadge")
+    assert 'persona.id === STEWARD) return html`<span class="pbadge steward"' in badge
+    assert 'if (!persona) return html`<span class="pbadge shell"' in badge
+    assert '"aria-label": label' in badge
+    css = _style_css()
+    assert ".pbadge.steward { background: var(--pen);" in css
+
+
+def test_the_shared_components_are_used():
+    """A static check (tasks.md 002 T014): each component has a place in this release, so none is dead code."""
+    script = _app_js()
+    for used in ("<${SessionChip} ", "<${ItemPill} ", "<${RepoPicker} ", "<${PersonaBadge} ", "<${FamilyLegend} />", "<${ItemPicker} "):
+        assert used in script.replace(_component(script, "FamilyLegend"), "").replace(_component(script, "SessionChip"), ""), used
+    assert "RepoSelect" not in script and 'class="sesschip" href' not in script

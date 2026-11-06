@@ -213,6 +213,301 @@ function Md({ text, showUrls }) {
   return blocks.length ? blocks : html`<p class="soft">(no description)</p>`;
 }
 
+// --- shared components ---------------------------------------------------------------
+// The building blocks every view uses (spec 002): ItemPill, PersonaBadge, SessionChip, RepoPicker,
+// ItemPicker. State is in words, outline or icon, never colour alone; yellow only for what waits for you.
+
+// Item references (002 FR-001): repo#N for issues, pull requests and roadmap items, workflow #N for runs.
+const KIND_WORD = { issue: "Issue", pr: "Pull request", run: "Run", roadmap: "Roadmap item" };
+const KIND_TAB = { issue: "issues", pr: "prs", run: "actions", roadmap: "issues" };
+const ref = (item) => (item.kind === "run" ? `${item.workflow || "run"} #${item.number}` : `${item.repo}#${item.number}`);
+const itemHref = (item) => hash("work", { tab: KIND_TAB[item.kind] || "issues", at: item.repo, item: item.number });
+// The ItemPill state of a row as GitHub or the work store gives it.
+function pillState(kind, row) {
+  if (!row) return undefined;
+  if (kind === "run") {
+    if (row.status && row.status !== "completed") return "running";
+    return row.conclusion === "failure" ? "failing" : row.conclusion === "success" ? "passed" : "closed";
+  }
+  const state = String(row.state || "").toUpperCase();
+  if (state === "MERGED") return "merged";
+  if (state === "CLOSED") return "closed";
+  if (kind === "pr" && row.isDraft) return "draft";
+  if (kind === "pr" && row.checks === "failing") return "failing";
+  if (kind === "pr" && row.checks === "pending") return "running";
+  return "open";
+}
+// 002 FR-003, 001 FR-012: the outline tells the state, with the icon and the words; the fill never does.
+const PILL_STATE = {
+  open: ["open", "sev-low", null], draft: ["draft", "sev-info", null], merged: ["merged", "sev-low", "pass"],
+  closed: ["closed", "sev-low", null], failing: ["failing", "sev-high", "fail"], running: ["running", "sev-info", "run"],
+  passed: ["passed", "sev-low", "pass"],
+};
+
+function KindIcon({ kind }) {
+  const a = { width: 14, height: 14, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", "stroke-width": 1.6, "aria-hidden": "true" };
+  if (kind === "pr") return html`<svg ...${a}><circle cx="4.5" cy="3.5" r="1.8" /><circle cx="4.5" cy="12.5" r="1.8" /><circle cx="11.5" cy="12.5" r="1.8" /><path d="M4.5 5.3v5.4M11.5 10.7V7a2.5 2.5 0 0 0-2.5-2.5H7" /></svg>`;
+  if (kind === "run") return html`<svg ...${a}><circle cx="8" cy="8" r="6" /><path d="M6.5 5.5v5l4-2.5z" /></svg>`;
+  if (kind === "roadmap") return html`<svg ...${a}><path d="M4 14V2.5M4 3h8l-2 3 2 3H4" /></svg>`;
+  return html`<svg ...${a}><circle cx="8" cy="8" r="6" /><circle cx="8" cy="8" r="1.4" fill="currentColor" /></svg>`;
+}
+
+// href: where it opens when the place showing it keeps more in the address (Work's list scope).
+// plain: not a link, for a pill inside a list option. removable: a remove control beside it (002 FR-004).
+function ItemPill({ kind, repo, number, title, state, workflow, href, plain, removable, onRemove }) {
+  const item = { kind, repo, number, workflow };
+  const [word, outline, icon] = PILL_STATE[state] || [null, "sev-low", null];
+  const name = `${KIND_WORD[kind] || "Item"} ${ref(item)}${title ? `: ${title}` : ""}${word ? `, ${word}` : ""}`;
+  const body = html`<${KindIcon} kind=${kind} />${icon && html`<${StateIcon} kind=${icon} />`}<span class="ref">${ref(item)}</span>${title && html`<span class="title">${title}</span>`}`;
+  const cls = `itempill ${outline} ${state || ""}`;
+  const pill = plain ? html`<span class=${cls} title=${name}><span class="sr">${name}</span><span aria-hidden="true" class="row" style="gap: 6px; flex-wrap: nowrap; min-width: 0">${body}</span></span>`
+    : html`<a class=${cls} href=${href || itemHref(item)} aria-label=${name} title=${name}>${body}</a>`;
+  if (!removable) return pill;
+  return html`<span class="pillwrap">${pill}<button type="button" class="remove" aria-label=${`Remove ${ref(item)}`} onClick=${onRemove}>×</button></span>`;
+}
+
+// Persona families (002 FR-011, 002 FR-012); the tints are CSS tokens.
+const FAMILIES = [["build", "Build"], ["review", "Review"], ["investigate", "Investigate"], ["write", "Write"], ["organise", "Organise"]];
+const FAMILY_WORD = Object.fromEntries(FAMILIES);
+const personaOf = (agent) => (agent ? { id: agent.persona, name: agent.persona_name || agent.persona, initials: agent.initials, family: agent.family } : null);
+
+// persona: {id, name, initials, family}, or null for a plain shell (002 FR-014). The Steward always draws its own S (002 FR-013).
+// hidden: beside words that already say who it is.
+function PersonaBadge({ persona, hidden }) {
+  const a = (label) => (hidden ? { "aria-hidden": "true" } : { role: "img", "aria-label": label, title: label });
+  if (!persona) return html`<span class="pbadge shell" ...${a("Plain shell")}>${">_"}</span>`;
+  if (persona.id === STEWARD) return html`<span class="pbadge steward" ...${a("Steward")}>S</span>`;
+  const name = persona.name || persona.id;
+  const family = FAMILY_WORD[persona.family] ? persona.family : "unknown";
+  const initials = persona.initials || String(persona.id || "?").slice(0, 2).toUpperCase();
+  return html`<span class="pbadge ${family}" ...${a(name)}>${initials}</span>`;
+}
+
+// 002 FR-015: wherever badges are listed.
+function FamilyLegend() {
+  return html`<ul class="legend" aria-label="What the badge colours mean">
+    ${FAMILIES.map(([id, word]) => html`<li><span class="pbadge ${id}" aria-hidden="true"></span>${word}</li>`)}
+    <li><${PersonaBadge} persona=${{ id: STEWARD }} hidden />Steward</li>
+    <li><${PersonaBadge} persona=${null} hidden />Plain shell</li></ul>`;
+}
+
+// 002 FR-016: RUNNING (idle counts: it's at its prompt), WAITING, DONE, ATTACHED.
+function sessionState(session, pending) {
+  const a = session.agent;
+  if (a && a.ended) return "done";
+  if ((a && a.waiting) || pending > 0) return "waiting";
+  if (session.attached > 0) return "attached";
+  return "running";
+}
+
+// pending: how many things of this session wait for you, when the place knows. onOpen opens it in place
+// (002 FR-018); otherwise it links to href, or to the session under Sessions.
+function SessionChip({ session, pending, onOpen, href }) {
+  const a = session.agent;
+  const state = sessionState(session, pending);
+  const waits = state === "waiting";
+  const word = waits && pending > 0 ? `${pending} waiting` : state.toUpperCase();
+  const said = waits ? (pending > 0 ? `waiting for you, ${count(pending, "thing")}` : "waiting for you")
+    : state === "running" && a && a.idle ? "running, idle at its prompt" : state;
+  const label = `Session ${session.name}, ${a ? a.persona_name || a.persona : "plain shell"}, ${said}`;
+  const attrs = { class: `sesschip ${state}`, "data-waits": waits ? "" : undefined, "aria-label": label, title: label };
+  const body = html`<${PersonaBadge} persona=${personaOf(a)} hidden /><span class="name">${session.name}</span><span class="word">${word}</span>`;
+  return onOpen ? html`<button type="button" ...${attrs} onClick=${onOpen}>${body}</button>`
+    : html`<a ...${attrs} href=${href || hash("shells", { name: session.name })}>${body}</a>`;
+}
+
+// A combobox's keys (002 FR-010): arrows walk, Enter picks, Esc closes. Shared by both pickers.
+function listKeys(e, { size, active, setActive, pick, close }) {
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    if (size) setActive((active + (e.key === "ArrowDown" ? 1 : size - 1)) % size);
+  } else if (e.key === "Home" || e.key === "End") {
+    if (size) { e.preventDefault(); setActive(e.key === "Home" ? 0 : size - 1); }
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    pick();
+  } else if (e.key === "Escape") {
+    e.preventDefault();
+    e.stopPropagation();
+    close();
+  }
+}
+
+let pickerSeq = 0;
+const usePickerId = () => useRef(`picker-${++pickerSeq}`).current;
+// Closes a picker's list on a click outside it.
+function useOutside(ref, open, close) {
+  useEffect(() => {
+    if (!open) return undefined;
+    const on = (e) => { if (ref.current && !ref.current.contains(e.target)) close(); };
+    document.addEventListener("mousedown", on);
+    return () => document.removeEventListener("mousedown", on);
+  }, [open]);
+}
+
+// Recents and pins, per viewer, in this browser only (001 R2). A blocked storage just means none.
+const PICKS_KEY = "repo-picker";
+const MAX_RECENT = 5;
+function readPicks() {
+  try {
+    const v = JSON.parse(localStorage.getItem(PICKS_KEY)) || {};
+    return { recent: Array.isArray(v.recent) ? v.recent : [], pins: Array.isArray(v.pins) ? v.pins : [] };
+  } catch { return { recent: [], pins: [] }; }
+}
+function writePicks(picks) {
+  try { localStorage.setItem(PICKS_KEY, JSON.stringify(picks)); } catch { /* it only helps */ }
+}
+
+// value: a name ("" for all) or, with many, a list of names. groups: /api/overview's layers.
+// 002 FR-005–002 FR-007: type to filter; pinned and recent first, then by layer; more than 3 chosen shows a count.
+function RepoPicker({ value, onChange, many, allowAll, groups, label = "Repository" }) {
+  const id = usePickerId();
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState("");
+  const [active, setActive] = useState(0);
+  const [picks, setPicks] = useState(readPicks);
+  const box = useRef();
+  const button = useRef();
+  const input = useRef();
+  const chosen = many ? value || [] : value ? [value] : [];
+  const summary = !chosen.length ? (allowAll ? "All repositories" : "Choose…")
+    : chosen.length > 3 ? `${chosen.length} repos` : chosen.join(", ");
+  const known = (groups || []).flatMap((g) => g.repos.map((r) => r.name));
+  const needle = filter.trim().toLowerCase();
+  const fits = (name) => !needle || name.toLowerCase().includes(needle);
+  const sections = [];
+  const seen = new Set();
+  const add = (title, names) => {
+    const rows = names.filter((n) => known.includes(n) && !seen.has(n) && fits(n));
+    rows.forEach((n) => seen.add(n));
+    if (rows.length) sections.push([title, rows]);
+  };
+  add("Pinned", picks.pins);
+  add("Recent", picks.recent);
+  for (const g of groups || []) add(g.title, g.repos.map((r) => r.name));
+  const all = allowAll && (!needle || "all repositories".includes(needle));
+  const options = [...(all ? [""] : []), ...sections.flatMap(([, rows]) => rows)];
+  const at = Math.min(active, Math.max(options.length - 1, 0));
+  const optionId = (i) => `${id}-o${i}`;
+  useEffect(() => { if (open && input.current) input.current.focus(); }, [open]);
+  const close = (refocus = true) => { setOpen(false); setFilter(""); setActive(0); if (refocus && button.current) button.current.focus(); };
+  useOutside(box, open, () => close(false));
+  const remember = (name) => {
+    const next = { ...picks, recent: [name, ...picks.recent.filter((n) => n !== name)].slice(0, MAX_RECENT) };
+    setPicks(next); writePicks(next);
+  };
+  const choose = (name) => {
+    if (name === undefined) return;
+    if (name) remember(name);
+    if (!many) { onChange(name); close(); return; }
+    onChange(!name ? [] : chosen.includes(name) ? chosen.filter((n) => n !== name) : [...chosen, name]);
+  };
+  const activeName = options[at];
+  const pinned = activeName && picks.pins.includes(activeName);
+  const togglePin = () => {
+    const next = { ...picks, pins: pinned ? picks.pins.filter((n) => n !== activeName) : [...picks.pins, activeName] };
+    setPicks(next); writePicks(next);
+  };
+  const option = (name, i) => {
+    const selected = name ? chosen.includes(name) : !chosen.length;
+    return html`<div role="option" id=${optionId(i)} aria-selected=${selected ? "true" : "false"} data-active=${i === at ? "" : undefined}
+      onMouseDown=${(e) => e.preventDefault()} onClick=${() => { setActive(i); choose(name); }}>
+      <span class="tick" aria-hidden="true">${selected ? "✓" : ""}</span>${name || "All repositories"}${name && picks.pins.includes(name) ? html`<span class="small soft"> · pinned</span>` : ""}</div>`;
+  };
+  let index = all ? 1 : 0;
+  return html`<div class="picker" ref=${box}>
+    <button type="button" class="picker-button" ref=${button} aria-haspopup="listbox" aria-expanded=${open ? "true" : "false"}
+      aria-label=${`${label}: ${summary}`} onClick=${() => (open ? close() : setOpen(true))}><span>${summary}</span><span aria-hidden="true">▾</span></button>
+    ${open && html`<div class="pop">
+      <input role="combobox" ref=${input} aria-expanded="true" aria-controls=${`${id}-list`} aria-autocomplete="list"
+        aria-activedescendant=${options.length ? optionId(at) : undefined} aria-label=${`Filter: ${label}`} placeholder="Type to filter"
+        value=${filter} onInput=${(e) => { setFilter(e.target.value); setActive(0); }}
+        onKeyDown=${(e) => listKeys(e, { size: options.length, active: at, setActive, pick: () => choose(options[at]), close })} />
+      <div role="listbox" id=${`${id}-list`} aria-label=${label} aria-multiselectable=${many ? "true" : undefined}>
+        ${all && option("", 0)}
+        ${sections.map(([title, rows]) => html`<div role="group" aria-label=${title}><span class="eyebrow soft" aria-hidden="true">${title}</span>
+          ${rows.map((name) => option(name, index++))}</div>`)}
+        ${!options.length && html`<p class="small soft" style="padding: 8px">No repository matches “${filter}”.</p>`}</div>
+      <div class="foot"><span class="small soft">${many ? `${chosen.length} chosen` : ""}</span>
+        <span class="row" style="gap: 6px">${activeName && html`<button type="button" class="plain" onClick=${togglePin}>${pinned ? `Unpin ${activeName}` : `Pin ${activeName}`}</button>`}
+        ${many && html`<button type="button" class="plain" onClick=${() => close()}>Done</button>`}</span></div></div>`}
+  </div>`;
+}
+
+// What was typed, when every word of it is a reference: repo#N, or #N or N with one repository.
+// null: it's words to search for. outside: references to a repository not among those chosen.
+function typedRefs(text, repos) {
+  const tokens = text.split(/[\s,]+/).filter(Boolean);
+  if (!tokens.length || !tokens.every((t) => /^(?:[A-Za-z0-9._-]+#|#)?\d+$/.test(t))) return null;
+  const refs = [];
+  const outside = [];
+  for (const t of tokens) {
+    const [named, n] = t.includes("#") ? t.split("#") : ["", t];
+    const repo = named || (repos.length === 1 ? repos[0] : "");
+    if (!repo || (repos.length && !repos.includes(repo))) outside.push(t);
+    else refs.push({ repo, number: Number(n) });
+  }
+  return { refs, outside };
+}
+
+// 002 FR-008–002 FR-010: by reference or by words, across the chosen repositories (none: all of them).
+// kind: "issue" or "pr" (the work store holds no runs). Each pick goes to onPick; many keeps the list open
+// for the next. exclude: refs (repo#N) already chosen.
+function ItemPicker({ repos = [], kind, many, onPick, exclude = [], label = "Find an item" }) {
+  const id = usePickerId();
+  const [text, setText] = useState("");
+  const [active, setActive] = useState(0);
+  const [found, setFound] = useState({ words: "", rows: [], error: null });
+  const box = useRef();
+  const words = text.trim();
+  const refs = typedRefs(words, repos);
+  const byRef = refs !== null;
+  const typed = byRef ? refs.refs.map((r) => ({ ...r, kind: kind || "issue" })) : [];
+  useEffect(() => {
+    if (byRef || words.length < 2) { setFound({ words, rows: [], error: null }); return undefined; }
+    const timer = setTimeout(async () => {
+      try {
+        const r = await api(`work/search${params({ q: words, kind, repo: repos.length === 1 ? repos[0] : undefined, k: 12 })}`);
+        const rows = r.results.filter((x) => !repos.length || repos.includes(x.repo))
+          .map((x) => ({ kind: x.kind, repo: x.repo, number: x.number, title: x.title, state: pillState(x.kind, x.row || x) }));
+        setFound({ words, rows, error: null });
+      } catch (e) {
+        setFound({ words, rows: [], error: e.message });
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [words, kind, repos.join()]);
+  const known = new Map(found.rows.map((r) => [ref(r), r]));
+  const candidates = [...typed.map((r) => known.get(ref(r)) || r), ...found.rows.filter((r) => !typed.some((t) => ref(t) === ref(r)))]
+    .filter((r) => !exclude.includes(ref(r)));
+  const at = Math.min(active, Math.max(candidates.length - 1, 0));
+  const close = () => { setText(""); setActive(0); };
+  useOutside(box, Boolean(words), close);
+  const pick = (item) => {
+    if (!item) return;
+    onPick(item);
+    setText(""); setActive(0);
+    if (!many && box.current) box.current.querySelector("input").blur();
+  };
+  const optionId = (i) => `${id}-o${i}`;
+  const open = Boolean(words);
+  const why = found.error ? `Search failed: ${found.error}. A reference like ${repos.length === 1 ? "#12" : "hub#12"} still works.`
+    : byRef ? (refs.outside.length ? `${refs.outside.join(", ")}: ${repos.length ? `not in ${repos.join(", ")}` : "name the repository, as repo#N"}.` : "Already chosen.")
+    : words.length < 2 ? "Type a reference or a few words." : found.words === words ? "Nothing matches." : "Searching…";
+  return html`<div class="picker" ref=${box}>
+    <input role="combobox" class="mono" aria-expanded=${open ? "true" : "false"} aria-controls=${`${id}-list`} aria-autocomplete="list"
+      aria-activedescendant=${open && candidates.length ? optionId(at) : undefined} aria-label=${label}
+      placeholder=${repos.length === 1 ? `#number or words in ${repos[0]}` : "repo#number or words"} value=${text}
+      onInput=${(e) => { setText(e.target.value); setActive(0); }}
+      onKeyDown=${(e) => listKeys(e, { size: candidates.length, active: at, setActive, pick: () => pick(candidates[at]), close })} />
+    ${open && html`<div class="pop"><div role="listbox" id=${`${id}-list`} aria-label=${label}>
+      ${candidates.map((c, i) => html`<div role="option" id=${optionId(i)} aria-selected=${i === at ? "true" : "false"} data-active=${i === at ? "" : undefined}
+        onMouseDown=${(e) => e.preventDefault()} onClick=${() => pick(c)}><${ItemPill} ...${c} plain /></div>`)}
+      ${!candidates.length && html`<p class="small soft" style="padding: 8px" role="status">${why}</p>`}
+    </div></div>`}
+  </div>`;
+}
+
 // --- overview ----------------------------------------------------------------------
 const CI_KIND = { success: "pass", failure: "fail", error: "fail", pending: "run", expected: "run" };
 const CI_WORD = { pass: "CI passing", fail: "CI failing", run: "CI running", open: "No CI" };
@@ -549,12 +844,11 @@ function Spawn({ kind, repo, number, failing, session, phase, threads, onStarted
   const [planNote, setPlanNote] = useState(null);
   const setPlan = (next) => { if (next) plans.set(key, next); else plans.delete(key); setPlanState(next); };
   const [steer, setSteerState] = useState(() => ({ notes: "", pins: [], also: [], planner: PLANNER_DEFAULT, ...steering.get(key) }));
-  const [alsoText, setAlsoText] = useState("");
   const [open, setOpen] = useState(false);
   const setSteer = (patch) => setSteerState((s) => { const next = { ...s, ...patch }; steering.set(key, next); return next; });
   const clearSteer = () => { steering.delete(key); setSteerState({ notes: "", pins: [], also: [], planner: PLANNER_DEFAULT }); };
   const canCover = kind === "issue" && (data || []).some((a) => a.full);
-  const addAlso = () => { const n = Number(alsoText.replace(/^.*#/, "").trim()); if (Number.isInteger(n) && n > 0 && n !== number && !steer.also.includes(n)) setSteer({ also: [...steer.also, n] }); setAlsoText(""); };
+  const addAlso = (n) => { if (Number.isInteger(n) && n > 0 && n !== number && !steer.also.includes(n)) setSteer({ also: [...steer.also, n] }); };
   const act = useAct();
   const openThreads = threads ? threads.open : 0;
   const reviewCount = threads ? threads.reviews : 0;  // a review can say it all in its text, with no threads
@@ -611,10 +905,10 @@ function Spawn({ kind, repo, number, failing, session, phase, threads, onStarted
           <${SteerFields} kind=${kind} notes=${steer.notes} pins=${steer.pins} onNotes=${(notes) => setSteer({ notes })} onPins=${(pins) => setSteer({ pins })} />
           ${canCover && html`<div class="stack split-rule" style="gap: 6px"><span class="eyebrow">Also covers · ${steer.also.length || "none"}</span>
             <span class="small soft">Other issues the same session should finish. Each one shows the session in Work, and the PR closes all of them. Applies to sessions that write code.</span>
-            <div class="row" style="gap: 6px"><span class="label mono" style="padding-right: 8px; background: var(--mark)">${repo}#${number} · primary</span>
-              ${steer.also.map((n) => html`<button class="label mono" style="padding-right: 8px" aria-label=${`Remove ${repo}#${n}`} onClick=${() => setSteer({ also: steer.also.filter((x) => x !== n) })}>${repo}#${n} ×</button>`)}
-              <input class="mono" style="width: 110px" placeholder="issue number" aria-label=${`Another issue of ${repo} to cover`} value=${alsoText} onInput=${(e) => setAlsoText(e.target.value)} onKeyDown=${(e) => { if (e.key === "Enter") { e.preventDefault(); addAlso(); } }} />
-              <button class="addlabel" disabled=${!alsoText.trim()} onClick=${addAlso}>+ add</button></div></div>`}
+            <div class="row" style="gap: 6px"><${ItemPill} kind="issue" repo=${repo} number=${number} /><span class="small soft">primary</span>
+              ${steer.also.map((n) => html`<${ItemPill} key=${n} kind="issue" repo=${repo} number=${n} removable onRemove=${() => setSteer({ also: steer.also.filter((x) => x !== n) })} />`)}</div>
+            <${ItemPicker} repos=${[repo]} kind="issue" many label=${`Another issue of ${repo} to cover`}
+              exclude=${[number, ...steer.also].map((n) => `${repo}#${n}`)} onPick=${(item) => addAlso(item.number)} /></div>`}
           <div class="row split-rule" style="gap: 10px 16px; align-items: flex-end"><${PlannerModel} id="spawn-pm" value=${steer.planner} onChange=${(planner) => setSteer({ planner })} />
             <span class="small soft" style="flex: 1 1 200px">Model for the throwaway planner run that writes the spec. The agent’s own model is picked on the spec.</span></div>
           <button class="link" aria-expanded="true" style="align-self: flex-end" onClick=${() => setOpen(false)}>Hide, and keep what you added</button></div>`
@@ -895,7 +1189,7 @@ function NewIssue({ groups, initial, roadmap, onDone, onCancel }) {
   const [body, setBody] = useState("");
   const act = useAct();
   return html`<h2 id="h-item" style="font-size: 22px; font-weight: 600">New issue</h2>
-    <label class="field"><span>Repository</span><${RepoSelect} value=${repo} onChange=${setRepo} groups=${groups} all=${false} /></label>
+    <div class="field"><span aria-hidden="true">Repository</span><${RepoPicker} value=${repo} onChange=${setRepo} groups=${groups} /></div>
     <label class="field"><span>Title</span><input value=${title} onInput=${(e) => setTitle(e.target.value)} /></label>
     <label class="field"><span>Description</span><textarea rows="6" placeholder="Markdown supported" value=${body} onInput=${(e) => setBody(e.target.value)}></textarea></label>
     <label class="row small"><input type="checkbox" style="min-height: 0" checked=${onBoard} onChange=${(e) => setOnBoard(e.target.checked)} /> Add to the roadmap</label>
@@ -905,29 +1199,24 @@ function NewIssue({ groups, initial, roadmap, onDone, onCancel }) {
       <button onClick=${onCancel}>Cancel</button></div>`;
 }
 
-function Dispatch({ repo, onDone, onCancel }) {
-  const { data, error } = useLoad(() => api(`workflows/${repo}`), [repo]);
+function Dispatch({ groups, initial, onDone, onCancel }) {
+  const [repo, setRepo] = useState(initial || "");
+  const { data, error } = useLoad(() => (repo ? api(`workflows/${repo}`) : Promise.resolve([])), [repo]);
   const [file, setFile] = useState("");
   const [ref, setRef] = useState("main");
   const [confirm, dialog] = useConfirm();
   const act = useAct(onDone);
   const active = (data || []).filter((w) => w.state === "active");
-  return html`${dialog}<h2 id="h-item" style="font-size: 22px; font-weight: 600">Run a workflow of ${repo}</h2>
+  return html`${dialog}<h2 id="h-item" style="font-size: 22px; font-weight: 600">Run a workflow</h2>
     <${Err} text=${error || act.error} />
-    <label class="field"><span>Workflow</span><select value=${file} onChange=${(e) => setFile(e.target.value)}>
+    <div class="field"><span aria-hidden="true">Repository</span><${RepoPicker} value=${repo} onChange=${(r) => { setRepo(r); setFile(""); }} groups=${groups} /></div>
+    <label class="field"><span>Workflow</span><select value=${file} disabled=${!repo} onChange=${(e) => setFile(e.target.value)}>
       <option value="">Choose…</option>${active.map((w) => html`<option value=${w.path.split("/").pop()}>${w.name}</option>`)}</select></label>
     <label class="field"><span>Branch</span><input value=${ref} onInput=${(e) => setRef(e.target.value)} /></label>
     <div class="row"><button class="primary" disabled=${!file || act.busy} onClick=${() => confirm(
       { title: "Start this workflow?", text: `${file} of ${repo} on ${ref}. Some workflows publish things.`, label: "Start" },
       () => act.run(() => post(`workflows/${repo}/${file}/dispatch`, { ref })),
     )}>Start workflow</button><button onClick=${onCancel}>Cancel</button></div>`;
-}
-
-function RepoSelect({ value, onChange, groups, all = true }) {
-  return html`<select value=${value || ""} onChange=${(e) => onChange(e.target.value)}>
-    ${all && html`<option value="">All · by layer</option>`}
-    ${groups.map((g) => html`<optgroup label=${g.title}>${g.repos.map((r) => html`<option value=${r.name}>${r.name}</option>`)}</optgroup>`)}
-  </select>`;
 }
 
 // --- work: list --------------------------------------------------------------------------
@@ -946,17 +1235,17 @@ const ROWS = {
   issues: (i) => ({
     key: `${i.repo}#${i.number}`, repo: i.repo, number: i.number, ref: `${i.repo}#${i.number}`, title: i.title,
     sub: [i.labels.map((l) => l.name).join(" · "), i.comments ? count(i.comments, "comment") : ""].filter(Boolean).join(" · ") || (i.author && i.author.login) || "",
-    state: i.state, icon: i.state === "OPEN" ? "open" : "pass", at: i.updatedAt, object: "issue", labels: i.labels.map((l) => l.name), startable: i.state === "OPEN",
+    state: i.state, pill: pillState("issue", i), at: i.updatedAt, object: "issue", labels: i.labels.map((l) => l.name), startable: i.state === "OPEN",
   }),
   prs: (p) => ({
     key: `${p.repo}#${p.number}`, repo: p.repo, number: p.number, ref: `${p.repo}#${p.number}`, title: p.title,
-    sub: `${p.headRefName} → ${p.baseRefName}`, agent: p.headRefName.startsWith("agent/"), object: "pr", at: p.updatedAt, labels: p.labels.map((l) => l.name), startable: p.state === "OPEN",
+    sub: `${p.headRefName} → ${p.baseRefName}`, agent: p.headRefName.startsWith("agent/"), object: "pr", pill: pillState("pr", p), at: p.updatedAt, labels: p.labels.map((l) => l.name), startable: p.state === "OPEN",
     state: p.state !== "OPEN" ? p.state : p.isDraft ? "Draft" : p.checks === "failing" ? "Failing" : p.checks === "pending" ? "Checks" : p.checks === "passing" ? "Ready" : "Open",
     icon: p.state !== "OPEN" ? "pass" : p.checks === "failing" ? "fail" : p.checks === "pending" ? "run" : p.checks === "passing" ? "pass" : "open",
   }),
   actions: (r) => ({
-    key: `${r.repo}/${r.databaseId}`, repo: r.repo, number: r.databaseId, ref: `${r.workflowName} ${r.databaseId}`, title: `${r.repo} · ${r.displayTitle}`,
-    sub: `${r.event} on ${r.headBranch} · ${(r.headSha || "").slice(0, 7)}`, agent: (r.headBranch || "").startsWith("agent/"), object: "run", at: r.createdAt, labels: [], startable: r.status === "completed",
+    key: `${r.repo}/${r.databaseId}`, repo: r.repo, number: r.databaseId, workflow: r.workflowName, ref: `${r.workflowName} #${r.databaseId}`, title: `${r.repo} · ${r.displayTitle}`,
+    sub: `${r.event} on ${r.headBranch} · ${(r.headSha || "").slice(0, 7)}`, agent: (r.headBranch || "").startsWith("agent/"), object: "run", pill: pillState("run", r), at: r.createdAt, labels: [], startable: r.status === "completed",
     state: r.status !== "completed" ? "Running" : r.conclusion === "success" ? "Passed" : r.conclusion || "Done",
     icon: r.status !== "completed" ? "run" : r.conclusion === "failure" ? "fail" : r.conclusion === "success" ? "pass" : "open",
   }),
@@ -985,16 +1274,20 @@ function readWorkFilter() {
   try { return JSON.parse(sessionStorage.getItem("work-filter")) || {}; } catch { return {}; }
 }
 
-function WorkRow({ row, tab, scope, session, sessions, phase, action }) {
+const MAX_ROW_CHIPS = 3;
+
+function WorkRow({ row, tab, scope, sessions, action }) {
   const open = hash("work", { tab, repo: scope, at: row.repo, item: row.number });
   const kind = { issues: "issue", prs: "pr", actions: "run" }[tab];
   // Only a plain click: a link opened in a new tab is just the item.
   const planIt = (e) => { if (!e.ctrlKey && !e.metaKey && !e.shiftKey && !e.button) rowPlan = { key: `${kind}/${row.repo}/${row.number}`, action: action.id, title: action.title }; };
+  // Every session on the item (002 FR-019), each opening the item, where its session shows (002 FR-018).
+  const shown = sessions.slice(0, MAX_ROW_CHIPS);
   return html`<div class="wrow">
-    <span class="ic"><${StateIcon} kind=${row.icon} /></span>
-    <a class="t" href=${open}><span class="line"><span class="mono soft ref">${row.ref}</span><b>${row.title}</b></span><span class="small soft sub">${row.sub}</span></a>
-    ${session && html`<a class="sesschip" href=${open}><${TermIcon} />${sessions.length > 1 ? `${sessions.length} sessions · ${sessions.map((x) => x.name).join(", ")}`
-      : `${session.name}${(session.agent.also_numbers || []).length ? (String(session.agent.number) === String(row.number) ? " · primary" : " · also covers") : ""} · ${session.agent.waiting ? "waiting" : phase === "embedded" ? "running" : "background"}`}</a>`}
+    <${ItemPill} kind=${kind} repo=${row.repo} number=${row.number} workflow=${row.workflow} state=${row.pill} href=${open} />
+    <a class="t" href=${open}><span class="line"><b>${row.title}</b></span><span class="small soft sub">${row.sub}</span></a>
+    ${shown.length > 0 && html`<span class="row" style="gap: 6px">${shown.map((s) => html`<${SessionChip} key=${s.name} session=${s} href=${open} />`)}
+      ${sessions.length > shown.length && html`<a class="small" href=${open}>${sessions.length - shown.length} more</a>`}</span>`}
     <span class="state">${row.state}</span><span class="age">${age(row.at)}</span>
     ${action && html`<a class="button start" title=${`${action.summary} The planner runs first; you confirm its spec. ${action.ceiling}`} href=${open} onClick=${planIt}><${TermIcon} />${action.title}</a>`}
   </div>`;
@@ -1127,12 +1420,12 @@ function WorkLists({ query }) {
         ${visible.map((r) => html`<button role="radio" class="pill mono" aria-checked=${scope === r.name ? "true" : "false"} onClick=${() => go({ repo: r.name })}>${r.name}</button>`)}
         ${chips.length > 5 && html`<button class="addlabel" onClick=${() => setAllRepos(!allRepos)}>${allRepos ? "fewer" : "more…"}</button>`}</div>
       <button onClick=${() => planWork({ repo: repo || undefined })}>${repo ? `＋ New in ${repo}…` : "＋ New work…"}</button>
-      <button class="primary" disabled=${tab === "actions" && !repo} title=${tab === "actions" && !repo ? "Choose a repository first" : ""} onClick=${() => setPanel(tab === "actions" ? "dispatch" : "new")}>${tab === "actions" ? "Run workflow…" : repo ? `New issue in ${repo}` : "New issue"}</button></div>
+      <button class="primary" onClick=${() => setPanel(tab === "actions" ? "dispatch" : "new")}>${tab === "actions" ? "Run workflow…" : repo ? `New issue in ${repo}` : "New issue"}</button></div>
     <p style="font-size: 17px; line-height: 1.4"><span class="mono" style="font-weight: 600">${repo ? `GlassineOS/${repo}` : `GlassineOS · all ${groups.flatMap((g) => g.repos).length} repositories`}</span>
       <span class="soft"> · ${repo ? (layer || "") : groupBy === "needs" ? "grouped by what needs you" : "all"}</span></p>
     ${panel && html`<div class="panel">${panel === "new" ? html`<${NewIssue} groups=${groups} initial=${repo || query.repo} roadmap=${query.roadmap === "1"} onCancel=${() => setPanel(null)}
         onDone=${(r) => { setPanel(null); reload(); setNotice(r.roadmap_error ? `Created, but not added to the roadmap: ${r.roadmap_error}` : null); go({ at: r.repo, item: r.number, new: undefined, roadmap: undefined }); }} />`
-      : html`<${Dispatch} key=${repo} repo=${repo} onCancel=${() => setPanel(null)} onDone=${() => { setPanel(null); reload(); }} />`}</div>`}
+      : html`<${Dispatch} key=${repo} groups=${groups} initial=${repo} onCancel=${() => setPanel(null)} onDone=${() => { setPanel(null); reload(); }} />`}</div>`}
     <div role="tablist" aria-label="Work type" class="tabs">
       ${TABS.map(([id, label, n]) => html`<button role="tab" aria-selected=${tab === id ? "true" : "false"} onClick=${() => switchTab(id)}>${label}${n != null && html` <span class="count">${n}</span>`}</button>`)}
     </div>
@@ -1151,7 +1444,7 @@ function WorkLists({ query }) {
     <${Err} text=${error || notice || meaning.error} />
     ${sections().map(([name, group]) => html`<section aria-label=${name || TABS.find((t) => t[0] === tab)[1]} class="stack" style="gap: 6px">
       ${name && html`<h2 class="eyebrow">${name} <span class="soft">${group.length}</span></h2>`}
-      <div class="wlist">${group.map((r) => { const s = sessionOf(r); return html`<${WorkRow} key=${r.key} row=${r} tab=${tab} scope=${scope} session=${s} sessions=${sessionsOf(r)} phase=${s ? phases[s.name] : null} action=${startFor(r)} />`; })}</div></section>`)}
+      <div class="wlist">${group.map((r) => html`<${WorkRow} key=${r.key} row=${r} tab=${tab} scope=${scope} sessions=${sessionsOf(r)} action=${startFor(r)} />`)}</div></section>`)}
     ${data && !rows.length && html`<p class="soft">Nothing here.</p>`}
     ${!data && loading && html`<p class="soft">Loading…</p>`}
     ${rows.length > 0 && html`<p class="small soft">Open an item to work on it full width, and k / j steps through this list from there. The button on a row plans its most likely Claude action.</p>`}
@@ -2200,8 +2493,8 @@ function Shells({ query, asks }) {
     const a = s.agent;
     const state = a ? (a.ended ? "ended" : a.waiting ? "waiting" : "running") : s.attached > 0 ? "attached" : "idle";
     return html`<button class="sess-item" aria-pressed=${open === s.name ? "true" : "false"} onClick=${() => setOpen(s.name)}>
-      <span class="h"><b>${s.name}</b><span class="badge ${state === "waiting" ? "mark" : state === "attached" ? "dim" : ""}">${state}</span></span>
-      ${a && html`<span class="row" style="gap: 4px 8px; font-size: 13px"><b style="font-weight: 600">${a.persona}</b><span class="mono soft" style="font-size: 12px">${shortModel(a.model)}</span></span>`}
+      <span class="h"><span class="row" style="gap: 8px; flex-wrap: nowrap; min-width: 0"><${PersonaBadge} persona=${personaOf(a)} /><b>${s.name}</b></span><span class="badge ${state === "waiting" ? "mark" : state === "attached" ? "dim" : ""}">${state}</span></span>
+      ${a && html`<span class="row" style="gap: 4px 8px; font-size: 13px"><b style="font-weight: 600">${a.persona_name || a.persona}</b><span class="mono soft" style="font-size: 12px">${shortModel(a.model)}</span></span>`}
       <span class="soft" style="font-size: 13px; line-height: 1.4">${a ? `${a.title} · ${whereFrom(a)}` : s.cwd}</span></button>`;
   };
   const managed = list.filter((s) => s.agent && !s.agent.started_by);
@@ -2217,6 +2510,7 @@ function Shells({ query, asks }) {
       ${creating && html`<${NewShell} initial=${query.name && query.new ? query.name : ""} onCancel=${() => setCreating(false)} onDone=${async (n) => { setCreating(false); await reload(); setOpen(n); }} />`}
       <${Err} text=${error || act.error} />
       ${kept && html`<div class="notice quiet"><span>That session had work that isn't on GitHub, so its checkout stays at <code>${kept}</code>.</span></div>`}
+      <${FamilyLegend} />
       <h2 class="eyebrow" style="margin-top: 8px">Managed Claude sessions</h2>
       ${managed.map(item)}
       ${!managed.length && !started.length && html`<p class="small soft">Start one from an issue, pull request or run under Work.</p>`}
