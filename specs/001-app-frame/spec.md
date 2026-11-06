@@ -9,67 +9,74 @@
 
 The hub is the place one maintainer uses to run GlassineOS. That means dozens of
 repositories, their issues, pull requests and CI runs, a shared knowledge base and notes,
-and many Claude Code sessions working at the same time. Sessions run in tmux on the host.
-Each has a persona (Engineer, Code reviewer, CI investigator, ...) and works in its own git
-worktree.
+and many Claude Code sessions working at the same time. Each session has a persona
+(Engineer, Code reviewer, CI investigator, ...) and works in its own git worktree.
 
 The maintainer is one person, and attention is the scarce thing. The hub's job is to:
 
 - show what needs that person right now (a blocking permission, a question, a result to
-  act on) wherever they are in the app, and let them answer it in place (003);
-- turn any work item into work for an agent in a few steps (Launch, 005), with a visible
-  plan and a known kind of result;
+  act on) wherever they are in the app, and let them answer it in place (Needs you, 003);
+- turn any work item into work for an agent in a few steps, with a visible plan and a
+  known kind of result (Launch, 005);
 - keep the GitHub actions the maintainer does as themselves (merge, close, label, re-run)
-  one click from the item, never mixed up with starting an agent (006);
-- make knowledge, notes and past sessions findable, and keep the host tidy (worktrees,
-  old sessions) (008, 009, 004);
+  one click from the item, never mixed up with starting an agent (Work, 006);
+- make knowledge, notes and past sessions findable, and keep the host tidy (Knowledge 008,
+  Notes 009, Sessions 004);
 - run beside a Steward, a long-lived planning session that sees what the maintainer sees
-  (010).
+  (Steward, 010).
 
-The hub runs on the maintainer's machine. The web app talks to `hubd`, a host daemon that
-holds the credentials and runs the sessions. Sessions reach the hub through a tool server.
-The hub is used on a desktop browser and on a phone.
+The hub runs on the maintainer's machine. The host service holds the credentials and runs
+the sessions. The hub is used on a desktop browser and on a phone.
 
-This spec is the frame every view sits in: the header and navigation (with the usage meter
-and the hubd status), the layout at phone width, the rules that hold across all views
-(colour and outline meanings, accessibility, live updates, scale) and the security and
-trust rules. It depends on no other spec. The other nine build on it and cite its rules by
-spec and number instead of repeating them.
+This spec is the frame every view sits in: the header and navigation, the layout at phone
+width, the rules that hold across all views, and the security and trust rules. It depends
+on no other spec. The other nine build on it and cite its rules by name and ID.
 
-Related: `docs/orchestrator.md` (session and merge model), `SECURITY.md` (boundary),
-`.specify/memory/constitution.md`, and `specs/README.md` (all ten specs and their build
-order).
-
-## Views
+### Views
 
 - **Header**: always shows where you are, how many things wait for you, and the way to
   start new work.
 - **Phone**: the same app at phone width, with the header and Steward folded for one hand.
 
-The navigation leads to the views the other specs define: Overview and Roadmap
-([007](../007-overview-roadmap/spec.md)), Work and Work item ([006](../006-work/spec.md)),
-Knowledge ([008](../008-knowledge/spec.md)), Notes ([009](../009-notes/spec.md)) and
-Sessions ([004](../004-sessions/spec.md)). Needs you ([003](../003-needs-you/spec.md)),
-Launch ([005](../005-launch/spec.md)) and the Steward ([010](../010-steward/spec.md)) open
-over or beside any view. The shared building blocks are in
-[002](../002-building-blocks/spec.md).
+The navigation leads to Overview and Roadmap (007), Work and Work item (006), Knowledge
+(008), Notes (009) and Sessions (004). Needs you (003), Launch (005) and the Steward (010)
+open over or beside any view. The shared building blocks are in Building blocks (002).
 
-## User scenarios
+## User Scenarios & Testing
 
-### Scenario 1 – Use it on a phone (Priority: P2)
+### User Story 1 - Use it on a phone (Priority: P2)
 
-**Given** the hub is open on a 390 px wide phone
-**When** the maintainer opens the menu, goes to a Work item and answers a question from
-the Steward's floating button
-**Then** nothing scrolls sideways, the header shows only "New" and "Menu", the Steward
-opens as a full sheet, and every control can be tapped.
+The maintainer uses the hub one-handed on a phone.
+
+**Why this priority**: The maintainer answers sessions away from the desk, but the
+desktop layout comes first.
+
+**Independent Test**: Open the hub at 390 px wide and walk through the scenario below.
+
+**Acceptance Scenarios**:
+
+1. **Given** the hub is open on a 390 px wide phone, **When** the maintainer opens the
+   menu, goes to a Work item and answers a question from the Steward's floating button,
+   **Then** nothing scrolls sideways, the header shows only "New" and "Menu", the Steward
+   opens as a full sheet, and every control can be tapped.
+
+### Edge Cases
+
+- The host service cannot be reached: the header says so plainly, and the app shows that
+  its data may be out of date.
+- Nothing waits for the maintainer: the "Needs you" button is plain, not yellow.
+- Things wait but none of them blocks: the button is outlined, not yellow.
+- A list grows past one screen: it shows a count and loads more only on request.
+- Agent text claims to be the maintainer's approval: it is not treated as one.
 
 ## Requirements
 
-Requirements are one testable statement each. A requirement of another spec is written with
-that spec's number first, as in `001 FR-011`.
+Each requirement is one testable statement. A requirement of another spec is cited with
+that spec's name and number, as in "App frame (001) FR-011".
 
-### Header
+### Functional Requirements
+
+#### Header
 
 - **FR-001**: The header shows the navigation: Overview, Roadmap, Work, Knowledge, Notes,
   Sessions, with the current view marked.
@@ -77,12 +84,12 @@ that spec's number first, as in `001 FR-011`.
   something is blocking, outlined when N > 0 and nothing blocks, and plain when N = 0.
 - **FR-003**: The "Needs you" button opens the Needs you modal from any view.
 - **FR-004**: The header shows "＋ New work", which opens Launch with an empty brief.
-- **FR-005**: The header shows the logged-in user and the hubd address it is connected
-  to, and shows plainly when hubd cannot be reached.
+- **FR-005**: The header shows the signed-in maintainer and which host service the app is
+  connected to, and shows plainly when the host service cannot be reached.
 - **FR-006**: The header shows a small usage budget meter: how much of the sessions'
   usage allowance is used, in words as well as a bar, and says plainly when it is low.
 
-### Phone (≤ 760 px)
+#### Phone (≤ 760 px)
 
 - **FR-007**: At 760 px wide or less, the header shows only "New" and "Menu"; Menu holds
   the navigation, Needs you and the user line.
@@ -93,7 +100,7 @@ that spec's number first, as in `001 FR-011`.
   box).
 - **FR-010**: At phone width, Launch, Needs you and flyouts open as full sheets.
 
-### Cross-cutting rules
+#### Cross-cutting rules
 
 - **FR-011**: Yellow (#ffd86b) marks only things that wait for the maintainer; no other
   state uses it.
@@ -116,83 +123,49 @@ that spec's number first, as in `001 FR-011`.
 - **FR-020**: Live data (sessions, interactions, terminals) updates without a page
   reload; the app shows when it is out of date or disconnected.
 
-### Security and trust
+#### Security and trust
 
 - **FR-021**: The browser never holds GitHub or Claude credentials; every GitHub action
-  and every session runs through hubd.
-- **FR-022**: Every GitHub write an agent session asks for goes through the hub's policy
-  allowlist, which refuses anything not listed.
-- **FR-023**: A decision counts as the maintainer's word only when it is approved by the
-  logged-in maintainer in the app, never from agent or tool text.
+  and every session runs through the host service.
+- **FR-022**: Every GitHub write a session asks for is checked against the hub's list of
+  allowed writes, and anything not on the list is refused.
+- **FR-023**: A decision counts as the maintainer's word only when the signed-in
+  maintainer approves it in the app, never from agent or tool text.
 - **FR-024**: Text written by an agent (cards, reports, suggestions) never widens what an
   agent may do.
-- **FR-025**: The app accepts requests only from the logged-in maintainer and binds to
-  the local host unless set otherwise.
+- **FR-025**: The hub accepts requests only from the signed-in maintainer, and is
+  reachable only from the maintainer's own machine unless the maintainer chooses
+  otherwise.
 
-## Contracts
+### Key Entities
 
-| Contract | Owned / consumed | Version | Spec location |
-|---|---|---|---|
-| Web API (`/api/...`, used by the app only) | Owned, internal | Unversioned; changes ship with the app | `app/hub/web.py`; shared rules in `contracts/web-api.md`, each spec's routes in its own `contracts/web-api.md` |
-| hubd unix socket (requests from the web app) | Owned, internal | Unversioned; web app and hubd ship together | `hubd/`; login gate in `contracts/hubd-socket.md`, each spec's ops in its own |
+- **Maintainer**: the one person who signs in and whose approval counts as a decision.
+- **View**: a place in the app (Overview, Roadmap, Work, Knowledge, Notes, Sessions);
+  Needs you, Launch and the Steward open over or beside any view.
 
-Tool server and library changes stay safe for sessions already running
-(`contracts/tool-server-and-library.md`). New or changed owned surfaces this spec needs: the
-usage reading (status line, `usage.status`) and the hubd address in `ping`.
+## Success Criteria
 
-## Device scope and risk
+### Measurable Outcomes
 
-No device risk. The hub never touches devices. It shows device-related decisions (Go
-cards, 003) and the device lock holder (007 FR-003) as data reported by sessions and the lock.
-It does not take the lock, flash, reboot or connect to a device itself. Granting a Go gives
-a session permission to act within that Go's scope; what the session does on the device
-is governed by the device repositories' own rules. Every other spec refers to this
-section.
-
-## Acceptance
-
-Host level, in this repository (`make check`: `node --check` on the app plus `pytest`):
-
-- Static checks on the app: navigation items, the yellow rule (FR-011) applied only to
-  waiting states.
-- Policy tests: agent requests outside the allowlist refused (FR-022).
-
-Browser check (by hand, recorded in the PR, at 1440 px and 390 px wide; rows in
-[001 quickstart](../001-app-frame/quickstart.md) §3):
-
-- Header, phone menu and sheets, no sideways scroll, keyboard-only pass, reduced motion.
-
-Product level: none. The hub is not part of a device image.
-
-## Out of scope
-
-- Any action on a device (flashing, rebooting, taking the device lock) by the hub itself.
-- More than one maintainer, roles or sharing the hub with others.
-
-## Success criteria
-
-- **SC-001**: 0 GitHub writes are made by agents outside the policy allowlist (policy
-  tests cover every listed call and at least one refused call per kind).
+- **SC-001**: 0 GitHub writes are made by sessions outside the list of allowed writes;
+  every kind of write not on the list is refused.
 - **SC-002**: With 60 repositories and 500 open items, Overview and Work render their
   first screen in under 2 seconds on the host.
 - **SC-003**: At 390 px wide, no view scrolls sideways and every control is at least
   44 × 44 px.
-- **SC-004**: The keyboard-only browser pass completes every P1 scenario without a mouse.
+- **SC-004**: Every P1 user story can be completed with the keyboard alone, without a
+  mouse.
 
-## Implementation notes
+## Assumptions
 
-Existing code to reuse:
-
-- Web app (`app/hub/web.py`, `app/hub/static/app.js`) already has views for overview,
-  roadmap, work lists, issue/PR/run detail, new issue, workflow dispatch, docs search,
-  terminal, session spec, new work and launch forms, inbox, past sessions, cleanup,
-  plain shells, decisions, the merge queue, notes and the Steward panel. Navigation tests
-  in `tests/test_app.py` pin the current menu and must change with FR-001.
-- `app/hub/tools.py` has about 50 tool server tools (including suggest_session,
-  plan_work, docs_search, work_search, code_search, decision_request, merge_pr).
-- `tests/test_agents.py` has a fake Claude CLI; `tests/dev_hubd.py` runs a dev hubd.
-
-Backend that is missing:
-
-- `tests/dev_hubd.py` hard-codes the tool server port; parallel test runs need it
-  configurable.
+- One maintainer uses the hub; more than one maintainer, roles or sharing the hub with
+  others are out of scope.
+- The hub never acts on a device: it does not take the device lock, flash, reboot or
+  connect to a device. It shows device decisions (Go cards, Needs you (003)) and the
+  device lock holder (Overview and Roadmap (007) FR-003) as data reported by sessions.
+  Granting a Go lets a session act within that Go's scope; what the session then does on
+  the device is governed by the device repositories' own rules.
+- The hub works over a GitHub organization (issues, pull requests, runs, labels, reviews,
+  merges) and runs Claude Code sessions; what it shows of them is what GitHub and Claude
+  Code report.
+- The hub is not part of a device image.
