@@ -96,7 +96,7 @@ def build(github: GitHub, docs: DocSearch) -> MCPServer:
     @mcp.tool(annotations=WRITE)
     @_says_why
     async def decision_request(kind: str, scope: dict, why: str, ends: dict | None = None) -> dict:
-        """Ask the person for a decision: a card on the Decisions page, which they can narrow before approving. It does
+        """Ask the person for a decision: a card under Needs you in Sessions, which they can narrow before approving. It does
         nothing until they do, and no tool can approve it. kind is go (scope: actions, device), merge (scope: repo, number,
         head; a session whose calls show as cards doesn't have this tool and merges by calling merge_pr). ends is {runs: n} or
         {hours: n}; a go without one is one run. why is a sentence on why, shown to them as yours. Check for an answer with decision_check."""

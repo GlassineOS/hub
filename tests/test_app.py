@@ -2,6 +2,7 @@
 """The app against a stand-in for hubd that records what it is asked."""
 import asyncio
 import json
+import re
 import socket
 import sys
 import threading
@@ -904,6 +905,25 @@ def test_a_page_from_before_the_change_is_refused_a_merge(client, hubd):
 def test_the_merge_button_sends_the_head_it_showed():
     script = (Path(__file__).resolve().parents[1] / "app" / "hub" / "static" / "app.js").read_text()
     assert "/merge`, { method, head: data.headRefOid })" in script
+
+
+def _app_js():
+    return (Path(__file__).resolve().parents[1] / "app" / "hub" / "static" / "app.js").read_text()
+
+
+def test_decisions_wait_under_needs_you_and_stand_under_active_without_a_nav_entry():
+    """A static check: the page isn't run here. What waits and what stands are both in Sessions, and the Decisions page,
+    which keeps the ended ones, is still routed."""
+    script = _app_js()
+    nav = re.search(r"const NAV = \[(.*?)\];", script)[1]
+    assert '"decisions"' not in nav and '"shells", "Sessions"' in nav
+    assert "decisions: DecisionsPage" in script, "its links and the ended ones still work"
+    assert "decisionsAsked(asks).filter(showsDecision)" in script and "Decisions asked for" in script
+    assert 'tab === "active"' in script and "decisionsActive(asks)" in script
+    assert script.count("<${DecisionRow} ") >= 3, "the same row, so approving and ending go through the one login-checked path"
+    assert "decisionsAsked(asks).length" in script, "a request counts toward the badge"
+    for kind in ('["go", "Goes"', '["merge", "Merges"', '["suggest", "Suggestions"', '["perm", "Permissions"', '["ask", "Questions"'):
+        assert kind in script
 
 
 def test_the_merge_tool_makes_the_head_required(github):
