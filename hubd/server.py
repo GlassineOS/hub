@@ -61,7 +61,7 @@ WORK_TOOL_OPS = {"work.offer": "plan_work", "work.suggest": "suggest_session", "
 STEWARD = "steward"
 DIRECT_ORIGIN = {"launch": None, "from": None, "by": "you"}  # a session you started with the one click or the advanced form: no Launch record behind it
 RESULT_TOOL_OPS = {"result.submit": "submit_result", "result.report": "read_report"}  # By a session's own token, checked like WORK_TOOL_OPS
-NOTES_TOOL_OPS = {"notes_tool.find": "notes_find"}  # By a session's own token, only for an action about the notes (009 FR-006)
+NOTES_TOOL_OPS = {"notes_tool.find": "notes_find"}  # By any session's own token, or a hub shell's: notes are for agents to read
 ITEM_OBJECTS = ("issue", "pr", "run")  # what a Launch's covered items can be (005 FR-011)
 KIND_WORDS = {"issue": "an issue", "pr": "a pull request", "run": "a run", "repo": "a repository", "project": "the whole project",
               "knowledge": "a question", "notes": "the notes"}
@@ -572,14 +572,12 @@ class Hubd:
         return {"ok": False, "error": f"unknown request: {op}"}
 
     async def notes_tool(self, req: dict) -> dict:
-        """notes_find by a session's own token: its list has the tool and its action, as it is now, is about the notes.
-        The library lets only a locked action that reads and hands in list it, so the search has no way out but the result
-        the person reads (SECURITY.md, Notes)."""
-        scope = self.agents.scope(req.get("agent_token")) if self.agents else None
-        agent = self.agents.describe(scope["session"]) if scope and scope.get("session") else None
-        action = self.agents.library.actions.get(agent["action"]) if agent else None
-        if self.notes is None or not scope or NOTES_TOOL not in (scope.get("tools") or ()) or not action \
-                or action["object"] != "notes" or NOTES_TOOL not in action["hub_tools"]:
+        """notes_find, for any session: the notes are kept for agents to read (SECURITY.md, Notes). A session's own token
+        whose list has the tool (every action's does; a full session's list is open), or the general token a hub shell holds."""
+        token = req.get("agent_token")
+        scope = self.agents.scope(token) if self.agents else None
+        shell = isinstance(token, str) and auth.same(token, self.agent_token)
+        if self.notes is None or not (shell or (scope and (scope.get("tools") is None or NOTES_TOOL in scope["tools"]))):
             return {"ok": False, "refused": True, "error": f"this session can't use {NOTES_TOOL}"}
         try:
             return {"ok": True, **await self.notes.find(req.get("words"), req.get("limit"))}

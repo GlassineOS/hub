@@ -188,7 +188,8 @@ def test_planner_is_read_only_and_keeps_the_token_off_the_command_line(tmp_path)
     allowed = args[args.index("--allowedTools") + 1:args.index("--disable-slash-commands")]
     assert allowed == ["mcp__glassine-hub__get_pr", "mcp__glassine-hub__get_pr_diff_summary", "mcp__glassine-hub__docs_search",
                            "mcp__glassine-hub__work_search", "mcp__glassine-hub__list_repo_files", "mcp__glassine-hub__read_repo_file", "mcp__glassine-hub__map_overview",
-                           "mcp__glassine-hub__map_definition", "mcp__glassine-hub__map_usages", "mcp__glassine-hub__map_string", "mcp__glassine-hub__code_search"]
+                           "mcp__glassine-hub__map_definition", "mcp__glassine-hub__map_usages", "mcp__glassine-hub__map_string", "mcp__glassine-hub__code_search",
+                       "mcp__glassine-hub__notes_find"]
     assert args[args.index("--tools") + 1] == "" and "--strict-mcp-config" in args
     assert args[args.index("--permission-mode") + 1] == "dontAsk"
     assert "SECRET" not in " ".join(args)
@@ -3270,10 +3271,6 @@ def test_notes_actions_have_no_repository_and_no_planner():
     assert LIBRARY.action("notes-compact")["result_tools"] == ["notes_apply"]
 
 
-def test_a_session_that_reads_notes_has_no_summary_for_others(tmp_path):
-    a = steward(tmp_path)
-    started = asyncio.run(a.start(a.defaults("notes-compact", None, None), started_by="steward"))
-    with pytest.raises(AgentError, match="reads the notes"):
-        asyncio.run(a.started_summary(started["name"]))
-    with pytest.raises(AgentError, match="plan_work"):  # and no session can start one: you do, from Notes
+def test_no_session_starts_a_notes_upkeep_session(tmp_path):
+    with pytest.raises(AgentError, match="plan_work"):  # you do, from Notes
         Agents.check_spawn(type("A", (), {"library": LIBRARY})(), {"action": "notes-compact"})

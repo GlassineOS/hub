@@ -312,19 +312,18 @@ Goes and merge approvals, each a file in hubd's state folder, on disk before any
 
 ## Notes
 
-Notes and the archive search live on this host only, and much of what they search never passed the safety scan. The app's container
-mounts none of it.
+The notes are kept for agents to read: what earlier sessions found, so the next one doesn't work it out again. They live on this
+host only, and much of what they hold never passed the safety scan. The app's container mounts none of it.
 
-- **The search, by a login, and by a session about the notes.** `notes.find`, `notes.status` and `notes.totals` are behind
-  the login check in `Hubd.request`, with no path for a token. The one token path is `notes_find` (`notes_tool.find`), for a
-  session whose list has it *and* whose action, as it is now, is about the notes and lists it. The library refuses to load
-  an action that lists `notes_find` unless it is about the notes, locked, reads only (no shell, no write or post tool, no
-  `asks_first`, not the whole project, and no `plan_work`, whose notes would reach a planner as yours once you press Start)
-  and hands in a result or drafts, listing `submit_result` or `submit_drafts` for it: today `notes-compact` (the Archivist, note
-  operations) and `notes-sweep` (a docs writer, draft issues). What such a session reads goes out only in what it hands in,
-  which a login reads before anything happens; `session_summary` refuses its words, so the Steward can't read notes through
-  it, and the Steward has no `notes_find` (Decision 4 in `docs/workspace.md`). Sweep drafts are filed in public by you, so
-  read them for private details first: the prompt asks the session to leave them out, which is a rule, not a control.
+- **Every session searches them.** `notes_find` (`notes_tool.find`) is on every action's list, the Steward's included: hubd
+  takes it from any session's own token, from a full session's, and from the general token a hub shell holds. Full sessions
+  and shells could read the files anyway. The page's own search (`notes.find`, `notes.status`, `notes.totals`) stays behind
+  the login check. A session still running with a list from before the tool doesn't have it until it is resumed.
+- **What needs care is a note leaving, not a session reading one.** A row can hold private detail, and a session that can
+  post could quote it in public. The tool's description tells sessions not to quote notes where the public reads, which is a
+  rule, not a control, the same as for any private text a session reads (a private repository, a kept answer). What posts
+  in public is still checked where it posts: the safety scan on commits, and the cards for the writes that ask you first.
+  Draft issues from a notes sweep are filed by you, in public, so read them for private details first.
   "Send to the Steward" works on them as on any drafts: only by your press, and then the Steward reads what they carry of
   the notes, and each issue it files still asks you. So read them before sending them too.
 - **Applying note operations is a login's alone.** A notes result is a closed list of operations (supersede, merge,
