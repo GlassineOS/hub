@@ -256,6 +256,9 @@ def calls(workspace):
      ["set", "--retract=c9", "--by=c12", "--why=-x looks like a flag", "--", "gpu/hang"]),
     ({"op": "answer", "topic": "gpu/hang", "ids": ["c7"], "why": "settled by c12"}, ["set", "--close=c7", "--why=settled by c12", "--", "gpu/hang"]),
     ({"op": "add", "topic": "gpu/hang", "words": "Merged c3 and c4.", "open": True}, ["add", "--open", "--", "gpu/hang", "Merged c3 and c4."]),
+    ({"op": "delete", "topic": "gpu/hang", "ids": ["c4"], "by": "c12", "why": "c12 measured it"},
+     ["set", "--delete=c4", "--by=c12", "--why=c12 measured it", "--", "gpu/hang"]),
+    ({"op": "delete", "topic": "gpu/hang", "ids": ["c4"], "why": "-wrong"}, ["set", "--delete=c4", "--why=-wrong", "--", "gpu/hang"]),
 ])
 def test_each_op_is_one_tool_run_and_words_are_never_flags(op, argv):
     assert notes.argv_of(notes.clean_op(op)) == argv
@@ -263,7 +266,11 @@ def test_each_op_is_one_tool_run_and_words_are_never_flags(op, argv):
 
 
 @pytest.mark.parametrize("op,words", [
-    ({"op": "delete", "topic": "gpu/hang", "ids": ["c1"]}, "none deletes"),
+    ({"op": "drop", "topic": "gpu/hang", "ids": ["c1"]}, "one of"),
+    ({"op": "delete", "topic": "gpu/hang", "ids": ["c1"]}, "without why"),
+    ({"op": "delete", "topic": "gpu/hang", "ids": ["c1", "c2"], "why": "w"}, "one note"),
+    ({"op": "delete", "topic": "gpu/hang", "ids": ["c1"], "by": "c1", "why": "w"}, "shows it wrong"),
+    ({"op": "delete", "topic": "gpu/hang", "ids": ["c1"], "why": " "}, "1 to 500"),
     ({"op": "supersede", "topic": "../etc", "ids": ["c1"], "words": "w"}, "AREA/TOPIC"),
     ({"op": "supersede", "topic": "gpu/hang", "ids": ["1"], "words": "w"}, "note ids"),
     ({"op": "supersede", "topic": "gpu/hang", "ids": ["c1"], "words": "w", "command": "rm -rf"}, "not command"),
@@ -311,7 +318,7 @@ def test_a_login_applies_ops_in_order_and_a_failure_stops_the_rest(tmp_path):
     assert [o["state"] for o in ops] == ["applied", "failed", "pending"] and "already retracted" in ops[1]["said"]
     assert calls(root) == [["set", "--replaces=c3", "--inferred=c3", "--", "gpu/hang", "New words."],
                            ["set", "--retract=c2", "--by=c3", "--why=wrong", "--", "gpu/hang"]]
-    assert not any(a[0] not in ("add", "set") for a in calls(root))  # nothing but add and set: no delete
+    assert not any(a[0] not in ("add", "set") for a in calls(root))  # nothing but add and set
     call(hubd, op="result.apply", token=login, id=record["id"], indexes=[2])
     assert [o["state"] for o in hubd.results.get(record["id"])["payload"]["ops"]] == ["applied", "failed", "applied"]
     refused = call(hubd, op="result.apply", token=login, id=record["id"], indexes=[0])
@@ -324,6 +331,29 @@ def test_no_token_applies_ops(tmp_path):
         assert call(hubd, op="result.apply", agent_token=token, id=record["id"])["denied"]
         assert call(hubd, op="result.apply", token=token, id=record["id"])["denied"]
     assert calls(root) == []
+
+
+def test_a_proposed_delete_names_what_shows_it_wrong():
+    """009 FR-008: a session proposes a delete only with the note that shows it wrong."""
+    with pytest.raises(results.ResultError, match="shows it wrong"):
+        results.clean_payload("notes", {"ops": [{"op": "delete", "topic": "gpu/hang", "ids": ["c4"], "why": "w"}]}, [])
+    payload = results.clean_payload("notes", {"ops": [{"op": "delete", "topic": "gpu/hang", "ids": ["c4"], "by": "c9", "why": "w"}]}, [])
+    assert payload["ops"][0]["command"] == "notes set --delete=c4 --by=c9 --why=w -- gpu/hang"
+
+
+def test_a_login_deletes_a_note_with_a_reason_and_no_token_does(tmp_path):
+    """009 FR-007: the login's own delete, one tool run built from checked fields."""
+    hubd, login, root, _record = note_world(tmp_path)
+    for token in ("full-token", "locked-token", "general-token", None):
+        assert call(hubd, op="notes.delete", agent_token=token, topic="gpu/hang", id="c4", why="w")["denied"]
+    assert calls(root) == []
+    assert "1 to 500" in call(hubd, op="notes.delete", token=login, topic="gpu/hang", id="c4", why=" ")["error"]
+    assert "note ids" in call(hubd, op="notes.delete", token=login, topic="gpu/hang", id="4", why="w")["error"]
+    assert "AREA/TOPIC" in call(hubd, op="notes.delete", token=login, topic="../x", id="c4", why="w")["error"]
+    assert calls(root) == []
+    reply = call(hubd, op="notes.delete", token=login, topic="gpu/hang", id="c4", why="--contradicted")
+    assert reply["ok"] and reply["said"].startswith("ok set")
+    assert calls(root) == [["set", "--delete=c4", "--why=--contradicted", "--", "gpu/hang"]]
 
 
 class NotesAgents(Agents):

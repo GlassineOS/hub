@@ -141,7 +141,7 @@ def clean_payload(kind: str, payload, items: list[dict]) -> dict:
         followups = [_text(f, "a follow-up", 500) for f in _list(p.get("followups"), "followups", 10)]
         return {"question": _text(p["question"], "the question", 2000), "answer": _text(p["answer"], "the answer", 20000),
                 "unsettled": unsettled, "sources": sources, "followups": followups}
-    if kind == "notes":  # 009 FR-006: proposed, never applied by the session; no op deletes (005 FR-021)
+    if kind == "notes":  # 009 FR-006: proposed, never applied by the session; a delete names what shows it wrong (FR-008)
         p = _closed(payload, {"ops"}, {"summary"}, "a notes result")
         ops = _list(p["ops"], "ops", notes_ops.MAX_OPS)
         if not ops:
@@ -152,6 +152,8 @@ def clean_payload(kind: str, payload, items: list[dict]) -> dict:
                 clean = notes_ops.clean_op(op)
             except notes_ops.OpError as e:
                 raise ResultError(str(e)) from None
+            if clean["op"] == "delete" and "by" not in clean:
+                raise ResultError("a proposed delete names the note that shows it wrong, in by")
             cleaned.append({**clean, "command": notes_ops.command_of(clean), "state": "pending", "said": None})
         summary = _text(p.get("summary") or "", "the summary", 2000, empty=True)
         return {"ops": cleaned, "summary": summary}

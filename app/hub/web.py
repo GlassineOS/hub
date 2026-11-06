@@ -210,6 +210,10 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         reply = await hubd.call(op="notes.find", token=token, words=b.get("words"), limit=b.get("limit"))
         return {k: reply[k] for k in ("here", "says", "rows", "total", "warnings")}
 
+    async def notes_delete(_r, b, token):  # 009 FR-007
+        reply = await hubd.call(op="notes.delete", token=token, topic=b.get("topic"), id=b.get("id"), why=b.get("why"))
+        return {"said": reply.get("said", "")}
+
     async def changes(r, _b, token):
         """The same feed, for you: all repositories, and no Steward's cursor moves."""
         return await github.changes_since(r.query_params.get("cursor"), int(r.query_params.get("limit") or 100), login=token)
@@ -530,6 +534,7 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         Route("/api/notes", api(notes_status)),
         Route("/api/notes/find", api(notes_find), methods=["POST"]),
         Route("/api/notes/totals", api(notes_totals)),
+        Route("/api/notes/delete", api(notes_delete), methods=["POST"]),
         Route("/api/repo-copies", api(repo_copies)),
         Route("/api/changes", api(changes)),
         Route("/api/work/status", api(work_status)),
