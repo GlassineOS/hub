@@ -227,7 +227,10 @@ function pillState(kind, row) {
   if (!row) return undefined;
   if (kind === "run") {
     if (row.status && row.status !== "completed") return "running";
-    return row.conclusion === "failure" ? "failing" : row.conclusion === "success" ? "passed" : "closed";
+    const c = row.conclusion;
+    if (["failure", "timed_out", "startup_failure", "action_required"].includes(c)) return "failing";
+    if (c === "success") return "passed";
+    return c === "cancelled" ? "cancelled" : c === "skipped" ? "skipped" : "closed";
   }
   const state = String(row.state || "").toUpperCase();
   if (state === "MERGED") return "merged";
@@ -241,7 +244,7 @@ function pillState(kind, row) {
 const PILL_STATE = {
   open: ["open", "sev-low", null], draft: ["draft", "sev-info", null], merged: ["merged", "sev-low", "pass"],
   closed: ["closed", "sev-low", null], failing: ["failing", "sev-high", "fail"], running: ["running", "sev-info", "run"],
-  passed: ["passed", "sev-low", "pass"],
+  passed: ["passed", "sev-low", "pass"], cancelled: ["cancelled", "sev-low", null], skipped: ["skipped", "sev-low", null],
 };
 
 function KindIcon({ kind }) {
@@ -317,7 +320,7 @@ function SessionChip({ session, pending, onOpen, href }) {
 }
 
 // A combobox's keys (002 FR-010): arrows walk, Enter picks, Esc closes. Shared by both pickers.
-function listKeys(e, { size, active, setActive, pick, close }) {
+function listKeys(e, { size, active, setActive, pick, close, open = true }) {
   if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     e.preventDefault();
     if (size) setActive((active + (e.key === "ArrowDown" ? 1 : size - 1)) % size);
@@ -326,7 +329,8 @@ function listKeys(e, { size, active, setActive, pick, close }) {
   } else if (e.key === "Enter") {
     e.preventDefault();
     pick();
-  } else if (e.key === "Escape") {
+  } else if (e.key === "Escape" && open) {
+    // Only when there is a list to close: otherwise Esc belongs to what's around the picker, a dialog's cancel included.
     e.preventDefault();
     e.stopPropagation();
     close();
@@ -336,6 +340,9 @@ function listKeys(e, { size, active, setActive, pick, close }) {
 let pickerSeq = 0;
 const usePickerId = () => useRef(`picker-${++pickerSeq}`).current;
 // Closes a picker's list on a click outside it.
+// Focus moving out of the picker (Tab, or a click elsewhere; lower-case "onfocusout" so Preact listens for "focusout") closes its list, so it never covers what's below (002 FR-010).
+const leaves = (box, close) => (e) => { if (box.current && !box.current.contains(e.relatedTarget)) close(); };
+
 function useOutside(ref, open, close) {
   useEffect(() => {
     if (!open) return undefined;
@@ -415,7 +422,7 @@ function RepoPicker({ value, onChange, many, allowAll, groups, label = "Reposito
       <span class="tick" aria-hidden="true">${selected ? "✓" : ""}</span>${name || "All repositories"}${name && picks.pins.includes(name) ? html`<span class="small soft"> · pinned</span>` : ""}</div>`;
   };
   let index = all ? 1 : 0;
-  return html`<div class="picker" ref=${box}>
+  return html`<div class="picker" ref=${box} onfocusout=${open ? leaves(box, () => close(false)) : undefined}>
     <button type="button" class="picker-button" ref=${button} aria-haspopup="listbox" aria-expanded=${open ? "true" : "false"}
       aria-label=${`${label}: ${summary}`} onClick=${() => (open ? close() : setOpen(true))}><span>${summary}</span><span aria-hidden="true">▾</span></button>
     ${open && html`<div class="pop">
@@ -450,9 +457,15 @@ function typedRefs(text, repos) {
   return { refs, outside };
 }
 
+// The search rows that count for what is typed now: a reply for other words (an older one, or one still on its way)
+// shows nothing and can't be picked.
+function currentRows(found, words) {
+  return found.words === words ? found.rows : [];
+}
+
 // 002 FR-008–002 FR-010: by reference or by words, across the chosen repositories (none: all of them).
-// kind: "issue" or "pr" (the work store holds no runs). Each pick goes to onPick; many keeps the list open
-// for the next. exclude: refs (repo#N) already chosen.
+// kind: "issue" or "pr" (the work store holds no runs). Each pick goes to onPick; many keeps the words and the list
+// open for the next, without what was just picked. exclude: refs (repo#N) already chosen.
 function ItemPicker({ repos = [], kind, many, onPick, exclude = [], label = "Find an item" }) {
   const id = usePickerId();
   const [text, setText] = useState("");
@@ -465,20 +478,22 @@ function ItemPicker({ repos = [], kind, many, onPick, exclude = [], label = "Fin
   const typed = byRef ? refs.refs.map((r) => ({ ...r, kind: kind || "issue" })) : [];
   useEffect(() => {
     if (byRef || words.length < 2) { setFound({ words, rows: [], error: null }); return undefined; }
+    let cancelled = false;  // a reply for words that have since changed is dropped, not shown
     const timer = setTimeout(async () => {
       try {
         const r = await api(`work/search${params({ q: words, kind, repo: repos.length === 1 ? repos[0] : undefined, k: 12 })}`);
         const rows = r.results.filter((x) => !repos.length || repos.includes(x.repo))
           .map((x) => ({ kind: x.kind, repo: x.repo, number: x.number, title: x.title, state: pillState(x.kind, x.row || x) }));
-        setFound({ words, rows, error: null });
+        if (!cancelled) setFound({ words, rows, error: null });
       } catch (e) {
-        setFound({ words, rows: [], error: e.message });
+        if (!cancelled) setFound({ words, rows: [], error: e.message });
       }
     }, 300);
-    return () => clearTimeout(timer);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [words, kind, repos.join()]);
-  const known = new Map(found.rows.map((r) => [ref(r), r]));
-  const candidates = [...typed.map((r) => known.get(ref(r)) || r), ...found.rows.filter((r) => !typed.some((t) => ref(t) === ref(r)))]
+  const rows = currentRows(found, words);
+  const known = new Map(rows.map((r) => [ref(r), r]));
+  const candidates = [...typed.map((r) => known.get(ref(r)) || r), ...rows.filter((r) => !typed.some((t) => ref(t) === ref(r)))]
     .filter((r) => !exclude.includes(ref(r)));
   const at = Math.min(active, Math.max(candidates.length - 1, 0));
   const close = () => { setText(""); setActive(0); };
@@ -486,20 +501,22 @@ function ItemPicker({ repos = [], kind, many, onPick, exclude = [], label = "Fin
   const pick = (item) => {
     if (!item) return;
     onPick(item);
-    setText(""); setActive(0);
-    if (!many && box.current) box.current.querySelector("input").blur();
+    setActive(0);
+    if (many) return;  // the words stay, so the list stays open for the next; exclude drops the one just picked
+    setText("");
+    if (box.current) box.current.querySelector("input").blur();
   };
   const optionId = (i) => `${id}-o${i}`;
   const open = Boolean(words);
   const why = found.error ? `Search failed: ${found.error}. A reference like ${repos.length === 1 ? "#12" : "hub#12"} still works.`
     : byRef ? (refs.outside.length ? `${refs.outside.join(", ")}: ${repos.length ? `not in ${repos.join(", ")}` : "name the repository, as repo#N"}.` : "Already chosen.")
     : words.length < 2 ? "Type a reference or a few words." : found.words === words ? "Nothing matches." : "Searching…";
-  return html`<div class="picker" ref=${box}>
+  return html`<div class="picker" ref=${box} onfocusout=${open ? leaves(box, close) : undefined}>
     <input role="combobox" class="mono" aria-expanded=${open ? "true" : "false"} aria-controls=${`${id}-list`} aria-autocomplete="list"
       aria-activedescendant=${open && candidates.length ? optionId(at) : undefined} aria-label=${label}
       placeholder=${repos.length === 1 ? `#number or words in ${repos[0]}` : "repo#number or words"} value=${text}
       onInput=${(e) => { setText(e.target.value); setActive(0); }}
-      onKeyDown=${(e) => listKeys(e, { size: candidates.length, active: at, setActive, pick: () => pick(candidates[at]), close })} />
+      onKeyDown=${(e) => listKeys(e, { size: candidates.length, active: at, setActive, pick: () => pick(candidates[at]), close, open })} />
     ${open && html`<div class="pop"><div role="listbox" id=${`${id}-list`} aria-label=${label}>
       ${candidates.map((c, i) => html`<div role="option" id=${optionId(i)} aria-selected=${i === at ? "true" : "false"} data-active=${i === at ? "" : undefined}
         onMouseDown=${(e) => e.preventDefault()} onClick=${() => pick(c)}><${ItemPill} ...${c} plain /></div>`)}
@@ -1284,7 +1301,7 @@ function WorkRow({ row, tab, scope, sessions, action }) {
   // Every session on the item (002 FR-019), each opening the item, where its session shows (002 FR-018).
   const shown = sessions.slice(0, MAX_ROW_CHIPS);
   return html`<div class="wrow">
-    <${ItemPill} kind=${kind} repo=${row.repo} number=${row.number} workflow=${row.workflow} state=${row.pill} href=${open} />
+    <${ItemPill} kind=${kind} repo=${row.repo} number=${row.number} workflow=${row.workflow} state=${row.pill} plain />
     <a class="t" href=${open}><span class="line"><b>${row.title}</b></span><span class="small soft sub">${row.sub}</span></a>
     ${shown.length > 0 && html`<span class="row" style="gap: 6px">${shown.map((s) => html`<${SessionChip} key=${s.name} session=${s} href=${open} />`)}
       ${sessions.length > shown.length && html`<a class="small" href=${open}>${sessions.length - shown.length} more</a>`}</span>`}

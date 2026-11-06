@@ -1147,7 +1147,7 @@ def test_severity_is_an_outline_and_pills_never_fill_by_state():
     pill = _component(script, "ItemPill")
     assert "background" not in pill and "style=" not in pill.replace('style="gap: 6px; flex-wrap: nowrap; min-width: 0"', "")
     states = re.search(r"const PILL_STATE = \{(.*?)\};", script, re.S)[1]
-    assert set(re.findall(r"(\w+): \[", states)) == {"open", "draft", "merged", "closed", "failing", "running", "passed"}
+    assert set(re.findall(r"(\w+): \[", states)) == {"open", "draft", "merged", "closed", "failing", "running", "passed", "cancelled", "skipped"}
     assert all(re.search(rf'{s}: \["{s}", "sev-', states) for s in ("open", "failing", "draft")), "each state has its word"
     assert "aria-label=${name}" in pill and "Remove ${ref(item)}" in pill
 
