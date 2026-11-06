@@ -25,12 +25,6 @@ async function api(path, { method = "GET", body } = {}) {
 
 const post = (path, body = {}) => api(path, { method: "POST", body });
 // What a session is about: one item, or the whole project.
-// What a page sends of a config it changed: these pages edit also_numbers, so covers from an earlier answer is left out.
-// Sent together, the two would have to agree, and an edit to also_numbers would make the stale covers disagree.
-function edited(config) {
-  const { covers, ...rest } = config;
-  return rest;
-}
 const alsoCovers = (a) => (a.also_numbers || []).map((n) => ` #${n}`).join("");
 const whereFrom = (a) => (a.repo ? (a.number ? `${a.repo}#${a.number}${alsoCovers(a)}` : a.repo) : "the whole project");
 const params = (o) => {
@@ -588,7 +582,7 @@ function RepoDetail({ repo, layer }) {
       <dt>Release</dt><dd class="mono">${repo.release || "none"}</dd>
     </dl>
     <div class="row">
-      <button onClick=${() => planWork({ action: "new-security-audit", repo: repo.name })}>＋ Audit or plan…</button>
+      <button onClick=${() => launch({ action: "new-security-audit", repos: [repo.name], from: { view: "Overview" } })}>＋ Audit or plan…</button>
       <a class="button" href=${hash("work", { repo: repo.name })}>Issues & PRs</a>
       <a class="button primary" href=${hash("shells", { new: 1, name: repo.name })}>New shell</a>
       <a class="button" href=${repo.url} target="_blank" rel="noreferrer noopener">GitHub</a>
@@ -787,7 +781,7 @@ function Roadmap() {
   return html`<main class="page close">
     <div class="row" style="align-items: flex-end; justify-content: space-between">${title}
       <div class="row">
-        <button onClick=${() => planWork({ action: "new-roadmap-item", repo: "hub" })}>＋ Roadmap item</button>
+        <button onClick=${() => launch({ action: "new-roadmap-item", repos: ["hub"], from: { view: "Roadmap" } })}>＋ Roadmap item</button>
         <button onClick=${() => setAdding(true)}>Add existing issue</button>
         <a class="button primary" href=${hash("work", { tab: "issues", repo: "hub", new: 1, roadmap: 1 })}>New strategic issue</a>
       </div></div>
@@ -825,16 +819,7 @@ function Roadmap() {
   </main>`;
 }
 
-// --- agents: one click on the object ---------------------------------------------------
-let advancedHandoff = null;
-
-function specRows(config, action) {
-  const rows = [["Persona", config.persona], ["Model", `${config.model} · ${config.effort}`]];
-  if (action.full) rows.push(["Tools", "full Claude Code"]);
-  else rows.push(["Hub tools", config.hub_tools.join(", ") || "none"], ["Tools", config.tools.join(", ") || "none"]);
-  return rows;
-}
-
+// --- Launch: notes and pins for the planner ------------------------------------------------
 const STEER_CHIPS = {
   pr: ["error paths first", "keep the diff small", "check it against the docs", "add tests"],
   issue: ["only propose, don't apply", "look for duplicates", "keep the change small"],
@@ -843,9 +828,6 @@ const STEER_CHIPS = {
 const PIN_WORDS = { thread: "Review thread", ref: "Issue / PR", file: "Repo file", docs: "Docs page", url: "Link", text: "Text snippet" };
 const PIN_HINTS = { ref: "hub#44", file: "kernel:drivers/gpu/drm/epd/epd_lut.c", docs: "docs path", text: "Something the agent should know" };
 const pinKind = (v) => (/^https?:/.test(v) ? "url" : /#\d/.test(v) ? "ref" : v.indexOf(":") > 0 ? "file" : "docs");
-
-// What you add to an item survives moving around the page, until you start or leave the hub.
-const steering = new Map();
 
 function SteerFields({ kind, notes, pins, onNotes, onPins }) {
   const [typed, setTyped] = useState("");
@@ -873,118 +855,21 @@ function SteerFields({ kind, notes, pins, onNotes, onPins }) {
   </div>`;
 }
 
-// What a planner is doing or came back with, per item, so moving to another item doesn't throw it away.
-const plans = new Map();
-const planErrors = new Map();
-// A list row's start button. A click, never part of the address: a link or a reload doesn't spend a planner run.
-let rowPlan = null;
-
-function Spawn({ kind, repo, number, failing, session, phase, threads, onStarted, onPhase }) {
-  const { data } = useLoad(() => api(`agents/actions${params({ object: kind })}`), [kind]);
-  const key = `${kind}/${repo}/${number}`;
-  const [plan, setPlanState] = useState(() => plans.get(key) || null); // { action, phase, config, cost, picked }
-  const [planNote, setPlanNote] = useState(null);
-  const setPlan = (next) => { if (next) plans.set(key, next); else plans.delete(key); setPlanState(next); };
-  const [steer, setSteerState] = useState(() => ({ notes: "", pins: [], also: [], planner: PLANNER_DEFAULT, ...steering.get(key) }));
-  const [open, setOpen] = useState(false);
-  const setSteer = (patch) => setSteerState((s) => { const next = { ...s, ...patch }; steering.set(key, next); return next; });
-  const clearSteer = () => { steering.delete(key); setSteerState({ notes: "", pins: [], also: [], planner: PLANNER_DEFAULT }); };
-  const canCover = kind === "issue" && (data || []).some((a) => a.full);
-  const addAlso = (n) => { if (Number.isInteger(n) && n > 0 && n !== number && !steer.also.includes(n)) setSteer({ also: [...steer.also, n] }); };
-  const act = useAct();
+// 006 FR-015, as Launch needs it: the item's agent actions, each opening Launch on this item (006/PR 1 adds the rest of the row).
+function LaunchRow({ kind, repo, number, failing, threads }) {
+  const { data, error } = useLoad(() => api(`agents/actions${params({ object: kind })}`), [kind]);
   const openThreads = threads ? threads.open : 0;
   const reviewCount = threads ? threads.reviews : 0;  // a review can say it all in its text, with no threads
   const threadPins = threads ? threads.pins : [];
   const offered = (data || []).filter((a) => (!a.when || a.when === (failing ? "failing" : "not-failing")) && (!a.needs || (a.needs === "review" && openThreads + reviewCount > 0))).sort((a, b) => Boolean(b.needs) - Boolean(a.needs));
-  const sent = () => ({ notes: steer.notes, pins: [...steer.pins, ...threadPins] });
   const titleOf = (a) => (a.needs === "review" ? `${a.title} · ${threadPins.length ? count(threadPins.length, "ticked thread") : openThreads === 1 ? "1 open thread" : openThreads ? `all ${openThreads} threads` : count(reviewCount, "review")}` : a.title);
-  const go = (a) => {
-    if (!a.plan) {
-      act.run(async () => { onStarted(await post("agents/run", { action: a.id, repo, number, ...sent() })); clearSteer(); });
-      return;
-    }
-    setPlanNote(null); planErrors.delete(key);
-    setPlan({ action: a, phase: "planning" });
-    act.run(async () => {
-      try {
-        const r = await post("agents/plan", { action: a.id, repo, number, ...sent(), planner_model: steer.planner });
-        setPlan({ action: a, phase: "ready", config: a.full && steer.also.length ? { ...r.config, also_numbers: steer.also } : r.config, cost: r.planner_cost_usd, picked: r.config.model, planner: steer.planner });
-      } catch (e) {
-        planErrors.set(key, e.message);
-        setPlan(null);
-        throw e;
-      }
-    });
-  };
-  const start = () => act.run(async () => { onStarted(await post("agents/start", { config: edited(plan.config) })); setPlan(null); clearSteer(); });
-  const chooseModel = (model) => setPlan({ ...plan, config: { ...plan.config, model } });
-  const advanced = () => { advancedHandoff = plan.config; };
-  useEffect(() => {
-    if (!rowPlan || rowPlan.key !== key || !data) return;
-    const { action, title } = rowPlan;
-    rowPlan = null;
-    const a = offered.find((x) => x.id === action);
-    if (a && a.plan) go(a);
-    else setPlanNote(`${title} isn't offered for this item now, so no planner ran.`);
-  }, [data]);
-  // A plan started before you came back to this item finishes in the other instance of this panel.
-  useEffect(() => {
-    if (!plan || plan.phase !== "planning") return undefined;
-    const timer = setInterval(() => {
-      const now = plans.get(key) || null;
-      if (now !== plan) { setPlanState(now); setPlanNote(planErrors.get(key) || null); }
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [plan]);
-  const noun = { pr: "pull request", issue: "issue", run: "run" }[kind];
-  const w = session && session.agent && session.agent.waiting;
-  return html`<section class="spawn keycap" aria-labelledby="h-claude">
-    <div class="row" style="gap: 4px 12px; align-items: baseline"><h2 id="h-claude" class="row" style="gap: 8px; font-size: 19px; font-weight: 600"><${TermIcon} />Claude</h2>
-      <span class="small soft">Start an agent session for this ${noun}.</span></div>
-    <${Err} text=${planNote} />
-    ${!plan && html`${open
-      ? html`<div class="stack" style="gap: 8px; padding: 12px 14px; background: var(--sheet); border-radius: 12px">
-          <${SteerFields} kind=${kind} notes=${steer.notes} pins=${steer.pins} onNotes=${(notes) => setSteer({ notes })} onPins=${(pins) => setSteer({ pins })} />
-          ${canCover && html`<div class="stack split-rule" style="gap: 6px"><span class="eyebrow">Also covers · ${steer.also.length || "none"}</span>
-            <span class="small soft">Other issues the same session should finish. Each one shows the session in Work, and the PR closes all of them. Applies to sessions that write code.</span>
-            <div class="row" style="gap: 6px"><${ItemPill} kind="issue" repo=${repo} number=${number} /><span class="small soft">primary</span>
-              ${steer.also.map((n) => html`<${ItemPill} key=${n} kind="issue" repo=${repo} number=${n} removable onRemove=${() => setSteer({ also: steer.also.filter((x) => x !== n) })} />`)}</div>
-            <${ItemPicker} repos=${[repo]} kind="issue" many label=${`Another issue of ${repo} to cover`}
-              exclude=${[number, ...steer.also].map((n) => `${repo}#${n}`)} onPick=${(item) => addAlso(item.number)} /></div>`}
-          <div class="row split-rule" style="gap: 10px 16px; align-items: flex-end"><${PlannerModel} id="spawn-pm" value=${steer.planner} onChange=${(planner) => setSteer({ planner })} />
-            <span class="small soft" style="flex: 1 1 200px">Model for the throwaway planner run that writes the spec. The agent’s own model is picked on the spec.</span></div>
-          <button class="link" aria-expanded="true" style="align-self: flex-end" onClick=${() => setOpen(false)}>Hide, and keep what you added</button></div>`
-      : html`<div class="row"><button class="addlabel" aria-expanded="false" onClick=${() => setOpen(true)}>+ Notes and context for the planner</button>
-          <span class="small soft">${steer.notes.trim() ? `“${steer.notes.length > 60 ? `${steer.notes.slice(0, 60)}…` : steer.notes}”` : "no notes"} · ${steer.pins.length + threadPins.length ? `${steer.pins.length + threadPins.length} pinned` : "nothing pinned"}</span></div>`}
-    <div class="row">${offered.map((a, i) => html`<button class=${i === 0 ? "primary" : ""} title=${`${a.summary} ${a.ceiling}`} disabled=${act.busy} onClick=${() => go(a)}><${TermIcon} />${titleOf(a)}</button>`)}</div>`}
-    ${!plan && !session && html`<span class="small soft">The planner runs first, and you confirm its spec.${offered.filter((a) => !a.plan).map((a) => ` ${a.title} starts at once.`)}</span>`}
-    ${plan && plan.phase === "planning" && html`<div role="status" class="split-rule">
-      <span class="row" style="font-weight: 600"><${StateIcon} kind="run" />Planning “${plan.action.title}”</span>
-      <span class="mono soft" style="font-size: 12.5px">claude -p · ${NW_MODEL[steer.planner] || steer.planner} · read-only hub tools · up to a few minutes</span>
-      ${(steer.notes.trim() || steer.pins.length + threadPins.length > 0) && html`<span class="small soft">With your notes and ${count(steer.pins.length + threadPins.length, "pin")}.</span>`}</div>`}
-    ${plan && plan.phase === "ready" && html`<div class="split-rule">
-      <${Eyebrow}>Spec from planner · ${plan.action.title}<//>
-      <dl class="defs">${(plan.config.also_numbers || []).length > 0 && html`<dt>Covers</dt><dd>${repo}#${number} (primary), ${plan.config.also_numbers.map((n) => `${repo}#${n}`).join(", ")}</dd>`}
-        ${specRows(plan.config, plan.action).map(([k, v]) => html`<dt>${k}</dt><dd>${v}</dd>`)}
-        ${plan.config.notes && html`<dt>Your notes</dt><dd>${plan.config.notes}</dd>`}
-        ${plan.config.pins.length > 0 && html`<dt>Pinned</dt><dd>${plan.config.pins.map((p) => p.label).join(" · ")}</dd>`}</dl>
-      ${plan.action.models.length > 1 && html`<div class="stack tight"><span class="eyebrow" id="spawn-model">Model for this session</span>
-        <div role="radiogroup" aria-labelledby="spawn-model" class="seg" style="align-self: flex-start">${plan.action.models.map((m) => html`<button role="radio" aria-checked=${plan.config.model === m ? "true" : "false"} onClick=${() => chooseModel(m)}>${m}</button>`)}</div>
-        <span class="small soft">${plan.config.model === plan.picked ? `${plan.picked}: the planner's choice.` : `${plan.config.model}: your choice. The planner suggested ${plan.picked}.`}</span></div>`}
-      ${plan.config.docs.length > 0 && html`<div class="stack tight"><${Eyebrow}>Context · docs search<//>
-        ${plan.config.docs_query && html`<span class="soft" style="font-size: 13px">Planner searched for <span class="mono" style="color: var(--ink)">“${plan.config.docs_query}”</span>:</span>`}
-        <ul class="stack" style="gap: 4px">${plan.config.docs.map((d) => html`<li class="passage"><span><b>${d.link}</b><span class="soft" style="font-size: 13px">${d.why}</span></span></li>`)}</ul></div>`}
-      ${plan.config.brief && html`<div class="stack" style="gap: 4px"><${Eyebrow}>Briefing<//><pre class="codeblock" style="white-space: pre-wrap; font-size: 12.5px">${plan.config.brief}</pre></div>`}
-      <span class="soft" style="font-size: 13px">${plan.action.ceiling}${plan.cost != null ? ` Planning cost $${plan.cost.toFixed(2)}.` : ""}</span>
-      <div class="row">
-        <button class="primary" disabled=${act.busy} onClick=${start}>Start session</button>
-        <a class="button" href=${hash("launch", { action: plan.action.id, repo, number })} onClick=${advanced}>Advanced…</a>
-        <button onClick=${() => { setPlan(null); setOpen(true); }}>Edit notes and context</button>
-        <button disabled=${act.busy} onClick=${() => go(plan.action)}>Re-plan with current notes</button>
-        <button class="link" onClick=${() => setPlan(null)}>Discard</button></div></div>`}
-    ${session && phase !== "embedded" && html`<div role="status" class="notice quiet"><span><span class="mono" style="font-weight: 600">${session.name}</span> · ${session.agent.persona} · <span class="badge ${w ? "mark" : ""}">${w ? "waiting" : "running"}</span> in the background</span>
-      <button class="plain" onClick=${() => onPhase("embedded")}>Bring back</button></div>`}
-    <${Err} text=${act.error} />
+  const here = `${repo}#${number}`;
+  const open = (a) => launch({ action: a.id, covers: [{ kind, repo, number }], pins: a.needs === "review" ? threadPins : [], from: { view: "Work", ref: here } });
+  return html`<section class="spawn keycap" aria-labelledby="h-launch">
+    <div class="row" style="gap: 4px 12px; align-items: baseline"><h2 id="h-launch" class="row" style="gap: 8px; font-size: 19px; font-weight: 600"><${TermIcon} />Launch on ${here}</h2>
+      <span class="small soft">Each opens Launch on this item: a planner reads first, and nothing runs until you've read its plan.</span></div>
+    <${Err} text=${error} />
+    <div class="row">${offered.map((a, i) => html`<button class=${i === 0 ? "primary" : ""} title=${`${a.summary} ${a.ceiling}`} onClick=${() => open(a)}><${TermIcon} />${titleOf(a)}</button>`)}</div>
   </section>`;
 }
 
@@ -1114,7 +999,7 @@ function IssueDetail({ repo, number, spawn, onChanged }) {
         { title: "Close this issue?", text: `${repo}#${number}: ${data.title}`, label: "Close issue", danger: true },
         () => act.run(() => post(`issues/${repo}/${number}/close`, { reason: "completed" })),
       )}>Close</button>` : html`<button class="primary" disabled=${act.busy} onClick=${() => act.run(() => post(`issues/${repo}/${number}/reopen`))}>Reopen</button>`}</div>`}
-    claude=${html`<button class="nw-open" onClick=${() => planWork({ repo, context: `${repo}#${number}`, pins: [{ kind: "ref", label: `${repo}#${number}` }] })}>＋ New work from this…</button>${open && spawn({ kind: "issue", failing: false })}`}
+    claude=${html`<button class="nw-open" onClick=${() => launch({ repos: [repo], context: `${repo}#${number}`, pins: [{ kind: "ref", label: `${repo}#${number}` }], from: { view: "Work", ref: `${repo}#${number}` } })}>＋ New work from this…</button>${open && spawn({ kind: "issue", failing: false })}`}
     sections=${[{ id: "talk", label: "Conversation", body: conversation }]}
     details=${html`<dl class="defs"><dt>Assignee</dt><dd>${(data.assignees || []).map((a) => a.login).join(", ") || "unassigned"}</dd>
         <dt>On GitHub</dt><dd><a href=${data.url} target="_blank" rel="noreferrer noopener">${repo}#${number}</a></dd></dl>
@@ -1176,7 +1061,7 @@ function PrDetail({ repo, number, spawn, onChanged }) {
         { title: "Close without merging?", text: `${repo}#${number}: ${data.title}`, label: "Close pull request", danger: true },
         () => act.run(() => post(`${base}/close`)),
       )}>Close</button></div>`}`}
-    claude=${html`<button class="nw-open" onClick=${() => planWork({ repo, context: `${repo}#${number}`, pins: [{ kind: "ref", label: `${repo}#${number}` }] })}>＋ New work from this…</button>${open && spawn({ kind: "pr", failing: data.checks === "failing", threads: { open: openThreads.length, pins: threadPins, reviews: reviews.filter((r) => r.body && r.state !== "APPROVED").length } })}`}
+    claude=${html`<button class="nw-open" onClick=${() => launch({ repos: [repo], context: `${repo}#${number}`, pins: [{ kind: "ref", label: `${repo}#${number}` }], from: { view: "Work", ref: `${repo}#${number}` } })}>＋ New work from this…</button>${open && spawn({ kind: "pr", failing: data.checks === "failing", threads: { open: openThreads.length, pins: threadPins, reviews: reviews.filter((r) => r.body && r.state !== "APPROVED").length } })}`}
     sections=${[{ id: "talk", label: "Conversation", body: conversation }, { id: "checks", label: `Checks ${checks.length}`, body: checkList }, { id: "files", label: `Files ${data.files.length}`, body: files }]}
     details=${html`<dl class="defs"><dt>Reviews</dt><dd>${(data.reviewDecision || "none").toLowerCase().replaceAll("_", " ")}</dd>
         <dt>State</dt><dd>${data.isDraft ? "draft · " : ""}${data.state.toLowerCase()} · ${String(data.mergeStateStatus || "").toLowerCase()}</dd>
@@ -1320,7 +1205,8 @@ function WorkRow({ row, tab, scope, sessions, action }) {
   const open = hash("work", { tab, repo: scope, at: row.repo, item: row.number });
   const kind = { issues: "issue", prs: "pr", actions: "run" }[tab];
   // Only a plain click: a link opened in a new tab is just the item.
-  const planIt = (e) => { if (!e.ctrlKey && !e.metaKey && !e.shiftKey && !e.button) rowPlan = { key: `${kind}/${row.repo}/${row.number}`, action: action.id, title: action.title }; };
+  // 005 SC-001: the row's blue action opens Launch on the row's item, from Work.
+  const launchIt = () => launch({ action: action.id, covers: [{ kind, repo: row.repo, number: row.number }], from: { view: "Work", ref: `${row.repo}#${row.number}` } });
   // Every session on the item (002 FR-019), each opening the item, where its session shows (002 FR-018).
   const shown = sessions.slice(0, MAX_ROW_CHIPS);
   return html`<div class="wrow">
@@ -1329,7 +1215,7 @@ function WorkRow({ row, tab, scope, sessions, action }) {
     ${shown.length > 0 && html`<span class="row" style="gap: 6px">${shown.map((s) => html`<${SessionChip} key=${s.name} session=${s} href=${open} />`)}
       ${sessions.length > shown.length && html`<a class="small" href=${open}>${sessions.length - shown.length} more</a>`}</span>`}
     <span class="state">${row.state}</span><span class="age">${age(row.at)}</span>
-    ${action && html`<a class="button start" title=${`${action.summary} The planner runs first; you confirm its spec. ${action.ceiling}`} href=${open} onClick=${planIt}><${TermIcon} />${action.title}</a>`}
+    ${action && html`<button class="start" title=${`${action.summary} Opens Launch: the planner runs first, and you read its plan. ${action.ceiling}`} onClick=${launchIt}><${TermIcon} />${action.title}</button>`}
   </div>`;
 }
 
@@ -1449,10 +1335,10 @@ function WorkLists({ query, asks }) {
         setNotice(`Couldn't move ${name} to ${mode === "embedded" ? "this item" : "the background"}: ${e.message}`);
       });
     };
-    const spawn = ({ kind, failing, threads }) => html`<${Spawn} key=${current.key} kind=${kind} repo=${current.repo} number=${current.number} failing=${failing} threads=${threads}
-        session=${session} phase=${phase}
-        onStarted=${async (r) => { place(r.name, "embedded"); await sessions.reload(); }}
-        onPhase=${(ph) => session && place(session.name, ph)} />
+    const w = session && session.agent.waiting;
+    const spawn = ({ kind, failing, threads }) => html`<${LaunchRow} key=${current.key} kind=${kind} repo=${current.repo} number=${current.number} failing=${failing} threads=${threads} />
+      ${session && !embedded && html`<div role="status" class="notice quiet"><span><span class="mono" style="font-weight: 600">${session.name}</span> · ${session.agent.persona_name || session.agent.persona} · <span class="badge ${w ? "mark" : ""}">${w ? "waiting" : "running"}</span> in the background</span>
+        <button class="plain" onClick=${() => place(session.name, "embedded")}>Bring back</button></div>`}
       ${embedded && html`<${SessionView} key=${session.name} session=${session} mode="embedded" asks=${asks} here=${here}
         onView=${(m) => setPhases((p) => ({ ...p, [`${session.name}@${here}`]: m }))} onEnded=${(r) => { setKeptCheckout(r && r.kept ? { ref: here, path: r.kept } : null); sessions.reload(); }} onGone=${() => sessions.reload()} />`}
       ${keptCheckout && keptCheckout.ref === here && html`<div role="status" class="notice quiet"><span>That session had work that isn't on GitHub, so its checkout stays at <code>${keptCheckout.path}</code>.</span></div>`}`;
@@ -1479,7 +1365,7 @@ function WorkLists({ query, asks }) {
         <button role="radio" class="pill mono" aria-checked=${!scope ? "true" : "false"} onClick=${() => go({ repo: undefined })}>All</button>
         ${visible.map((r) => html`<button role="radio" class="pill mono" aria-checked=${scope === r.name ? "true" : "false"} onClick=${() => go({ repo: r.name })}>${r.name}</button>`)}
         ${chips.length > 5 && html`<button class="addlabel" onClick=${() => setAllRepos(!allRepos)}>${allRepos ? "fewer" : "more…"}</button>`}</div>
-      <button onClick=${() => planWork({ repo: repo || undefined })}>${repo ? `＋ New in ${repo}…` : "＋ New work…"}</button>
+      <button onClick=${() => launch({ repos: repo ? [repo] : undefined, from: { view: "Work" } })}>${repo ? `＋ New in ${repo}…` : "＋ New work…"}</button>
       <button class="primary" onClick=${() => setPanel(tab === "actions" ? "dispatch" : "new")}>${tab === "actions" ? "Run workflow…" : repo ? `New issue in ${repo}` : "New issue"}</button></div>
     <p style="font-size: 17px; line-height: 1.4"><span class="mono" style="font-weight: 600">${repo ? `GlassineOS/${repo}` : `GlassineOS · all ${groups.flatMap((g) => g.repos).length} repositories`}</span>
       <span class="soft"> · ${repo ? (layer || "") : groupBy === "needs" ? "grouped by what needs you" : "all"}</span></p>
@@ -1507,7 +1393,7 @@ function WorkLists({ query, asks }) {
       <div class="wlist">${group.map((r) => html`<${WorkRow} key=${r.key} row=${r} tab=${tab} scope=${scope} sessions=${sessionsOn(r, list)} action=${startFor(r)} />`)}</div></section>`)}
     ${data && !rows.length && html`<p class="soft">Nothing here.</p>`}
     ${!data && loading && html`<p class="soft">Loading…</p>`}
-    ${rows.length > 0 && html`<p class="small soft">Open an item to work on it full width, and k / j steps through this list from there. The button on a row plans its most likely Claude action.</p>`}
+    ${rows.length > 0 && html`<p class="small soft">Open an item to work on it full width, and k / j steps through this list from there. The button on a row opens Launch with its most likely Claude action.</p>`}
   </main>`;
 }
 
@@ -1796,7 +1682,7 @@ function SessionSpec({ session, manifest: m, error }) {
           : [...m.config.hub_tools, ...m.config.tools].map((t) => html`<div class="tool-row"><span class="mono" style="font-size: 13px">${t}</span><span class="badge">allow</span></div>`)}</div>
       <div class="row" style="gap: 8px">
         <button class="plain" aria-expanded=${prompt ? "true" : "false"} onClick=${() => setPrompt(!prompt)}>${prompt ? "Hide built prompt" : "Show built prompt"}</button>
-        ${a.repo && a.number && html`<a class="button plain" href=${hash("launch", { action: a.action, repo: a.repo, number: a.number })} onClick=${() => { advancedHandoff = m.config; }}>Clone setup</a>`}</div>
+        ${covers.length > 0 && html`<button class="plain" onClick=${() => launch({ action: a.action, covers, from: { view: "Sessions" } })}>Launch again on these items</button>`}</div>
       ${prompt && html`<pre class="shadow">${m.prompt}</pre>`}`}
   </details>`;
 }
@@ -1958,7 +1844,10 @@ function AskQuestion({ q, value, onChange, steward }) {
 }
 
 // --- new work: a planner, then a session that ends in drafts, which nothing files until you choose ---------------
-const planWork = (opts = {}) => window.dispatchEvent(new CustomEvent("hub-new-work", { detail: opts }));
+// --- Launch (005): brief, planning, plan, run, result ------------------------------------------------
+// Opens over any view. detail: { id?: a record (a suggestion, or one you reopen), action?, covers?: [{kind, repo, number}],
+// repos?: [repo], from: {view, ref?} (where it was opened, 005 FR-001/FR-010), notes?, pins?, context?, steward?: drafted with the Steward }.
+const launch = (detail = {}) => window.dispatchEvent(new CustomEvent("hub-launch", { detail }));
 const NW_TEXT = {
   "new-issue": { label: "What’s wrong or wanted", hold: "e.g. pen lag doubles when battery saver is on", hint: "e.g. check whether it’s a duplicate first", },
   "new-security-audit": { hint: "e.g. assume any local user can reach the socket", },
@@ -1972,373 +1861,367 @@ const NW_WAITING = ["offered", "planned", "done", "failed"];
 // hubd refuses anything else. Haiku is its default, and what a planner run costs least on.
 const PLANNER_CHOICES = ["haiku", "sonnet", "opus"];
 const PLANNER_DEFAULT = "haiku";
-const startForm = (item) => window.dispatchEvent(new CustomEvent("hub-start-form", { detail: item }));
 const nwWaits = (item) => NW_WAITING.includes(item.state);
+// 005 FR-002, in this order. failed and dismissed are where a Launch stopped, shown on the stage it stopped at.
+const LAUNCH_STAGES = [["brief", "Brief"], ["planning", "Planning"], ["plan", "Plan"], ["run", "Run"], ["result", "Result"]];
+const OBJECT_WORDS = { issue: "an issue", pr: "a pull request", run: "a run", repo: "a repository" };
+const MAX_COVERS = 6; // hubd's: one item and five more
+const coverOf = (c) => ({ kind: c.kind, repo: c.repo, number: c.number });
+// A record from before covers were kept names its items by number.
+const recordCovers = (r, object) => (r.covers && r.covers.length ? r.covers.map(coverOf)
+  : r.number ? [r.number, ...(r.also_numbers || [])].map((n) => ({ kind: object || "issue", repo: r.repo, number: n })) : []);
+// 005 FR-011, before planning: hubd says the same and refuses.
+function launchRefusal(action, covers) {
+  if (!action) return null;
+  if (action.object === "repo") return covers.length ? `${action.title} works on a repository, not on an item like ${ref(covers[0])}. Remove the items, or choose another action.` : null;
+  const other = covers.find((c) => c.kind !== action.object);
+  if (other) return `${action.title} works on ${OBJECT_WORDS[action.object]}, and ${ref(other)} is ${OBJECT_WORDS[other.kind]}, so it can't start there.`;
+  return covers.length ? null : `${action.title} works on ${OBJECT_WORDS[action.object]}: add one below.`;
+}
 
 const PlannerModel = ({ value, onChange, id }) => html`<div class="stack" style="gap: 6px"><span id=${id} class="eyebrow">Planner</span>
   <div role="radiogroup" aria-labelledby=${id} class="seg">${PLANNER_CHOICES.map((m) => html`<button role="radio" aria-checked=${value === m ? "true" : "false"} onClick=${() => onChange(m)}>${NW_MODEL[m]}</button>`)}</div></div>`;
 
-const NW_STAGES = ["config", "review", "session", "drafts"];
+// Every action there is to launch: the item kinds' and new work on a repository (with the form's extra fields).
+function useLaunchActions(templates) {
+  const { data, error } = useLoad(() => Promise.all([api(`agents/actions${params({ object: "repo" })}`), api("agents/actions")]), []);
+  const extra = new Map((templates || []).map((t) => [t.id, t]));
+  const list = data ? [...data[0], ...data[1]].filter((a) => a.object !== "project").map((a) => ({ ...a, ...(extra.get(a.id) ? { asks_describe: extra.get(a.id).asks_describe, asks_paths: extra.get(a.id).asks_paths, repo: extra.get(a.id).repo } : {}) })) : null;
+  return { list, error };
+}
 
-function NewWork({ open, work, asks, onClose, reload }) {
-  const ref = useRef();
-  const [id, setId] = useState(open.id || null);
-  const live = id ? work.items.find((i) => i.id === id) : null;
-  const seed = useRef(live || open).current;
-  const [action, setAction] = useState(seed.action || (work.templates[0] && work.templates[0].id));
-  const template = work.templates.find((t) => t.id === action) || work.templates[0];
-  const [repo, setRepo] = useState(seed.repo || null);
-  const [describe, setDescribe] = useState(seed.describe || "");
-  const [paths, setPaths] = useState(seed.paths || "");
-  const [notes, setNotes] = useState(seed.notes || "");
-  const [pins, setPins] = useState(seed.pins || []);
-  const [pinning, setPinning] = useState(null);
-  const [plannerModel, setPlannerModel] = useState(seed.planner_model || PLANNER_DEFAULT);
-  const [driver, setDriver] = useState(seed.driver || (open.by === STEWARD ? "steward" : "you"));
-  const [editing, setEditing] = useState(false); // back on the form, with a plan still waiting
-  const [model, setModel] = useState(null); // yours, once you've chosen on the plan
-  const [brief, setBrief] = useState(null);
-  const [preview, setPreview] = useState(null);
+// The stage bar (005 FR-002): every stage named, the current one marked.
+function LaunchStages({ stage, stopped }) {
+  const at = LAUNCH_STAGES.findIndex(([s]) => s === stage);
+  return html`<nav class="nw-rail" aria-label="Launch stages"><ol>
+    ${LAUNCH_STAGES.map(([s, name], i) => html`<li><div class="nw-step" aria-current=${i === at ? "step" : null}>
+      <span class="nw-n ${i < at ? "done" : ""}" aria-hidden="true">${i < at ? "✓" : i + 1}</span>
+      <span class="stack" style="gap: 0; min-width: 0"><b>${name}</b><span class="small soft">${i === at ? (stopped || "now") : i < at ? "done" : ""}</span></span></div></li>`)}</ol>
+    <p class="small soft nw-railnote">Brief and plan are cheap and change nothing. The session in Run is where the time goes, and it keeps running if you close this.</p></nav>`;
+}
+
+// The draft issues a drafts result hands in (005 FR-015): file as they are, edit and file on GitHub, or send to the Steward.
+function DraftsResult({ item, reload, onNote }) {
   const [picked, setPicked] = useState({});
-  const [note, setNote] = useState(null);
+  const [editing, setEditing] = useState(null); // {index, title, body}
   const act = useAct(reload);
   const { data: overview, error: overviewError } = useLoad(() => api("overview"), [], 20000);
-  useEffect(() => { ref.current.showModal(); }, []);
-  const planned = live && live.state === "planned";
-  const spec = live && live.spec;
-  const pick = live && template && template.models.includes(live.planner_pick) ? live.planner_pick : live && live.model;
-  const chosenModel = model || pick;
-  const shownBrief = brief === null ? (spec && spec.brief) || "" : brief;
-  useEffect(() => {
-    if (!planned || editing || !spec) return undefined;
-    const timer = setTimeout(() => { post("agents/preview", { config: edited({ ...spec, model: chosenModel, brief: shownBrief }) }).then(setPreview).catch(() => setPreview(null)); }, 250);
-    return () => clearTimeout(timer);
-  }, [planned, editing, chosenModel, shownBrief]);
-  if (!template) return html`<dialog ref=${ref} onClose=${() => onClose()}><p>No kinds of new work are set up on this hub.</p><button onClick=${() => onClose()}>Close</button></dialog>`;
-  const state = live ? live.state : "form";
-  const text = NW_TEXT[template.id] || {};
-  const fixedRepo = template.repo;
-  const chosenRepo = fixedRepo || repo;
-  const form = state === "form" || state === "offered" || (planned && editing);
-  const started = ["starting", "running"].includes(state);
-  const running = state === "planning" || started;
-  const stage = form ? "config" : state === "planning" ? "planning" : planned ? "review" : started ? "session" : "drafts";
-  const at = NW_STAGES.indexOf(stage === "planning" ? "review" : stage);
-  const by = live ? live.by : open.by;
-  const byAgent = by && by !== "you";
-  const byName = by === STEWARD ? "The Steward" : by;
-  const why = live ? live.why : open.why;
-  const context = open.context || (live && live.context);
-  const repos = overview ? overview.groups.flatMap((g) => g.repos.map((r) => r.name)) : [];
-  const drafts = live ? live.drafts : [];
-  const withSteward = drafts.filter((d) => d.state === "handed").length;
-  const isOn = (_d, i) => picked[i] === true;  // yours to read first: nothing starts out chosen
-  const chosen = drafts.flatMap((d, i) => (d.state === "draft" && isOn(d, i) ? [i] : []));
+  const drafts = item.drafts || [];
+  const chosen = drafts.flatMap((d, i) => (d.state === "draft" && picked[i] === true ? [i] : []));  // yours to read first: nothing starts out chosen
   const left = drafts.filter((d) => d.state === "draft").length;
   // true, false, or null when it isn't known: never read as private.
-  const repoRow = (name) => (overview ? overview.groups.flatMap((g) => g.repos).find((r) => r.name === name) : null);
-  const isPublic = (name) => { const r = repoRow(name); return r ? !r.private : null; };
+  const isPublic = (name) => { const r = overview ? overview.groups.flatMap((g) => g.repos).find((x) => x.name === name) : null; return r ? !r.private : null; };
   const targets = [...new Set(chosen.map((i) => drafts[i].target))];
   const publicCount = chosen.filter((i) => isPublic(drafts[i].target) === true).length;
   const unknown = targets.filter((t) => isPublic(t) === null);
   const fileLabel = `File ${chosen.length} in ${targets.join(", ")}${publicCount ? ` (${publicCount} public)` : ""}`;
-  const filingNow = drafts.filter((d) => d.state === "filing").length;
-  const session = live && live.session;
-  const asking = session ? asks.open.filter((a) => a.session === session) : [];
-  const plannerName = NW_MODEL[(live && live.planner_model) || plannerModel] || plannerModel;
-  // What's still going keeps going: this leaves a way back to it.
-  const close = () => onClose(id && running ? { id, name: session || template.title } : null);
-  const runPlanner = () => act.run(async () => {
-    setNote(null);
-    const r = await post("new-work", { id: state === "offered" || planned ? id : null, action: template.id, repo: chosenRepo, describe: template.asks_describe ? describe : "", paths: template.asks_paths ? paths : "", notes, pins, model: seed.model || null, driver, why, context, planner_model: plannerModel });
-    setId(r.work.id); setEditing(false); setModel(null); setBrief(null); setPreview(null);
-  });
-  const startSession = () => act.run(() => post(`new-work/${id}/approve`, { model: chosenModel, brief: shownBrief }));
   const file = () => act.run(async () => {
-    const r = await post(`new-work/${id}/file`, { indexes: chosen });
-    const filed = `${count(chosen.length - r.errors.length, "issue")} filed`;
-    setNote(`${filed}${r.errors.length ? `, ${r.errors.length} not` : ""}${r.warnings.length ? `, ${r.warnings.length} not on the board` : ""}${r.errors.length || r.warnings.length ? ": see the draft." : "."}`);
+    const r = await post(`new-work/${item.id}/file`, { indexes: chosen });
+    onNote(`${count(chosen.length - r.errors.length, "issue")} filed${r.errors.length ? `, ${r.errors.length} not` : ""}${r.warnings.length ? `, ${r.warnings.length} not on the board` : ""}${r.errors.length || r.warnings.length ? ": see the draft." : "."}`);
   });
   const hand = () => act.run(async () => {
-    await post(`new-work/${id}/hand`, { indexes: chosen });
-    setNote(`${count(chosen.length, "draft")} with the Steward. Each issue it files asks you first.`);
+    await post(`new-work/${item.id}/hand`, { indexes: chosen });
+    onNote(`${count(chosen.length, "draft")} with the Steward. Each issue it files asks you first.`);
   });
-  const cancel = () => act.run(async () => { await post(`new-work/${id}/cancel`); onClose(); });
-  const setAside = () => act.run(async () => { await post(`new-work/${id}/dismiss`); onClose(); });
-  const addPin = () => { const v = (pinning || "").trim(); if (v) setPins([...pins, { kind: pinKind(v), label: v }]); setPinning(null); };
-  const filing = driver === "steward"
-    ? { label: `Send ${chosen.length} to the Steward`, held: false, run: hand, other: chosen.length ? `${fileLabel} myself instead` : "File them myself instead", otherHeld: unknown.length > 0, then: file }
-    : { label: chosen.length ? fileLabel : "Choose drafts to file", held: unknown.length > 0, run: file, other: "Send to the Steward instead", otherHeld: false, then: hand };
-  const status = form ? `The planner (${plannerName}) writes a spec first. Nothing runs until you approve it.`
-    : state === "planning" ? "The planner is reading, read-only. You can send this to the background."
-    : planned ? "Starting opens a real Claude session in tmux."
-    : state === "starting" ? "Starting the session…"
-    : state === "running" ? (asking.length ? "The session is waiting for your answer above." : "You can leave: send it to the background and the drafts land in Sessions › Needs you.")
-    : filingNow ? `Filing ${count(filingNow, "draft")}…`
-    : state === "done" && unknown.length ? `Filing waits: can't tell whether ${unknown.join(", ")} is public${overviewError ? ` (${overviewError})` : ""}. Trying again.`
-    : state === "done" ? (left ? `${count(drafts.length, "draft")} ready. Nothing is filed yet.` : "Every draft has gone where you sent it.")
-    : state === "failed" ? "Nothing was filed."
-    : state === "filed" ? "Every draft has gone where you sent it."
-    : state === "dismissed" ? `Set aside.${drafts.some((d) => d.state === "filed") ? "" : " Nothing was filed."}${withSteward ? ` The Steward still has ${withSteward}.` : ""}`
-    : "";
-  const steps = [
-    ["config", "Configure", `${template.title} · ${chosenRepo || "choose a repository"}`],
-    ["review", "Review the plan", at < 1 ? `planner ${plannerName} writes a spec` : stage === "planning" ? "planner running…" : stage === "review" ? "waiting for you" : `approved · ${NW_MODEL[live && live.model] || (live && live.model)}`],
-    ["session", "Session", at < 2 ? `${template.persona}` : started ? (asking.length ? "asks you something" : state === "starting" ? "starting…" : "running") : session ? "finished" : "didn't run"],
-    ["drafts", "Drafts", at < 3 ? "land here, or in Needs you" : left ? `${left} to review` : drafts.length ? "all sent" : "none"],
-  ];
-  const canGo = (step) => planned && ((step === "config" && !editing) || (step === "review" && editing));
-  return html`<dialog ref=${ref} class="nw" aria-labelledby="nw-h" onClose=${close}>
-    <div class="nw-head ${byAgent ? "agent" : ""}">
-      ${by === STEWARD && html`<span class="ask-avatar steward-mark" aria-hidden="true">S</span>`}
-      <h2 id="nw-h">${byAgent ? `${byName} drafted new work` : "Plan new work"}</h2>
-      ${context && html`<span class="label mono" style="padding-right: 8px">from ${context}</span>`}
-      <span style="flex: 1"></span>
-      ${running && html`<button class="plain" onClick=${close}>Send to background</button>`}
-      <button class="square" aria-label="Close" onClick=${close}>×</button></div>
-    <div class="nw-stages">
-      <nav class="nw-rail" aria-label="Stages"><ol>
-        ${steps.map(([step, name, sub], i) => {
-          const current = NW_STAGES[at] === step;
-          return html`<li><button class="nw-step" disabled=${!canGo(step)} aria-current=${current ? "step" : null} onClick=${() => setEditing(step === "config")}>
-            <span class="nw-n ${i < at ? "done" : ""}" aria-hidden="true">${i < at ? "✓" : i + 1}</span>
-            <span class="stack" style="gap: 0; min-width: 0"><b>${name}</b><span class="small soft">${sub}</span></span></button></li>`;
-        })}</ol>
-        <p class="small soft nw-railnote">${started ? "The session is real: it keeps running if you close this or send it to the background." : "Steps 1 and 2 are cheap and reversible. The session in step 3 is where the time goes."}</p></nav>
-      <div class="nw-body">
-        ${byAgent && why && (stage === "config" || stage === "review") && html`<div class="nw-why"><span class="nw-why-word">why</span><span>${why}</span></div>`}
-        ${form && html`<div role="radiogroup" aria-label="What to create" class="row" style="gap: 6px">
-          ${work.templates.map((t) => html`<button role="radio" class="pill" aria-checked=${t.id === template.id ? "true" : "false"} onClick=${() => setAction(t.id)}>${t.title} <span class="nw-where">${t.repo ? "HUB" : "REPO"}</span></button>`)}</div>
-        <p class="soft" style="font-size: 14.5px">${template.summary}</p>
-        ${fixedRepo
-          ? html`<div class="small"><${Eyebrow}>In<//> <span class="mono">GlassineOS/${fixedRepo}</span> · org board</div>`
-          : html`<div class="stack" style="gap: 6px"><span id="nw-repo" class="eyebrow">Repository</span>
-              <div role="radiogroup" aria-labelledby="nw-repo" class="row" style="gap: 6px">${repos.map((r) => html`<button role="radio" class="pill mono" aria-checked=${repo === r ? "true" : "false"} onClick=${() => setRepo(r)}>${r}</button>`)}
-                ${!overview && html`<span class="small soft">Loading repositories…</span>`}</div></div>`}
-        ${template.asks_paths && html`<label class="nw-field">Scope <span class="nw-sub">optional · paths in the repository</span>
-          <input class="mono" value=${paths} placeholder="the whole repository" onInput=${(e) => setPaths(e.target.value)} /></label>`}
-        ${template.asks_describe && html`<label class="nw-field">${text.label || "What to plan"}
-          <textarea rows="3" placeholder=${text.hold || ""} value=${describe} onInput=${(e) => setDescribe(e.target.value)} /></label>`}
-        <label class="nw-field">${byAgent ? `Notes — ${by === STEWARD ? "the Steward" : by} wrote these; edit freely` : "Notes for the planner"} <span class="nw-sub">optional · goes into the planner’s prompt</span>
-          <textarea rows="2" placeholder=${text.hint || ""} value=${notes} onInput=${(e) => setNotes(e.target.value)} /></label>
-        <div class="row" style="gap: 6px"><span class="eyebrow">Pinned</span>
-          ${pins.map((x, i) => html`<button class="label mono" style="padding-right: 8px" title="Remove this pin" onClick=${() => setPins(pins.filter((_, j) => j !== i))}>${x.label} ×</button>`)}
-          ${pinning === null ? html`<button class="addlabel" onClick=${() => setPinning("")}>+ pin</button>`
-            : html`<input class="mono" aria-label="What to pin: a reference, file, docs page or link" autofocus value=${pinning} onInput=${(e) => setPinning(e.target.value)} onBlur=${addPin} onKeyDown=${(e) => { if (e.key === "Enter") { e.preventDefault(); addPin(); } if (e.key === "Escape") { e.preventDefault(); setPinning(null); } }} />`}</div>
-        <div class="row" style="gap: 14px 24px; align-items: flex-start">
-          <${PlannerModel} id="nw-pm" value=${plannerModel} onChange=${setPlannerModel} />
-          <div class="stack" style="gap: 6px"><span id="nw-drv" class="eyebrow">Drafts go to</span>
-            <div role="radiogroup" aria-labelledby="nw-drv" class="seg">
-              <button role="radio" aria-checked=${driver === "you" ? "true" : "false"} onClick=${() => setDriver("you")}>Me · I hand it off</button>
-              <button role="radio" aria-checked=${driver === "steward" ? "true" : "false"} onClick=${() => setDriver("steward")}>The Steward · refines & dispatches</button></div>
-            <span class="small soft" style="max-width: 46ch">${driver === "steward" ? "You still send them, and each issue it files asks you first." : "They wait for you here and in Needs you."}</span></div></div>`}
-        ${stage === "planning" && html`<div role="status" class="stack" style="gap: 8px">
-          <span class="row" style="font-weight: 600; font-size: 18px"><${StateIcon} kind="run" />The planner is writing the spec</span>
-          <span class="mono soft" style="font-size: 12.5px">claude -p · ${plannerName} · read-only hub tools · up to a few minutes</span>
-          <p class="small soft">Nothing runs yet. You review the spec before any session starts.</p></div>`}
-        ${stage === "review" && spec && html`${live.error && html`<${Err} text=${`${live.error} The plan is still here: you can press Start again.`} />`}<div class="row" style="gap: 6px 12px; align-items: baseline"><h3>Review the plan</h3>
-            <span class="small soft">written by the planner (${plannerName})${live.planner_cost_usd != null ? ` · $${live.planner_cost_usd.toFixed(2)}` : ""} · nothing has run yet</span></div>
-          <div class="nw-review">
-            <dl class="defs" style="flex: 999 1 320px; min-width: 0">
-              ${live.notes && html`<dt>Your notes</dt><dd>${live.notes}</dd>`}
-              ${spec.pins.length > 0 && html`<dt>Pinned</dt><dd>${spec.pins.map((x) => x.label).join(" · ")}</dd>`}
-              <dt>Persona</dt><dd>${spec.persona}</dd>
-              <dt>Effort</dt><dd>${spec.effort}</dd>
-              ${preview && html`<dt>Worktree</dt><dd>${preview.worktree}</dd>`}
-              <dt>Hub tools</dt><dd>${(spec.hub_tools || []).join(", ") || "none"}</dd>
-              <dt>Tools</dt><dd>${(spec.tools || []).join(", ") || "none"}</dd></dl>
-            <div class="stack" style="gap: 6px; flex: 1 1 260px"><span id="nw-am" class="eyebrow">Agent model</span>
-              <div role="radiogroup" aria-labelledby="nw-am" class="seg" style="align-self: flex-start">${template.models.map((m) => html`<button role="radio" aria-checked=${chosenModel === m ? "true" : "false"} onClick=${() => setModel(m)}>${NW_MODEL[m] || m}</button>`)}</div>
-              <span class="small soft">${chosenModel === pick ? `${NW_MODEL[chosenModel] || chosenModel}: the planner’s pick for this work.` : `${NW_MODEL[chosenModel] || chosenModel}: your choice. The planner suggested ${NW_MODEL[pick] || pick}.`}</span>
-              <span class="small nw-ceiling">${template.ceiling}</span></div></div>
-          ${spec.docs.length > 0 && html`<div class="stack tight"><${Eyebrow}>Context · docs search${spec.docs_query ? ` “${spec.docs_query}”` : ""}<//>
-            <ul class="stack" style="gap: 4px">${spec.docs.map((d) => html`<li class="passage"><span><b>${d.link}</b><span class="soft" style="font-size: 13px">${d.why}</span></span></li>`)}</ul></div>`}
-          <label class="nw-field">Briefing <span class="nw-sub">the planner wrote this; edit freely · goes into the first prompt</span>
-            <textarea class="mono" rows="6" value=${shownBrief} onInput=${(e) => setBrief(e.target.value)} /></label>
-          ${preview && html`<details><summary class="eyebrow" style="min-height: 32px; cursor: pointer">The whole first prompt</summary><pre class="shadow" style="margin-top: 4px">${preview.prompt}</pre></details>`}`}
-        ${stage === "session" && html`<div class="row" style="gap: 8px 14px"><span class="mono" style="font-weight: 600">${session || template.title}</span>
-            <span class="badge ${asking.length ? "mark" : ""}">${state === "starting" ? "starting" : asking.length ? "waiting" : "running"}</span>
-            <span class="small soft" style="flex: 1">${template.persona} · ${NW_MODEL[live.model] || live.model}</span>
-            ${session && html`<a class="button" href=${hash("shells", { tab: "all", name: session })} onClick=${close}>Open in Sessions</a>`}
-            ${session && html`<button class="plain" disabled=${act.busy} title="Stops the turn" onClick=${() => act.run(() => post("agents/interrupt", { name: session }))}>Esc</button>`}</div>
-          ${asking.map((a) => html`<${Ask} key=${a.id} ask=${a} compact onDone=${reload} />`)}
-          ${session ? html`<div class="nw-term"><${TerminalView} key=${session} name=${session} quiet onGone=${reload} /></div>` : html`<p class="small soft">The session is on its way. This can take a moment while its checkout is made.</p>`}`}
-        ${stage === "drafts" && html`<div class="row" style="gap: 6px 12px; align-items: baseline"><h3>Drafts</h3><span class="small soft" style="flex: 1">${session ? `from ${session}` : template.title} · Nothing is filed until you choose.</span><span class="mono small">${chosen.length} of ${left} selected</span></div>
-          ${state === "failed" && html`<${Err} text=${live.error} />`}
-          ${state === "dismissed" && drafts.length === 0 && html`<p class="small soft">Set aside before it wrote anything.</p>`}`}
-      ${drafts.length > 0 && html`<div class="stack" style="gap: 10px">
-        <div class="row" style="gap: 6px 12px; align-items: baseline"><h3>Drafts</h3><span class="small soft" style="flex: 1">Nothing is filed until you choose.</span><span class="mono small">${chosen.length} of ${left} selected</span></div>
-        ${drafts.map((d, i) => {
-          const on = d.state === "draft" && isOn(d, i);
-          return html`<div class="nw-draft ${on ? "on" : ""}" key=${i}>
-            ${d.state === "draft" && html`<input type="checkbox" aria-label=${`Select draft: ${d.title}`} checked=${on} onChange=${() => setPicked({ ...picked, [i]: !on })} />`}
-            <div class="stack" style="gap: 4px; flex: 1; min-width: 0">
-              <div class="row" style="gap: 6px 10px">
-                ${d.severity && html`<span class="nw-sev ${d.severity}">${d.severity.toUpperCase()}</span>`}
-                <strong>${d.title}</strong>
-                ${d.state === "filed" && html`<a class="nw-tag" href=${d.url} target="_blank" rel="noreferrer">FILED</a>`}
-                ${d.state === "handed" && html`<span class="nw-tag">WITH THE STEWARD</span>`}
-                ${d.state === "filing" && html`<span class="nw-tag">FILING…</span>`}</div>
-              ${d.body ? html`<div class="small nw-draft-body"><${Md} text=${d.body} showUrls=${true} /></div>` : html`<span class="small soft">No body</span>`}
-              ${/!\[|<img|<\/?(?:picture|source|video|audio)\b/i.test(d.body) && html`<span class="small" role="alert">Has an image or media link: filing it can make GitHub fetch that address. Check it above.</span>`}
-              <span class="small">→ <span class="mono">GlassineOS/${d.target}</span>${isPublic(d.target) === true && html` <span class="nw-tag">PUBLIC</span>`}${isPublic(d.target) === null && html` <span class="nw-tag">PUBLIC OR PRIVATE: NOT KNOWN YET</span>`}${d.labels.length > 0 && html` · <span class="mono">${d.labels.join(", ")}</span>`}${d.parent && html` · parent <span class="mono">${d.parent}</span>`}</span>
-              ${d.note && html`<span class="small" role="alert">${d.note}</span>`}</div></div>`;
-        })}</div>`}
-        <${Err} text=${act.error} />
-      </div>
-    </div>
-    <div class="nw-foot">
-      ${form && html`<button class="primary" disabled=${act.busy || !chosenRepo || (template.asks_describe && !describe.trim())} title=${!chosenRepo ? "Choose a repository first" : ""} onClick=${runPlanner}>Run the planner</button>`}
-      ${stage === "planning" && html`<button class="primary" disabled>Planning…</button>`}
-      ${stage === "review" && html`<button class="primary" disabled=${act.busy} onClick=${startSession}>Start session</button>
-        <button class="plain" disabled=${act.busy} onClick=${runPlanner}>Re-plan</button>
-        <button class="plain" onClick=${() => setEditing(true)}>Back to configure</button>`}
-      ${stage === "session" && html`<button class="primary" onClick=${close}>Send to background</button>`}
-      ${state === "done" && left > 0 && html`<button class="primary" disabled=${act.busy || !chosen.length || filing.held} onClick=${filing.run}>${filing.label}</button>
-        <button class="plain" disabled=${act.busy || !chosen.length || filing.otherHeld} onClick=${filing.then}>${filing.other}</button>`}
-      ${state === "dismissed" && drafts.length > 0 && html`<button class="primary" disabled=${act.busy} onClick=${() => act.run(() => post(`new-work/${id}/bring_back`))}>Bring back</button>`}
-      <span role="status" class="small" style="flex: 1 1 260px">${note || status}</span>
-      ${running && html`<button class="plain" disabled=${act.busy || !id} onClick=${cancel}>${started ? "Stop session" : "Stop planner"}</button>`}
-      ${(state === "offered" || planned || state === "failed" || (state === "done" && left > 0)) && html`<button class="plain" disabled=${act.busy} onClick=${setAside}>${state === "offered" ? "Not now" : "Set aside"}</button>`}
-      ${((state === "done" && left > 0) || (state === "dismissed" && left > 0)) && html`<${Discard} item=${live} reload=${reload} onDone=${() => onClose()} />`}
-      <button class="plain" onClick=${close}>${running ? "Close · keeps running" : form && state !== "offered" && !planned ? "Cancel" : "Close"}</button>
-    </div></dialog>`;
+  const steward = item.driver === "steward";
+  const save = () => act.run(async () => {
+    await post(`new-work/${item.id}/edit`, { index: editing.index, title: editing.title, body: editing.body });
+    setEditing(null);
+  });
+  return html`<div class="stack" style="gap: 10px">
+    <div class="row" style="gap: 6px 12px; align-items: baseline"><h3>Drafts</h3><span class="small soft" style="flex: 1">${item.session ? `from ${item.session} · ` : ""}Nothing is filed until you choose.</span><span class="mono small">${chosen.length} of ${left} selected</span></div>
+    ${drafts.map((d, i) => {
+      const on = d.state === "draft" && picked[i] === true;
+      return html`<div class="nw-draft ${on ? "on" : ""}" key=${i}>
+        ${d.state === "draft" && html`<input type="checkbox" aria-label=${`Select draft: ${d.title}`} checked=${on} onChange=${() => setPicked({ ...picked, [i]: !on })} />`}
+        <div class="stack" style="gap: 4px; flex: 1; min-width: 0">
+          <div class="row" style="gap: 6px 10px">
+            ${d.severity && html`<span class="nw-sev ${d.severity}">${d.severity.toUpperCase()}</span>`}
+            <strong>${d.title}</strong>
+            ${d.state === "filed" && html`<a class="nw-tag" href=${d.url} target="_blank" rel="noreferrer">FILED</a>`}
+            ${d.state === "handed" && html`<span class="nw-tag">WITH THE STEWARD</span>`}
+            ${d.state === "filing" && html`<span class="nw-tag">FILING…</span>`}</div>
+          ${editing && editing.index === i ? html`<div class="stack" style="gap: 6px">
+              <label class="nw-field">Title<input maxlength="200" value=${editing.title} onInput=${(e) => setEditing({ ...editing, title: e.target.value })} /></label>
+              <label class="nw-field">Body<textarea rows="8" maxlength="8000" value=${editing.body} onInput=${(e) => setEditing({ ...editing, body: e.target.value })} /></label>
+              <div class="row"><button class="primary" disabled=${act.busy || !editing.title.trim()} onClick=${save}>Save the draft</button><button class="plain" onClick=${() => setEditing(null)}>Cancel</button></div></div>`
+            : d.body ? html`<div class="small nw-draft-body"><${Md} text=${d.body} showUrls=${true} /></div>` : html`<span class="small soft">No body</span>`}
+          ${d.state === "draft" && item.state === "done" && !(editing && editing.index === i) && html`<button class="plain" style="align-self: flex-start" onClick=${() => setEditing({ index: i, title: d.title, body: d.body })}>Edit before filing</button>`}
+          ${/!\[|<img|<\/?(?:picture|source|video|audio)\b/i.test(d.body) && html`<span class="small" role="alert">Has an image or media link: filing it can make GitHub fetch that address. Check it above.</span>`}
+          <span class="small">→ <span class="mono">GlassineOS/${d.target}</span>${isPublic(d.target) === true && html` <span class="nw-tag">PUBLIC</span>`}${isPublic(d.target) === null && html` <span class="nw-tag">PUBLIC OR PRIVATE: NOT KNOWN YET</span>`}${d.labels.length > 0 && html` · <span class="mono">${d.labels.join(", ")}</span>`}${d.parent && html` · parent <span class="mono">${d.parent}</span>`}</span>
+          ${d.note && html`<span class="small" role="alert">${d.note}</span>`}</div></div>`;
+    })}
+    ${unknown.length > 0 && html`<p class="small" role="status">Filing waits: can't tell whether ${unknown.join(", ")} is public${overviewError ? ` (${overviewError})` : ""}. Trying again.</p>`}
+    <${Err} text=${act.error} />
+    ${item.state === "done" && left > 0 && html`<div class="row">
+      <button class=${steward ? "plain" : "primary"} disabled=${act.busy || !chosen.length || unknown.length > 0} onClick=${file}>${chosen.length ? fileLabel : "Choose drafts to file"}</button>
+      <button class=${steward ? "primary" : "plain"} disabled=${act.busy || !chosen.length} onClick=${hand}>${steward ? `Send ${chosen.length} to the Steward` : "Send to the Steward instead"}</button>
+</div>`}
+  </div>`;
 }
 
-// A session the Steward (or another session) suggested: yours to read and change, and nothing runs until you press Start.
-function StartForm({ item, work, onClose, reload }) {
-  const ref = useRef();
-  const live = work.items.find((i) => i.id === item.id) || item;
-  const state = live.state;
-  const planned = state === "planned";
-  const spec = live.spec;
-  const [info, setInfo] = useState(null);
-  const [config, setConfig] = useState(null);
-  const [preview, setPreview] = useState(null);
-  const [previewError, setPreviewError] = useState(null);
-  const [titles, setTitles] = useState({});
-  const [adding, setAdding] = useState("");
-  const [plannerModel, setPlannerModel] = useState(live.planner_model || PLANNER_DEFAULT);
-  const [editing, setEditing] = useState(false); // back on the form, with a plan still waiting
-  const [model, setModel] = useState(null); // yours, once you've chosen on the plan
-  const [brief, setBrief] = useState(null);
+// 005 FR-016–FR-020 and 003 FR-010: one view per result type, in Launch and on its card in Needs you. The text is the
+// session's, which may have read an outsider's: shown as text, never rendered, links printed in full.
+const RESULT_TITLE = { comment: "Review to post", labels: "Labels to apply", findings: "Findings", report: "Report", pr: "Pull request" };
+const resultTitle = (r) => `${RESULT_TITLE[r.type] || "Result"}${r.items && r.items[0] ? ` · ${ref(r.items[0])}` : ""}`;
+const EVENT_WORD = { comment: "Comment", "request-changes": "Request changes", approve: "Approve" };
+const plainText = (t, mono) => html`<p class="small ${mono ? "mono" : ""}" style="white-space: pre-wrap; overflow-wrap: anywhere">${t}</p>`;
+const refItem = (text, kind) => { const m = /^([A-Za-z0-9._-]+)#(\d+)$/.exec(text || ""); return m ? { kind, repo: m[1], number: Number(m[2]) } : null; };
+
+function PrResultTitle({ repo, number }) {
+  const { data } = useLoad(() => api(`prs/${repo}/${number}`).catch(() => null), [repo, number]);
+  return html`<${ItemPill} kind="pr" repo=${repo} number=${number} title=${data ? data.title : undefined} href=${hash("work", { tab: "prs", at: repo, item: number })} />`;
+}
+
+function ResultView({ r, reload, where = "Needs you" }) {
   const act = useAct(reload);
-  useEffect(() => { ref.current.showModal(); }, []);
-  useEffect(() => {
-    act.run(async () => {
-      const a = (await post("agents/action", { action: live.action })).action;
-      const fresh = (await post("agents/defaults", { action: live.action, repo: live.repo, number: live.number })).config;
-      setInfo(a);
-      setConfig({ ...fresh, notes: live.notes || "", pins: live.pins || [], also_numbers: live.also_numbers || [] });
-    });
-  }, []);
-  const form = state === "offered" || state === "failed" || (planned && editing);
-  const review = planned && !editing;
-  const pick = planned && info && info.models.includes(live.planner_pick) ? live.planner_pick : live.model;
-  const chosenModel = model || pick;
-  const shownBrief = brief === null ? (spec && spec.brief) || "" : brief;
-  const covers = config ? [config.number, ...config.also_numbers] : [];
-  const canAdd = info && info.object === "issue";
-  useEffect(() => {
-    if (!info) return;
-    const path = info.object === "pr" ? "prs" : "issues";
-    covers.filter((n) => !(n in titles)).forEach((n) => {
-      api(`${path}/${live.repo}/${n}`).then((r) => setTitles((t) => ({ ...t, [n]: r.title }))).catch((e) => setTitles((t) => ({ ...t, [n]: `Can't read it: ${e.message}` })));
-    });
-  }, [info, covers.join()]);
-  useEffect(() => {
-    if (!config) return undefined;
-    const shown = review && spec ? { ...spec, model: chosenModel, brief: shownBrief } : config;
-    const timer = setTimeout(async () => {
-      try { setPreview(await post("agents/preview", { config: edited(shown) })); setPreviewError(null); } catch (e) { setPreviewError(e.message); }
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [config, review, chosenModel, shownBrief]);
-  const set = (patch) => setConfig((c) => ({ ...c, ...patch }));
-  const makePrimary = (n) => set({ number: n, also_numbers: covers.filter((x) => x !== n) });
-  const remove = (n) => set({ also_numbers: config.also_numbers.filter((x) => x !== n) });
-  const add = () => {
-    const n = Number(adding.replace(/^.*#/, "").trim());
-    if (Number.isInteger(n) && n > 0 && !covers.includes(n)) set({ also_numbers: [...config.also_numbers, n] });
-    setAdding("");
-  };
-  const refs = covers.map((n) => `${live.repo}#${n}`);
-  const steward = live.by === STEWARD;
-  const plannerName = NW_MODEL[live.planner_model || plannerModel] || plannerModel;
-  const runPlanner = () => act.run(async () => {
-    await post(`new-work/${live.id}/plan`, { number: config.number, also_numbers: config.also_numbers, notes: config.notes, planner_model: plannerModel });
-    setEditing(false); setModel(null); setBrief(null);
+  const p = r.payload || {};
+  const waits = r.state === "pending" && !r.kept;
+  const answer = (verdict, extra = {}) => act.run(() => answerAt(r.id, { verdict, ...extra }, where));
+  const setAside = waits && html`<button class="plain" disabled=${act.busy} onClick=${() => answer("dismiss")}>Set aside</button>`;
+  let body = null;
+  if (r.type === "comment") {
+    body = html`<span class="eyebrow">${EVENT_WORD[p.event] || "Comment"} · summary</span>${plainText(p.summary)}
+      ${(p.notes || []).length > 0 && html`<span class="eyebrow">Inline notes · ${p.notes.length}</span>
+        <ul class="stack" style="gap: 6px">${p.notes.map((n) => html`<li class="stack tight"><span class="mono small">${n.path}:${n.line}${n.side === "LEFT" ? " (old side)" : ""}</span>${plainText(n.body)}</li>`)}</ul>`}
+      ${waits && html`<div class="row"><button class="primary" disabled=${act.busy} onClick=${() => answer("apply")}>Post</button>${setAside}
+        <span class="small soft">Posts one review on the pull request${r.persona ? `, as ${r.persona}'s App` : ""}.</span></div>`}`;
+  } else if (r.type === "labels") {
+    body = html`<ul class="stack" style="gap: 10px">${(p.issues || []).map((i, n) => {
+      const item = refItem(i.ref, "issue");
+      return html`<li class="stack tight">${item ? html`<${ItemPill} ...${item} />` : html`<span class="mono small">${i.ref}</span>`}
+        <span class="row" style="gap: 6px">${i.add.map((l) => html`<span class="label">+ ${l}</span>`)}${i.remove.map((l) => html`<span class="label">− ${l}</span>`)}</span>
+        ${i.part_of && html`<span class="small">Part of <span class="mono">${i.part_of}</span></span>`}
+        ${i.why && plainText(i.why)}
+        ${waits && (p.issues || []).length > 1 && html`<button class="plain" style="align-self: flex-start" disabled=${act.busy} onClick=${() => answer("apply", { indexes: [n] })}>Apply to ${i.ref}</button>`}</li>`;
+    })}</ul>
+      ${waits && html`<div class="row"><button class="primary" disabled=${act.busy} onClick=${() => answer("apply")}>Apply</button>${setAside}</div>`}`;
+  } else if (r.type === "findings") {
+    const notes = `Findings${r.items && r.items[0] ? ` on ${ref(r.items[0])}` : ""}, from ${r.session}:\nCause: ${p.cause}\nSmallest fix: ${p.fix}`.slice(0, 4000);
+    body = html`<span class="eyebrow">Cause</span>${plainText(p.cause)}<span class="eyebrow">Smallest fix</span>${plainText(p.fix)}
+      ${(p.files || []).length > 0 && html`<span class="eyebrow">Files</span>${plainText(p.files.join("\n"), true)}`}
+      <div class="row"><button class="primary" onClick=${() => launch({ verb: "fix", notes, from: { view: where } })}>Start a fix session</button>${setAside}</div>`;
+  } else if (r.type === "report") {
+    body = html`${p.question && html`<span class="eyebrow">Question</span>${plainText(p.question)}`}<span class="eyebrow">Answer</span>${plainText(p.answer)}
+      ${(p.unsettled || []).length > 0 && html`<span class="eyebrow">Couldn't settle</span><ul>${p.unsettled.map((t) => html`<li>${plainText(t)}</li>`)}</ul>`}
+      ${(p.sources || []).length > 0 && html`<span class="eyebrow">Sources</span><ul class="stack" style="gap: 4px">${p.sources.map((s) => html`<li>${plainText(`${s.link} — ${s.why}`)}</li>`)}</ul>`}
+      ${(p.followups || []).length > 0 && html`<span class="eyebrow">Follow-ups</span><ul>${p.followups.map((t) => html`<li>${plainText(t)}</li>`)}</ul>`}
+      ${r.kept ? html`<p class="small" role="status">Saved to Knowledge.</p>` : waits && html`<div class="row"><button class="primary" disabled=${act.busy} onClick=${() => answer("keep")}>Save to Knowledge</button>${setAside}</div>`}`;
+  } else if (r.type === "pr") {
+    const closes = (r.items || []).filter((i) => i.kind === "issue");
+    body = html`<${PrResultTitle} repo=${p.repo} number=${p.number} />
+      ${closes.length > 0 && html`<span class="mono small" style="white-space: pre-line">${closes.map((i) => `Closes ${ref(i)}`).join("\n")}</span>`}
+      <div class="row"><a class="button" href=${hash("work", { tab: "prs", at: p.repo, item: p.number })}>Open the pull request</a>${setAside}</div>`;
+  }
+  return html`<div class="ask calm ${r.session === STEWARD ? "steward" : ""} ${waits ? "" : "done"}">
+    <div class="ask-head"><span class="ask-kind">${r.state === "applying" ? "APPLYING" : waits ? "RESULT READY" : "RESULT"}</span><span class="small mono">${r.session}</span></div>
+    <div class="ask-body stack" style="gap: 8px"><div class="ask-title">${resultTitle(r)}</div>${body}
+      ${r.note && html`<p class="small" role="status">${r.note}</p>`}<${Err} text=${act.error} /></div></div>`;
+}
+
+// The brief (005 FR-003, FR-004): what the planner reads. A suggestion's notes are marked as the suggester's.
+function LaunchBrief({ seed, actions, templates, groups, onPlanned, onCancel, busyId }) {
+  const steward = seed.by === STEWARD || seed.steward;
+  const suggester = seed.by && seed.by !== "you" ? (seed.by === STEWARD ? "the Steward" : seed.by) : null;
+  const initial = actions.find((a) => a.id === seed.action) || (seed.verb && actions.find((a) => a.verb === seed.verb))
+    || (seed.covers && seed.covers[0] && actions.find((a) => a.object === seed.covers[0].kind && a.verb))
+    || actions.find((a) => a.object === "repo") || actions[0];
+  const [actionId, setActionId] = useState(initial && initial.id);
+  const action = actions.find((a) => a.id === actionId) || initial;
+  const [covers, setCovers] = useState(() => recordCovers(seed, initial && initial.object).slice(0, MAX_COVERS));
+  const [repo, setRepo] = useState((seed.repos && seed.repos[0]) || seed.repo || (covers[0] && covers[0].repo) || null);
+  const [describe, setDescribe] = useState(seed.describe || "");
+  const [paths, setPaths] = useState(seed.paths || "");
+  const [notes, setNotes] = useState(seed.notes || "");
+  const [pins, setPins] = useState(seed.pins || []);
+  const [model, setModel] = useState(seed.model || null);
+  const [plannerModel, setPlannerModel] = useState(seed.planner_model || PLANNER_DEFAULT);
+  const [driver, setDriver] = useState(seed.driver || (steward ? "steward" : "you"));
+  const act = useAct();
+  if (!action) return html`<div class="nw-body"><p>No actions are set up on this hub.</p></div>`;
+  const onItems = action.object !== "repo";
+  const chosenRepo = action.repo || repo;
+  const refusal = launchRefusal(action, covers);
+  const verbs = actions.filter((a) => a.verb);
+  const more = actions.filter((a) => !a.verb && (!covers.length || a.object === covers[0].kind));
+  const text = NW_TEXT[action.id] || {};
+  const allRepos = groups.flatMap((g) => g.repos.map((r) => r.name));
+  const chosenModel = model && action.models.includes(model) ? model : action.models[0];
+  const plan = () => act.run(async () => {
+    const r = await post("new-work", { id: busyId || null, action: action.id, covers: onItems ? covers : null, repos: onItems ? null : chosenRepo ? [chosenRepo] : [],
+      describe: action.asks_describe ? describe : "", paths: action.asks_paths ? paths : "", notes, pins, model: chosenModel, driver,
+      why: seed.why || "", context: seed.context || "", planner_model: plannerModel, from: seed.from || null });
+    onPlanned(r.work);
   });
-  const backToPlan = () => { set({ number: spec.number, also_numbers: spec.also_numbers || [], notes: spec.notes || "" }); setEditing(false); };
-  const start = () => act.run(() => post(`new-work/${live.id}/approve`, { model: chosenModel, brief: shownBrief }));
-  const stop = () => act.run(async () => { await post(`new-work/${live.id}/cancel`); onClose(); });
-  const notNow = () => act.run(async () => { await post(`new-work/${live.id}/dismiss`); onClose(); });
-  const done = state === "started" ? live.session : null;
-  const running = state === "planning" || state === "starting";
-  const status = form ? `The planner (${plannerName}) reads this first and writes a briefing. Nothing runs until you've read it.`
-    : state === "planning" ? "You can close this: it keeps reading, and the plan shows up in Needs you."
-    : review ? "Starting opens a real Claude session in tmux."
-    : state === "starting" ? "Starting the session…"
-    : state === "dismissed" ? "Set aside. Nothing ran."
-    : "";
-  return html`<dialog ref=${ref} class="nw sf" aria-labelledby="sf-h" onClose=${() => onClose()}>
-    <div class="nw-head ${done ? "" : "agent"}">
-      ${steward && !done && html`<span class="ask-avatar steward-mark" aria-hidden="true">S</span>`}
-      <h2 id="sf-h">${done ? `${done} started` : `${steward ? "The Steward suggests" : `${live.by} suggests`} a session · ${live.title} ${refs[0] || ""}${refs.length > 1 ? `, also covering ${refs.slice(1).join(", ")}` : ""}`}</h2>
-      <span style="flex: 1"></span>
-      <button class="square" aria-label="Close" onClick=${() => onClose()}>×</button></div>
-    ${done ? html`<div class="nw-body"><p>${refs.length > 1 ? `It covers ${refs.join(" and ")}. Each shows the session in Work, and its PR will close them all.` : `It works on ${refs[0]}, which shows the session in Work.`}</p></div>
-      <div class="nw-foot"><a class="button primary" href=${hash("shells", { tab: "all", name: done })} onClick=${() => onClose()}>Open in Sessions</a><span style="flex: 1"></span><button class="plain" onClick=${() => onClose()}>Done</button></div>`
-    : html`${live.why && html`<div class="nw-why"><span class="nw-why-word">why</span><span>${live.why}</span></div>`}
-      <div class="nw-body">
-        ${!config && !act.error && html`<p class="soft">Loading…</p>`}
-        ${state === "failed" && html`<${Err} text=${live.error} />`}
-        ${config && info && form && html`<div class="stack" style="gap: 6px"><span class="eyebrow">Covers</span>
-          <div class="sf-covers">${covers.map((n, i) => html`<div class="sf-cover" key=${n}>
-            <span class="nw-tag ${i === 0 ? "" : "quiet"}">${i === 0 ? "PRIMARY" : "ALSO COVERS"}</span>
-            <span class="mono small">${live.repo}#${n}</span><span class="small" style="flex: 1 1 200px; min-width: 0">${titles[n] || "…"}</span>
-            ${i > 0 && html`<button class="plain small-btn" onClick=${() => makePrimary(n)}>Make primary</button>
-              <button class="square" aria-label=${`Remove ${live.repo}#${n}`} onClick=${() => remove(n)}>×</button>`}</div>`)}
-            ${canAdd && html`<div class="row sf-add"><label class="row small" style="gap: 8px">Also cover ${live.repo}#<input class="mono" style="width: 90px" inputmode="numeric" aria-label=${`Another issue of ${live.repo} to cover`} value=${adding} onInput=${(e) => setAdding(e.target.value)} onKeyDown=${(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }} /></label>
-              <button class="addlabel" disabled=${!adding.trim()} onClick=${add}>+ add</button></div>`}</div>
-          <span class="small soft">${covers.length > 1 ? "Every issue here shows this session in Work, and the session is told to close all of them from its PR." : canAdd ? "Add issues the same change should close." : "A session on a pull request works on that one."}</span></div>
-        <label class="nw-field">Notes — ${steward ? "the Steward" : live.by} proposed these; edit freely <span class="nw-sub">goes to the planner and the session</span>
-          <textarea rows="3" value=${config.notes} onInput=${(e) => set({ notes: e.target.value })} /></label>
-        <${PlannerModel} id="sf-pm" value=${plannerModel} onChange=${setPlannerModel} />`}
-        ${state === "planning" && html`<div role="status" class="stack" style="gap: 8px">
-          <span class="row" style="font-weight: 600; font-size: 18px"><${StateIcon} kind="run" />The planner is reading ${refs.join(", ")}</span>
-          <span class="mono soft" style="font-size: 12.5px">claude -p · ${plannerName} · read-only hub tools · up to a few minutes</span>
-          <p class="small soft">Nothing runs yet. You read the plan before any session starts.</p></div>`}
-        ${review && info && spec && html`${live.error && html`<${Err} text=${`${live.error} The plan is still here: you can press Start again.`} />`}<div class="row" style="gap: 6px 12px; align-items: baseline"><h3>Review the plan</h3>
-            <span class="small soft">written by the planner (${plannerName})${live.planner_cost_usd != null ? ` · $${live.planner_cost_usd.toFixed(2)}` : ""} · nothing has run yet</span></div>
-          <dl class="defs"><dt>Covers</dt><dd>${refs.map((r, i) => html`<div key=${r}><span class="mono small">${r}</span> ${titles[covers[i]] || "…"}</div>`)}</dd>
-            ${spec.notes && html`<dt>Notes</dt><dd>${spec.notes}</dd>`}
-            <dt>Action</dt><dd>${live.title} · ${spec.persona}</dd>
-            <dt>Effort</dt><dd>${spec.effort}</dd>
-            ${preview && html`<dt>Branch</dt><dd>${preview.worktree}</dd><dt>Session</dt><dd class="mono" style="font-size: 13px">${preview.name}</dd>`}
-            ${canAdd && html`<dt>PR body</dt><dd class="mono" style="white-space: pre-line; font-size: 13px">${covers.map((n) => `Closes #${n}`).join("\n")}</dd>`}</dl>
-          <div class="stack" style="gap: 6px"><span id="sf-am" class="eyebrow">Agent model</span>
-            <div role="radiogroup" aria-labelledby="sf-am" class="seg" style="align-self: flex-start">${info.models.map((m) => html`<button role="radio" aria-checked=${chosenModel === m ? "true" : "false"} onClick=${() => setModel(m)}>${NW_MODEL[m] || m}</button>`)}</div>
-            <span class="small soft">${chosenModel === pick ? `${NW_MODEL[chosenModel] || chosenModel}: the planner’s pick for this work.` : `${NW_MODEL[chosenModel] || chosenModel}: your choice. The planner suggested ${NW_MODEL[pick] || pick}.`}</span></div>
-          ${spec.docs.length > 0 && html`<div class="stack tight"><${Eyebrow}>Context · docs search${spec.docs_query ? ` “${spec.docs_query}”` : ""}<//>
-            <ul class="stack" style="gap: 4px">${spec.docs.map((d) => html`<li class="passage"><span><b>${d.link}</b><span class="soft" style="font-size: 13px">${d.why}</span></span></li>`)}</ul></div>`}
-          <label class="nw-field">Briefing <span class="nw-sub">the planner wrote this; edit freely · goes into the first prompt</span>
-            <textarea class="mono" rows="6" value=${shownBrief} onInput=${(e) => setBrief(e.target.value)} /></label>
-          ${preview && html`<details><summary class="eyebrow" style="min-height: 32px; cursor: pointer">The whole first prompt</summary><pre class="shadow" style="margin-top: 4px">${preview.prompt}</pre></details>`}`}
-        <${Err} text=${act.error || previewError} />
-      </div>
-      <div class="nw-foot">
-        ${form && html`<button class="primary" disabled=${act.busy || !config || Boolean(previewError)} onClick=${runPlanner}>Run the planner</button>`}
-        ${planned && editing && html`<button class="plain" onClick=${backToPlan}>Back to the plan</button>`}
-        ${state === "planning" && html`<button class="primary" disabled>Planning…</button>`}
-        ${review && html`<button class="primary" disabled=${act.busy || !config || Boolean(previewError)} onClick=${start}>Start session</button>
-          <button class="plain" disabled=${act.busy || !config} onClick=${runPlanner}>Re-plan</button>
-          <button class="plain" onClick=${() => setEditing(true)}>Back to the form</button>`}
-        ${state === "starting" && html`<button class="primary" disabled>Starting…</button>`}
-        <span role="status" class="small" style="flex: 1 1 200px">${status}</span>
-        ${running && html`<button class="plain" disabled=${act.busy} onClick=${stop}>${state === "planning" ? "Stop planner" : "Stop session"}</button>`}
-        ${(state === "offered" || planned || state === "failed") && html`<button class="plain" disabled=${act.busy} onClick=${notNow}>Not now</button>`}
-        <button class="plain" onClick=${() => onClose()}>${running ? "Close · keeps running" : "Close"}</button></div>`}</dialog>`;
+  return html`<div class="nw-body">
+    ${seed.why && html`<div class="nw-why"><span class="nw-why-word">why</span><span>${seed.why}</span></div>`}
+    <div class="stack" style="gap: 6px"><span id="lb-action" class="eyebrow">Action</span>
+      <div role="radiogroup" aria-labelledby="lb-action" class="row" style="gap: 6px">${verbs.map((a) => html`<button role="radio" class="pill" aria-checked=${a.id === action.id ? "true" : "false"} title=${a.title} onClick=${() => setActionId(a.id)}>${a.verb}</button>`)}</div>
+      ${more.length > 0 && html`<label class="field" style="align-self: flex-start"><span>More…</span>
+        <select value=${action.verb ? "" : action.id} onChange=${(e) => e.target.value && setActionId(e.target.value)}><option value="">${action.verb ? "Other actions" : action.title}</option>
+          ${more.map((a) => html`<option value=${a.id}>${a.title}</option>`)}</select></label>`}</div>
+    <div class="row" style="gap: 10px 14px; align-items: flex-start">
+      <${PersonaBadge} persona=${{ id: action.persona, name: action.persona_name, initials: action.initials, family: action.family }} hidden />
+      <div class="stack tight" style="flex: 1 1 260px; min-width: 0"><b>${action.title} · ${action.persona_name}</b>
+        <span class="small soft">${action.summary}</span>
+        <span class="small nw-ceiling">${(action.result_words || "").replace(/^./, (c) => c.toUpperCase())}. ${action.ceiling}</span></div></div>
+    ${onItems ? html`<div class="stack" style="gap: 6px"><span class="eyebrow">Covers · ${covers.length || "none yet"}</span>
+        ${covers.length > 0 && html`<div class="row" style="gap: 6px">${covers.map((c, i) => html`<${ItemPill} key=${ref(c)} ...${c} removable onRemove=${() => setCovers(covers.filter((_, j) => j !== i))} />`)}</div>`}
+        ${covers.length < MAX_COVERS && html`<${ItemPicker} repos=${allRepos} kind=${action.object} many label=${`Add ${OBJECT_WORDS[action.object]}`}
+          exclude=${covers.map(ref)} onPick=${(item) => setCovers((now) => (now.some((c) => ref(c) === ref(item)) || now.length >= MAX_COVERS ? now : [...now, coverOf({ ...item, kind: item.kind || action.object })]))} />`}
+        ${covers.length > 1 && html`<span class="small soft">The session's checkout is in ${covers[0].repo}, the first item's repository; the others are listed as covered.</span>`}</div>`
+      : action.repo ? html`<div class="small"><${Eyebrow}>In<//> <span class="mono">GlassineOS/${action.repo}</span> · org board</div>`
+      : html`<${RepoPicker} value=${repo} onChange=${setRepo} groups=${groups} label="Repository" />`}
+    ${launchRefusal(action, covers) && html`<p class="small" role="alert">${refusal}</p>`}
+    ${action.asks_paths && html`<label class="nw-field">Scope <span class="nw-sub">optional · paths in the repository</span>
+      <input class="mono" value=${paths} placeholder="the whole repository" onInput=${(e) => setPaths(e.target.value)} /></label>`}
+    ${action.asks_describe && html`<label class="nw-field">${text.label || "What to plan"}
+      <textarea rows="3" placeholder=${text.hold || ""} value=${describe} onInput=${(e) => setDescribe(e.target.value)} /></label>`}
+    ${suggester && html`<p class="small"><span class="nw-tag">${suggester === "the Steward" ? "STEWARD" : "SUGGESTED"}</span> ${suggester} wrote the notes below; edit freely.</p>`}
+    <${SteerFields} kind=${action.object} notes=${notes} pins=${pins} onNotes=${setNotes} onPins=${setPins} />
+    <div class="row" style="gap: 14px 24px; align-items: flex-start">
+      <div class="stack" style="gap: 6px"><span id="lb-model" class="eyebrow">Model</span>
+        <div role="radiogroup" aria-labelledby="lb-model" class="seg">${action.models.map((m, i) => html`<button role="radio" aria-checked=${chosenModel === m ? "true" : "false"} onClick=${() => setModel(m)}>${NW_MODEL[m] || m}${i === 0 ? " · default" : ""}</button>`)}</div></div>
+      ${action.plan !== false && html`<${PlannerModel} id="lb-pm" value=${plannerModel} onChange=${setPlannerModel} />`}
+      ${action.result === "drafts" && html`<div class="stack" style="gap: 6px"><span id="lb-drv" class="eyebrow">Drafts go to</span>
+        <div role="radiogroup" aria-labelledby="lb-drv" class="seg">
+          <button role="radio" aria-checked=${driver === "you" ? "true" : "false"} onClick=${() => setDriver("you")}>Me</button>
+          <button role="radio" aria-checked=${driver === "steward" ? "true" : "false"} onClick=${() => setDriver("steward")}>The Steward, to refine</button></div></div>`}</div>
+    <${Err} text=${act.error} />
+    <div class="row">
+      <button class="primary" disabled=${act.busy || Boolean(refusal) || (!onItems && !chosenRepo) || (action.asks_describe && !describe.trim())}
+        title=${refusal || (!onItems && !chosenRepo ? "Choose a repository first" : "")} onClick=${plan}>${action.plan === false ? "Next: nothing to plan" : "Plan"}</button>
+      <span class="small soft" style="flex: 1 1 220px">${action.plan === false ? "This action has no planner: its plan is the action's own." : `The planner (${NW_MODEL[plannerModel]}) reads first, read-only. Nothing runs until you've read its plan.`}</span>
+      ${onCancel && html`<button class="plain" onClick=${onCancel}>Back to the plan</button>`}</div>
+  </div>`;
+}
+
+// The plan (005 FR-006): the steps and what each touches, the briefing, the docs. Start, or edit the brief and plan again.
+function LaunchPlan({ live, action, act, onEdit, onStart }) {
+  const spec = live.spec || {};
+  const steps = (live.plan && live.plan.steps) || [];
+  // Yours if you chose one on the brief, else the planner's pick.
+  const yours = action && live.model && live.model !== action.models[0];
+  const pick = !yours && action && action.models.includes(live.planner_pick) ? live.planner_pick : live.model;
+  const [model, setModel] = useState(null);
+  const [brief, setBrief] = useState(null);
+  const chosen = model || pick;
+  const shownBrief = brief === null ? spec.brief || "" : brief;
+  const plannerName = NW_MODEL[live.planner_model || PLANNER_DEFAULT];
+  return html`<div class="nw-body">
+    ${live.error && html`<${Err} text=${`${live.error} The plan is still here: you can press Start again.`} />`}
+    <div class="row" style="gap: 6px 12px; align-items: baseline"><h3>Plan</h3>
+      <span class="small soft">${action && action.plan === false ? "the action's own: there's no planner for it" : `by the planner (${plannerName})${live.planner_cost_usd != null ? ` · $${live.planner_cost_usd.toFixed(2)}` : ""}`} · nothing has run yet</span></div>
+    ${steps.length ? html`<ol class="stack" style="gap: 8px; padding-left: 22px">${steps.map((s) => html`<li class="stack tight"><span>${s.what}</span>
+        ${(s.touches || []).length > 0 && html`<span class="row" style="gap: 6px">${s.touches.map((t) => html`<span class="label mono" style="padding-right: 8px">${t}</span>`)}</span>`}</li>`)}</ol>`
+      : html`<p class="small soft">${action && action.plan === false ? "No steps: this action has no planner." : "No steps: the planner gave none."}</p>`}
+    <dl class="defs">
+      ${recordCovers(live, action && action.object).length > 0 && html`<dt>Covers</dt><dd><span class="row" style="gap: 6px">${recordCovers(live, action && action.object).map((c) => html`<${ItemPill} key=${ref(c)} ...${c} />`)}</span></dd>`}
+      ${!live.number && live.repo && html`<dt>Repository</dt><dd class="mono">${live.repo}</dd>`}
+      ${live.notes && html`<dt>Your notes</dt><dd>${live.notes}</dd>`}
+      ${(spec.pins || []).length > 0 && html`<dt>Pinned</dt><dd>${spec.pins.map((x) => x.label).join(" · ")}</dd>`}
+      <dt>Persona</dt><dd>${action ? action.persona_name : spec.persona}</dd>
+      <dt>Effort</dt><dd>${spec.effort}</dd>
+      <dt>Ends with</dt><dd>${action ? `${action.result_words}. ${action.ceiling}` : ""}</dd></dl>
+    ${action && action.models.length > 1 && html`<div class="stack" style="gap: 6px"><span id="lp-model" class="eyebrow">Session model</span>
+      <div role="radiogroup" aria-labelledby="lp-model" class="seg" style="align-self: flex-start">${action.models.map((m) => html`<button role="radio" aria-checked=${chosen === m ? "true" : "false"} onClick=${() => setModel(m)}>${NW_MODEL[m] || m}</button>`)}</div>
+      <span class="small soft">${chosen !== pick ? `${NW_MODEL[chosen] || chosen}: your choice now.` : yours || !live.planner_pick ? `${NW_MODEL[chosen] || chosen}: from the brief.` : `${NW_MODEL[chosen] || chosen}: the planner's pick.`}</span></div>`}
+    ${(spec.docs || []).length > 0 && html`<div class="stack tight"><${Eyebrow}>Docs to read${spec.docs_query ? ` · searched “${spec.docs_query}”` : ""}<//>
+      <ul class="stack" style="gap: 4px">${spec.docs.map((d) => html`<li class="passage"><span><b>${d.link}</b><span class="soft" style="font-size: 13px">${d.why}</span></span></li>`)}</ul></div>`}
+    <label class="nw-field">Briefing <span class="nw-sub">${action && action.plan === false ? "optional" : "the planner wrote this; edit freely"} · goes into the first prompt</span>
+      <textarea class="mono" rows="6" value=${shownBrief} onInput=${(e) => setBrief(e.target.value)} /></label>
+    <div class="row"><button class="primary" disabled=${act.busy} onClick=${() => onStart(chosen, shownBrief)}>Start</button>
+      <button class="plain" disabled=${act.busy} onClick=${onEdit}>Edit the brief and plan again</button></div>
+  </div>`;
+}
+
+// The run (005 FR-007): the session in a compact SessionView, its asks inline.
+function LaunchRun({ live, asks }) {
+  const sessions = useLoad(() => api("shells").catch(() => []), [], 3000);
+  const session = live.session ? (sessions.data || []).find((s) => s.name === live.session) : null;
+  if (!live.session || !session) return html`<div class="nw-body"><p role="status" class="row" style="font-weight: 600"><${StateIcon} kind="run" />${live.state === "starting" ? "Starting the session…" : "Waiting for the session to show up…"}</p>
+    <p class="small soft">This can take a moment while its checkout is made.</p></div>`;
+  return html`<div class="nw-body"><${SessionView} key=${session.name} session=${session} mode="compact" asks=${asks} onGone=${sessions.reload} /></div>`;
+}
+
+// What this Launch's session handed in, or the pull request it opened (005 R2).
+function useLaunchResults(live) {
+  const name = live && live.session;
+  const named = useLoad(() => (name ? api(`results${params({ session: name })}`).then((r) => r.results) : Promise.resolve([])), [name, live && live.result], 3000);
+  return { list: live ? (named.data || []).filter((r) => r.launch === live.id || r.id === live.result) : [], reload: named.reload };
+}
+
+function LaunchResult({ live, results, reload, onNote }) {
+  const mine = results.list;
+  return html`<div class="nw-body">
+    ${live.state === "failed" && html`<${Err} text=${live.error || "It stopped."} />`}
+    ${live.state === "dismissed" && html`<p class="small soft">Set aside.${(live.drafts || []).some((d) => d.state === "filed") ? "" : " Nothing was filed."}</p>`}
+    ${(live.drafts || []).length > 0 && html`<${DraftsResult} item=${live} reload=${reload} onNote=${onNote} />`}
+    ${mine.map((r) => html`<${ResultView} key=${r.id} r=${r} reload=${() => { results.reload(); return reload(); }} where="Needs you" />`)}
+    ${live.state === "done" && !(live.drafts || []).length && !mine.length && html`<p class="small soft">Loading the result…</p>`}
+  </div>`;
+}
+
+// One Launch, from brief to result. The record (hubd's, 005 R1) is the stage: the page only holds the brief until Plan.
+function LaunchModal({ open, work, asks, reload, onClose, onBehind }) {
+  const dialog = useRef();
+  const [id, setId] = useState(open.id || null);
+  const [editing, setEditing] = useState(false);
+  const [note, setNote] = useState(null);
+  const { list: actions, error: actionsError } = useLaunchActions(work.templates);
+  const { data: overview } = useLoad(() => api("overview"), []);
+  const act = useAct(reload);
+  const [confirm, confirmDialog] = useConfirm();
+  useEffect(() => { dialog.current.showModal(); }, []);
+  const live = id ? work.items.find((i) => i.id === id) || null : null;
+  const action = actions && live ? actions.find((a) => a.id === live.action) : null;
+  const stage = !live || live.state === "offered" || editing ? "brief" : live.stage || "brief";
+  const stopped = live && (live.state === "failed" ? "stopped" : live.state === "dismissed" ? "set aside" : null);
+  const results = useLaunchResults(live);
+  // A session that ends in a pull request hands in nothing: its record stays at run, and the result is the PR the hub found.
+  const shown = stage === "failed" || stage === "dismissed" || (stage === "run" && results.list.length > 0) ? "result" : stage;
+  const running = live && ["planning", "starting", "running", "started"].includes(live.state);
+  const close = () => onClose();
+  // 005 FR-008: after planning it can go on without you; its asks and its result come to Needs you.
+  const background = () => act.run(async () => {
+    await post(`new-work/${live.id}/background`, { on: true });
+    onBehind({ id: live.id, name: live.session, title: live.title });
+  });
+  const cancel = () => confirm({ title: live.state === "planning" ? "Stop the planner?" : "Stop the session?", danger: true, label: "Stop",
+    text: live.state === "planning" ? "Nothing has run yet. The brief stays in the record, set aside." : `Stops ${live.session || "the session"}. Nothing it hasn't handed in is kept.` },
+  () => act.run(() => post(`new-work/${live.id}/cancel`)));
+  const setAside = () => act.run(async () => { await post(`new-work/${live.id}/dismiss`); onClose(); });
+  const start = (model, brief) => act.run(() => post(`new-work/${live.id}/approve`, { model, brief }));
+  const seed = live ? { ...live, from: open.from || live.from, steward: open.steward, repos: live.repos } : open;
+  const title = live ? `${live.title}${live.repo ? ` · ${live.number ? recordCovers(live, action && action.object).map(ref).join(", ") : live.repo}` : ""}` : "Launch";
+  const by = live ? live.by : open.by;
+  return html`${confirmDialog}<dialog ref=${dialog} class="nw" aria-labelledby="ln-h" onClose=${close}>
+    <div class="nw-head ${by && by !== "you" ? "agent" : ""}">
+      ${by === STEWARD && html`<span class="ask-avatar steward-mark" aria-hidden="true">S</span>`}
+      <h2 id="ln-h" style="flex: 1; min-width: 0">${by && by !== "you" ? `${by === STEWARD ? "The Steward" : by} suggests · ` : ""}${title}</h2>
+      ${live && live.from && html`<span class="label mono" style="padding-right: 8px">from ${live.from.ref || live.from.view}</span>`}
+      <button class="square" aria-label="Close" onClick=${close}>×</button></div>
+    <div class="nw-stages"><${LaunchStages} stage=${shown} stopped=${stopped} />
+      ${!actions ? html`<div class="nw-body"><${Err} text=${actionsError} />${!actionsError && html`<p class="soft">Loading…</p>`}</div>`
+        : shown === "brief" ? html`<${LaunchBrief} key=${`${id}-${editing}`} seed=${seed} actions=${actions} templates=${work.templates} groups=${overview ? overview.groups : []}
+            busyId=${live && ["offered", "planned"].includes(live.state) ? live.id : null}
+            onCancel=${editing ? () => setEditing(false) : null} onPlanned=${(w) => { setId(w.id); setEditing(false); reload(); }} />`
+        : shown === "planning" ? html`<div class="nw-body" role="status"><span class="row" style="font-weight: 600; font-size: 18px"><${StateIcon} kind="run" />The planner is reading</span>
+            <span class="mono soft" style="font-size: 12.5px">claude -p · ${NW_MODEL[live.planner_model || PLANNER_DEFAULT]} · read-only hub tools · up to a few minutes</span>
+            <p class="small soft">Nothing runs yet. You read the plan before any session starts.</p></div>`
+        : shown === "plan" ? html`<${LaunchPlan} key=${live.moved} live=${live} action=${action} act=${act} onEdit=${() => setEditing(true)} onStart=${start} />`
+        : shown === "run" ? html`<${LaunchRun} live=${live} asks=${asks} />`
+        : html`<${LaunchResult} live=${live} results=${results} reload=${reload} onNote=${setNote} />`}</div>
+    <div class="nw-foot">
+      <${Err} text=${act.error} />
+      <span role="status" class="small" style="flex: 1 1 260px">${note || ""}</span>
+      ${live && !editing && ["planning", "plan", "run"].includes(stage) && html`<button class="plain" disabled=${act.busy} onClick=${background}>Send to background</button>`}
+      ${running && !editing && html`<button class="plain" disabled=${act.busy} onClick=${cancel}>${live.state === "planning" ? "Stop planner" : "Stop session"}</button>`}
+      ${live && ["offered", "planned", "failed"].includes(live.state) && html`<button class="plain" disabled=${act.busy} onClick=${setAside}>${live.state === "offered" ? "Not now" : "Set aside"}</button>`}
+      ${live && live.state === "done" && (live.drafts || []).some((d) => d.state === "draft") && html`<button class="plain" disabled=${act.busy} onClick=${setAside}>Set aside</button><${Discard} item=${live} reload=${reload} onDone=${onClose} />`}
+      ${live && live.state === "dismissed" && (live.drafts || []).length > 0 && html`<button class="primary" disabled=${act.busy} onClick=${() => act.run(() => post(`new-work/${live.id}/bring_back`))}>Bring back</button>`}
+      ${live && live.state === "failed" && !editing && html`<button disabled=${act.busy} onClick=${() => setEditing(true)}>Edit the brief and plan again</button>`}
+      <button class="plain" onClick=${close}>${running ? "Close · keeps running" : "Close"}</button></div></dialog>`;
 }
 
 // Setting aside keeps drafts to bring back; this is for the ones you never want to see again.
@@ -2358,20 +2241,21 @@ function SetAside({ item, reload }) {
     <div class="ask-head"><span class="ask-kind">SET ASIDE</span><span class="small mono soft">${item.repo}</span></div>
     <div class="ask-body"><div class="ask-title">${item.title}</div><p class="small">${count(item.drafts.length, "draft")}.</p><${Err} text=${act.error} />
       <div class="row"><button class="primary" disabled=${act.busy} onClick=${() => act.run(() => post(`new-work/${item.id}/bring_back`))}>Bring back</button>
-        <button class="plain" onClick=${() => planWork({ id: item.id })}>Open in the planner</button>
+        <button class="plain" onClick=${() => launch({ id: item.id })}>Open in Launch</button>
         <${Discard} item=${item} reload=${reload} /></div></div></div>`;
 }
 
+// A session the Steward (or another session) suggested: yours to read and change in Launch, and nothing runs until you press Start.
 function SuggestedSession({ item, compact, reload, where = "Needs you" }) {
   const act = useAct(reload);
-  const refs = [`${item.repo}#${item.number}`, ...(item.also_numbers || []).map((n) => `${item.repo}#${n}`)];
+  const refs = recordCovers(item).map(ref);
   return html`<article class="ask calm ${item.by === STEWARD ? "steward" : ""} ${compact ? "compact" : ""}">
     <div class="ask-head">${item.by === STEWARD && html`<span class="ask-avatar steward-mark" aria-hidden="true">S</span>`}<span class="small mono">${item.by}</span>${item.by === STEWARD && html`<span class="small">Steward</span>`}<span class="ask-kind">${item.state === "planned" ? (compact ? "SESSION · PLAN READY" : "PLAN READY") : item.state === "failed" ? "STOPPED" : compact ? "SESSION · SUGGESTED" : "SUGGESTED SESSION"}</span></div>
     <div class="ask-body"><h3 class="ask-title">${item.title} ${refs[0]}${refs.length > 1 ? `, also covering ${refs.slice(1).join(", ")}` : ""}</h3>
       <p class="small"><span class="nw-why-word" style="font-size: 17px">why </span>${item.why}</p>
       <p class="small soft">${item.notes ? `Proposed notes: “${item.notes}” ` : ""}${item.state === "planned" ? "The planner wrote a plan. Nothing has run: read it, and start the session if it's right." : "A planner reads this first. Nothing runs until you've read its plan."}</p>
       ${item.error && html`<p class="small" role="alert">${item.error}</p>`}<${Err} text=${act.error} />
-      <div class="row"><button class="primary" onClick=${() => startForm(item)}>${item.state === "planned" ? "Read the plan" : "Open"}</button>
+      <div class="row"><button class="primary" onClick=${() => launch({ id: item.id, from: { view: where === "SessionView" ? "Needs you" : where } })}>${item.state === "planned" ? "Read the plan" : "Launch…"}</button>
         <button class="plain" disabled=${act.busy} onClick=${() => act.run(() => answerAt(`w:${item.id}`, { verdict: "dismiss" }, where))}>Not now</button></div></div></article>`;
 }
 
@@ -2383,44 +2267,15 @@ function WorkWaiting({ item, compact, reload, where = "Needs you" }) {
   const line = item.state === "offered" ? item.why
     : item.state === "failed" ? item.error
     : item.state === "planned" && item.error ? item.error
-    : item.state === "planned" ? "The planner wrote a spec. Nothing has run: read it, and start the session if it's right."
+    : item.state === "planned" ? "The planner wrote a plan. Nothing has run: read it, and start the session if it's right."
     : `${count(undrafted, "draft")} waiting for you.`;
   const kind = `${compact ? "NEW WORK · " : ""}${item.state === "offered" ? "SUGGESTED" : item.state === "failed" ? "STOPPED" : item.state === "planned" ? "PLAN READY" : "DRAFTS READY"}`;
   return html`<div class="ask calm ${steward ? "steward" : ""} ${compact ? "compact" : ""}">
     <div class="ask-head"><span class="ask-kind">${kind}</span><span class="small mono">${item.by === "you" ? "you" : item.by}</span><span class="small mono soft">${item.repo}</span></div>
     <div class="ask-body"><div class="ask-title">${item.title}</div><p class="small">${line}</p><${Err} text=${act.error} />
-      <div class="row"><button class="primary" onClick=${() => planWork({ id: item.id })}>Open in the planner</button>
+      <div class="row"><button class="primary" onClick=${() => launch({ id: item.id })}>${item.state === "offered" ? "Launch…" : "Open in Launch"}</button>
         <button class="plain" disabled=${act.busy} onClick=${() => act.run(() => answerAt(`w:${item.id}`, { verdict: "dismiss" }, where))}>${item.state === "offered" ? "Not now" : "Set aside"}</button>
         ${item.state === "done" && html`<${Discard} item=${item} reload=${reload} />`}</div></div></div>`;
-}
-
-// A result a session handed in (005 R2), until the Launch UI (005/PR 2) gives each type its own view: its words as text,
-// and the one press that applies it. Its text is the session's, which may have read an outsider's: shown, never rendered.
-const RESULT_TITLE = { comment: "Review to post", labels: "Labels to apply", findings: "Findings", report: "Report", pr: "Pull request" };
-const resultTitle = (r) => `${RESULT_TITLE[r.type] || "Result"}${r.items && r.items[0] ? ` · ${ref(r.items[0])}` : ""}`;
-const RESULT_PRESS = { comment: ["apply", "Post review"], labels: ["apply", "Apply labels"], report: ["keep", "Keep for Knowledge"] };
-
-function ResultLines({ r }) {
-  const p = r.payload || {};
-  const text = (t) => html`<p class="small" style="white-space: pre-wrap; overflow-wrap: anywhere">${t}</p>`;
-  if (r.type === "comment") return html`${text(`${p.event === "request-changes" ? "Request changes" : p.event === "approve" ? "Approve" : "Comment"}: ${p.summary}`)}
-    ${(p.notes || []).map((n) => html`<p class="small mono" style="overflow-wrap: anywhere">${n.path}:${n.line} ${n.side === "LEFT" ? "(old)" : ""} — ${n.body}</p>`)}`;
-  if (r.type === "labels") return (p.issues || []).map((i) => text(`${i.ref}: ${[...i.add.map((l) => `+${l}`), ...i.remove.map((l) => `−${l}`)].join(" ")}${i.part_of ? ` · Part of ${i.part_of}` : ""} — ${i.why}`));
-  if (r.type === "findings") return html`${text(`Cause: ${p.cause}`)}${text(`Smallest fix: ${p.fix}`)}${(p.files || []).length > 0 && text(`Files: ${p.files.join(", ")}`)}`;
-  if (r.type === "report") return html`${text(p.question)}${text(p.answer)}${(p.sources || []).map((src) => text(`${src.link} — ${src.why}`))}`;
-  if (r.type === "pr") return text(`Opened or worked on ${p.repo}#${p.number}.`);
-  return null;
-}
-
-function ResultWaiting({ r, reload, where = "Needs you" }) {
-  const act = useAct(reload);
-  const press = RESULT_PRESS[r.type];
-  return html`<div class="ask calm ${r.session === STEWARD ? "steward" : ""}">
-    <div class="ask-head"><span class="ask-kind">${r.state === "applying" ? "APPLYING" : "RESULT READY"}</span><span class="small mono">${r.session}</span></div>
-    <div class="ask-body"><div class="ask-title">${resultTitle(r)}</div><${ResultLines} r=${r} />
-      ${r.note && html`<p class="small" role="status">${r.note}</p>`}<${Err} text=${act.error} />
-      <div class="row">${press && html`<button disabled=${act.busy || r.state !== "pending"} onClick=${() => act.run(() => answerAt(r.id, { verdict: press[0] }, where))}>${press[1]}</button>`}
-        <button class="plain" disabled=${act.busy || r.state !== "pending"} onClick=${() => act.run(() => answerAt(r.id, { verdict: "dismiss" }, where))}>Set aside</button></div></div></div>`;
 }
 
 // where: the view the card is in, which hubd records with your answer (003 FR-011). Answers go through interaction.answer.
@@ -2560,9 +2415,7 @@ function InteractionCard({ item, dense, where, reload }) {
   const settled = item.status !== "pending" && !(item.kind === "decision" && item.status === "allowed");
   const body = () => {
     if (item.kind === "permission" || item.kind === "question") return html`<${Ask} ask=${d} compact=${settled} onDone=${reload} where=${where} />`;
-    if (item.kind === "result" && d.type && !settled) return html`<${ResultWaiting} r=${d} reload=${reload} where=${where} />`;
-    if (item.kind === "result" && d.type) return html`<div class="ask calm done"><div class="ask-head"><span class="ask-kind">RESULT</span><span class="small mono">${d.session}</span></div>
-      <div class="ask-body"><p class="ask-title">${resultTitle(d)}</p>${d.note && html`<p class="small">${d.note}</p>`}</div></div>`;
+    if (item.kind === "result" && d.type) return html`<${ResultView} r=${d} reload=${reload} where=${where} />`;
     if (item.kind === "decision") return html`<div class="ask calm ${settled ? "done" : ""}"><div class="ask-head"><span class="ask-kind">${d.kind === "go" ? (d.scope.actions.includes("eye-test") ? "GO · EYE TEST" : "GO") : "MERGE"}</span>
       <span class="small mono">${d.asked_by || "you"}</span></div><div class="ask-body"><${DecisionRow} key=${`${d.id}-${d.state}`} d=${d} onChanged=${reload} where=${where} /></div></div>`;
     if (settled && d.state === "dismissed" && (d.drafts || []).length) return html`<${SetAside} item=${d} reload=${reload} />`;
@@ -2867,131 +2720,6 @@ function Shells({ query, asks }) {
   </div></main>`;
 }
 
-// --- advanced mode ---------------------------------------------------------------------------------
-function Launch({ query }) {
-  const { repo } = query;
-  const number = Number(query.number);
-  const handoff = useRef(advancedHandoff);
-  advancedHandoff = null;
-  const [actionId, setActionId] = useState(query.action);
-  const [config, setConfig] = useState(handoff.current);
-  const [info, setInfo] = useState(null);
-  const [siblings, setSiblings] = useState([]);
-  const [preview, setPreview] = useState(null);
-  const [previewError, setPreviewError] = useState(null);
-  const [docsQuery, setDocsQuery] = useState(handoff.current ? handoff.current.docs_query || "" : "");
-  const [found, setFound] = useState([]);
-  const overview = useLoad(() => api("overview"), []);
-  const repoNames = overview.data ? overview.data.groups.flatMap((g) => g.repos.map((r) => r.name)) : [];
-  const act = useAct();
-  const search = useAct();
-  const set = (patch) => setConfig((c) => ({ ...c, ...patch }));
-  const [plannerModel, setPlannerModel] = useState(PLANNER_DEFAULT);
-  const carried = useRef(null); // your notes and pins, when you switch action
-  const steerKey = info && `${info.object}/${repo}/${number}`;
-  useEffect(() => {
-    if (!config || !steerKey) return;
-    if ((config.notes || "").trim() || (config.pins || []).length) steering.set(steerKey, { notes: config.notes || "", pins: config.pins || [] });
-    else steering.delete(steerKey);
-  }, [config && config.notes, config && config.pins, steerKey]);
-  useEffect(() => {
-    act.run(async () => {
-      const a = (await post("agents/action", { action: actionId })).action;
-      setInfo(a);
-      setSiblings(await api(`agents/actions${params({ object: a.object })}`));
-      if (!config || config.action !== actionId) {
-        const fresh = (await post("agents/defaults", { action: actionId, repo, number })).config;
-        const yours = carried.current || steering.get(`${a.object}/${repo}/${number}`) || {};
-        setConfig({ ...fresh, notes: yours.notes || "", pins: yours.pins || [], also_numbers: [] });
-      }
-    });
-  }, [actionId]);
-  useEffect(() => {
-    if (!config) return undefined;
-    const timer = setTimeout(async () => {
-      try { setPreview(await post("agents/preview", { config: edited(config) })); setPreviewError(null); } catch (e) { setPreviewError(e.message); }
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [config]);
-  const replan = () => act.run(async () => { const r = await post("agents/plan", { action: actionId, repo, number, notes: config.notes, pins: config.pins, planner_model: plannerModel }); setConfig({ ...r.config, also_numbers: config.also_numbers || [] }); setDocsQuery(r.config.docs_query || ""); });
-  const start = () => act.run(async () => { const r = await post("agents/start", { config: edited(config) }); if (steerKey) steering.delete(steerKey); location.hash = hash("shells", { name: r.name }); });
-  const toggleDoc = (link, why) => set({ docs: config.docs.some((d) => d.link === link) ? config.docs.filter((d) => d.link !== link) : [...config.docs, { link, why: why.slice(0, 300) }] });
-  const toggle = (field, name) => set({ [field]: config[field].includes(name) ? config[field].filter((t) => t !== name) : [...config[field], name] });
-  const tab = { pr: "prs", issue: "issues", run: "actions" }[info ? info.object : "issue"];
-  if (!repo || !number) return html`<main class="page"><${Err} text="Open advanced mode from an issue, pull request or run." /></main>`;
-  const passages = config ? [...config.docs.map((d) => ({ link: d.link, why: d.why })), ...found.filter((f) => !config.docs.some((d) => d.link === f.link))] : [];
-  return html`<main class="page wide" style="gap: 24px">
-    <div class="stack tight"><a class="small" style="align-self: flex-start; font-weight: 500" href=${hash("work", { tab, repo, item: number })}>← Back to the item</a>
-      <${Eyebrow} soft>Advanced mode<//><h1>Session spec</h1></div>
-    <div class="notice" style="flex-wrap: wrap"><span style="flex: 1 1 100%">${handoff.current ? "The planner filled this in" : "Starts from the action's defaults"} for <span class="mono">${repo}#${number}</span>. Change anything; hub still refuses what this action doesn't allow.</span>
-      ${config && info && html`<div class="grow"><${SteerFields} kind=${info.object} notes=${config.notes || ""} pins=${config.pins || []} onNotes=${(notes) => set({ notes })} onPins=${(pins) => set({ pins })} /></div>`}
-      <label class="field" style="align-self: flex-end"><span>Planner</span><select value=${plannerModel} onChange=${(e) => setPlannerModel(e.target.value)}>${PLANNER_CHOICES.map((m) => html`<option value=${m}>${NW_MODEL[m]}</option>`)}</select></label>
-      <button class="plain" style="align-self: flex-end" disabled=${act.busy || !config} onClick=${replan}>${act.busy ? "Working…" : handoff.current ? "Re-plan with notes" : "Plan it"}</button></div>
-    <${Err} text=${act.error} />
-    ${config && info && html`<div class="columns">
-      <div class="wide stack" style="gap: 32px">
-        <section class="step" aria-labelledby="h-p"><div class="step-head"><i aria-hidden="true">1</i><h2 id="h-p">Persona</h2></div>
-          <div role="radiogroup" aria-labelledby="h-p" class="choices">${info.personas.map((p) => html`<button role="radio" class="choice" aria-checked=${config.persona === p.id ? "true" : "false"} onClick=${() => set({ persona: p.id })}>
-            <b>${p.id}</b><span class="soft" style="font-size: 13.5px; line-height: 1.4">${p.text.slice(0, 140)}${p.text.length > 140 ? "…" : ""}</span></button>`)}</div>
-          <div class="row"><label class="field"><span>Model</span><select value=${config.model} onChange=${(e) => set({ model: e.target.value })}>${info.models.map((m) => html`<option value=${m}>${m}</option>`)}</select></label>
-            <label class="field"><span>Effort</span><select value=${config.effort} onChange=${(e) => set({ effort: e.target.value })}>${info.efforts.map((m) => html`<option value=${m}>${m}</option>`)}</select></label></div>
-        </section>
-        <section class="step" aria-labelledby="h-t"><div class="step-head"><i aria-hidden="true">2</i><h2 id="h-t">Prompt builder</h2></div>
-          <div role="tablist" aria-label="Prompt builder" class="row" style="gap: 6px">${siblings.map((a) => html`<button role="tab" class="pill" aria-selected=${a.id === actionId ? "true" : "false"} onClick=${() => { if (config) carried.current = { notes: config.notes, pins: config.pins }; setConfig(null); setActionId(a.id); }}>${a.title}</button>`)}</div>
-          <p class="small soft">${info.summary}</p>
-          ${info.full && info.object === "issue" && html`<label class="field"><span>Also covers issues of ${repo}</span>
-            <input class="mono" placeholder="e.g. 11, 14" value=${(config.also_numbers || []).join(", ")} onChange=${(e) => set({ also_numbers: [...new Set((e.target.value.match(/\d+/g) || []).map(Number))] })} /></label>`}
-          ${info.full && info.checkout && html`<div class="stack tight"><span class="eyebrow">Also check out</span>
-            <div class="row" style="gap: 6px">${repoNames.filter((n) => n !== repo).map((n) => {
-              const on = (config.also_repos || []).includes(n);
-              return html`<button class="pill" aria-pressed=${on ? "true" : "false"} onClick=${() => set({ also_repos: on ? config.also_repos.filter((r) => r !== n) : [...(config.also_repos || []), n] })}>${n}</button>`;
-            })}</div></div>`}
-          <label class="field"><span>Briefing, added to the action's prompt</span>
-            <textarea rows="8" value=${config.brief} onInput=${(e) => set({ brief: e.target.value })}></textarea></label>
-        </section>
-        <section class="step" aria-labelledby="h-c"><div class="step-head"><i aria-hidden="true">3</i><h2 id="h-c">Context from docs search</h2>
-            <span class="mono soft" style="font-size: 12.5px">${config.docs.length} included</span></div>
-          <form class="searchbox" role="search" style="flex: none" onSubmit=${(e) => { e.preventDefault(); search.run(async () => {
-            const r = await api(`docs/search${params({ q: docsQuery })}`);
-            setFound(r.results.map((h) => ({ link: h.url, why: h.heading || h.title, snippet: h.text.slice(0, 160) })));
-            set({ docs_query: docsQuery });
-          }); }}><${SearchIcon} /><label class="sr" for="adv-q">Search query</label>
-            <input id="adv-q" type="search" placeholder="Search, then tick what the agent should read" value=${docsQuery} onInput=${(e) => setDocsQuery(e.target.value)} /></form>
-          <${Err} text=${search.error} />
-          ${passages.map((p) => {
-            const on = config.docs.some((d) => d.link === p.link);
-            return html`<button class="pick" aria-pressed=${on ? "true" : "false"} onClick=${() => toggleDoc(p.link, p.why)}>
-              <span class="box" aria-hidden="true">${on && html`<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7.2l2.6 2.6L11 4.4" /></svg>`}</span>
-              <span><b class="mono" style="font-size: 13px; overflow-wrap: anywhere">${urlPath(p.link)}</b><span class="soft" style="font-size: 14px; line-height: 1.45">${p.snippet || p.why}</span></span></button>`;
-          })}
-        </section>
-        <section class="step" aria-labelledby="h-k"><div class="step-head"><i aria-hidden="true">4</i><h2 id="h-k">Skills and hub tools</h2></div>
-          <div class="row" style="gap: 8px">${info.skills.map((s) => html`<span class="badge" style="text-transform: none; letter-spacing: 0; font-size: 12.5px">${s}</span>`)}</div>
-          ${info.full ? html`<p>Full Claude Code, with your rights: it has every tool, and your project's settings apply.</p>`
-            : html`<div class="tools">${[["tools", info.tools], ["hub_tools", info.hub_tools]].flatMap(([field, names]) => names.map((name) => {
-                const on = config[field].includes(name);
-                return html`<div><span>${name}</span><div role="radiogroup" aria-label=${name} class="seg">
-                  <button role="radio" aria-checked=${on ? "false" : "true"} onClick=${() => on && toggle(field, name)}>Off</button>
-                  <button role="radio" aria-checked=${on ? "true" : "false"} onClick=${() => !on && toggle(field, name)}>Allow</button></div></div>`;
-              }))}</div>`}
-          <p class="small soft">${info.ceiling}</p>
-        </section>
-      </div>
-      <aside class="aside panel" aria-labelledby="h-prev" style="flex-basis: 400px; gap: 14px">
-        <h2 id="h-prev" class="eyebrow">What hub will start</h2>
-        <label class="field"><span>Session name</span><input class="mono" value=${config.name || (preview ? preview.name : "")} onInput=${(e) => set({ name: e.target.value || undefined })} /></label>
-        <${Err} text=${previewError} />
-        ${preview && html`<div class="stack" style="gap: 4px"><${Eyebrow}>Command<//><pre class="dark">$ ${preview.command}</pre></div>
-          <div class="stack" style="gap: 4px"><${Eyebrow}>First prompt<//><pre class="shadow">${preview.prompt}</pre></div>
-          <dl class="defs"><dt>Worktree</dt><dd>${preview.worktree}</dd>
-            ${preview.checkouts.map((c) => html`<dt>In</dt><dd class="mono" style="font-size: 13px; overflow-wrap: anywhere">${c}</dd>`)}
-            <dt>Runs from</dt><dd class="mono" style="font-size: 13px; overflow-wrap: anywhere">${preview.cwd}</dd></dl>`}
-        <details><summary class="eyebrow" style="min-height: 32px; cursor: pointer">Spec JSON</summary><pre class="shadow" style="margin-top: 4px">${JSON.stringify(config, null, 2)}</pre></details>
-        <div class="row"><button class="primary" disabled=${act.busy || Boolean(previewError)} onClick=${start}>Start session</button></div>
-      </aside></div>`}
-  </main>`;
-}
-
 // --- frame --------------------------------------------------------------------------------------
 function Login({ onIn }) {
   const [user, setUser] = useState("");
@@ -3217,7 +2945,7 @@ const NAV = [["overview", "Overview"], ["roadmap", "Roadmap"], ["work", "Work"],
 // --- the Steward ---------------------------------------------------------------------------------
 const STEWARD = "steward";
 const SEEN_KIND = { issues: "issue", prs: "pull request", actions: "run" };
-const SEEN_SCREEN = { overview: "Overview", roadmap: "Roadmap", work: "Work", knowledge: "Knowledge", notes: "Notes", shells: "Sessions", launch: "Sessions" };
+const SEEN_SCREEN = { overview: "Overview", roadmap: "Roadmap", work: "Work", knowledge: "Knowledge", notes: "Notes", shells: "Sessions" };
 const STATE_BADGE = { "Waiting for you": "mark", Stopped: "dim", "Not started": "dim" };
 
 // Old addresses and where they live now. Work's tabs had their own pages once; Docs held the notes as a tab;
@@ -3228,6 +2956,11 @@ function movedRoute(route) {
   if (OLD_WORK_PAGES.has(route.path)) return { path: "work", query: { ...q, tab: route.path }, moved: false };
   if (route.path === "docs") return { path: q.tab === "notes" ? "notes" : "knowledge", query: {}, moved: true };
   if (route.path === "device") return { path: "overview", query: {}, moved: true };
+  // The advanced launch page is gone: Launch opens over the item.
+  if (route.path === "launch") {
+    const tab = { pr: "prs", run: "actions" }[String(q.action || "").split("-")[0]] || "issues";
+    return q.repo && q.number ? { path: "work", query: { tab, at: q.repo, item: q.number }, moved: true, to: hash("work", { tab, at: q.repo, item: q.number }) } : { path: "work", query: {}, moved: true };
+  }
   return { path: route.path, query: q, moved: false };
 }
 
@@ -3238,7 +2971,6 @@ function seenFrom(route) {
   // From the address, which a link can fill with anything. Same pattern as hubd's.
   const item = (repo, n) => (/^[A-Za-z0-9._-]+$/.test(repo || "") && /^[0-9]+$/.test(n || "") ? `${repo}#${n}` : null);
   if (path === "work" && item(q.at || q.repo, q.item)) return { screen: "Work", kind: SEEN_KIND[tab] || null, selection: item(q.at || q.repo, q.item) };
-  if (path === "launch" && item(q.repo, q.number)) return { screen: "Sessions", kind: null, selection: item(q.repo, q.number) };
   if (path === "work" && tab === "queue") return { screen: "Queue", kind: null, selection: null };
   return { screen: SEEN_SCREEN[path] || "Overview", kind: null, selection: null };
 }
@@ -3300,7 +3032,8 @@ function Steward({ route, asks }) {
   );
   useEffect(() => { if (running) post("agents/context", { name: STEWARD, ...seen }).catch(() => {}); }, [running, seen.screen, seen.kind, seen.selection]);
   const asking = asks.open.filter((a) => a.session === STEWARD).length + asks.work.items.filter((i) => i.by === STEWARD && nwWaits(i)).length;
-  const planFromSteward = () => planWork({ by: STEWARD, repo: seen.selection ? seen.selection.split("#")[0] : undefined, context: seen.selection || undefined, pins: seen.selection ? [{ kind: "ref", label: seen.selection }] : undefined });
+  const planFromSteward = () => launch({ steward: true, repos: seen.selection ? [seen.selection.split("#")[0]] : undefined, context: seen.selection || undefined,
+    pins: seen.selection ? [{ kind: "ref", label: seen.selection }] : undefined, from: { view: seen.screen, ref: seen.selection || null } });
   if (rail) {
     return html`<nav class="dock-rail" aria-label="Steward">
       <button class="dock-s" aria-label=${`Open the Steward, ${words}${asking ? `, ${count(asking, "question")} for you` : ""}`} title=${`Steward: ${words}`} onClick=${() => setRail(false)}>S${asking > 0 && html`<span class="dock-count">${asking}</span>`}</button>
@@ -3355,7 +3088,7 @@ function Hub({ host: first, route, onOut }) {
   // A failed read keeps what we knew, or a brief hubd error would close the cards you're filling in.
   const known = useRef({ items: [], grants: [], counts: { pending: 0, blocking: 0, by_kind: {}, longest_wait: 0 }, holding: null });
   if (listed.data) known.current = listed.data;
-  // NewWork, StartForm and SetAside still read the records themselves, until Launch replaces them (PR 9).
+  // Launch records (005 R1): what LaunchModal draws its stage from, and SetAside reads.
   const planned = useLoad(() => api("new-work"), [], 3000);
   const knownWork = useRef({ templates: [], items: [] });
   if (planned.data) knownWork.current = planned.data;
@@ -3370,17 +3103,14 @@ function Hub({ host: first, route, onOut }) {
   asks.waiting = inter.counts.pending;
   const [needs, setNeeds] = useState(null); // the Needs you modal, and what had focus when it opened
 
-  const [planner, setPlanner] = useState(null);
-  const [starting, setStarting] = useState(null);
-  const [behind, setBehind] = useState(null); // planned work you closed while it runs
+  const [launching, setLaunching] = useState(null);
+  const [behind, setBehind] = useState(null); // a Launch sent to the background (005 FR-008)
   useEffect(() => {
-    const show = (e) => { setBehind(null); setPlanner({ ...e.detail, key: Date.now() }); };
-    const form = (e) => setStarting({ ...e.detail, key: Date.now() });
+    const show = (e) => { setBehind(null); setLaunching({ ...e.detail, key: Date.now() }); };
     const openNeeds = (e) => setNeeds({ ...e.detail, key: Date.now(), opener: document.activeElement });
-    window.addEventListener("hub-new-work", show);
-    window.addEventListener("hub-start-form", form);
+    window.addEventListener("hub-launch", show);
     window.addEventListener("hub-needs-you", openNeeds);
-    return () => { window.removeEventListener("hub-new-work", show); window.removeEventListener("hub-start-form", form); window.removeEventListener("hub-needs-you", openNeeds); };
+    return () => { window.removeEventListener("hub-launch", show); window.removeEventListener("hub-needs-you", openNeeds); };
   }, []);
   // The old addresses of Needs you, Active and the Decisions page open the modal with the matching filter.
   const oldNeeds = route.path === "decisions" ? "decisions" : route.path === "shells" && route.query.tab === "needs" ? "all" : route.path === "shells" && route.query.tab === "active" ? "grants" : null;
@@ -3397,18 +3127,18 @@ function Hub({ host: first, route, onOut }) {
     if (to) to.focus();
   };
   // Links from before Work was one page, the Docs and Device pages, and the items a card points to.
-  const { path, query, moved } = movedRoute(route);
-  useEffect(() => { if (moved) history.replaceState(null, "", hash(path)); }, [route.path, route.query.tab]);
-  const views = { overview: Overview, roadmap: Roadmap, work: Work, knowledge: Knowledge, notes: NotesPage, shells: Sessions, launch: Launch };
+  const { path, query, moved, to } = movedRoute(route);
+  useEffect(() => { if (moved) history.replaceState(null, "", to || hash(path)); }, [route.path, route.query.tab]);
+  const views = { overview: Overview, roadmap: Roadmap, work: Work, knowledge: Knowledge, notes: NotesPage, shells: Sessions };
   const View = views[path] || Overview;
-  const here = path === "launch" ? "shells" : path;
+  const here = path;
   const unreachable = Boolean(hostPoll.error || listed.error);
   return html`<div class="with-dock"><div class="dock-main">
     <header class="top"><${Logo} />
       <nav aria-label="Primary">${NAV.map(([key, label]) => html`<a href=${key === "shells" ? hash("shells", { tab: "all" }) : `#/${key}`} aria-current=${here === key ? "page" : null}>${label}</a>`)}</nav>
       <div class="end">
         <${NeedsButton} asks=${asks} />
-        <button class="primary new-work" onClick=${() => planWork()}>＋ New work</button>
+        <button class="primary new-work" onClick=${() => launch({ from: { view: SEEN_SCREEN[here] || "Overview" } })}>＋ New work</button>
         ${!host.gh && html`<span class="badge bad">no gh on the host</span>`}
         ${!host.tmux && html`<span class="badge bad">no tmux on the host</span>`}
         <${UsageMeter} />
@@ -3418,11 +3148,11 @@ function Hub({ host: first, route, onOut }) {
     ${unreachable && html`<div class="unreachable" role="status">hubd can't be reached — showing what was last read.</div>`}
     <${View} key=${path + JSON.stringify(path === "shells" || path === "work" ? {} : query)} query=${query} asks=${asks} /></div>
     <${Steward} route=${route} asks=${asks} />
-    ${planner && html`<${NewWork} key=${planner.key} open=${planner} work=${asks.work} asks=${asks} reload=${reloadAll} onClose=${(left) => { setPlanner(null); setBehind(left || null); }} />`}
-    ${starting && html`<${StartForm} key=${starting.key} item=${starting} work=${asks.work} reload=${reloadAll} onClose=${() => setStarting(null)} />`}
+    ${launching && html`<${LaunchModal} key=${launching.key} open=${launching} work=${asks.work} asks=${asks} reload=${reloadAll}
+      onClose=${() => setLaunching(null)} onBehind=${(b) => { setLaunching(null); setBehind(b); }} />`}
     ${needs && html`<${NeedsYouModal} key=${needs.key} initial=${needs} data=${inter} asks=${asks} onClose=${closeNeeds} />`}
-    ${behind && html`<div role="status" class="nw-toast"><span style="flex: 1"><span class="mono" style="font-weight: 600">${behind.name}</span> runs in the background. Its drafts show up in <button class="link" onClick=${() => needsYou()}>Needs you</button>.</span>
-      <button class="plain" onClick=${() => planWork({ id: behind.id })}>Reopen</button><button class="square" aria-label="Dismiss" onClick=${() => setBehind(null)}>×</button></div>`}</div>`;
+    ${behind && html`<div role="status" class="nw-toast"><span style="flex: 1">${behind.name ? html`<a class="mono" style="font-weight: 600" href=${hash("shells", { tab: "all", name: behind.name })} onClick=${() => setBehind(null)}>${behind.name}</a>` : html`<b>${behind.title}</b>`} goes on in the background. Its asks and its result arrive in <button class="link" onClick=${() => needsYou()}>Needs you</button>.</span>
+      <button class="plain" onClick=${() => launch({ id: behind.id })}>Reopen</button><button class="square" aria-label="Dismiss" onClick=${() => setBehind(null)}>×</button></div>`}</div>`;
 }
 
 render(html`<${App} />`, document.getElementById("root"));

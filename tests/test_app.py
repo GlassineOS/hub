@@ -956,7 +956,7 @@ def test_needs_you_is_one_modal_with_decisions_go_and_grants_in_it():
     # The old addresses open it: the Decisions page with every decision, Active with the grants.
     assert 'route.path === "decisions" ? "decisions"' in script and 'route.query.tab === "active" ? "grants"' in script
     assert 'api("interactions")' in script and 'api("asks")' not in script and 'api("decisions")' not in script, "one poll"
-    assert 'api("new-work")' in script, "NewWork, StartForm and SetAside still read the records"
+    assert 'api("new-work")' in script, "LaunchModal and SetAside read the Launch records"
     assert 'post("device/holding"' in script and 'post("decisions", { kind: "go"' in script, "the same login-checked routes"
     for card in ("Ask", "DecisionRow", "SuggestedSession", "WorkWaiting"):
         assert "answerAt(" in _component(script, card), f"{card} answers through interaction.answer, saying where"
@@ -987,7 +987,7 @@ def test_the_header_has_six_views_needs_you_new_work_and_the_meter():
     assert '.needs-open[data-waits]' in css and '.top .needs-open[data-state="none"]' in css
     assert ".top nav a[aria-current] { background: var(--mark)" not in css, "yellow is only for what waits for you"
     hub = _component(script, "Hub")
-    assert "<${NeedsButton} asks=${asks} />" in hub and 'class="primary new-work" onClick=${() => planWork()}' in hub
+    assert "<${NeedsButton} asks=${asks} />" in hub and 'class="primary new-work" onClick=${() => launch({ from: { view: SEEN_SCREEN[here] || "Overview" } })}' in hub
     assert "<${UsageMeter} />" in hub and "host.hubd" in hub and "hubd can't be reached" in hub and 'api("host"), [], 15000' in hub
     assert "<${ApiBudget} />" in _component(script, "Overview") and "<${DeviceCard} asks=${asks} />" in _component(script, "Overview")
     meter = _component(script, "UsageMeter")
@@ -1517,9 +1517,52 @@ def test_results_and_the_background_go_through_to_hubd_for_a_login():
 
 
 def test_a_result_card_shows_its_words_as_text_and_applies_through_the_answer():
-    """A static check (005 R2, until 005/PR 2): Needs you can post a review or apply labels a session handed in."""
+    """A static check (005 R2, 003 FR-010): Needs you posts a review or applies labels a session handed in, through the answer."""
     script = _app_js()
-    card = _component(script, "ResultWaiting")
-    assert 'answerAt(r.id, { verdict: press[0] }, where)' in card and 'verdict: "dismiss"' in card
-    assert "white-space: pre-wrap" in _component(script, "ResultLines") and "<${Md}" not in _component(script, "ResultLines")
-    assert 'item.kind === "result" && d.type && !settled' in _component(script, "InteractionCard")
+    view = _component(script, "ResultView")
+    assert "answerAt(r.id, { verdict, ...extra }, where)" in view and 'answer("dismiss")' in view
+    assert re.search(r"const plainText = .*white-space: pre-wrap", script), "a session's text as text"
+    assert "<${Md}" not in view
+    assert 'item.kind === "result" && d.type' in _component(script, "InteractionCard")
+
+
+def test_launch_is_one_modal_with_five_stages_opened_by_one_event():
+    """A static check (005 T028): the page isn't run here. Launch replaces the old planner forms and the advanced page;
+    every entry point dispatches hub-launch with where it was opened; the brief posts covers and from."""
+    script = _app_js()
+    for gone in ("hub-new-work", "hub-start-form", "function Spawn(", "function NewWork(", "function StartForm(", "function Launch(",
+                 "advancedHandoff", "rowPlan", "const plans =", "planErrors", "const steering", "planWork(", "startForm(", 'hash("launch"'):
+        assert gone not in script, gone
+    stages = re.search(r"const LAUNCH_STAGES = \[(.*?)\];", script)[1]
+    assert re.findall(r'\["(\w+)", "\w+"\]', stages) == ["brief", "planning", "plan", "run", "result"]
+    hub = _component(script, "Hub")
+    assert 'window.addEventListener("hub-launch", show)' in hub and "<${LaunchModal} " in hub
+    assert "launch: Launch" not in re.search(r"const views = \{(.*?)\};", script)[1]
+    brief = _component(script, "LaunchBrief")
+    assert 'post("new-work", {' in brief and "covers: onItems ? covers : null" in brief and "from: seed.from || null" in brief
+    assert "launchRefusal(action, covers)" in brief and "result_words" in brief and "action.ceiling" in brief
+    assert "<${ItemPicker} " in brief and "<${RepoPicker} " in brief and "<${SteerFields} " in brief and "<${PlannerModel} " in brief
+    modal = _component(script, "LaunchModal")
+    assert "`new-work/${live.id}/background`, { on: true }" in modal and "/approve`" in modal
+    assert 'mode="compact"' in _component(script, "LaunchRun")
+    # Each entry point says where it was opened (005 FR-001), in the screens hubd knows.
+    assert 'launch({ action: action.id, covers: [{ kind, repo: row.repo, number: row.number }], from: { view: "Work"' in _component(script, "WorkRow")
+    assert 'from: { view: "Work", ref: here }' in _component(script, "LaunchRow")
+    assert 'from: { view: "Roadmap" }' in _component(script, "Roadmap") and 'from: { view: "Overview" }' in _component(script, "RepoDetail")
+    assert "from: { view: seen.screen" in _component(script, "Steward")
+    assert "launch({ id: item.id" in _component(script, "SuggestedSession")
+    # The old address lands on the item.
+    assert 'route.path === "launch"' in _component(script, "movedRoute")
+
+
+def test_every_result_type_has_its_view_in_launch_and_in_needs_you():
+    """A static check (005 FR-015–FR-020, 003 FR-010): one ResultView, used by the Launch result stage and by the card."""
+    script = _app_js()
+    view = _component(script, "ResultView")
+    for kind, press in (("comment", ">Post<"), ("labels", ">Apply<"), ("findings", ">Start a fix session<"), ("report", ">Save to Knowledge<"), ("pr", "Closes ")):
+        assert f'r.type === "{kind}"' in view and press in view, kind
+    assert 'answer("apply")' in view and 'answer("keep")' in view and 'answer("dismiss")' in view
+    assert "<${ResultView} " in _component(script, "InteractionCard") and "<${ResultView} " in _component(script, "LaunchResult")
+    drafts = _component(script, "DraftsResult")
+    assert "`new-work/${item.id}/file`" in drafts and "`new-work/${item.id}/hand`" in drafts and "`new-work/${item.id}/edit`" in drafts
+    assert "dangerouslySetInnerHTML" not in view, "a session's text is shown, never rendered"

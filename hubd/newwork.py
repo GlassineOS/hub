@@ -170,6 +170,17 @@ class NewWork:
             raise WorkError(f"already filed or handed over: {taken[0]}")
         return indexes
 
+    def edit(self, work_id, index, title, body) -> dict:
+        """005 FR-015: you change a draft's title and body before filing it. Only a draft still waiting, within a draft's limits."""
+        record = self.get(work_id)
+        self._chosen(record, [index])
+        draft = record["drafts"][index]
+        cleaned = clean_drafts([{"title": title, "body": body, "severity": draft["severity"], "target": draft["target"],
+                                 "labels": draft["labels"], "parent": draft["parent"]}], draft["target"])[0]
+        draft.update(title=cleaned["title"], body=cleaned["body"], note=None)
+        self._save(record)
+        return record
+
     def claim(self, work_id, indexes) -> dict:
         """Before filing: two clicks, or two tabs, can't file a draft twice."""
         record = self.get(work_id)
