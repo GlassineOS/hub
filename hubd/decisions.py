@@ -491,6 +491,10 @@ class Decisions:
         for record in self.merges(repo, number, None, everyone=True):
             self._end(record, "the pull request merged")
 
+    def mark_handled(self, decision_id, handled: dict) -> dict:
+        """Who answered its card, and where the page said it was. Shown, never read by a rule."""
+        return self._save({**self._get(decision_id), "handled": handled})
+
     def view(self, record: dict) -> dict:
         self.current_state(record)
         record = self._all[record["id"]]

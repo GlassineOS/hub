@@ -275,6 +275,10 @@ Goes and merge approvals, each a file in hubd's state folder, on disk before any
   no token at all gets nothing.
 - **`decision_check`, `decision_request` and `decision_end` are by list.** No locked action lists them, nor does the Steward, and hubd
   checks the list too, as a go's words and a card's reason are free text.
+- **Needs you is a view, not a store.** `interaction.list` and `interaction.answer` are behind the login check in `Hubd.request` (the
+  `interaction.` prefix), with no token path. The list only reads asks, decisions and new work; an answer is sent on to the source's own
+  op (`ask` answer, `decision.approve`/`.deny`/`.end`, new work's dismiss) by the id's prefix, so it can't do what those can't, and a go is never
+  approved "always". The `where` a page names is checked against a fixed list and kept as a claim, with your user as who answered.
 - **"I've got the device"** is one read with no token, so `dev` can ask from anywhere. Anything on the socket can read that, and can't
   change it. It ends every recorded device go but an eye test, and survives a restart. It can't stop a running command.
 - **The limit.** Full sessions run as your user, so one could write these files directly. This stops mistakes, relayed quotes and misled
@@ -367,7 +371,7 @@ They are marked as hard to undo. What they refuse is checked in the app, on the 
 
 A tab under Work, over the work store and your decisions. It merges, reviews and starts nothing, and has no tool: a session has `decision_request` to ask.
 
-- **Approving records a merge decision** through the same login-checked `decision.add` and `decision.approve` as the decision cards in Sessions and the Decisions page, for the head the
+- **Approving records a merge decision** through the same login-checked `decision.add` and `decision.approve` as the decision cards in Needs you, for the head the
   page showed. hubd asks GitHub for the head at that moment and refuses if it has moved, so a stale page can't approve what you didn't see. If
   GitHub can't say, nothing is recorded.
 - **A pull request's text can't approve anything.** Anyone who can open a pull request writes `Set:` and `Tested:`, and a stranger's can join a set by

@@ -931,22 +931,33 @@ def _app_js():
     return (Path(__file__).resolve().parents[1] / "app" / "hub" / "static" / "app.js").read_text()
 
 
-def test_decisions_wait_under_needs_you_and_stand_under_active_without_a_nav_entry():
-    """A static check: the page isn't run here. What waits and what stands are both in Sessions, and the Decisions page,
-    which keeps the ended ones, is still routed."""
+def test_needs_you_is_one_modal_with_decisions_go_and_grants_in_it():
+    """A static check: the page isn't run here. Asks, decisions and new work are one Feed in a modal; the Go and
+    "I've got the device" are in it, and the old pages are gone, their addresses opening it with the matching filter."""
     script = _app_js()
     nav = re.search(r"const NAV = \[(.*?)\];", script)[1]
     assert '"decisions"' not in nav and '"shells", "Sessions"' in nav
-    assert "decisions: DecisionsPage" in script, "its links and the ended ones still work"
-    assert "decisionsAsked(asks).filter(showsDecision)" in script and "Decisions asked for" in script
-    assert 'tab === "active"' in script and "decisionsActive(asks)" in script
-    assert script.count("<${DecisionRow} ") >= 3, "the same row, so approving and ending go through the one login-checked path"
-    assert "decisionsAsked(asks).length" in script, "a request counts toward the badge"
-    for kind in ('["go", "Goes"', '["merge", "Merges"', '["suggest", "Suggestions"', '["perm", "Permissions"', '["ask", "Questions"'):
-        assert kind in script
+    for gone in ("function DecisionsPage(", "function Inbox(", "function ActiveDecisions(", "decisions: DecisionsPage", "ASK_FILTERS", 'tab: "needs"', 'tab: "active"'):
+        assert gone not in script, gone
+    modal = _component(script, "NeedsYouModal")
+    assert "<${GoPanel} asks=${asks} />" in modal and "<${Feed} " in modal and "showModal()" in modal
+    assert '["grants", "Active grants"]' in script and '["decisions", "Decisions"]' in script and '["settled", "Settled"]' in script
+    assert "handled in this view" in modal and "<select value=${session}" in modal
+    feed = _component(script, "Feed")
+    assert feed.index("Blocking") < feed.index("Decisions asked for") < feed.index("Results ready")
+    assert '["all", "All"], ["steward", "The Steward"], ["others", "Other sessions"]' in script
+    # The old addresses open it: the Decisions page with every decision, Active with the grants.
+    assert 'route.path === "decisions" ? "decisions"' in script and 'route.query.tab === "active" ? "grants"' in script
+    assert 'api("interactions")' in script and 'api("asks")' not in script and 'api("decisions")' not in script, "one poll"
+    assert 'api("new-work")' in script, "NewWork, StartForm and SetAside still read the records"
+    assert 'post("device/holding"' in script and 'post("decisions", { kind: "go"' in script, "the same login-checked routes"
+    for card in ("Ask", "DecisionRow", "SuggestedSession", "WorkWaiting"):
+        assert "answerAt(" in _component(script, card), f"{card} answers through interaction.answer, saying where"
+    device = _component(script, "DeviceView")
+    assert "GoPanel" not in device and "needsYou(" in device
 
 
-def test_queue_and_notes_are_tabs_and_the_go_is_in_needs_you():
+def test_queue_and_notes_are_tabs():
     """A static check: the page isn't run here. Six entries are left, and the old addresses still land somewhere."""
     script = _app_js()
     nav = re.search(r"const NAV = \[(.*?)\];", script)[1]
@@ -956,10 +967,33 @@ def test_queue_and_notes_are_tabs_and_the_go_is_in_needs_you():
     assert 'query.tab === "notes" ? html`<${NotesPage} />`' in script
     assert 'queue: "queue" }[route.path]' in script and 'const notes = route.path === "notes"' in script, "old addresses go to the tabs"
     assert 'queue: "work", notes: "docs"' in script, "the Steward is told Work and Docs for them"
-    assert "<${DeviceGoes}" not in script and "<${GoPanel} asks=${asks} />" in script
-    device = script[script.index("function DeviceView()"):script.index("const GO_ACTIONS")]
-    assert "GoPanel" not in device and "Needs you" in device
-    assert 'post("device/holding"' in script and 'post("decisions", { kind: "go"' in script, "the same login-checked routes"
+
+
+def test_interactions_need_a_login_and_answers_the_same_origin():
+    seen = []
+
+    class Hubd(FakeHubd):
+        async def call(self, **request):
+            if request["op"].startswith("interaction."):
+                seen.append(request)
+                if request["op"] == "interaction.list":
+                    return {"ok": True, "items": [], "grants": [], "counts": {"pending": 0, "blocking": 0, "by_kind": {}, "longest_wait": 0}, "holding": None}
+                return {"ok": True, "item": {"id": request["id"], "status": "allowed"}}
+            return await super().call(**request)
+    client = TestClient(web.build(Hubd(), None, FakeDocs(), secure_cookie=False, allowed_hosts={"testserver"}))
+    assert client.get("/api/interactions").status_code == 401
+    assert client.post("/api/interactions/a:x/answer", json={"verdict": "allow"}, headers=ORIGIN).status_code == 401
+    signed_in(client)
+    listed = client.get("/api/interactions?session=steward")
+    assert listed.status_code == 200 and set(listed.json()) == {"items", "grants", "counts", "holding"}
+    assert seen[-1]["session"] == "steward"
+    assert client.post("/api/interactions/a:x/answer", json={"verdict": "allow"}).status_code == 403, "same origin only"
+    body = {"verdict": "approve", "words": "go on", "scope": {"actions": ["reboot"]}, "ends": {"runs": 1}, "where": "Needs you", "token": "not this"}
+    reply = client.post("/api/interactions/d-0123456789ab/answer", json=body, headers=ORIGIN)
+    assert reply.status_code == 200 and reply.json() == {"item": {"id": "d-0123456789ab", "status": "allowed"}}
+    sent = seen[-1]
+    assert (sent["op"], sent["id"], sent["verdict"], sent["where"], sent["ends"]) == ("interaction.answer", "d-0123456789ab", "approve", "Needs you", {"runs": 1})
+    assert sent["token"] == "good", "the login's token, never one from the body"
 
 
 def test_the_merge_tool_makes_the_head_required(github):
@@ -1238,3 +1272,12 @@ def test_the_shared_components_are_used():
     for used in ("<${SessionChip} ", "<${ItemPill} ", "<${RepoPicker} ", "<${PersonaBadge} ", "<${FamilyLegend} />", "<${ItemPicker} "):
         assert used in script.replace(_component(script, "FamilyLegend"), "").replace(_component(script, "SessionChip"), ""), used
     assert "RepoSelect" not in script and 'class="sesschip" href' not in script
+
+
+def test_every_component_the_page_renders_is_defined():
+    """A removed view must not leave a <${Name} /> behind: it only fails when that branch renders."""
+    script = _app_js()
+    used = set(re.findall(r"<\$\{([A-Za-z_]\w*)\}", script))
+    defined = set(re.findall(r"(?:function|const|let|class)\s+([A-Za-z_]\w*)", script))
+    defined |= {n.strip() for group in re.findall(r"import\s*\{([^}]*)\}", script) for n in group.split(",")}
+    assert used - defined == set()

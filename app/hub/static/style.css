@@ -494,3 +494,25 @@ a.itempill:hover .ref { text-decoration: underline; }
 .picker [role="option"] .tick { flex: none; width: 18px; text-align: center; font-weight: 600; }
 .picker [role="option"][aria-selected="true"] { font-weight: 600; }
 .picker .foot { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; justify-content: space-between; }
+
+/* Needs you: a modal over any view, a full sheet at phone width (003 FR-018, 001 FR-010). Only blocking cards are yellow (003 FR-012). */
+dialog.needs { width: min(860px, calc(100vw - 32px)); max-width: none; max-height: calc(100vh - 48px); padding: 0; display: flex; flex-direction: column; box-shadow: 0 3px 0 var(--shade), 0 16px 40px rgb(0 0 0 / .25); }
+dialog.needs:not([open]) { display: none; }
+dialog.needs h2 { margin: 0; flex: 1; font-size: 20px; font-weight: 600; }
+dialog.needs .row { margin-top: 0; }
+.needs-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 14px 20px; border-bottom: 1.5px solid var(--ink); }
+.needs-body { padding: 18px 20px 22px; overflow-y: auto; }
+@media (max-width: 760px) {
+  dialog.sheet { width: 100vw; max-width: none; height: 100dvh; max-height: none; margin: 0; border: 0; border-radius: 0; }
+  .needs-body { padding: 16px; }
+}
+.ask.calm .ask-head { background: var(--paper); border-bottom: 1px dotted var(--ink); }
+.icard-links { min-height: 32px; }
+.icard.dense { border: 1.5px solid var(--ink); border-radius: 12px; }
+.icard.dense[data-waits] { border-width: 2.5px; }
+.icard-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; width: 100%; min-height: 44px; padding: 6px 12px; border: 0; background: transparent; box-shadow: none; text-align: left; font-weight: 400; }
+.icard-line .t { flex: 1 1 240px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.icard.dense[data-waits] .icard-line .ask-kind { background: var(--mark); }
+.needs-open { min-height: 40px; padding: 0 14px; border-radius: 999px; box-shadow: none; font-size: 14px; }
+.needs-open[data-waits], .needs-open[data-waits]:hover:not(:disabled) { background: var(--mark); font-weight: 600; }
+button.nav-count { min-height: 0; box-shadow: none; cursor: pointer; }
