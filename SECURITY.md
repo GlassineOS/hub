@@ -333,8 +333,9 @@ Every `pr merge` that goes through hubd needs one of two things, checked in `Hub
   without `merge_pr` on its list has no use for one. Allowing a `merge_pr` card records a decision for its head and that session, for as long as
   the card's grant lasts. No answer from before counts: a grant alone doesn't merge, and neither does a yes in a conversation.
 
-So an agent session merges a pull request only under a decision you approved for its current head (006 FR-010); every other merge
-the app makes is your own Merge… on the work item. The Queue view merges nothing: approving a set there records that decision.
+So an agent session's merge through hubd goes ahead only under a decision you approved for its current head (006 FR-010); every other merge
+the app makes is your own Merge… on the work item. That is a rule of hubd's path, not of the session: a full session, `run-fix`'s among them,
+runs as your user and can read the shells' general token, so it could merge around hubd (the limits below). The Queue view merges nothing: approving a set there records that decision.
 
 Both need `--match-head-commit` with the head in full, and hubd compares it with the decision's. Only the form the app builds passes, so no `--auto`.
 hubd also reads the pull request before an agent's merge: a moved head ends the decision, and another base refuses it. The decision is marked on disk
