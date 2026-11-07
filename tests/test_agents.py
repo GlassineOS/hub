@@ -842,6 +842,27 @@ def test_a_run_fix_starts_on_its_own_branch_from_the_runs_branch(tmp_path, remot
     assert a._pr_repos({"object": "run", "config": {"action": "run-fix", "repo": "boot", "number": 4242}}) == ["boot"]
 
 
+def test_a_run_fix_checkout_gets_its_submodules(tmp_path, remote_branch, monkeypatch):
+    """CLAUDE.md imports the organization's guidance (and the safety scan) from a submodule: a full session needs it."""
+    sub = tmp_path / "remote" / "sub"
+    sub.mkdir()
+    git(sub, "init", "-q", "-b", "main")
+    (sub / "s").write_text("guidance")
+    git(sub, "add", "s")
+    git(sub, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "sub")
+    boot = tmp_path / "remote" / "boot"
+    git(boot, "checkout", "-q", "feature")
+    git(boot, "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(sub), "sub")
+    git(boot, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "add sub")
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")  # the fixture's submodule is a local path
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "protocol.file.allow")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "always")
+    a = full(tmp_path, remote_branch, FakeRunGh())
+    started = asyncio.run(a.start(a.defaults("run-fix", "boot", 4242)))
+    checkout = a.work / started["name"] / "boot"
+    assert (checkout / "sub" / "s").read_text() == "guidance"
+
+
 @pytest.mark.parametrize("gh", [FakeRunGh(head="someone/boot"), FakeRunGh(head=None), FakeRunGh(branch="--upload-pack=x"),
                                 FakeRunGh(branch=None), FakeRunGh(branch="a/../b")])
 def test_a_run_fix_refuses_a_forks_run_and_odd_branches(tmp_path, remote_branch, gh):

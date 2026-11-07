@@ -1006,16 +1006,14 @@ class Agents:
             else:
                 raise AgentError(f"unknown kind of checkout: {kind}")
             await self._isolate(into)  # writes the shared config, so inside the lock
-            if start:
-                return {"from": start}
             if beside:
                 await self._git("config", "--worktree", "push.default", "upstream", cwd=into)
-        # CLAUDE.md imports the organization's guidance from a submodule.
+        # CLAUDE.md imports the organization's guidance from a submodule. A run-fix session needs it as much as any other.
         try:
             await self._git("submodule", "update", "--init", "--quiet", cwd=into)
         except AgentError as e:
             log.warning("no submodules in %s: %s", into, e)
-        return beside
+        return {"from": start} if start else beside
 
     def _name(self, action: dict, config: dict, taken: set[str]) -> str:
         if action.get("singleton"):
