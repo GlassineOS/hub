@@ -152,7 +152,7 @@ def test_a_model_the_action_doesnt_list_is_refused(hub):
 
 
 def test_run_fix_starts_on_a_run_and_is_refused_on_an_issue(hub):
-    """006 T018: run-fix's object is a run."""
+    """run-fix's object is a run."""
     error = call(hub, "work.start", token="login", action="run-fix", covers=[{"kind": "issue", "repo": "kernel", "number": 204}])["error"]
     assert "works on a run, and kernel#204 is an issue, so it can't start there" in error
     reply = call(hub, "work.start", token="login", action="run-fix", covers=[{"kind": "run", "repo": "kernel", "number": 4242}])
@@ -416,6 +416,14 @@ def test_a_child_links_to_a_parent_filed_with_it_and_only_the_parent_goes_on_the
     assert [m["title"] for m in g.made] == ["Top", "Child"]
     assert g.made[0]["roadmap"] and not g.made[1]["roadmap"]
     assert g.made[1]["body"].startswith("Part of https://x/1") and g.made[1]["repo"] == "hub"
+
+
+def test_drafts_that_name_a_board_item_as_their_parent_are_its_sub_issues_and_add_nothing_to_the_board():
+    """Plan issues… on a card: the drafts' parent is the item's reference, so each is filed as Part of that item and none is a new item."""
+    g = Filing(record([{"title": "One", "parent": "hub#40", "target": "hub"}, {"title": "Two", "parent": "hub#40", "target": "boot"}], roadmap=True))
+    result = asyncio.run(g.file_drafts("login", "w", [0, 1]))
+    assert not result["errors"] and [m["roadmap"] for m in g.made] == [False, False]
+    assert all(m["body"].startswith("Part of hub#40\n\n") for m in g.made)
 
 
 def test_a_missing_label_doesnt_lose_the_issue():
@@ -945,7 +953,7 @@ def test_a_suggested_session_can_be_declined(hub):
     assert hub.work.get(work)["state"] == "dismissed"
 
 
-# --- Launch records (005 R1) ---------------------------------------------------------------------
+# --- Launch records ---------------------------------------------------------------------
 TWO_ISSUES = [{"kind": "issue", "repo": "kernel", "number": 204}, {"kind": "issue", "repo": "kernel", "number": 219}]
 
 

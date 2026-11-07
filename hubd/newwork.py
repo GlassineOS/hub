@@ -4,7 +4,7 @@ A record goes offered (an agent suggested it, nothing has run) or straight to pl
 running, then done with its drafts, or failed. Each draft stays unfiled until you file it or hand
 it to the Steward. Every move is on disk, so a restart keeps what a planner handed in.
 
-Every Launch is one of these records (005 R1). A record from before Launch has no `v` and is read
+Every Launch is one of these records. A record from before Launch has no `v` and is read
 as it was; one made since has `v: 2` with its covered items, repositories, where it was opened
 from, the plan's steps, whether it runs in the background and the result it ended in. Its stage
 (005 FR-002) is derived from its state and never stored as a decision.

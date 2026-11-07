@@ -18,6 +18,7 @@ from urllib.parse import quote
 from . import diffbudget
 from . import mergequeue
 from . import workflowfile
+from .workstore import part_of
 from .hubd_client import ALL_REPOS, CALLER, INSTANCE, SESSION, GhError, Hubd, HubdError
 
 ORG = "GlassineOS"
@@ -305,7 +306,7 @@ class GitHub:
         self._dirty = True
         if not self.store:
             return
-        self.store.forget("board")
+        self.store.forget("roadmap")
         if number is not None:
             try:
                 data = await self.hubd.graphql("org_item", repo=repo, number=int(_num(number)))
@@ -541,7 +542,7 @@ class GitHub:
     async def create_issue(self, repo, title, body="", labels=None, roadmap=False, part_of=None) -> dict:
         if not title or not str(title).strip():
             raise BadRequest("an issue needs a title")
-        if part_of:  # 006 FR-035: the body's first line, as filed drafts write it, so Roadmap counts it (007 R2)
+        if part_of:  # 006 FR-035: the body's first line, as filed drafts write it, so Roadmap counts it (007 FR-010)
             if not isinstance(part_of, str) or not _PART_OF_REF_RE.fullmatch(part_of):
                 raise BadRequest("Part of is an item, as repo#N")
             ref = part_of if part_of.startswith(f"{ORG}/") else f"{ORG}/{part_of}"
@@ -888,7 +889,7 @@ class GitHub:
         return {"handed_in": reply["handed_in"]}
 
     async def submit_result(self, kind, payload) -> dict:
-        """Under the calling session's token: hubd holds it to its action's result type (005 R2). Applying is the person's."""
+        """Under the calling session's token: hubd holds it to its action's result type. Applying is the person's."""
         reply = await self.hubd.call(op="result.submit", agent_token=CALLER.get(), type=kind, payload=payload)
         return {"handed_in": reply["id"], "waits_for": "the person, who applies it"}
 
@@ -1272,9 +1273,26 @@ class GitHub:
 
     # --- the strategic board ---------------------------------------------------
     async def project(self) -> dict:
-        """The roadmap project with its items by status. Search doesn't see boards, so this one has a timer."""
+        """The roadmap project's items in the Roadmap's four columns, each with its progress per repository (007 FR-009,
+        FR-010). Search doesn't see boards, so the board has a timer; progress is worked out on each read, from the store."""
+        board = await self._board()
+        if "columns" not in board:
+            return board
+        issues = (self.store.with_bodies("issue", "OPEN") + self.store.with_bodies("issue", "CLOSED")) if self.store else []
+        index = part_index(issues)  # once per read: each issue's body is searched once, not once per item
+        columns = [{**c, "items": [{**i, "progress": progress(i, index) if i.get("kind") == "Issue" else []} for i in c["items"]]} for c in board["columns"]]
+        if ALL_REPOS.get():  # a session that reads the whole project can't tell private repositories apart by name
+            public = await self._public_repos()
+            items = [i for c in columns for i in c["items"]]
+            await self._say_private([p for i in items for p in i["progress"]])
+            for i in items:  # private when anything the item names is: its repository, a sub-issue's, or a repository with progress
+                i["private"] = (bool(i.get("repo")) and i["repo"] not in public) or any(p["private"] for p in i["progress"]) or any(
+                    s.get("repo") not in public for s in i.get("subs") or ())
+        return {**board, "from_store": bool(self.store), "columns": columns}
+
+    async def _board(self) -> dict:
         stamp = str(int(time.time() // BOARD_TTL))
-        if kept := self._kept("board", stamp):
+        if kept := self._kept("roadmap", stamp):
             return kept
         try:
             data = await self.hubd.graphql("org_projects")
@@ -1288,8 +1306,8 @@ class GitHub:
         if match is None:
             return {"missing": True, "title": wanted, "projects": nodes}
         data = await self.hubd.graphql("project_items", number=match["number"])
-        board = _board(data["organization"]["projectV2"])
-        self._keep("board", stamp, board)
+        board = _board(data["organization"]["projectV2"], stage_map(self.config.get("roadmap")))
+        self._keep("roadmap", stamp, board)
         return board
 
     async def add_to_project(self, repo, number) -> dict:
@@ -1304,14 +1322,14 @@ class GitHub:
         content = data["repository"]["issueOrPullRequest"]
         added = await self.hubd.graphql("project_add_item", projectId=project["id"], contentId=content["id"])
         if self.store:
-            self.store.forget("board")
+            self.store.forget("roadmap")
         return {"item": added["addProjectV2ItemById"]["item"]["id"]}
 
     async def move_item(self, project_id, item_id, field_id, option_id) -> dict:
         await self.hubd.graphql("project_set_option", projectId=project_id, itemId=item_id,
                                 fieldId=field_id, optionId=option_id)
         if self.store:
-            self.store.forget("board")
+            self.store.forget("roadmap")
         return {"ok": True}
 
 
@@ -1337,11 +1355,35 @@ def _rollup_subs(nodes: list[dict]) -> list[dict]:
     return [{"repo": name, **row} for name, row in repos.items()]
 
 
-def _board(project: dict) -> dict:
+# 007 FR-009: the Roadmap's columns, in order, and the Status option names each takes by default.
+STAGES = (("planned", "Planned", ("Todo", "Planned", "Backlog")), ("in_progress", "In progress", ("In progress",)),
+          ("in_review", "In review", ("In review",)), ("done", "Done", ("Done",)))
+
+
+def stage_map(config: dict | None) -> dict[str, str]:
+    """Status option name (lower case) to column key, from [roadmap] in config/repos.toml, else the defaults."""
+    config = config or {}
+    out = {}
+    for key, _name, names in STAGES:
+        for name in config.get(key, names):
+            out.setdefault(str(name).strip().lower(), key)
+    return out
+
+
+def _board(project: dict, stages: dict[str, str] | None = None) -> dict:
+    """The project's items in the four columns. Each card keeps its own Status option; one the map doesn't name, or
+    none, goes to Planned with a note. A column lists the options it takes, so a move can pick one."""
+    stages = stages if stages is not None else stage_map(None)
     status = next((f for f in project["fields"]["nodes"] if f and f.get("name") == "Status"), None)
     options = (status or {}).get("options") or []
-    columns = {o["id"]: {"id": o["id"], "name": o["name"], "items": []} for o in options}
-    loose = {"id": None, "name": "No status", "items": []}
+    columns = {key: {"key": key, "name": name, "options": [], "items": []} for key, name, _ in STAGES}
+    by_option, unmapped = {}, []
+    for o in options:
+        key = stages.get(o["name"].strip().lower())
+        if key is None:
+            unmapped.append(o["name"])
+        columns[key or "planned"]["options"].append({"id": o["id"], "name": o["name"], "mapped": key is not None})
+        by_option[o["id"]] = (key or "planned", o["name"], key is not None)
     for node in project["items"]["nodes"]:
         content = node.get("content") or {}
         option = next((v.get("optionId") for v in node["fieldValues"]["nodes"]
@@ -1351,8 +1393,42 @@ def _board(project: dict) -> dict:
                 "repo": (content.get("repository") or {}).get("name"),
                 "labels": [x["name"] for x in (content.get("labels") or {}).get("nodes", [])],
                 "assignees": [x["login"] for x in (content.get("assignees") or {}).get("nodes", [])],
-                "sub_issues": _rollup_subs((content.get("subIssues") or {}).get("nodes", []))}
-        columns.get(option, loose)["items"].append(item)
-    ordered = ([loose] if loose["items"] else []) + list(columns.values())
+                "sub_issues": _rollup_subs((content.get("subIssues") or {}).get("nodes", [])),
+                "subs": [{"repo": (s.get("repository") or {}).get("name"), "number": s.get("number"), "closed": s.get("state") == "CLOSED"}
+                         for s in (content.get("subIssues") or {}).get("nodes", [])]}
+        key, name, mapped = by_option.get(option, ("planned", None, False))
+        item["status"] = name
+        if not mapped:
+            item["note"] = f"Its status “{name}” has no column: shown under Planned." if name else "No status: shown under Planned."
+        columns[key]["items"].append(item)
     return {"id": project["id"], "title": project["title"], "url": project["url"],
-            "status_field": status["id"] if status else None, "columns": ordered}
+            "status_field": status["id"] if status else None, "columns": list(columns.values()), "unmapped": unmapped}
+
+
+def part_index(issues: list[dict]) -> dict:
+    """Store issues (open and closed) indexed once for `progress`: each one's state by (repository, number), and the issues
+    whose body says "Part of" an item, by that item as a lower-case repo#N (GitHub names are case-blind, as the pattern is)."""
+    state: dict[tuple, bool] = {}
+    parts: dict[str, list[tuple]] = {}
+    for row in issues:
+        key = (row["repo"], int(row["number"]))
+        state[key] = row.get("state") == "CLOSED"
+        if ref := part_of(row.get("body"), row["repo"]):
+            parts.setdefault(ref.lower(), []).append(key)
+    return {"state": state, "parts": parts}
+
+
+def progress(item: dict, index: dict) -> list[dict]:
+    """007 FR-010: a roadmap item's progress per repository: its sub-issues and the issues whose body says "Part of" it
+    (the index of store rows), each issue counted once. The store's state wins over the board's, which can be older."""
+    ref = f"{item.get('repo')}#{item.get('number')}".lower()
+    closed: dict[tuple, bool] = {(s["repo"], int(s["number"])): s["closed"] for s in item.get("subs") or [] if s.get("repo") and s.get("number")}
+    for key in [*closed, *index["parts"].get(ref, ())]:
+        if key in index["state"]:
+            closed[key] = index["state"][key]
+    repos: dict[str, dict] = {}
+    for (repo, _number), done in closed.items():
+        r = repos.setdefault(repo, {"repo": repo, "done": 0, "total": 0})
+        r["total"] += 1
+        r["done"] += done
+    return sorted(repos.values(), key=lambda r: r["repo"])

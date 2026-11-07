@@ -377,7 +377,7 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         return await hubd.call(op=f"work.{move}", token=token, id=p(r, "id"), indexes=b.get("indexes"), model=b.get("model"), brief=b.get("brief"),
                                 number=b.get("number"), also_numbers=b.get("also_numbers"), notes=b.get("notes"), planner_model=b.get("planner_model"))
 
-    # --- results: what sessions hand in, which a login applies (005 R2) ----------------------
+    # --- results: what sessions hand in, which a login applies ----------------------
     async def results_list(r, _b, token):
         q = r.query_params
         kept = {"1": True, "0": False}.get(q.get("kept") or "")

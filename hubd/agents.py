@@ -267,7 +267,7 @@ class Library:
             for persona in action["personas"]:
                 if persona not in self.families:
                     raise LibraryError(f"actions/{action['id']}.toml names persona {persona}, which isn't in families.toml")
-            # 005 R2: what a person's press may write through to apply this action's result. The session doesn't get them.
+            # What a person's press may write through to apply this action's result. The session doesn't get them.
             result_tools = action.get("result_tools", [])
             if not isinstance(result_tools, list) or set(result_tools) - set(APPLY_TOOLS.get(action["result"], ())):
                 raise LibraryError(f"actions/{action['id']}.toml: result_tools for a {action['result']} result are among "
@@ -1304,7 +1304,7 @@ class Agents:
         try:
             checkouts = self._checkouts(name, config, action)
             beside = None
-            # A fix of a run starts from the branch it ran on (006 T018), looked up before anything is fetched.
+            # A fix of a run starts from the branch it ran on, looked up before anything is fetched.
             from_run = await self._run_branch(config["repo"], config["number"]) if checkouts and action["object"] == "run" and action["checkout"] == "new-branch" else None
             for index, (repo, into) in enumerate(checkouts):
                 # What else a session works on starts from that repository's default branch.

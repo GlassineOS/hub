@@ -247,8 +247,11 @@ def test_new_issue_on_the_roadmap(github, hubd):
 def test_board_columns(github):
     board = asyncio.run(github.project())
     assert [(c["name"], [i["id"] for i in c["items"]]) for c in board["columns"]] == [
-        ("No status", ["I2"]), ("Todo", []), ("Done", ["I1"])]
-    assert board["status_field"] == "F"
+        ("Planned", ["I2"]), ("In progress", []), ("In review", []), ("Done", ["I1"])]
+    assert board["status_field"] == "F" and board["unmapped"] == []
+    planned, done = board["columns"][0], board["columns"][3]
+    assert planned["options"] == [{"id": "todo", "name": "Todo", "mapped": True}] and done["options"][0]["id"] == "done"
+    assert planned["items"][0]["note"] == "No status: shown under Planned." and "note" not in done["items"][0]
 
 
 def test_board_says_when_the_scope_is_missing(github, hubd):
@@ -1428,7 +1431,7 @@ def test_the_steward_and_plain_shells_have_their_own_badges():
 
 
 def test_the_shared_components_are_used():
-    """A static check (tasks.md 002 T014): each component has a place in this release, so none is dead code."""
+    """A static check: each component has a place in this release, so none is dead code."""
     script = _app_js()
     for used in ("<${SessionChip} ", "<${ItemPill} ", "<${RepoPicker} ", "<${PersonaBadge} ", "<${FamilyLegend} />", "<${ItemPicker} "):
         assert used in script.replace(_component(script, "FamilyLegend"), "").replace(_component(script, "SessionChip"), ""), used
@@ -1613,7 +1616,7 @@ def test_the_terminal_keeps_your_place():
     assert '"mouse", "on"' in (Path(__file__).resolve().parents[1] / "hubd" / "shells.py").read_text()
 
 
-# --- results (005 R2): who sees submit_result, and sessions started before it ----------------------
+# --- results: who sees submit_result, and sessions started before it ----------------------
 def test_submit_result_is_listed_only_for_a_token_whose_action_has_it():
     from hubd.agents import Library
     library = Library(Path(__file__).parents[1] / "agents")
@@ -1684,7 +1687,7 @@ def test_results_and_the_background_go_through_to_hubd_for_a_login():
 
 
 def test_a_result_card_shows_its_words_as_text_and_applies_through_the_answer():
-    """A static check (005 R2, 003 FR-010): Needs you posts a review or applies labels a session handed in, through the answer."""
+    """A static check (003 FR-010): Needs you posts a review or applies labels a session handed in, through the answer."""
     script = _app_js()
     view = _component(script, "ResultView")
     assert "answerAt(r.id, { verdict, ...extra }, where)" in view and 'answer("dismiss")' in view
@@ -1694,7 +1697,7 @@ def test_a_result_card_shows_its_words_as_text_and_applies_through_the_answer():
 
 
 def test_launch_is_one_modal_with_five_stages_opened_by_one_event():
-    """A static check (005 T028): the page isn't run here. Launch replaces the old planner forms and the advanced page;
+    """A static check: the page isn't run here. Launch replaces the old planner forms and the advanced page;
     every entry point dispatches hub-launch with where it was opened; the brief posts covers and from."""
     script = _app_js()
     for gone in ("hub-new-work", "hub-start-form", "function Spawn(", "function NewWork(", "function StartForm(", "function Launch(",
@@ -2173,3 +2176,133 @@ def test_overview_page_static_parts():
     assert 'launch({ repos: [r.name], from: { view: "Overview" } })' in card and "<${Strip}" in card and "SessionChip" in card
     assert card.count("<button") == 2 and '<div class="repo keycap"' in card, "the name and Launch… are two buttons side by side"
     assert "data.chunks" in _component(script, "KnowledgeStat")
+
+
+# --- Roadmap (007/PR 2) ------------------------------------------------------------------------------------
+
+
+def test_the_column_map_defaults_and_config():
+    """007 FR-009: Status option names to the four columns, case-blind; config/repos.toml says the same as the default."""
+    from hub.github import stage_map
+    default = stage_map(None)
+    assert {default[n] for n in ("todo", "planned", "backlog")} == {"planned"}
+    assert (default["in progress"], default["in review"], default["done"]) == ("in_progress", "in_review", "done")
+    assert stage_map(tomllib.loads(CONFIG.read_text())["roadmap"]) == default
+    assert stage_map({"done": ["Shipped"]})["shipped"] == "done" and "done" not in stage_map({"done": ["Shipped"]})
+
+
+def _project(options, items):
+    return {"id": "P", "title": "t", "url": "u", "fields": {"nodes": [{"id": "F", "name": "Status", "options": options}]},
+            "items": {"nodes": items}}
+
+
+def _item(item_id, number, option=None, name=None, subs=()):
+    values = [{"name": name, "optionId": option, "field": {"name": "Status"}}] if option else []
+    return {"id": item_id, "fieldValues": {"nodes": values},
+            "content": {"__typename": "Issue", "number": number, "title": "t", "url": "u", "state": "OPEN", "repository": {"name": "hub"},
+                        "labels": {"nodes": []}, "assignees": {"nodes": [{"login": "syde"}]},
+                        "subIssues": {"nodes": [{"number": n, "state": st, "repository": {"name": r}} for r, n, st in subs]}}}
+
+
+def test_an_unknown_status_goes_to_planned_with_a_note():
+    from hub.github import _board, stage_map
+    options = [{"id": "a", "name": "In Progress"}, {"id": "b", "name": "Someday"}, {"id": "c", "name": "In review"}]
+    board = _board(_project(options, [_item("I1", 1, "a", "In Progress"), _item("I2", 2, "b", "Someday"), _item("I3", 3, "c", "In review")]),
+                   stage_map(None))
+    names = {c["key"]: [i["id"] for i in c["items"]] for c in board["columns"]}
+    assert names == {"planned": ["I2"], "in_progress": ["I1"], "in_review": ["I3"], "done": []}
+    assert board["unmapped"] == ["Someday"] and board["columns"][0]["items"][0]["note"] == "Its status “Someday” has no column: shown under Planned."
+    assert board["columns"][0]["options"] == [{"id": "b", "name": "Someday", "mapped": False}] and board["columns"][3]["options"] == []
+
+
+def _issue(repo, number, body="", state="OPEN"):
+    return {"repo": repo, "number": number, "body": body, "state": state}
+
+
+def test_progress_is_sub_issues_and_part_of_each_counted_once():
+    """007 FR-010: the union of sub-issues and "Part of hub#40" issues, per repository, each issue once; the store's
+    state wins; another item's ref, a quoted line and a mention in a sentence don't count."""
+    from hub.github import part_index, progress
+    item = {"repo": "hub", "number": 40, "subs": [{"repo": "kernel", "number": 1, "closed": False}, {"repo": "boot", "number": 9, "closed": True}]}
+    issues = [_issue("kernel", 1, "Part of hub#40", state="CLOSED"),  # a sub-issue that also says Part of, closed since the board was read
+              _issue("kernel", 2, "Part of GlassineOS/hub#40\n\nWhy"), _issue("kernel", 3, "Text first.\n\nPart of hub#40"),
+              _issue("kernel", 4, "Part of hub#41"), _issue("kernel", 5, "> Part of hub#40"), _issue("kernel", 6, "This is part of hub#40"),
+              _issue("hub", 7, "Part of #40", state="CLOSED"), _issue("boot", 8, "Part of https://github.com/GlassineOS/hub/issues/40")]
+    assert progress(item, part_index(issues)) == [{"repo": "boot", "done": 1, "total": 2}, {"repo": "hub", "done": 1, "total": 1},
+                                      {"repo": "kernel", "done": 1, "total": 3}]
+    assert progress({"repo": "hub", "number": 40, "subs": []}, part_index([])) == []
+
+
+def test_progress_reads_the_repository_in_a_part_of_line_without_regard_to_case():
+    from hub.github import part_index, progress
+    issues = [_issue("kernel", 1, "Part of GlassineOS/Hub#40"), _issue("kernel", 2, "part of glassineos/hub#40"), _issue("kernel", 3, "PART OF HUB#41")]
+    assert progress({"repo": "hub", "number": 40, "subs": []}, part_index(issues)) == [{"repo": "kernel", "done": 0, "total": 2}]
+    assert progress({"repo": "Hub", "number": 41, "subs": []}, part_index(issues)) == [{"repo": "kernel", "done": 0, "total": 1}]
+
+
+def test_progress_parses_each_issue_once_however_many_items_there_are(monkeypatch):
+    """The Part of line of an issue is searched once per read, not once per board item."""
+    import hub.github as gh
+    calls = []
+    real = gh.part_of
+    monkeypatch.setattr(gh, "part_of", lambda body, repo=None: calls.append(body) or real(body, repo))
+    issues = [_issue("kernel", n, f"Part of hub#{40 + n % 5}") for n in range(1, 31)]
+    index = gh.part_index(issues)
+    items = [{"repo": "hub", "number": 40 + n, "subs": []} for n in range(5)]
+    assert [sum(p["total"] for p in gh.progress(i, index)) for i in items] == [6] * 5
+    assert len(calls) == 30
+    assert gh.progress({"repo": "hub", "number": 99, "subs": []}, index) == []
+
+
+def test_the_roadmap_reads_progress_from_the_store(github, hubd):
+    """Scenario 2: hub#1 is Done on the board; three kernel issues say they're Part of it, one closed: 1 of 3 done."""
+    store = WorkStore(":memory:")
+    author = {"login": "a"}
+    for number, state in ((11, "CLOSED"), (12, "OPEN"), (13, "OPEN")):
+        store.upsert({"__typename": "Issue", "id": f"K{number}", "number": number, "title": "t", "body": "Part of hub#1\n\nWork", "state": state, "url": "u",
+                      "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z", "author": author, "repository": {"name": "kernel"},
+                      "labels": {"nodes": []}, "assignees": {"nodes": []}, "comments": {"totalCount": 0, "nodes": []}})
+    github.store = store
+    board = asyncio.run(github.project())
+    item = board["columns"][3]["items"][0]
+    assert item["progress"] == [{"repo": "kernel", "done": 1, "total": 3}] and board["from_store"] is True
+    assert board["columns"][0]["items"][0]["progress"] == [], "a draft has no progress"
+
+
+def test_a_session_that_reads_the_whole_project_gets_progress_marked_private(github, hubd):
+    """The roadmap tool is read by sessions that see every repository: each progress row, and an item that names a private
+    repository, says so. The page's own reads (no whole-project scope) are unchanged."""
+    from hub.hubd_client import ALL_REPOS
+    store = WorkStore(":memory:")
+    for repo, number in (("kernel", 11), ("secret", 12)):
+        store.upsert({"__typename": "Issue", "id": f"K{number}", "number": number, "title": "t", "body": "Part of hub#1\n\nWork", "state": "OPEN", "url": "u",
+                      "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z", "author": {"login": "a"}, "repository": {"name": repo},
+                      "labels": {"nodes": []}, "assignees": {"nodes": []}, "comments": {"totalCount": 0, "nodes": []}})
+    github.store = store
+
+    async def public():
+        return {"hub", "kernel"}
+    github._public_repos = public
+
+    async def read(whole):
+        ALL_REPOS.set(whole)
+        return (await github.project())["columns"][3]["items"][0]
+    item = asyncio.run(read(True))
+    assert {p["repo"]: p["private"] for p in item["progress"]} == {"kernel": False, "secret": True} and item["private"] is True
+    plain = asyncio.run(read(False))
+    assert "private" not in plain and not any("private" in p for p in plain["progress"])
+
+
+def test_roadmap_page_static_parts():
+    """007 FR-010–FR-012: the card's progress in words, who, its sessions, Plan issues… with the road action; opening a card
+    opens its Work item, where Plan issues… is offered too."""
+    script = _app_js()
+    assert 'const planIssues = (repo, number, view) => launch({ action: "new-roadmap-item"' in script
+    plan = script[script.index("const planIssues"):script.index("// 007 FR-010: progress per repository")]
+    assert "Draft no strategic issue: every draft's parent is ${repo}#${number}." in plan, "the session is told to plan under the item"
+    card = _component(script, "RoadmapCard")
+    assert "<${Progress} rows=${item.progress} />" in card and "planIssues(item.repo, item.number, \"Roadmap\")" in card
+    assert "sessionsOn(" in card and "SessionChip" in card and "item.assignees" in card and "road: 1" in card
+    assert "`${p.done} of ${p.total} done`" in _component(script, "Progress")
+    assert "options.find((o) => o.mapped)" in _component(script, "Roadmap"), "a move never picks an option with no column"
+    assert 'road=${kind === "issue" && query.road === "1"}' in script and 'planIssues(repo, number, "Work")' in _component(script, "LaunchRow")

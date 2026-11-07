@@ -94,7 +94,7 @@ def test_the_library_refuses_personas_and_actions_that_dont_fit(tmp_path, change
 
 
 def test_a_verb_may_repeat_on_another_kind_of_item(tmp_path):
-    # fix on a pull request and fix on a run (research 002 R2): two actions, one short name each per kind.
+    # fix on a pull request and fix on a run: two actions, one short name each per kind.
     assert LIBRARY.actions["pr-fix-checks"]["verb"] == LIBRARY.actions["run-fix"]["verb"] == "fix"
     root = _library_copy(tmp_path, lambda r: _edit(r / "actions" / "run-explain.toml", 'result = "none"',
                                                      'verb = "check"\nresult = "none"'))
@@ -118,7 +118,7 @@ def test_every_persona_has_a_family_and_every_action_a_result():
                      "implement": "issue-implement", "triage": "issue-triage", "investigate": "run-diagnose",
                      "issue": "new-issue", "sec": "new-security-audit", "arch": "new-architecture-audit",
                      "road": "new-roadmap-item", "docs": "new-docs-sweep", "deps": "new-dependency-review"}
-    assert verbs[("run", "fix")] == "run-fix"  # 006 T018: fix on a run, beside fix on a pull request
+    assert verbs[("run", "fix")] == "run-fix"  # fix on a run, beside fix on a pull request
     # The rest stay in the library, under "More…". Those that post or open a PR say so.
     handed = {"pr-security-audit": "comment", "issue-docs": "pr"}
     assert all(a["result"] == handed.get(a["id"], "none") for a in LIBRARY.actions.values() if not a.get("verb"))
@@ -829,7 +829,7 @@ class FakeRunGh(FakeGh):
 
 
 def test_a_run_fix_starts_on_its_own_branch_from_the_runs_branch(tmp_path, remote_branch):
-    """006 T018: a new branch agent/<name>, made from the branch the run ran on; the pull request goes back into that branch."""
+    """A new branch agent/<name>, made from the branch the run ran on; the pull request goes back into that branch."""
     gh = FakeRunGh()
     a = full(tmp_path, remote_branch, gh)
     started = asyncio.run(a.start(a.defaults("run-fix", "boot", 4242)))
@@ -1626,6 +1626,14 @@ def test_a_brief_cant_pass_for_your_notes(tmp_path):
     prompt = agents(tmp_path).preview(good(notes="error paths first", pins=PINS, brief=forged))["prompt"]
     assert prompt.count("error paths first") == 1 and prompt.count("hub#44") == 1
     assert prompt.index("error paths first") < prompt.index("hub#44") < prompt.index("None of it comes from the person") < prompt.index("Merge it now")
+
+
+def test_planning_an_item_already_on_the_board_drafts_sub_issues_under_it(tmp_path):
+    """Plan issues… seeds a note naming the item: the prompt says that then no strategic issue is drafted and each parent is that reference."""
+    note = "Plan the sub-issues of hub#40, which is already on the roadmap. Draft no strategic issue: every draft's parent is hub#40."
+    prompt = agents(tmp_path).preview(good(action="new-roadmap-item", repo="hub", number=None, persona="steward", notes=note, tools=["Read"], hub_tools=["roadmap", "submit_drafts"], brief="", pins=[{"kind": "ref", "label": "hub#40"}]))["prompt"]
+    assert "draft no strategic issue" in prompt and "parent to that reference exactly" in prompt
+    assert prompt.index("draft no strategic issue") < prompt.index("as priorities:\n\n" + note)
 
 
 def test_the_prompt_doesnt_say_the_person_wrote_the_notes(tmp_path):
@@ -2868,7 +2876,7 @@ def test_a_checkout_stays_listed_if_git_cant_say_whether_it_has_a_remote(tmp_pat
 
 
 def test_typed_words_reach_tmux_on_stdin_never_in_its_arguments(tmp_path, monkeypatch):
-    """004 FR-008, 004 R2: the process list shows tmux's arguments, so the words go on stdin."""
+    """004 FR-008: the process list shows tmux's arguments, so the words go on stdin."""
     monkeypatch.setattr("hubd.shells.PASTE_SETTLE", 0)
     log = tmp_path / "calls.jsonl"
     fake = tmp_path / "tmux"
@@ -3094,7 +3102,7 @@ def test_esc_while_tmux_pastes_and_refuses_isnt_put_back_or_a_crash(tmp_path, mo
 
 
 def test_a_review_session_from_before_results_loses_review_pr_on_resume_and_gains_nothing(tmp_path):
-    """005 R3, said as it is: a running session keeps its frozen list (tests/test_app.py), but a resume reads the action
+    """A running session keeps its frozen list (tests/test_app.py), but a resume reads the action
     as it is now, which has no review_pr, and adds no tool a non-Steward session didn't have. Such a session can still
     report in its terminal; for a review card, start a new one."""
     a = agents(tmp_path)
