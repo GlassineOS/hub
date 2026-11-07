@@ -2620,7 +2620,7 @@ function DraftsResult({ item, reload, onNote }) {
 // 005 FR-016–FR-020 and 003 FR-010: one view per result type, in Launch and on its card in Needs you. The text is the
 // session's, which may have read an outsider's: shown as text, never rendered, links printed in full.
 const RESULT_TITLE = { comment: "Review to post", labels: "Labels to apply", findings: "Findings", report: "Report", pr: "Pull request", notes: "Note operations" };
-const NOTE_OP_WORD = { supersede: "Supersede", merge: "Merge", distil: "Distil", retract: "Retract", answer: "Answer", add: "Add" };
+const NOTE_OP_WORD = { supersede: "Supersede", merge: "Merge", distil: "Distil", retract: "Retract", answer: "Answer", add: "Add", delete: "Delete" };
 const resultTitle = (r) => `${RESULT_TITLE[r.type] || "Result"}${r.items && r.items[0] ? ` · ${ref(r.items[0])}` : ""}`;
 const EVENT_WORD = { comment: "Comment", "request-changes": "Request changes", approve: "Approve" };
 const plainText = (t, mono) => html`<p class="small ${mono ? "mono" : ""}" style="white-space: pre-wrap; overflow-wrap: anywhere">${t}</p>`;
@@ -2666,7 +2666,7 @@ function ResultView({ r, reload, where = "Needs you" }) {
       ${(p.followups || []).length > 0 && html`<span class="eyebrow">Follow-ups</span><ul>${p.followups.map((t) => html`<li>${plainText(t)}</li>`)}</ul>`}
       ${r.kept ? html`<p class="small" role="status">Saved to Knowledge.</p>` : waits && html`<div class="row"><button class="primary" disabled=${act.busy} onClick=${() => answer("keep")}>Save to Knowledge</button>${setAside}</div>`}`;
   } else if (r.type === "notes") {
-    // 009 FR-006: each op with the exact command hubd built and will run; apply one or all. None deletes a note.
+    // 009 FR-006: each op with the exact command hubd built and will run; apply one or all.
     const ops = p.ops || [];
     const left = ops.filter((o) => o.state !== "applied").length;
     body = html`${p.summary && plainText(p.summary)}
@@ -2674,10 +2674,11 @@ function ResultView({ r, reload, where = "Needs you" }) {
         <div class="row" style="gap: 8px"><b>${NOTE_OP_WORD[o.op] || o.op}</b><span class="mono small">${o.topic}</span>${(o.ids || []).length > 0 && html`<span class="mono small soft">${o.ids.join(", ")}</span>`}
           <span class="badge ${o.state === "failed" ? "bad" : o.state === "applied" ? "dim" : ""}">${o.state}</span></div>
         ${o.words && plainText(o.words)}${o.why && html`<span class="small soft">Why: ${o.why}</span>`}
+        ${o.by && html`<span class="small soft">Shown wrong by <span class="mono">${o.by}</span></span>`}
         <code class="small mono" style="white-space: pre-wrap; overflow-wrap: anywhere">${o.command}</code>
         ${o.said && html`<span class="small" role=${o.state === "failed" ? "alert" : null} style="overflow-wrap: anywhere">${o.state === "failed" ? "The notes tool said: " : ""}${o.said}</span>`}
         ${r.state === "pending" && o.state !== "applied" && ops.length > 1 && html`<button class="plain" style="align-self: flex-start" disabled=${act.busy} onClick=${() => answer("apply", { indexes: [n] })}>Apply this one</button>`}</li>`)}</ol>
-      <p class="small soft">Nothing is deleted: what's replaced, retracted or answered stays in the topic's Log.</p>
+      <p class="small soft">What's replaced, retracted or answered stays in the topic's Log. A delete takes the note's text out and leaves its id, the date and why there.</p>
       ${r.state === "pending" && left > 0 && html`<div class="row"><button class="primary" disabled=${act.busy} onClick=${() => answer("apply")}>${left === ops.length ? "Apply all" : `Apply the ${count(left, "other")}`}</button>${setAside}</div>`}`;
   } else if (r.type === "pr") {
     const closes = (r.items || []).filter((i) => i.kind === "issue");
@@ -3658,8 +3659,29 @@ function TrustLegend() {
   return html`<dl class="defs" aria-label="Trust labels">${Object.values(TRUST).map(([word, cls, means]) => html`<dt><span class="badge ${cls}">${word}</span></dt><dd class="small">${means}</dd>`)}</dl>`;
 }
 
-function NoteRow({ r }) {
+// 009 FR-007: what can be deleted is a note of the notes, with its id; what's left of a deleted one can't be.
+function noteId(r) {
+  const id = (r.label || "").split(" ")[0];
+  return r.topic && /^c[0-9]+$/.test(id) && !/^c[0-9]+ DELETED [0-9]{4}-/.test(r.text || "") ? id : null;
+}
+
+function DeleteNote({ r, id, onDone }) {
+  const [asking, setAsking] = useState(false);
+  const [why, setWhy] = useState("");
+  const act = useAct();
+  if (!asking) return html`<button class="plain small" style="align-self: flex-start" onClick=${() => setAsking(true)}>Delete…</button>`;
+  return html`<form class="panel stack tight" style="padding: 10px" aria-label=${`Delete ${id}`}
+      onSubmit=${(e) => { e.preventDefault(); act.run(async () => { await post("notes/delete", { topic: r.topic, id, why: why.trim() }); onDone(); }); }}>
+    <span class="small">Delete <span class="mono">${r.topic} ${id}</span>? Its text goes; its id, today's date and your reason stay in the topic's Log, and notes resting on it lose CURRENT. The notes' own history keeps the text.</span>
+    <label class="row small" style="gap: 6px">Why<input style="flex: 1; min-width: 0" maxlength="500" required value=${why} onInput=${(e) => setWhy(e.target.value)} /></label>
+    <div class="row" style="gap: 6px"><button class="primary" type="submit" disabled=${act.busy || !why.trim()}>${act.busy ? "Deleting…" : "Delete the note"}</button>
+      <button type="button" class="plain" onClick=${() => { setAsking(false); setWhy(""); }}>Keep it</button></div>
+    <${Err} text=${act.error} /></form>`;
+}
+
+function NoteRow({ r, onChanged }) {
   const [open, setOpen] = useState(false);
+  const id = noteId(r);
   const [word, cls] = trustOf(r.state);
   const title = noteTitle(r.text);
   const long = r.text.length > NOTES_LONG || r.text.trim().length > title.length + 40;
@@ -3670,7 +3692,8 @@ function NoteRow({ r }) {
       ${r.label && html`<span class="mono" style="overflow-wrap: anywhere">${r.label}</span>`}${r.date && html`<span>${r.date}</span>`}</div>
     ${long ? html`${open && html`<p style="overflow-wrap: anywhere; white-space: pre-wrap">${r.text}</p>`}
       <button class="link" style="align-self: flex-start" aria-expanded=${open ? "true" : "false"} onClick=${() => setOpen(!open)}>${open ? "Show less" : "Show the whole note"}</button>`
-      : r.text.trim() !== title && html`<p style="overflow-wrap: anywhere">${r.text}</p>`}</article>`;
+      : r.text.trim() !== title && html`<p style="overflow-wrap: anywhere">${r.text}</p>`}
+    ${id && onChanged && html`<${DeleteNote} r=${r} id=${id} onDone=${onChanged} />`}</article>`;
 }
 
 // 009 FR-005: totals per label and per topic, and the two upkeep actions, for all notes or one topic.
@@ -3684,7 +3707,7 @@ function KeepNotesUseful({ onClose }) {
   return html`<dialog class="flyout" ref=${ref} onClose=${onClose} aria-labelledby="kn-keep">
     <div class="row" style="justify-content: space-between"><h2 id="kn-keep">Keep notes useful</h2><button class="plain" onClick=${() => ref.current.close()}>Close</button></div>
     <div class="stack" style="gap: 16px">
-      <p class="small">Compact: an Archivist proposes note operations (merge, distil, supersede, answer), each with its exact command, and you apply them; nothing is deleted. Sweep: a docs writer drafts issues for what belongs in the docs.</p>
+      <p class="small">Compact: an Archivist proposes note operations (merge, distil, supersede, answer, delete), each with its exact command, and you apply them. Sweep: a docs writer drafts issues for what belongs in the docs.</p>
       <div class="row" style="gap: 6px"><b style="flex: 1">All notes</b>${both(null)}</div>
       <${Err} text=${error} />
       ${data && !data.here && html`<p class="small" role="status">${data.says}</p>`}
@@ -3735,7 +3758,7 @@ function NotesPage() {
     ${found && found.here && html`<div class="stack" style="gap: 4px">
       <p role="status" class="small">${rows.length ? `${found.says}${more ? `, showing ${rows.length}` : ""}.` : `Nothing matches “${searched}”.`}</p>
       ${found.warnings.map((w) => html`<p class="small" role="status" style="overflow-wrap: anywhere"><b>Warning:</b> ${w}</p>`)}
-      ${rows.map((r, i) => html`<${NoteRow} key=${`${r.where}-${i}`} r=${r} />`)}
+      ${rows.map((r, i) => html`<${NoteRow} key=${`${r.where}-${i}`} r=${r} onChanged=${() => search(searched, Math.max(rows.length, NOTES_PAGE))} />`)}
       ${more && !atLimit && html`<div class="row"><button disabled=${act.busy} onClick=${() => search(searched, Math.min(rows.length + NOTES_PAGE, NOTES_MOST))}>Show ${Math.min(NOTES_PAGE, NOTES_MOST - rows.length, found.total - rows.length)} more</button>
         <span class="small soft">${found.total - rows.length} more match.</span></div>`}
       ${atLimit && html`<div class="panel stack tight" style="padding: 14px" role="status"><b>That's as many as this page shows (${NOTES_MOST}).</b>

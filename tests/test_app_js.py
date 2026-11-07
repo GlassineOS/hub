@@ -62,3 +62,13 @@ def test_esc_is_left_alone_when_no_list_is_open():
         };
         return [press(true), press(false)];""")
     assert got == [[True, True, True], [False, False, False]]
+
+
+def test_only_a_note_of_the_notes_can_be_deleted():
+    """009 FR-007: a row with a topic and an id; not another source's row, nor what's left of a deleted note."""
+    got = run(["noteId"], """
+        return [noteId({ topic: "gpu/hang", label: "c4 [seen: base=b1, cmd=x]", text: "Faults stop." }),
+                noteId({ topic: "", label: "", text: "old words" }),
+                noteId({ topic: "gpu/hang", label: "c5", text: "c5 DELETED 2026-11-06: wrong" }),
+                noteId({ topic: "gpu/hang", label: "", text: "a log line" })];""")
+    assert got == ["c4", None, None, None]

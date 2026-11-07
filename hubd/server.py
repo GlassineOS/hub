@@ -550,6 +550,13 @@ class Hubd:
                 return {"ok": True, **await self.notes.find(req.get("words"), req.get("limit"))}
             if op == "notes.totals":
                 return {"ok": True, **await self.notes.totals()}
+            if op == "notes.delete":  # 009 FR-007: the login's own delete, with a reason, no witness needed
+                try:
+                    clean = notes.clean_op({"op": "delete", "topic": req.get("topic"), "ids": [req.get("id")], "why": req.get("why")})
+                except notes.OpError as e:
+                    return {"ok": False, "error": str(e)}
+                done = (await self.notes.apply([clean]))[0]
+                return {"ok": done["state"] == "applied", "said": done["said"], **({} if done["state"] == "applied" else {"error": done["said"]})}
         except notes.NotesError as e:
             return {"ok": False, "error": str(e)}
         return {"ok": False, "error": f"unknown request: {op}"}

@@ -323,11 +323,14 @@ host only, and much of what they hold never passed the safety scan. The app's co
   in public is still checked where it posts: the safety scan on commits, and the cards for the writes that ask you first.
   Draft issues from a notes sweep are filed by you, in public, so read them for private details first.
 - **Applying note operations is a login's alone.** A notes result is a closed list of operations (supersede, merge,
-  distil, retract, answer, add), each checked against the tool's own shapes (topic `AREA/TOPIC`, ids `cN`, one-line words
+  distil, retract, answer, add, delete), each checked against the tool's own shapes (topic `AREA/TOPIC`, ids `cN`, one-line words
   with nothing invisible). hubd builds each command from those fields and never takes one from the payload; the card shows
   it verbatim, and applying runs exactly it, through `result.apply` behind the login check, never by a token. Each is one
-  `notes add` or `notes set`, its values after `=` or `--` so no text can be read as a flag. None deletes a note: what is
-  replaced, retracted or closed stays in the topic's Log, as the tool keeps it (009 FR-006, 005 FR-021). The tool lints, scans
+  `notes add` or `notes set`, its values after `=` or `--` so no text can be read as a flag. What is replaced, retracted
+  or closed stays in the topic's Log, as the tool keeps it. A delete takes a note's text out and leaves its id, the date
+  and why in the Log; the notes' own git history keeps the text. A session proposes a delete only with the note that shows
+  it wrong (`by`); a login deletes from Notes with a reason, through `notes.delete` behind the same login check (009 FR-006
+  to FR-008, 005 FR-021). The tool lints, scans
   and commits each write itself; a write it refuses stops the rest, which stay to apply again.
 - **The tool stays a program.** hubd runs `tools/notes find` (and, for a login's press, `add` or `set`) from the workspace as a subprocess, never imports it, with a short
   environment, and what you typed follows `--`, so it's only ever words. It creates nothing: if the tool or `notes/` isn't there, hubd says
