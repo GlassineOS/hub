@@ -1064,6 +1064,16 @@ class Hubd:
             return {"ok": True, **await self.agents.press(req.get("name"), req.get("button"), req.get("kind"), req.get("selection"))}
         if op == "agent.interrupt":
             return {"ok": True, **await self.agents.interrupt(req.get("name"))}
+        if op == "agent.say":
+            # The maintainer's own words, typed in a SessionView (004 FR-008): only a login reaches here, the
+            # text goes to tmux on stdin, and the session gets it as a plain user turn, the person's.
+            try:
+                interactions.check_where(req.get("where"))
+            except ValueError as e:
+                return {"ok": False, "error": str(e)}
+            if not isinstance(req.get("text"), str):
+                return {"ok": False, "error": "a message is text"}
+            return {"ok": True, **await self.agents.say(req.get("name"), req["text"])}
         if op == "agent.view":
             return {"ok": True, **self.agents.set_view(req.get("name"), req.get("mode"), req.get("where"), req.get("ref"))}
         if op == "agent.context":

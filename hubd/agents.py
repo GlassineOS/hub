@@ -113,6 +113,7 @@ PRS_FOR = 60  # seconds a session's pull requests, as GitHub gave them, are show
 MAX_SEND = 4000
 MAX_MESSAGE = 3500  # leaves room for saying whose it is
 MAX_WAITING_MESSAGES = 3  # to one session from another, until it has read them
+MAX_WAITING_FROM_PERSON = 20  # a login's words and buttons to one session, until its turn ends: a stuck session mustn't hold them for good
 HUB_SENDER = "@hub"  # who a ping is from: not a valid session name, so it can't be one
 # What a started session may be sent with no card: it reads, and at most suggests work, which waits for you. Anything that
 # writes or has a shell was allowed for one job, and a message would direct those rights at another. Named, so a new tool
@@ -514,6 +515,7 @@ class Agents:
         self.work = self.workspace / "work"
         self._repo_locks: dict[str, asyncio.Lock] = {}
         self._asking: dict[str, asyncio.Lock] = {}  # a session's requests for repositories, one at a time
+        self._send_locks: dict[str, asyncio.Lock] = {}  # a session's pastes, one at a time, from the look at its prompt to the paste
         self.seeds = Seeds(state_dir / "seeds", self._git, gh, clone_base, _OVER_HTTPS, ORG)
         self.maps = CodeMaps(state_dir / "codemap", self.seeds)
         self.seeds.on_change = self.maps.kick
@@ -1394,19 +1396,26 @@ class Agents:
                 "model": self.describe(name)["model"]}
 
     async def _send_next(self, name) -> None:
-        directory = self.sessions / name
-        queue = self._sends.get(name)
-        if not queue or self._state_word(directory, False) != "Idle" or not await self.shells.prompt_empty(name):
-            return  # with a draft in the prompt, Enter would send it along
-        text, sender = queue.pop(0), self._from[name].pop(0)
-        (directory / IDLE_FILE).unlink(missing_ok=True)  # at once, so the next one waits for this turn
-        try:
-            await self.shells.paste(name, text)
-        except (ShellError, OSError):
-            (directory / IDLE_FILE).touch()
-            queue.insert(0, text)
-            self._from[name].insert(0, sender)
-            raise
+        """One at a time per session, from the look at its state to the paste. Asking tmux about the prompt takes a while, and a
+        second send that passed the same check meanwhile would paste into the same buffer, and into the turn the first began."""
+        async with self._send_locks.setdefault(name, asyncio.Lock()):
+            directory = self.sessions / name
+            if not self._sends.get(name) or self._state_word(directory, False) != "Idle" or not await self.shells.prompt_empty(name):
+                return  # with a draft in the prompt, Enter would send it along
+            # Read again: Esc or the session's end can have taken the queue while tmux was asked, and a turn can have begun.
+            queue, senders = self._sends.get(name), self._from.get(name)
+            if not queue or not senders or self._state_word(directory, False) != "Idle":
+                return
+            text, sender = queue.pop(0), senders.pop(0)
+            (directory / IDLE_FILE).unlink(missing_ok=True)  # at once, so the next one waits for this turn
+            try:
+                await self.shells.paste(name, text)
+            except (ShellError, OSError):
+                (directory / IDLE_FILE).touch()
+                if self._sends.get(name) is queue and self._from.get(name) is senders:  # not if Esc took them meanwhile: this went with them
+                    queue.insert(0, text)
+                    senders.insert(0, sender)
+                raise
 
     def _drop_sends(self, name, why: str) -> None:
         lost = len(self._sends.pop(name, ()))
@@ -1445,6 +1454,8 @@ class Agents:
         if state in ("Not started", "Stopped"):
             raise AgentError(f"{name} isn't running")
         if by is None:
+            if len(self._sends.get(name, ())) >= MAX_WAITING_FROM_PERSON:  # a login is trusted, but a double-click loop isn't a person
+                raise AgentError(f"{name} already has {MAX_WAITING_FROM_PERSON} messages waiting: they go when its turn ends, or Esc drops them")
             self._lost.pop(name, None)  # yours, and you've seen it. Another session's mustn't clear your notice.
         # Here, after the wait above, or calls at once could all pass.
         elif len(self._sends.get(name, ())) >= MAX_WAITING_MESSAGES:
@@ -1452,13 +1463,39 @@ class Agents:
         queue = self._sends.setdefault(name, [])
         queue.append(text)
         self._from.setdefault(name, []).append(by)
-        await self._send_next(name)
-        if queue and name not in self._senders:
+        try:
+            await self._send_next(name)
+        except BaseException:  # tmux refused the paste, or this call was cancelled: the caller is told it didn't go, so it mustn't stay queued
+            self._withdraw(name, text, by)  # with no keeper, and a retry would then send it twice
+            raise
+        waiting = self._sends.get(name, [])  # read again: other sends came and went while this one waited its turn
+        if waiting is not queue and text in queue:
+            # The queue was cleared while this waited (Esc, the session's end, tmux refusing the keeper's paste) with this still in it:
+            # not queued, and it didn't go.
+            raise AgentError(f"that message to {name} wasn't sent: the queue it was waiting in was cleared first, by Esc, the session ending or tmux")
+        if waiting and name not in self._senders:
             self._senders[name] = asyncio.create_task(self._keep_sending(name))
-        return {"sent": not queue, "queued": len(queue)}
+        return {"sent": self._position(name, text, by) is None, "queued": len(waiting)}
+
+    def _withdraw(self, name, text: str, by) -> None:
+        """Takes back what a call just added, and no other message: a refused paste may have been an earlier one's, put back at the head."""
+        at = self._position(name, text, by)
+        if at is not None:
+            self._sends[name].pop(at)
+            self._from[name].pop(at)
+
+    def _position(self, name, text: str, by) -> int | None:
+        """Where a message is still waiting, counting from the back: one just added is last. None once it has gone."""
+        queue, senders = self._sends.get(name, []), self._from.get(name, [])
+        return next((at for at in range(min(len(queue), len(senders)) - 1, -1, -1) if queue[at] == text and senders[at] == by), None)
 
     async def say(self, name, text: str) -> dict:
-        """The hub's own words as a turn, for what you just did at a login: at its prompt now, or after this turn."""
+        """The hub's own words as a turn, for what you just did at a login: at its prompt now, or after this turn.
+        What you type can be text you pasted from elsewhere, and a person can't read what draws nothing: it would carry
+        words you never saw, so it's refused as a card's is. Here and not in _send, whose other callers' text is fixed or checked."""
+        hidden = next(((at, c) for at, c in enumerate(text) if _draws_nothing(c)), None)
+        if hidden:
+            raise AgentError(f"a message can't hold control characters or invisible ones (U+{ord(hidden[1]):04X} at character {hidden[0] + 1})")
         return await self._send(name, text)
 
     async def press(self, name, button, kind=None, selection=None) -> dict:
@@ -1583,7 +1620,7 @@ class Agents:
             await self.room_to_start()
             try:
                 sent = await self._send(name, labelled, by=HUB_SENDER)
-            except BaseException:  # tmux refusing the paste, say: _send has queued it, and it mustn't stay to block every later ping
+            except BaseException:  # it mustn't stay queued to block every later ping. _send takes back its own when tmux refuses; this is for any other way out
                 self._unqueue(name, labelled)
                 raise
             if not sent["sent"]:  # a draft in its prompt, say: it's no longer the count it was, once that turn is over
@@ -1826,6 +1863,7 @@ class Agents:
             folder.rmdir()
         self._drop_token(name)
         self._asking.pop(name, None)
+        self._send_locks.pop(name, None)
         # rmtree below ignores errors, and a read-only snapshot would be one.
         for tree in self._snapshots_of(name):
             try:

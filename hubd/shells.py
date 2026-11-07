@@ -58,12 +58,13 @@ class Shells:
     def available(self) -> bool:
         return shutil.which(self.program) is not None
 
-    async def _tmux(self, *args: str) -> tuple[int, str, str]:
+    async def _tmux(self, *args: str, stdin: bytes | None = None) -> tuple[int, str, str]:
         proc = await asyncio.create_subprocess_exec(
-            self.program, "-L", TMUX_SERVER, *args, stdin=asyncio.subprocess.DEVNULL,
+            self.program, "-L", TMUX_SERVER, *args,
+            stdin=asyncio.subprocess.DEVNULL if stdin is None else asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
-        out, err = await proc.communicate()
+        out, err = await proc.communicate(stdin)
         return proc.returncode, out.decode(errors="replace"), err.decode(errors="replace")
 
     async def list(self) -> list[dict]:
@@ -113,10 +114,11 @@ class Shells:
         await self._tmux("set-option", "-s", "set-clipboard", "external")
 
     async def paste(self, name, text: str) -> None:
-        """As if typed and sent. Only for a session known to be at its prompt: Enter would answer a question."""
+        """As if typed and sent. Only for a session known to be at its prompt: Enter would answer a question.
+        The words go to tmux on stdin, never as an argument, where the process list would show them (004 FR-008)."""
         target, buffer = f"={_check_name(name)}:", f"hub-{name}"
-        for args in (("set-buffer", "-b", buffer, "--", text), ("paste-buffer", "-p", "-d", "-b", buffer, "-t", target)):
-            rc, _, err = await self._tmux(*args)
+        for args, data in ((("load-buffer", "-b", buffer, "-"), text.encode()), (("paste-buffer", "-p", "-d", "-b", buffer, "-t", target), None)):
+            rc, _, err = await self._tmux(*args, stdin=data)
             if rc != 0:
                 raise ShellError(err.strip() or "tmux refused the text")
         await asyncio.sleep(PASTE_SETTLE)  # right after a paste, Enter would be taken as part of it

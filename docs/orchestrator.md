@@ -145,14 +145,17 @@ restart anything, since it is one tmux session.
 
 - **Sees:** the current screen and selection, shown as chips, and passed with each question by the
   `UserPromptSubmit` hook.
-- **Buttons:** preset messages that change with the screen, in `agents/personas/steward-buttons.toml`.
-  The hub pastes one into the session with tmux `paste-buffer`, only when its turn has ended according
-  to the Stop hook and its prompt is empty, and queues it otherwise, in memory. Only people press them, and the Steward never
-  sends into a child. Interrupt sends Esc, never Ctrl-C, and drops what was queued. `Stop` doesn't fire
+- **Buttons and your own words:** preset messages that change with the screen, in `agents/personas/steward-buttons.toml`,
+  and a message field under the terminal, where you type your own. The hub hands the words to tmux on stdin
+  (`load-buffer -`, never as an argument) and pastes them with `paste-buffer`, only when its turn has ended according
+  to the Stop hook and its prompt is empty, and queues them otherwise, in memory, up to 20 for a session: the 21st is refused
+  until its turn ends or Esc drops them. If tmux refuses the paste, the page says so
+  and nothing stays queued, so sending again can't send it twice. They arrive as a normal turn, so the
+  transcript holds them as yours. Only a login sends them, and the Steward never sends into a child. Interrupt sends Esc, never Ctrl-C, and drops what was queued. `Stop` doesn't fire
   for an interrupted turn, so the panel's Esc marks the session idle itself. Esc typed in the terminal
   leaves it showing Working until its next turn, and the page says what to do.
-- **Any session:** state, press and interrupt take a session's name, not only the Steward's, so other
-  screens can use them. Questions a session asks aren't in the page yet: you answer in its terminal.
+- **Any session:** state, press, say and interrupt take a session's name, not only the Steward's, so other
+  screens can use them. Every Claude session is a chat: Sessions has the same message field under its terminal. Questions a session asks aren't in the page yet: you answer in its terminal.
 - **State in words:** Working, Waiting, Idle, Stopped.
 
 ## Monday briefing
