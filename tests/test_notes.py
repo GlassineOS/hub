@@ -3,6 +3,8 @@
 import ast
 import asyncio
 import json
+import os
+import re
 import shutil
 import stat
 import sys
@@ -249,13 +251,15 @@ def calls(workspace):
 
 @pytest.mark.parametrize("op,argv", [
     ({"op": "supersede", "topic": "gpu/hang", "ids": ["c3", "c4"], "words": "Faults stop with r107."},
-     ["set", "--replaces=c3", "--inferred=c3,c4", "--", "gpu/hang", "Faults stop with r107."]),
-    ({"op": "merge", "topic": "gpu/hang", "ids": ["c3"], "words": "--retract c5 is words"},
-     ["set", "--replaces=c3", "--inferred=c3", "--", "gpu/hang", "--retract c5 is words"]),
+     ["set", "--replaces=c3", "--inferred=c4", "--", "gpu/hang", "Faults stop with r107."]),
+    ({"op": "merge", "topic": "gpu/hang", "ids": ["c3", "c4", "c6"], "words": "--retract c5 is words"},
+     ["set", "--replaces=c3", "--inferred=c4,c6", "--", "gpu/hang", "--retract c5 is words"]),
     ({"op": "retract", "topic": "gpu/hang", "ids": ["c9"], "by": "c12", "why": "-x looks like a flag"},
      ["set", "--retract=c9", "--by=c12", "--why=-x looks like a flag", "--", "gpu/hang"]),
     ({"op": "answer", "topic": "gpu/hang", "ids": ["c7"], "why": "settled by c12"}, ["set", "--close=c7", "--why=settled by c12", "--", "gpu/hang"]),
-    ({"op": "add", "topic": "gpu/hang", "words": "Merged c3 and c4.", "open": True}, ["add", "--open", "--", "gpu/hang", "Merged c3 and c4."]),
+    ({"op": "add", "topic": "gpu/hang", "words": "Does r108 change it?", "open": True},
+     ["add", "--open", "--guess", "--", "gpu/hang", "Does r108 change it?"]),
+    ({"op": "add", "topic": "gpu/hang", "words": "Merged c3 and c4."}, ["add", "--", "gpu/hang", "Merged c3 and c4."]),
 ])
 def test_each_op_is_one_tool_run_and_words_are_never_flags(op, argv):
     assert notes.argv_of(notes.clean_op(op)) == argv
@@ -267,6 +271,8 @@ def test_each_op_is_one_tool_run_and_words_are_never_flags(op, argv):
     ({"op": "supersede", "topic": "../etc", "ids": ["c1"], "words": "w"}, "AREA/TOPIC"),
     ({"op": "supersede", "topic": "gpu/hang", "ids": ["1"], "words": "w"}, "note ids"),
     ({"op": "supersede", "topic": "gpu/hang", "ids": ["c1"], "words": "w", "command": "rm -rf"}, "not command"),
+    ({"op": "supersede", "topic": "gpu/hang", "ids": ["c1"], "words": "w"}, "can't rest on the one it replaces"),
+    ({"op": "distil", "topic": "gpu/hang", "ids": ["c1"], "words": "w"}, "at least one current note"),
     ({"op": "retract", "topic": "gpu/hang", "ids": ["c1", "c2"], "by": "c3", "why": "w"}, "one note"),
     ({"op": "retract", "topic": "gpu/hang", "ids": ["c1"], "by": "c1", "why": "w"}, "shows it wrong"),
     ({"op": "add", "topic": "gpu/hang", "words": "hidden\u200bword"}, "invisible"),
@@ -295,7 +301,7 @@ def note_world(tmp_path):
     hubd.agents.library = LIBRARY
     hubd.sessions.own_user = lambda: "me"
     hubd.work = None
-    ops = [{"op": "supersede", "topic": "gpu/hang", "ids": ["c3"], "words": "New words."},
+    ops = [{"op": "supersede", "topic": "gpu/hang", "ids": ["c3", "c4"], "words": "New words."},
            {"op": "retract", "topic": "gpu/hang", "ids": ["c2"], "by": "c3", "why": "wrong"},
            {"op": "add", "topic": "gpu/hang", "words": "Log line."}]
     record = hubd.results.submit("notes", {"ops": ops}, session="notes-compact", session_id="i", launch=None, items=[],
@@ -309,7 +315,7 @@ def test_a_login_applies_ops_in_order_and_a_failure_stops_the_rest(tmp_path):
     assert not reply["ok"] or reply["result"]["state"] == "pending"
     ops = hubd.results.get(record["id"])["payload"]["ops"]
     assert [o["state"] for o in ops] == ["applied", "failed", "pending"] and "already retracted" in ops[1]["said"]
-    assert calls(root) == [["set", "--replaces=c3", "--inferred=c3", "--", "gpu/hang", "New words."],
+    assert calls(root) == [["set", "--replaces=c3", "--inferred=c4", "--", "gpu/hang", "New words."],
                            ["set", "--retract=c2", "--by=c3", "--why=wrong", "--", "gpu/hang"]]
     assert not any(a[0] not in ("add", "set") for a in calls(root))  # nothing but add and set: no delete
     call(hubd, op="result.apply", token=login, id=record["id"], indexes=[2])
@@ -324,6 +330,50 @@ def test_no_token_applies_ops(tmp_path):
         assert call(hubd, op="result.apply", agent_token=token, id=record["id"])["denied"]
         assert call(hubd, op="result.apply", token=token, id=record["id"])["denied"]
     assert calls(root) == []
+
+
+# The workspace's own tool, where this host has one (hubd's default place, or HUBD_WORKSPACE): the stand-ins above only
+# record what hubd ran, and can't say whether the tool would take it. It runs on a copy, in a workspace of its own.
+REAL_WORKSPACE = Path(os.environ.get("HUBD_WORKSPACE") or Path.home() / "GlassineOS").expanduser()
+SCAN = Path(".glassine/org/scripts/safety-scan.sh")
+
+
+@pytest.fixture
+def real_tool(tmp_path, monkeypatch):
+    if not (REAL_WORKSPACE / "tools" / "notes").is_file() or not (REAL_WORKSPACE / SCAN).is_file():
+        pytest.skip("skipped: no workspace here with tools/notes and the safety scan")
+    root = tmp_path / "GlassineOS"
+    shutil.copytree(REAL_WORKSPACE / "tools", root / "tools", ignore=shutil.ignore_patterns("__pycache__"))
+    (root / SCAN).parent.mkdir(parents=True)
+    shutil.copy2(REAL_WORKSPACE / SCAN, root / SCAN)
+    (root / "workspace.toml").write_text('[identity]\nname = "N"\nemail = "n@example.org"\n')
+    (tmp_path / "home").mkdir()
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))  # no global git settings, and the search index stays in here
+    tool = Notes(root)
+    for words in ("Faults start with r106.", "r107 runs clean on b2.", "One hang is in the scheduler.",
+                  "Another hang is in the scheduler.", "The panel resets at 3 V.", "The panel resets on a brownout."):
+        asyncio.run(tool._run(["set", "--seen=base=b1, cmd=run it", "--", "gpu/hang", words], 60))  # c1 to c6, as a person sets them
+    return tool, root / "notes" / "gpu" / "hang.md"
+
+
+def test_every_op_is_one_the_real_notes_tool_takes(real_tool):
+    tool, topic = real_tool
+    ops = [{"op": "supersede", "topic": "gpu/hang", "ids": ["c1", "c2"], "words": "Faults stop with r107."},  # c7
+           {"op": "merge", "topic": "gpu/hang", "ids": ["c3", "c4"], "words": "Both hangs are in the scheduler."},  # c8
+           {"op": "distil", "topic": "gpu/hang", "ids": ["c5", "c6", "c2"], "words": "-x: the panel resets when power drops."},  # c9
+           {"op": "add", "topic": "gpu/hang", "words": "Does r108 change it?", "open": True},  # c10
+           {"op": "answer", "topic": "gpu/hang", "ids": ["c10"], "why": "settled by c7"},
+           {"op": "retract", "topic": "gpu/hang", "ids": ["c8"], "by": "c9", "why": "the hangs differ"},
+           {"op": "add", "topic": "gpu/hang", "words": "Compacted."}]
+    done = asyncio.run(tool.apply([notes.clean_op(op) for op in ops]))
+    assert [d["state"] for d in done] == ["applied"] * len(ops), done
+    asyncio.run(tool._run(["lint", "gpu/hang"], 60))  # exits 1, and so raises, if anything may not stand
+    current = topic.read_text().split("## Current")[1].split("## Open")[0]
+    assert sorted(re.findall(r"- (c[0-9]+) ", current)) == ["c2", "c4", "c6", "c7", "c9"]
+    assert "[inferred: c2] Faults stop with r107." in current and "[inferred: c6,c2] -x: the panel" in current
+    # The tool's own refusal comes back in its words: c1 went to Log, so nothing can rest on it.
+    refused = asyncio.run(tool.apply([notes.clean_op({"op": "supersede", "topic": "gpu/hang", "ids": ["c7", "c1"], "words": "w"})]))
+    assert refused[0]["state"] == "failed" and "isn't in Current" in refused[0]["said"]
 
 
 class NotesAgents(Agents):

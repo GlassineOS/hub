@@ -37,9 +37,13 @@ MAX_IDS = 10
 MAX_OP_WORDS = 2000
 MAX_WHY = 500
 # 009 FR-006: what a session may propose, each mapped to one invocation of the tool. merge and distil are a supersede by
-# another name: the new text replaces the first note and rests on all of them. None of them deletes: what's replaced,
-# retracted or closed goes to the topic's Log, marked, as the tool keeps it.
+# another name: the new text replaces the first note named and rests on the others, which stay in Current. It can't rest on
+# the one it replaces, which goes to Log as it's written, so the tool's lint would refuse it; and with nothing else to rest
+# on it would need seen or the person's word, which a session that only reads the notes has neither of. So each names at
+# least two. An open item a session adds is its guess (the tool wants provenance for one). None of them deletes: what's
+# replaced, retracted or closed goes to the topic's Log, marked, as the tool keeps it.
 OPS = ("supersede", "merge", "distil", "retract", "answer", "add")
+_REPLACING = ("supersede", "merge", "distil")
 _OP_FIELDS = {"supersede": ({"op", "topic", "ids", "words"}, {"why"}), "merge": ({"op", "topic", "ids", "words"}, {"why"}),
               "distil": ({"op", "topic", "ids", "words"}, {"why"}), "retract": ({"op", "topic", "ids", "by", "why"}, set()),
               "answer": ({"op", "topic", "ids", "why"}, set()), "add": ({"op", "topic", "words"}, {"open", "why"})}
@@ -128,6 +132,9 @@ def clean_op(op) -> dict:
             raise OpError(f"ids are 1 to {MAX_IDS} different note ids, as cN")
         if op["op"] in ("retract", "answer") and len(ids) != 1:
             raise OpError(f"{op['op']} is about one note")
+        if op["op"] in _REPLACING and len(ids) < 2:
+            raise OpError(f"{op['op']} names the note it replaces, then at least one current note the new words rest on: "
+                          "a note can't rest on the one it replaces")
         out["ids"] = list(ids)
     if "by" in required:
         if not isinstance(op["by"], str) or not _ID_RE.fullmatch(op["by"]) or op["by"] in out["ids"]:
@@ -147,13 +154,13 @@ def clean_op(op) -> dict:
 def argv_of(op: dict) -> list[str]:
     """The tool's arguments for a clean op. Values follow `=` or `--`, so no text the session wrote can be read as a flag."""
     kind, topic = op["op"], op["topic"]
-    if kind in ("supersede", "merge", "distil"):
-        return ["set", f"--replaces={op['ids'][0]}", f"--inferred={','.join(op['ids'])}", "--", topic, op["words"]]
+    if kind in _REPLACING:
+        return ["set", f"--replaces={op['ids'][0]}", f"--inferred={','.join(op['ids'][1:])}", "--", topic, op["words"]]
     if kind == "retract":
         return ["set", f"--retract={op['ids'][0]}", f"--by={op['by']}", f"--why={op['why']}", "--", topic]
     if kind == "answer":
         return ["set", f"--close={op['ids'][0]}", f"--why={op['why']}", "--", topic]
-    return ["add", *(["--open"] if op.get("open") else []), "--", topic, op["words"]]
+    return ["add", *(["--open", "--guess"] if op.get("open") else []), "--", topic, op["words"]]
 
 
 def command_of(op: dict) -> str:

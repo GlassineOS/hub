@@ -498,8 +498,9 @@ def build(github: GitHub, docs: DocSearch) -> MCPServer:
         side LEFT|RIGHT, body}] up to 50), labels (payload: issues [{ref repo#number, add [labels], remove [labels], part_of
         repo#number or null, why}], only the items you were started on), findings (payload: cause, fix, files [paths], run) or
         report (payload: question, answer, unsettled [text], sources [{link, why}], followups [text]) or notes (payload: ops
-        [{op supersede|merge|distil (topic AREA/TOPIC, ids [cN, the first is replaced], words, why?), retract (topic, ids [cN],
-        by cM, why), answer (topic, ids [cN], why: closes an open item), add (topic, words, open?, why?)}] up to 30, summary).
+        [{op supersede|merge|distil (topic AREA/TOPIC, ids [cN, cM...: the first is replaced, the words rest on the others,
+        which must be current], words, why?), retract (topic, ids [cN], by cM, why), answer (topic, ids [cN], why: closes an
+        open item), add (topic, words, open?: an open item, as your guess, why?)}] up to 30, summary).
         No note operation deletes anything. Unknown keys are refused.
         Handing in again replaces what's still waiting."""
         return await github.submit_result(type, payload)
