@@ -396,8 +396,8 @@ for the other actions it is carried so a later check needs no change in the app.
 - **`pr edit` changes labels and nothing else.** ghpolicy takes it with `--add-label`/`--remove-label` and `-R`, one number, and at least
   one label. A title, body, body file, base, reviewer, assignee or milestone is refused, so the author's text and the review routing stay theirs.
 - **`pr reopen` takes no comment,** so it reads no file and posts no text: one number and `-R`.
-- **An issue's assignee is only you, added.** `issue edit --add-assignee` takes only `@me`, and `--remove-assignee` is refused. This narrows
-  what passed before; nothing in the app named anyone else.
+- **An issue's assignee is only you, added.** `issue edit --add-assignee` takes only `@me`, and `--remove-assignee` is refused. `issue create`
+  takes `--assignee`/`-a` only as `@me`, in any spelling. This narrows what passed before; nothing in the app named anyone else.
 - **Three reads for the view,** all `gh api`, read-only like the rest: `compare/<base>...<head>` for how far behind a pull request is, the
   repository's `labels`, and a run's `actions/runs/<id>/jobs` for its failed step. `compare` is the one path where three dots aren't refused as
   traversal: neither ref may hold two dots of its own or end in one.

@@ -162,8 +162,19 @@ def _value_of(args: list[str], *names: str) -> str | None:
     return found
 
 
+def _check_create_assignee(args: list[str]) -> None:
+    """An issue is created assigned to no one or to @me, as an edit may add only @me. Reads `--assignee`, `-a` and their
+    `=` forms; an attached `-asomeone` is already refused by _check_flags."""
+    for i, a in enumerate(args):
+        name, eq, inline = a.partition("=")
+        if name in ("--assignee", "-a") and (inline if eq else (args[i + 1] if i + 1 < len(args) else "")) != "@me":
+            raise Refused("gh issue create: --assignee takes only @me")
+
+
 def _check_shape(group: str, command: str, args: list[str]) -> None:
-    """The commands whose flags are listed, and the assignee an issue edit may name: only you, added."""
+    """The commands whose flags are listed, and the assignee an issue edit or create may name: only you, added."""
+    if group == "issue" and command == "create":
+        _check_create_assignee(args)
     if group == "issue" and command == "edit":
         for i, a in enumerate(args):
             name, eq, inline = a.partition("=")
