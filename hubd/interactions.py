@@ -116,7 +116,10 @@ def from_work(record: dict, agents: dict, objects: dict, now: float) -> dict:
     items = []
     if record.get("number"):
         item_kind = OBJECT_KIND.get(objects.get(record.get("action")), "issue")
-        items = [{"kind": item_kind, "repo": record["repo"], "number": n} for n in [record["number"], *record.get("also_numbers", ())]]
+        if record.get("covers"):  # 005 FR-009: they may cross repositories
+            items = [{"kind": item_kind, "repo": c["repo"], "number": c["number"]} for c in record["covers"]]
+        else:
+            items = [{"kind": item_kind, "repo": record["repo"], "number": n} for n in [record["number"], *record.get("also_numbers", ())]]
     detail = {**record, "result_type": "drafts" if kind == "result" else None}
     return _row(f"w:{record['id']}", kind, status, session, agent, items, record["made"], now, record.get("handled"), detail,
                 (record.get("handled") or {}).get("at") or record.get("moved"))

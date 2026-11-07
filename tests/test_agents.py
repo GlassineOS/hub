@@ -94,9 +94,10 @@ def test_the_library_refuses_personas_and_actions_that_dont_fit(tmp_path, change
 
 def test_a_verb_may_repeat_on_another_kind_of_item(tmp_path):
     # fix on a pull request and fix on a run (research 002 R2): two actions, one short name each per kind.
+    assert LIBRARY.actions["pr-fix-checks"]["verb"] == LIBRARY.actions["run-fix"]["verb"] == "fix"
     root = _library_copy(tmp_path, lambda r: _edit(r / "actions" / "run-explain.toml", 'result = "none"',
-                                                     'verb = "fix"\nresult = "none"'))
-    assert Library(root).actions["run-explain"]["verb"] == "fix"
+                                                     'verb = "check"\nresult = "none"'))
+    assert Library(root).actions["run-explain"]["verb"] == "check"
 
 
 def test_every_persona_has_a_family_and_every_action_a_result():
@@ -111,11 +112,12 @@ def test_every_persona_has_a_family_and_every_action_a_result():
         assert "Assisted-by:" in text and "never `Signed-off-by`" in text
     for action in LIBRARY.actions.values():
         assert action["result"] in RESULTS and action["models"]  # the first model is the default (005 FR-013)
-    verbs = {a["verb"]: a["id"] for a in LIBRARY.actions.values() if a.get("verb")}
-    assert verbs == {"review": "pr-review", "address": "pr-address-review", "fix": "pr-fix-checks",
+    verbs = {(a["object"], a["verb"]): a["id"] for a in LIBRARY.actions.values() if a.get("verb")}
+    assert {v: i for (_o, v), i in verbs.items() if i != "run-fix"} == {"review": "pr-review", "address": "pr-address-review", "fix": "pr-fix-checks",
                      "implement": "issue-implement", "triage": "issue-triage", "investigate": "run-diagnose",
                      "issue": "new-issue", "sec": "new-security-audit", "arch": "new-architecture-audit",
                      "road": "new-roadmap-item", "docs": "new-docs-sweep", "deps": "new-dependency-review"}
+    assert verbs[("run", "fix")] == "run-fix"  # 006 T018: fix on a run, beside fix on a pull request
     # The rest stay in the library, under "More…". Those that post or open a PR say so.
     handed = {"pr-security-audit": "comment", "issue-docs": "pr"}
     assert all(a["result"] == handed.get(a["id"], "none") for a in LIBRARY.actions.values() if not a.get("verb"))
@@ -812,6 +814,50 @@ def test_issue_session_gets_a_new_branch_from_the_default(tmp_path, remote):
     checkout = a.work / started["name"] / "boot"
     assert git(checkout, "rev-parse", "--abbrev-ref", "HEAD").strip() == f"agent/{started['name']}"
     assert (checkout / "a").read_text() == "base"
+
+
+class FakeRunGh(FakeGh):
+    """A run as `gh api repos/GlassineOS/boot/actions/runs/<id>` gives it."""
+    def __init__(self, head="GlassineOS/boot", branch="feature"):
+        super().__init__()
+        self.run_reply = {"head_branch": branch, "head_repository": {"full_name": head} if head else None}
+        self.asked = []
+
+    async def run(self, argv):
+        if argv[0] == "api" and "/actions/runs/" in argv[1]:
+            self.asked.append(argv[1])
+            return {"code": 0, "stdout": json.dumps(self.run_reply), "stderr": ""}
+        return await super().run(argv)
+
+
+def test_a_run_fix_starts_on_its_own_branch_from_the_runs_branch(tmp_path, remote_branch):
+    """006 T018: a new branch agent/<name>, made from the branch the run ran on; the pull request goes back into that branch."""
+    gh = FakeRunGh()
+    a = full(tmp_path, remote_branch, gh)
+    started = asyncio.run(a.start(a.defaults("run-fix", "boot", 4242)))
+    checkout = a.work / started["name"] / "boot"
+    assert gh.asked == ["repos/GlassineOS/boot/actions/runs/4242"]
+    assert git(checkout, "rev-parse", "--abbrev-ref", "HEAD").strip() == f"agent/{started['name']}"
+    assert (checkout / "a").read_text() == "changed by the pr"  # the run's branch, not the default one
+    prompt = (tmp_path / "state" / "sessions" / started["name"] / "prompt.md").read_text()
+    assert "Make run 4242 of GlassineOS/boot pass" in prompt and "open the pull request into feature" in prompt
+    assert a._pr_repos({"object": "run", "config": {"action": "run-fix", "repo": "boot", "number": 4242}}) == ["boot"]
+
+
+@pytest.mark.parametrize("gh", [FakeRunGh(head="someone/boot"), FakeRunGh(head=None), FakeRunGh(branch="--upload-pack=x"),
+                                FakeRunGh(branch=None), FakeRunGh(branch="a/../b")])
+def test_a_run_fix_refuses_a_forks_run_and_odd_branches(tmp_path, remote_branch, gh):
+    a = full(tmp_path, remote_branch, gh)
+    with pytest.raises(AgentError):
+        asyncio.run(a.start(a.defaults("run-fix", "boot", 4242)))
+    assert not a.shells.started and not a.main_checkout("boot").exists()
+
+
+def test_run_fix_is_a_full_session_on_a_run_only():
+    action = LIBRARY.action("run-fix")
+    assert (action["object"], action["access"], action["checkout"], action["result"], action["personas"]) == ("run", "full", "new-branch", "pr", ["ci-fixer"])
+    assert validate(LIBRARY, {**good(), "action": "run-fix", "number": 4242, "persona": "ci-fixer", "model": "opus", "effort": "high",
+                              "tools": [], "hub_tools": []})["covers"] == [{"repo": "boot", "number": 4242}]
 
 
 def test_full_session_keeps_work_that_is_not_on_github(tmp_path, remote_branch):

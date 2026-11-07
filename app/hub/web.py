@@ -99,6 +99,15 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
     def q(request: Request, *names: str) -> dict:
         return {n: request.query_params.get(n) or None for n in names}
 
+    def limit(request: Request, default: int) -> int:
+        """How many rows a list asks for (001 FR-019): "Load more" asks for more. github.py caps it."""
+        value = request.query_params.get("limit")
+        if value is None:
+            return default
+        if not value.isdigit() or int(value) <= 0:
+            raise BadRequest("limit is a positive number")
+        return int(value)
+
     def p(request: Request, name: str) -> str:
         return request.path_params[name]
 
@@ -214,7 +223,7 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
     # --- issues ----------------------------------------------------------------
     async def issues(r, _b, _t):
         a = q(r, "repo", "label", "assignee", "search")
-        return await github.issues(a["repo"], r.query_params.get("state", "open"), a["label"], a["assignee"], a["search"])
+        return await github.issues(a["repo"], r.query_params.get("state", "open"), a["label"], a["assignee"], a["search"], limit(r, 50))
 
     async def issue(r, _b, _t):
         # ?for=edit: the text and `version` an edit is made against, read from GitHub. The view asks GitHub nothing.
@@ -223,7 +232,7 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         return await github.issue(p(r, "repo"), p(r, "n"))
 
     async def issue_create(r, b, _t):
-        return await github.create_issue(p(r, "repo"), b.get("title"), b.get("body"), b.get("labels"), bool(b.get("roadmap")))
+        return await github.create_issue(p(r, "repo"), b.get("title"), b.get("body"), b.get("labels"), bool(b.get("roadmap")), b.get("part_of"))
 
     async def issue_action(r, b, token):
         repo, n, action = p(r, "repo"), p(r, "n"), p(r, "action")
@@ -247,7 +256,7 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
 
     # --- pull requests ---------------------------------------------------------
     async def prs(r, _b, _t):
-        return await github.prs(r.query_params.get("repo") or None, r.query_params.get("state", "open"))
+        return await github.prs(r.query_params.get("repo") or None, r.query_params.get("state", "open"), limit(r, 50))
 
     async def pr(r, _b, _t):
         return await github.pr_page(p(r, "repo"), p(r, "n"))
@@ -294,7 +303,7 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
     # --- actions ---------------------------------------------------------------
     async def runs(r, _b, _t):
         a = q(r, "repo", "status", "workflow", "branch")
-        return await github.runs(a["repo"], a["status"], a["workflow"], a["branch"])
+        return await github.runs(a["repo"], a["status"], a["workflow"], a["branch"], limit(r, 20))
 
     async def run(r, _b, _t):
         return await github.run(p(r, "repo"), p(r, "id"))
@@ -315,6 +324,8 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         raise BadRequest(f"unknown action: {action}")
 
     async def workflows(r, _b, _t):
+        if r.query_params.get("inputs"):  # 006 FR-036: one workflow's inputs at a branch or tag
+            return await github.workflow_inputs(p(r, "repo"), r.query_params["inputs"], r.query_params.get("ref") or None)
         return await github.workflows(p(r, "repo"))
 
     async def dispatch(r, b, _t):
