@@ -124,8 +124,10 @@ background (`work.background`), or opened from Needs you, which has no place to 
 A session hands in a typed result with `submit_result`, as the last thing it does, and nothing outside the hub changes until you
 apply it on its card (Needs you, or the Launch that started it). Results are in `state/results`, at most 200, and a restart
 during an apply puts it back with a note to check GitHub first.
+A session hands in one result: a new hand-in replaces one still waiting, and is refused once the result was applied.
 
-- **comment** (`pr-review`): the summary and inline notes, posted as one review when you press Post.
+- **comment** (`pr-review`): the summary and inline notes, posted as one review when you press Post. If GitHub refuses the notes
+  (a line that isn't in the diff), the review goes out once more with the notes in its text, and the card's note says so.
 - **labels** (`issue-triage`): labels to add and remove, and a "Part of" line, per issue it was started on, set when you press Apply.
 - **findings** (`run-diagnose`): the cause and the smallest fix; you can start a fix session from it. Nothing to apply.
 - **report**: an answer with what couldn't be settled, its sources and follow-ups, kept for Knowledge (never committed anywhere).

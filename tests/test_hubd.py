@@ -1194,6 +1194,48 @@ def test_a_review_github_refuses_goes_back_to_waiting_and_says_why(result_hub):
     assert record["state"] == "pending" and "didn't go out" in record["note"]
 
 
+def test_a_note_off_the_diff_doesnt_stop_the_review_going_out(result_hub):
+    """One note GitHub can't place refuses the whole review: it goes again with the notes in its text, and says so."""
+    sent = []
+
+    async def off_the_diff(name, variables=None, token=None):
+        if name == "content_id":
+            return await ResultGh.graphql(result_hub.gh, name, variables, token)
+        sent.append(dict(variables))
+        if variables["threads"]:
+            return {"code": 1, "stdout": json.dumps({"errors": [{"message": "Pull request review thread line must be part of the diff"}]}), "stderr": ""}
+        return {"code": 0, "stdout": json.dumps({"data": {"addPullRequestReview": {"pullRequestReview": {"url": "https://github.com/x"}}}}), "stderr": ""}
+    result_hub.gh.graphql = off_the_diff
+    rid = _submit(result_hub, "review-token", "comment", REVIEW)["id"]
+    reply = run(result_hub.request({"op": "result.apply", "token": "login", "id": rid}))
+    assert reply["ok"] and reply["result"]["state"] == "applied"
+    assert "in the text" in reply["result"]["note"] and "part of the diff" in reply["result"]["note"]
+    assert len(sent) == 2 and sent[1]["threads"] == [] and sent[1]["event"] == "REQUEST_CHANGES"
+    assert sent[1]["body"].startswith(REVIEW["summary"]) and "epd/fifo.c:12" in sent[1]["body"] and "Read once here." in sent[1]["body"]
+
+
+def test_a_review_with_no_answer_from_github_isnt_sent_twice(result_hub):
+    """No errors from GitHub (a timeout, a dead gh) might still have gone out: no second try."""
+    sent = []
+
+    async def silent(name, variables=None, token=None):
+        if name == "content_id":
+            return await ResultGh.graphql(result_hub.gh, name, variables, token)
+        sent.append(variables)
+        return {"code": 1, "stdout": "", "stderr": "timeout"}
+    result_hub.gh.graphql = silent
+    rid = _submit(result_hub, "review-token", "comment", REVIEW)["id"]
+    reply = run(result_hub.request({"op": "result.apply", "token": "login", "id": rid}))
+    assert not reply["ok"] and len(sent) == 1 and result_hub.results.get(rid)["state"] == "pending"
+
+
+def test_folded_notes_fit_the_reviews_text_limit():
+    from hubd.server import REVIEW_BODY_MAX, _fold_notes
+    notes = [{"path": f"f{i}.c", "line": i + 1, "side": "LEFT" if i == 0 else "RIGHT", "body": "x" * 2000} for i in range(50)]
+    body = _fold_notes("S" * 8000, notes)
+    assert len(body) <= REVIEW_BODY_MAX and "old code" in body and "more notes left out" in body
+
+
 def test_applying_labels_goes_through_label_issues_command_and_adds_part_of(result_hub):
     """005 FR-018: the argv label_issue builds, then edit_issue's way: the body on stdin, a line added, once."""
     rid = _submit(result_hub, "triage-token", "labels", LABELS)["id"]

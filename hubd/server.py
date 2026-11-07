@@ -75,6 +75,22 @@ _HEAD_RE = re.compile(r"[0-9a-f]{40}")
 _VERSION_RE = re.compile(r"[0-9a-f]{16}")
 
 
+REVIEW_BODY_MAX = 60000  # GitHub's limit on a review's text is 65536
+
+
+def _fold_notes(summary: str, notes: list[dict]) -> str:
+    """A review's inline notes as text under its summary, for when GitHub won't take them where they are. As many as fit."""
+    out, left = [summary.rstrip(), "", "Notes GitHub would not place on the diff:"], len(summary) + 60
+    for n, note in enumerate(notes):
+        entry = f"\n**{note['path']}:{note['line']}** ({'old code' if note['side'] == 'LEFT' else 'new code'})\n\n{note['body']}\n"
+        if left + len(entry) > REVIEW_BODY_MAX:
+            out.append(f"\n({len(notes) - n} more notes left out: the text is full.)")
+            break
+        out.append(entry)
+        left += len(entry)
+    return "\n".join(out).strip()
+
+
 def _edit_problem(name: str, tool_input) -> str | None:
     """Why an edit to an issue or comment isn't worth a card: what the tool would refuse anyway, said before it asks."""
     a = tool_input if isinstance(tool_input, dict) else {}
@@ -1216,17 +1232,33 @@ class Hubd:
         except (ValueError, KeyError, TypeError):
             raise results.ResultError(f"GitHub didn't give {item['repo']}#{item['number']}: {found.get('stderr', '')[-300:]}") from None
         payload = record["payload"]
-        reply = await self.gh.graphql("pr_review_add", {"pullRequestId": node, "body": payload["summary"], "event": REVIEW_EVENT[payload["event"]],
-                                                        "threads": [dict(n) for n in payload["notes"]]}, token)
-        try:
-            answer = json.loads(reply["stdout"])
-        except ValueError:
-            answer = {}
+        variables = {"pullRequestId": node, "body": payload["summary"], "event": REVIEW_EVENT[payload["event"]],
+                     "threads": [dict(n) for n in payload["notes"]]}
+        reply, answer = await self._send_review(variables, token)
+        folded = False
+        if payload["notes"] and answer.get("errors"):
+            # GitHub refuses the whole review when one note's line isn't in the diff, and nothing lets the person drop a note.
+            # It answered with errors, so nothing went out: send it again with the notes in the text instead.
+            first = "; ".join(e.get("message", "") for e in answer["errors"])[:300]
+            reply, answer = await self._send_review({**variables, "body": _fold_notes(payload["summary"], payload["notes"]), "threads": []}, token)
+            folded = bool(answer.get("data")) and not reply.get("code") and not answer.get("errors")
+            if not folded:
+                raise results.ResultError(f"GitHub refused the review: {first}")
         if reply.get("code") or answer.get("errors") or not answer.get("data"):
             words = "; ".join(e.get("message", "") for e in answer.get("errors") or ()) or reply.get("stderr", "")[-300:]
             raise results.ResultError(f"GitHub refused the review: {words}")
         url = ((answer["data"].get("addPullRequestReview") or {}).get("pullRequestReview") or {}).get("url")
+        if folded:
+            return f"Posted {url or 'the review'} with its notes in the text: GitHub refused them as inline notes ({first})."
         return f"Posted {url or 'the review'}."
+
+    async def _send_review(self, variables: dict, token) -> tuple[dict, dict]:
+        reply = await self.gh.graphql("pr_review_add", variables, token)
+        try:
+            answer = json.loads(reply["stdout"])
+        except ValueError:
+            answer = {}
+        return reply, answer if isinstance(answer, dict) else {}
 
     async def _set_labels(self, record: dict, chosen: list[dict], token) -> str:
         """005 FR-018: label_issue's own command per issue; a Part of line as edit_issue would add it, to an issue of the
