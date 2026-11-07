@@ -960,6 +960,7 @@ class GitHub:
         data = await self.hubd.graphql("pr_threads", repo=repo, number=int(_num(number)))
         pull = (data.get("repository") or {}).get("pullRequest") or {}
         return [{"id": t["id"], "resolved": t["isResolved"], "outdated": t["isOutdated"], "path": t["path"], "line": t["line"],
+                 "side": t.get("diffSide") or "RIGHT",
                  "comments": [{"author": (c.get("author") or {}).get("login"), "body": c["body"], "createdAt": c["createdAt"],
                                "url": c["url"], "hunk": c.get("diffHunk") or ""} for c in t["comments"]["nodes"]]}
                 for t in pull["reviewThreads"]["nodes"]] if pull else []

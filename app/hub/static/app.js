@@ -1203,6 +1203,14 @@ function diffRows(text) {
   return rows;
 }
 
+// Whether a review note belongs under this row: a note on the old side (LEFT) counts old-file lines, so it matches a row's `a`
+// (a removed line, or an unchanged one); any other note counts new-file lines and matches `b`.
+function noteBelongsTo(thread, row) {
+  if (!thread.line) return false;
+  if (thread.side === "LEFT") return row.kind !== "add" && row.a === thread.line;
+  return row.kind !== "del" && row.b === thread.line;
+}
+
 // One file in Files changed (006 FR-020, FR-021): opens to its hunks with line numbers and the review notes at their lines.
 // A large or binary file waits for "load the diff".
 function FileDiff({ base, file, threads }) {
@@ -1210,7 +1218,7 @@ function FileDiff({ base, file, threads }) {
   const [asked, setAsked] = useState(!file.large);
   const diff = useLoad(() => (open && asked ? api(`${base}/diff${params({ path: file.path })}`) : Promise.resolve(null)), [open, asked, file.path]);
   const notes = threads.filter((t) => t.path === file.path);
-  const at = (n) => notes.filter((t) => t.line === n);
+  const at = (row) => notes.filter((t) => noteBelongsTo(t, row));
   const loose = notes.filter((t) => !t.line);
   const rows = diff.data ? diffRows(diff.data) : [];
   return html`<div class="filediff">
@@ -1224,7 +1232,7 @@ function FileDiff({ base, file, threads }) {
       ${loose.length > 0 && html`<div class="diffnotes">${loose.map((t) => html`<${DiffNote} thread=${t} />`)}</div>`}
       ${diff.data !== null && html`<div class="diffbox"><table class="diff"><tbody>${rows.map((r) => html`
         <tr class=${r.kind}><td class="ln">${r.a || ""}</td><td class="ln">${r.b || ""}</td><td class="code">${r.kind === "add" ? "+" : r.kind === "del" ? "−" : " "}${r.text}</td></tr>
-        ${r.b && at(r.b).length > 0 && html`<tr class="notes"><td colspan="3">${at(r.b).map((t) => html`<${DiffNote} thread=${t} />`)}</td></tr>`}`)}</tbody></table></div>`}`}
+        ${at(r).length > 0 && html`<tr class="notes"><td colspan="3">${at(r).map((t) => html`<${DiffNote} thread=${t} />`)}</td></tr>`}`)}</tbody></table></div>`}`}
   </div>`;
 }
 

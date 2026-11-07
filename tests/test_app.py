@@ -657,7 +657,7 @@ def test_rollup_of_sub_issues():
 
 # --- review threads ------------------------------------------------------------------------------
 THREADS = {"repository": {"pullRequest": {"reviewThreads": {"nodes": [{
-    "id": "PRRT_1", "isResolved": False, "isOutdated": True, "path": "a.c", "line": 88,
+    "id": "PRRT_1", "isResolved": False, "isOutdated": True, "path": "a.c", "line": 88, "diffSide": "RIGHT",
     "comments": {"nodes": [{"author": None, "body": "Fix", "createdAt": "2026-01-01T00:00:00Z", "url": "u", "diffHunk": "@@"}]}}]}}}}
 
 
@@ -676,7 +676,7 @@ def test_threads_are_read_from_github_and_shaped():
     h, seen = thread_hubd()
     rows = asyncio.run(GitHub(h, CONFIG).pr_threads("hub", 5))
     assert seen == [("pr_threads", {"repo": "hub", "number": 5})]
-    assert rows == [{"id": "PRRT_1", "resolved": False, "outdated": True, "path": "a.c", "line": 88,
+    assert rows == [{"id": "PRRT_1", "resolved": False, "outdated": True, "path": "a.c", "line": 88, "side": "RIGHT",
                      "comments": [{"author": None, "body": "Fix", "createdAt": "2026-01-01T00:00:00Z", "url": "u", "hunk": "@@"}]}]
 
 
