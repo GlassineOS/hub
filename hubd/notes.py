@@ -16,7 +16,6 @@ import json
 import os
 import re
 import sys
-import unicodedata
 from pathlib import Path
 
 TOOL = Path("tools") / "notes"
@@ -109,10 +108,12 @@ class OpError(Exception):
 
 
 def _one_line(value, what: str, limit: int) -> str:
+    from .agents import _draws_nothing  # here, not at the top: agents imports results, which imports this module
     if not isinstance(value, str) or not value.strip() or len(value) > limit or "\0" in value:
         raise OpError(f"{what} is text of 1 to {limit} characters")
-    # The card shows every op's words: nothing in them may be hidden from you (as agents.py holds messages to).
-    if any(c not in "\n\t" and unicodedata.category(c) in ("Cc", "Cf", "Co", "Cs", "Cn", "Zl", "Zp") for c in value):
+    # The card shows every op's words, and they go into the shared notes: nothing in them may be hidden from you. The same
+    # test agents.py holds messages to, with the blanks no category gives away (U+2800, U+3164, variation selectors).
+    if any(_draws_nothing(c) for c in value):
         raise OpError(f"{what} can't hold control characters or invisible ones")
     return " ".join(value.split())
 

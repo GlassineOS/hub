@@ -194,8 +194,11 @@ def test_an_unknown_op_is_refused_behind_the_login(tmp_path, workspace):
 def test_hubd_never_imports_the_tool_and_uses_only_the_standard_library():
     tree = ast.parse(Path(notes.__file__).read_text())
     names = {alias.name.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
-    names |= {node.module.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module}
+    names |= {node.module.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module and not node.level}
     assert names - {"__future__"} <= set(sys.stdlib_module_names)
+    # hubd's own modules, which are standard library too (agents' test for what a card can't show): none of them is the tool
+    own = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.level}
+    assert all(module and (Path(notes.__file__).parent / f"{module}.py").is_file() for module in own) and own <= {"agents"}
 
 
 # --- from the review ---------------------------------------------------------------------------
@@ -275,7 +278,8 @@ def test_each_op_is_one_tool_run_and_words_are_never_flags(op, argv):
     ({"op": "distil", "topic": "gpu/hang", "ids": ["c1"], "words": "w"}, "at least one current note"),
     ({"op": "retract", "topic": "gpu/hang", "ids": ["c1", "c2"], "by": "c3", "why": "w"}, "one note"),
     ({"op": "retract", "topic": "gpu/hang", "ids": ["c1"], "by": "c1", "why": "w"}, "shows it wrong"),
-    ({"op": "add", "topic": "gpu/hang", "words": "hidden\u200bword"}, "invisible"),
+    *(({"op": "add", "topic": "gpu/hang", "words": f"hidden{c}word"}, "invisible") for c in "\u200b\u2800\u3164\u034f\ufe0f\U000e0100"),
+    ({"op": "retract", "topic": "gpu/hang", "ids": ["c1"], "by": "c2", "why": "blank\u2800why"}, "invisible"),
     ({"op": "add", "topic": "gpu/hang", "words": "x" * 2001}, "1 to 2000"),
 ])
 def test_an_op_outside_the_shape_is_refused(op, words):
