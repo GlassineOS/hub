@@ -454,11 +454,18 @@ def test_the_library_keeps_notes_find_to_an_action_about_the_notes_that_cant_pos
     shutil.copytree(Path(__file__).resolve().parents[1] / "agents", root)
     action = root / "actions" / "notes-compact.toml"
     good = action.read_text()
+    no_result = good.replace('result = "notes"', 'result = "none"').replace('result_tools = ["notes_apply"]\n', "")
     for bad in (good.replace('"submit_result"]', '"submit_result", "comment_issue"]'), good.replace('object = "notes"', 'object = "issue"'),
-                good + 'access = "full"\n', good + 'all_repos = true\n'):
+                good + 'access = "full"\n', good + 'all_repos = true\n', good + 'asks_first = ["comment_issue"]\n',
+                good.replace('tools = ["AskUserQuestion"]', 'tools = ["AskUserQuestion", "Bash"]'),
+                good.replace('"submit_result"]', '"submit_result", "plan_work"]'),  # its notes would reach a planner as yours
+                no_result, good.replace(', "submit_result"]', "]")):  # it hands in, through its result's tool
+        assert bad != good
         action.write_text(bad)
         with pytest.raises(LibraryError, match="notes_find"):
             Library(root)
+    action.write_text(good)
+    Library(root)  # as it ships, it loads
     assert "notes_find" not in LIBRARY.action("project-steward")["hub_tools"]
 
 

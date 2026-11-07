@@ -45,7 +45,7 @@ from .codemap import UNREADABLE, CodeMaps, MapError
 from .codesearch import CodeSearch, SearchError
 from .ghpolicy import ORG, Refused
 from .history import History
-from .results import APPLY_TOOLS
+from .results import APPLY_TOOLS, HANDED_IN
 from .seeds import SeedError, Seeds, remove_tree
 from .shells import ShellError, Shells
 
@@ -282,11 +282,17 @@ class Library:
                 raise LibraryError(f"actions/{action['id']}.toml: result_tools for a {action['result']} result are among "
                                    f"{', '.join(APPLY_TOOLS.get(action['result'], ())) or 'none'}")
             if NOTES_TOOL in action["hub_tools"]:
-                beyond = set(action["hub_tools"]) - READS_ONLY - {NOTES_TOOL, "submit_drafts"}
+                # What it reads leaves only in what it hands in, which a login reads first. So it hands in, through the tool for
+                # its result, and has no other way out: no shell, write or post tool, and not plan_work, which is read-only but
+                # whose notes reach a planner as yours once you press Start (SECURITY.md, Notes).
+                beyond = set(action["hub_tools"]) - (READS_ONLY - {"plan_work"}) - {NOTES_TOOL, "submit_drafts"}
+                hand_in = "submit_drafts" if action["result"] == "drafts" else "submit_result"
+                hands_in = action["result"] in (*HANDED_IN, "drafts") and hand_in in action["hub_tools"]
                 if action["object"] != "notes" or _full(action) or beyond or action.get("asks_first") or action.get("all_repos") \
-                        or set(action["tools"]) - READING_TOOLS:
+                        or set(action["tools"]) - READING_TOOLS or not hands_in:
                     raise LibraryError(f"actions/{action['id']}.toml: {NOTES_TOOL} is for a locked action about the notes that only reads "
-                                       f"and hands in{': not ' + ', '.join(sorted(beyond)) if beyond else ''}")
+                                       f"and hands in{': not ' + ', '.join(sorted(beyond)) if beyond else ''}"
+                                       f"{'' if hands_in else f': its result is handed in with {hand_in}, and it lists it'}")
             verb = action.get("verb")
             if verb is None:
                 continue

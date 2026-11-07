@@ -319,7 +319,8 @@ mounts none of it.
   the login check in `Hubd.request`, with no path for a token. The one token path is `notes_find` (`notes_tool.find`), for a
   session whose list has it *and* whose action, as it is now, is about the notes and lists it. The library refuses to load
   an action that lists `notes_find` unless it is about the notes, locked, reads only (no shell, no write or post tool, no
-  `asks_first`, not the whole project) and hands in a result or drafts: today `notes-compact` (the Archivist, note
+  `asks_first`, not the whole project, and no `plan_work`, whose notes would reach a planner as yours once you press Start)
+  and hands in a result or drafts, listing `submit_result` or `submit_drafts` for it: today `notes-compact` (the Archivist, note
   operations) and `notes-sweep` (a docs writer, draft issues). What such a session reads goes out only in what it hands in,
   which a login reads before anything happens; `session_summary` refuses its words, so the Steward can't read notes through
   it, and the Steward has no `notes_find` (Decision 4 in `docs/workspace.md`). Sweep drafts are filed in public by you, so
