@@ -48,8 +48,9 @@ def _rate_limit(status: dict) -> dict | None:
         resets = window.get("resets_at")
         if used is None or not isinstance(resets, (int, float, str)) or isinstance(resets, bool):
             continue
+        used = min(used, 100.0) / 100  # the file says 0..100: compare on one scale
         if best is None or used > best["used"]:
-            best = {"used": min(used, 100.0) / 100, "resets": resets}
+            best = {"used": used, "resets": resets}
     return best
 
 

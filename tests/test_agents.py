@@ -1816,6 +1816,13 @@ def test_usage_says_not_known_without_a_status_and_low_from_eighty_percent(tmp_p
                                                                              "seven_day": {"used_percentage": 81.5, "resets_at": "Monday"}}}))
     limited = usage.status(sessions, allowance=10.0)
     assert limited["source"] == "rate limit" and limited["low"] and limited["resets"] == "Monday" and limited["says"].endswith(", low")
+    for first, second, shown in (({"used_percentage": 90, "resets_at": 1}, {"used_percentage": 20, "resets_at": 2}, 0.9),
+                                 ({"used_percentage": 20, "resets_at": 1}, {"used_percentage": 90, "resets_at": 2}, 0.9),
+                                 ({"used_percentage": 80, "resets_at": 1}, {"used_percentage": 10, "resets_at": 2}, 0.8)):
+        (sessions / "b" / "status.json").write_text(json.dumps({"rate_limits": {"five_hour": first, "seven_day": second}}))
+        fullest = usage.status(sessions)
+        assert fullest["used"] == shown and fullest["low"] and fullest["says"] == f"{round(shown * 100)}% of the rate limit used, low", \
+            "the fullest window shows, whichever comes first"
     (sessions / "b" / "status.json").write_text("{" * 20000)  # too big or broken: not read
     assert usage.status(sessions, allowance=10.0)["source"] == "today's cost"
     assert usage.allowance_of("5") == 5.0 and usage.allowance_of("0") is None and usage.allowance_of("x") is None
