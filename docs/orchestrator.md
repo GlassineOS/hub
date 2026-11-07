@@ -148,7 +148,8 @@ restart anything, since it is one tmux session.
 - **Buttons and your own words:** preset messages that change with the screen, in `agents/personas/steward-buttons.toml`,
   and a message field under the terminal, where you type your own. The hub hands the words to tmux on stdin
   (`load-buffer -`, never as an argument) and pastes them with `paste-buffer`, only when its turn has ended according
-  to the Stop hook and its prompt is empty, and queues them otherwise, in memory. They arrive as a normal turn, so the
+  to the Stop hook and its prompt is empty, and queues them otherwise, in memory. If tmux refuses the paste, the page says so
+  and nothing stays queued, so sending again can't send it twice. They arrive as a normal turn, so the
   transcript holds them as yours. Only a login sends them, and the Steward never sends into a child. Interrupt sends Esc, never Ctrl-C, and drops what was queued. `Stop` doesn't fire
   for an interrupted turn, so the panel's Esc marks the session idle itself. Esc typed in the terminal
   leaves it showing Working until its next turn, and the page says what to do.

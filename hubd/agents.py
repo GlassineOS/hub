@@ -1457,11 +1457,22 @@ class Agents:
             raise AgentError(f"{name} hasn't read what's waiting for it yet: list_running_sessions shows what's queued, try later")
         self._sends.setdefault(name, []).append(text)
         self._from.setdefault(name, []).append(by)
-        await self._send_next(name)
+        try:
+            await self._send_next(name)
+        except BaseException:  # tmux refused the paste, or this call was cancelled: the caller is told it didn't go, so it mustn't stay queued
+            self._withdraw(name, text, by)  # with no keeper, and a retry would then send it twice
+            raise
         waiting = self._sends.get(name, [])  # read again: other sends came and went while this one waited its turn
         if waiting and name not in self._senders:
             self._senders[name] = asyncio.create_task(self._keep_sending(name))
         return {"sent": self._position(name, text, by) is None, "queued": len(waiting)}
+
+    def _withdraw(self, name, text: str, by) -> None:
+        """Takes back what a call just added, and no other message: a refused paste may have been an earlier one's, put back at the head."""
+        at = self._position(name, text, by)
+        if at is not None:
+            self._sends[name].pop(at)
+            self._from[name].pop(at)
 
     def _position(self, name, text: str, by) -> int | None:
         """Where a message is still waiting, counting from the back: one just added is last. None once it has gone."""
@@ -1599,7 +1610,7 @@ class Agents:
             await self.room_to_start()
             try:
                 sent = await self._send(name, labelled, by=HUB_SENDER)
-            except BaseException:  # tmux refusing the paste, say: _send has queued it, and it mustn't stay to block every later ping
+            except BaseException:  # it mustn't stay queued to block every later ping. _send takes back its own when tmux refuses; this is for any other way out
                 self._unqueue(name, labelled)
                 raise
             if not sent["sent"]:  # a draft in its prompt, say: it's no longer the count it was, once that turn is over

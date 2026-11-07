@@ -2815,3 +2815,38 @@ def test_a_turn_that_starts_while_the_prompt_is_looked_at_isnt_pasted_into(tmp_p
         assert not getattr(a.shells, "pasted", [])
         _cancel_senders(a)
     asyncio.run(go())
+
+
+def test_a_refused_paste_leaves_nothing_queued_to_go_twice(tmp_path, monkeypatch):
+    monkeypatch.setattr(agents_module, "SEND_POLL", 60)
+    a, name, directory, fire = bridged(tmp_path)
+
+    async def go():
+        fire("Stop")
+        a.shells.refuse_paste = True
+        with pytest.raises(ShellError):
+            await a._send(name, "hello")
+        state = await a.session_state(name)
+        assert state["queued"] == 0 and not a._senders and state["state"] == "Idle"  # no queued copy with nobody to send it
+        a.shells.refuse_paste = False
+        assert await a._send(name, "hello") == {"sent": True, "queued": 0}  # so the retry is the only one
+        assert a.shells.pasted == [(name, "hello")] and (await a.session_state(name))["queued"] == 0
+    asyncio.run(go())
+
+
+def test_a_refused_paste_takes_back_only_what_that_call_added(tmp_path, monkeypatch):
+    monkeypatch.setattr(agents_module, "SEND_POLL", 60)
+    a, name, directory, fire = bridged(tmp_path)
+
+    async def go():
+        assert await a._send(name, "earlier") == {"sent": False, "queued": 1}  # mid-turn: it waits, with its keeper
+        fire("Stop")
+        a.shells.refuse_paste = True
+        with pytest.raises(ShellError):
+            await a._send(name, "later")  # the paste that tmux refused was "earlier"'s, at the head
+        assert a._sends[name] == ["earlier"] and a._from[name] == [None] and name in a._senders  # still its keeper's to send
+        a.shells.refuse_paste = False
+        await a._send_next(name)
+        assert a.shells.pasted == [(name, "earlier")]
+        _cancel_senders(a)
+    asyncio.run(go())
