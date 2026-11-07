@@ -2614,16 +2614,22 @@ function ResultView({ r, reload, where = "Needs you" }) {
       ${r.kept ? html`<p class="small" role="status">Saved to Knowledge.</p>` : waits && html`<div class="row"><button class="primary" disabled=${act.busy} onClick=${() => answer("keep")}>Save to Knowledge</button>${setAside}</div>`}`;
   } else if (r.type === "notes") {
     // 009 FR-006: each op with the exact command hubd built and will run; apply one or all. None deletes a note.
+    // An op whose outcome is unknown (hubd stopped while it ran, or the tool didn't answer) never runs again until you say
+    // whether it's in the notes.
     const ops = p.ops || [];
-    const left = ops.filter((o) => o.state !== "applied").length;
+    const waiting = (o) => o.state === "pending" || o.state === "failed";
+    const left = ops.filter(waiting).length;
     body = html`${p.summary && plainText(p.summary)}
       <ol class="stack" style="gap: 10px">${ops.map((o, n) => html`<li class="stack tight">
         <div class="row" style="gap: 8px"><b>${NOTE_OP_WORD[o.op] || o.op}</b><span class="mono small">${o.topic}</span>${(o.ids || []).length > 0 && html`<span class="mono small soft">${o.ids.join(", ")}</span>`}
-          <span class="badge ${o.state === "failed" ? "bad" : o.state === "applied" ? "dim" : ""}">${o.state}</span></div>
+          <span class="badge ${o.state === "failed" || o.state === "unknown" ? "bad" : o.state === "applied" ? "dim" : ""}">${o.state === "unknown" ? "may be in already" : o.state}</span></div>
         ${o.words && plainText(o.words)}${o.why && html`<span class="small soft">Why: ${o.why}</span>`}
         <code class="small mono" style="white-space: pre-wrap; overflow-wrap: anywhere">${o.command}</code>
-        ${o.said && html`<span class="small" role=${o.state === "failed" ? "alert" : null} style="overflow-wrap: anywhere">${o.state === "failed" ? "The notes tool said: " : ""}${o.said}</span>`}
-        ${r.state === "pending" && o.state !== "applied" && ops.length > 1 && html`<button class="plain" style="align-self: flex-start" disabled=${act.busy} onClick=${() => answer("apply", { indexes: [n] })}>Apply this one</button>`}</li>`)}</ol>
+        ${o.said && html`<span class="small" role=${o.state === "failed" || o.state === "unknown" ? "alert" : null} style="overflow-wrap: anywhere">${o.state === "failed" ? "The notes tool said: " : ""}${o.said}</span>`}
+        ${r.state === "pending" && o.state === "unknown" && html`<div class="row"><span class="small">Search ${o.topic} in Notes: is it there?</span>
+          <button class="plain" disabled=${act.busy} onClick=${() => answer("resolve", { index: n, found: true })}>It's in the notes</button>
+          <button class="plain" disabled=${act.busy} onClick=${() => answer("resolve", { index: n, found: false })}>It isn't</button></div>`}
+        ${r.state === "pending" && waiting(o) && ops.length > 1 && html`<button class="plain" style="align-self: flex-start" disabled=${act.busy} onClick=${() => answer("apply", { indexes: [n] })}>Apply this one</button>`}</li>`)}</ol>
       <p class="small soft">Nothing is deleted: what's replaced, retracted or answered stays in the topic's Log.</p>
       ${r.state === "pending" && left > 0 && html`<div class="row"><button class="primary" disabled=${act.busy} onClick=${() => answer("apply")}>${left === ops.length ? "Apply all" : `Apply the ${count(left, "other")}`}</button>${setAside}</div>`}`;
   } else if (r.type === "pr") {

@@ -330,7 +330,9 @@ mounts none of it.
   it verbatim, and applying runs exactly it, through `result.apply` behind the login check, never by a token. Each is one
   `notes add` or `notes set`, its values after `=` or `--` so no text can be read as a flag. None deletes a note: what is
   replaced, retracted or closed stays in the topic's Log, as the tool keeps it (009 FR-006, 005 FR-021). The tool lints, scans
-  and commits each write itself; a write it refuses stops the rest, which stay to apply again.
+  and commits each write itself; a write it refuses stops the rest, which stay to apply again. Each operation's state is on
+  disk as it starts and as it ends, so one that was running when hubd stopped, or that the tool didn't answer in time, is
+  marked unknown, not pending: it never runs again until a login has looked at the topic and said it isn't there.
 - **The tool stays a program.** hubd runs `tools/notes find` (and, for a login's press, `add` or `set`) from the workspace as a subprocess, never imports it, with a short
   environment, and what you typed follows `--`, so it's only ever words. It creates nothing: if the tool or `notes/` isn't there, hubd says
   so in words. The index is the tool's own 0700 cache, and hubd doesn't read it.

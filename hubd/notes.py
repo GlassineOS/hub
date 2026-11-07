@@ -56,6 +56,10 @@ class NotesError(Exception):
     pass
 
 
+class NotesUnknown(NotesError):
+    """A write that was stopped before the tool answered: it may or may not have gone in."""
+
+
 def words_of(value) -> list[str]:
     if not isinstance(value, str) or not value.strip():
         raise NotesError("say what to look for")
@@ -225,19 +229,29 @@ class Notes:
         last = self.last or {"by_label": {}, "by_topic": {}, "rows": 0}
         return {"here": True, "says": None, "source": "last-search" if self.last else None, **last}
 
-    async def apply(self, ops: list[dict]) -> list[dict]:
-        """A login's press: each op in order, one tool run each. The first that fails stops the rest, which stay to retry,
-        since a later op may rest on an earlier one."""
+    async def apply(self, ops: list[dict], progress=None) -> list[dict]:
+        """A login's press: each op in order, one tool run each. `progress(n, outcome)` hears each op as it starts (running)
+        and as it ends, so whoever keeps the record has it on disk before the next one runs. The first that fails stops the
+        rest, which stay to retry, since a later op may rest on an earlier one; so does one whose outcome is unknown."""
         if missing := self.missing():
             raise NotesError(missing)
         done = []
-        for op in ops:
+        for n, op in enumerate(ops):
+            if progress:
+                progress(n, {"state": "running", "said": None})
             try:
                 out, err = await self._run(argv_of(op), self.write_timeout)
+            except NotesUnknown as e:
+                outcome = {"state": "unknown", "said": str(e)[-600:]}
             except NotesError as e:
-                done.append({"state": "failed", "said": str(e)[-600:]})
+                outcome = {"state": "failed", "said": str(e)[-600:]}
+            else:
+                outcome = {"state": "applied", "said": (out.strip() or err.strip())[-600:]}
+            if progress:
+                progress(n, outcome)
+            done.append(outcome)
+            if outcome["state"] != "applied":
                 break
-            done.append({"state": "applied", "said": (out.strip() or err.strip())[-600:]})
         return done
 
     async def _run(self, args: list[str], timeout: float) -> tuple[str, str]:
@@ -254,9 +268,9 @@ class Notes:
         try:
             out, err = await asyncio.wait_for(proc.communicate(), timeout)
         except TimeoutError:
-            if args[0] != "find":
-                raise NotesError(f"the notes tool gave no answer in {timeout:g} seconds and was stopped: check the topic with "
-                                 "`notes lint` before applying again") from None
+            if args[0] != "find":  # it may have committed just before: only a look at the topic tells
+                raise NotesUnknown(f"the notes tool gave no answer in {timeout:g} seconds and was stopped, so this may or may "
+                                   "not be in the notes: look at its topic, then say which") from None
             raise NotesError(f"the search gave no answer in {timeout:g} seconds and was stopped. "
                              "The first one builds the index: `notes find` in a terminal has no limit.") from None
         finally:

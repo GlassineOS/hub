@@ -291,19 +291,19 @@ def test_a_notes_result_carries_the_command_hubd_built():
         results.clean_payload("notes", {"ops": []}, [])
 
 
-def note_world(tmp_path):
+def note_world(tmp_path, tool=WRITER, ops=None, **kw):
     root = tmp_path / "workspace"
     (root / "tools").mkdir(parents=True)
     (root / "notes").mkdir()
-    (root / "tools" / "notes").write_text(WRITER)
-    hubd, login = world(tmp_path, root)
+    (root / "tools" / "notes").write_text(tool)
+    hubd, login = world(tmp_path, root, **kw)
     hubd.results = results.Results(tmp_path / "results")
     hubd.agents.library = LIBRARY
     hubd.sessions.own_user = lambda: "me"
     hubd.work = None
-    ops = [{"op": "supersede", "topic": "gpu/hang", "ids": ["c3", "c4"], "words": "New words."},
-           {"op": "retract", "topic": "gpu/hang", "ids": ["c2"], "by": "c3", "why": "wrong"},
-           {"op": "add", "topic": "gpu/hang", "words": "Log line."}]
+    ops = ops or [{"op": "supersede", "topic": "gpu/hang", "ids": ["c3", "c4"], "words": "New words."},
+                  {"op": "retract", "topic": "gpu/hang", "ids": ["c2"], "by": "c3", "why": "wrong"},
+                  {"op": "add", "topic": "gpu/hang", "words": "Log line."}]
     record = hubd.results.submit("notes", {"ops": ops}, session="notes-compact", session_id="i", launch=None, items=[],
                                  action="notes-compact", persona="archivist")
     return hubd, login, root, record
@@ -322,6 +322,52 @@ def test_a_login_applies_ops_in_order_and_a_failure_stops_the_rest(tmp_path):
     assert [o["state"] for o in hubd.results.get(record["id"])["payload"]["ops"]] == ["applied", "failed", "applied"]
     refused = call(hubd, op="result.apply", token=login, id=record["id"], indexes=[0])
     assert "isn't applied yet" in refused["error"]  # an applied op isn't run twice
+
+
+# A tool that writes down, on each call, the op states in the one result on disk: what a restart then would find.
+PEEKER = """import glob, json, os, sys, time
+root = os.environ["GLASSINE_WORKSPACE"]
+record = json.load(open(glob.glob(root + "/../results/r-*.json")[0]))
+open(root + "/seen.jsonl", "a").write(json.dumps([o["state"] for o in record["payload"]["ops"]]) + "\\n")
+if "Hangs." in sys.argv:
+    time.sleep(30)
+print("ok")
+"""
+
+
+def test_each_op_is_on_disk_as_it_runs_and_one_with_no_answer_waits_for_a_look(tmp_path):
+    ops = [{"op": "add", "topic": "gpu/hang", "words": "One."}, {"op": "add", "topic": "gpu/hang", "words": "Hangs."},
+           {"op": "add", "topic": "gpu/hang", "words": "Three."}]
+    hubd, login, root, record = note_world(tmp_path, PEEKER, ops, write_timeout=0.5)
+    call(hubd, op="result.apply", token=login, id=record["id"])
+    seen = [json.loads(line) for line in (root / "seen.jsonl").read_text().splitlines()]
+    assert seen == [["running", "pending", "pending"], ["applied", "running", "pending"]]  # each on disk before the next runs
+    record = hubd.results.get(record["id"])
+    assert [o["state"] for o in record["payload"]["ops"]] == ["applied", "unknown", "pending"]  # it may have committed
+    assert record["state"] == "pending" and "Operation 2 may or may not be in the notes" in record["note"]
+    for indexes in (None, [1]):  # the rest may run, but not the unknown one, by all or by name
+        reply = call(hubd, op="result.apply", token=login, id=record["id"], **({"indexes": indexes} if indexes else {}))
+        assert indexes is None or "say first whether it is" in reply["error"]
+    assert len((root / "seen.jsonl").read_text().splitlines()) == 3  # only Three ran
+    assert "only a note operation whose outcome is unknown" in call(hubd, op="result.resolve", token=login, id=record["id"], index=0, found=True)["error"]
+    assert call(hubd, op="result.resolve", agent_token="full-token", id=record["id"], index=1, found=True)["denied"]
+    reply = call(hubd, op="result.resolve", token=login, id=record["id"], index=1, found=True)
+    assert reply["result"]["state"] == "applied" and reply["result"]["payload"]["ops"][1]["said"] == "You found it in the notes."
+
+
+def test_after_a_restart_the_op_that_was_running_is_unknown_and_what_finished_stays(tmp_path):
+    hubd, login, root, record = note_world(tmp_path)
+    hubd.results.claim(record["id"])
+    hubd.results.save_op(record["id"], 0, state="applied", said="ok")
+    hubd.results.save_op(record["id"], 1, state="running", said=None)
+    again = results.Results(tmp_path / "results").get(record["id"])
+    assert [o["state"] for o in again["payload"]["ops"]] == ["applied", "unknown", "pending"]
+    assert again["state"] == "pending" and again["note"] == results.NOTES_INTERRUPTED and "GitHub" not in again["note"]
+    hubd.results = results.Results(tmp_path / "results")
+    reply = call(hubd, op="result.resolve", token=login, id=record["id"], index=1, found=False)
+    assert reply["result"]["payload"]["ops"][1]["state"] == "pending"  # you looked: it can run again
+    call(hubd, op="result.apply", token=login, id=record["id"], indexes=[1])
+    assert calls(root)[-1][:2] == ["set", "--retract=c2"]
 
 
 def test_no_token_applies_ops(tmp_path):

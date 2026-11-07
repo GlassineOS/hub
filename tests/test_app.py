@@ -1300,6 +1300,9 @@ def test_notes_page_in_the_page():
     assert 'NO_REPO = ["knowledge", "notes"]' in script
     view = _component(script, "ResultView")
     assert 'r.type === "notes"' in view and "o.command" in view and "Apply this one" in view and "Nothing is deleted" in view
+    # one that may be in already runs again only once you've said it isn't there
+    assert 'answer("resolve", { index: n, found: true })' in view and 'answer("resolve", { index: n, found: false })' in view
+    assert 'o.state === "pending" || o.state === "failed"' in view
 
 
 def test_decision_tools_send_only_the_sessions_token(hubd, github):
@@ -1706,6 +1709,8 @@ def test_results_and_the_background_go_through_to_hubd_for_a_login():
     assert seen[-1] == {"op": "result.list", "token": "good", "type": "comment", "kept": True, "session": "s1", "after": None}
     assert client.post("/api/results/r-0123456789ab/apply", json={"indexes": [0]}, headers=ORIGIN).status_code == 200
     assert seen[-1] == {"op": "result.apply", "token": "good", "id": "r-0123456789ab", "indexes": [0]}
+    assert client.post("/api/results/r-0123456789ab/resolve", json={"index": 1, "found": False}, headers=ORIGIN).status_code == 200
+    assert seen[-1] == {"op": "result.resolve", "token": "good", "id": "r-0123456789ab", "index": 1, "found": False}
     assert client.post("/api/results/r-0123456789ab/post", json={}, headers=ORIGIN).status_code == 400
     assert client.post("/api/results/r-0123456789ab/dismiss", json={}).status_code == 403  # same origin only
     assert client.post("/api/new-work/0123456789ab/background", json={"on": True}, headers=ORIGIN).status_code == 200
