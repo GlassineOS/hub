@@ -60,9 +60,10 @@ COPIES_EVERY = 1800  # seconds between refreshes of the repository copies
 WORK_TOOL_OPS = {"work.offer": "plan_work", "work.suggest": "suggest_session", "work.submit": "submit_drafts", "work.handed": "new_work_drafts"}
 STEWARD = "steward"
 DIRECT_ORIGIN = {"launch": None, "from": None, "by": "you"}  # a session you started with the one click or the advanced form: no Launch record behind it
-RESULT_TOOL_OPS = {"result.submit": "submit_result"}  # By a session's own token, checked like WORK_TOOL_OPS
+RESULT_TOOL_OPS = {"result.submit": "submit_result", "result.report": "read_report"}  # By a session's own token, checked like WORK_TOOL_OPS
 ITEM_OBJECTS = ("issue", "pr", "run")  # what a Launch's covered items can be (005 FR-011)
-KIND_WORDS = {"issue": "an issue", "pr": "a pull request", "run": "a run", "repo": "a repository", "project": "the whole project"}
+KIND_WORDS = {"issue": "an issue", "pr": "a pull request", "run": "a run", "repo": "a repository", "project": "the whole project",
+              "knowledge": "a question"}
 _ITEM_REF_RE = re.compile(r"\.?[A-Za-z0-9_][A-Za-z0-9._-]{0,99}#[1-9][0-9]{0,14}")  # 15 digits, as feed.py takes: a run's number is 11 now
 REVIEW_EVENT = {"comment": "COMMENT", "request-changes": "REQUEST_CHANGES", "approve": "APPROVE"}
 PLANNER_CHOOSES = ("effort", "brief", "docs_query", "docs", "steps")  # the model it suggests is planner_pick: you choose on its plan
@@ -909,7 +910,7 @@ class Hubd:
 
     def _tell_steward(self, record: dict, text: str) -> None:
         if record["by"] == STEWARD or record["driver"] == "steward":
-            self.agents.tell(STEWARD, f"New work {record['id']} ({record['title']}, {record['repo']}): {text}")
+            self.agents.tell(STEWARD, f"New work {record['id']} ({record['title']}, {record['repo'] or 'no repository'}): {text}")
 
     async def work_tool(self, op: str, req: dict) -> dict:
         """By a session's own token. A full session may suggest work; it doesn't plan or read drafts."""
@@ -1076,7 +1077,7 @@ class Hubd:
                     raise newwork.WorkError("it's still running: cancel it first")
                 with_it = sum(d["state"] == "handed" for d in record["drafts"])
                 if with_it:  # whoever drove this, those are the Steward's to hear about
-                    self.agents.tell(STEWARD, f"New work {record['id']} ({record['title']}, {record['repo']}): the person set this aside. The {with_it} draft(s) they handed you are still yours.")
+                    self.agents.tell(STEWARD, f"New work {record['id']} ({record['title']}, {record['repo'] or 'no repository'}): the person set this aside. The {with_it} draft(s) they handed you are still yours.")
                 else:
                     self._tell_steward(record, "the person set this aside.")
                 return {"ok": True, "work": self.work.move(record, "dismissed")}
@@ -1151,6 +1152,8 @@ class Hubd:
         tool = RESULT_TOOL_OPS[op]
         if not self.results or not scope or not scope["session"] or tool not in (scope.get("tools") or ()):
             return {"ok": False, "refused": True, "error": f"this session can't use {tool}"}
+        if op == "result.report":
+            return self._read_report(scope, req.get("id"))
         name = scope["session"]
         agent = self.agents.describe(name)
         action = self.agents.library.actions.get(agent["action"]) if agent else None
@@ -1168,6 +1171,20 @@ class Hubd:
             self.work.move(launch, "done" if launch["state"] in ("running", "started", "failed") else launch["state"], result=record["id"], error=None)
             self._tell_steward(launch, f"the session handed in its {record['type']} result. It waits for the person.")
         return {"ok": True, "id": record["id"]}
+
+    def _read_report(self, scope: dict, result_id) -> dict:
+        """read_report (008 FR-008): a kept report, to a session the person started with it pinned, and no other report. A
+        report can hold private text from the whole project, so it goes only where the person sent it, and Launch carries
+        its id, never its text: an action switched to one that posts has nothing of it."""
+        if not isinstance(result_id, str) or result_id not in scope.get("reports", ()):
+            return {"ok": False, "refused": True, "error": "read_report reads only a report pinned when this session was started"}
+        try:
+            record = self.results.get(result_id)
+        except results.ResultError as e:
+            return {"ok": False, "error": str(e)}
+        if record["type"] != "report" or not record["kept"]:
+            return {"ok": False, "error": "that report isn't kept in Knowledge any more"}
+        return {"ok": True, "report": {"id": record["id"], "made": record["made"], **record["payload"]}}
 
     def _note_pr_results(self, sessions: list[dict]) -> None:
         """005 FR-016: a session that ends in a pull request has it as its result. On an issue, once its branch has one; on a

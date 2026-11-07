@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 import tomllib
+import types
 import urllib.request
 from pathlib import Path
 
@@ -2306,3 +2307,232 @@ def test_roadmap_page_static_parts():
     assert "`${p.done} of ${p.total} done`" in _component(script, "Progress")
     assert "options.find((o) => o.mapped)" in _component(script, "Roadmap"), "a move never picks an option with no column"
     assert 'road=${kind === "issue" && query.road === "1"}' in script and 'planIssues(repo, number, "Work")' in _component(script, "LaunchRow")
+
+
+# --- Knowledge: both indexes in one search (008) ---------------------------------------------------------
+from hub import knowledge  # noqa: E402
+
+
+class KnowledgeHub:
+    """The two services Knowledge reads: the overview (what the host login sees) and the work store's search."""
+    def __init__(self, rows=None, fail=None):
+        self.rows = rows if rows is not None else [
+            {"kind": "issue", "repo": "hub", "number": 3, "title": "LUT version 3 ships", "state": "OPEN", "url": "u3",
+             "passage": "Why LUT version 3: the panel needs it", "meaning": 0.62},
+            {"kind": "pr", "repo": "secret", "number": 9, "title": "LUT", "state": "OPEN", "url": "u9", "passage": "x", "meaning": 0.9}]
+        self.fail = fail
+        self.asked = []
+
+    async def overview(self, fresh=False):
+        return {"groups": [{"repos": [{"name": "hub"}, {"name": "boot"}]}]}
+
+    async def work_search(self, query, kind=None, repo=None, state=None, k=8):
+        self.asked.append((query, repo, state))
+        self.k = k
+        if self.fail:
+            raise BadRequest(self.fail)
+        words = [w for w in re.findall(r"\w+", query.lower()) if len(w) > 1]
+        share = lambda r: sum(w in f"{r['title']}\n{r.get('full', r['passage'])}".lower() for w in words) / max(len(words), 1)
+        return {"results": [{**r, "words": r.get("words", round(share(r), 3))} for r in self.rows if not repo or r["repo"] == repo]}
+
+    def work_status(self):
+        return {"enabled": True, "ready": True, "running": False, "error": None, "synced_at": 1.0,
+                "counts": {"issue": 4, "pr": 2, "run": 30, "passages": 90}}
+
+
+class KnowledgeDocs:
+    """The docs search as it scores: score fuses ranks (2/61 at best), meaning is the cosine."""
+    def __init__(self, fail=False, meaning=0.55, text="The LUT version is 3."):
+        self.fail, self.meaning, self.text = fail, meaning, text
+        self.exact_asked = 0
+
+    def _rows(self):
+        return [{"title": "Display", "heading": "LUT", "score": 0.0325, "meaning": self.meaning, "url": "https://docs.glassine.org/d#lut", "text": self.text}]
+
+    async def search(self, q, k=5):
+        if self.fail:
+            raise RuntimeError("no index here")
+        return {"results": self._rows()}
+
+    async def exact(self, q, keep, k=8):
+        self.exact_asked += 1
+        return {"results": [r for r in self._rows() if keep(r)]}
+
+    async def status(self):
+        if self.fail:
+            raise RuntimeError("no index here")
+        return {"state": "stale", "chunks": 12, "latest_run": {"createdAt": "2026-11-01T00:00:00Z"}}
+
+
+def test_knowledge_merges_both_domains_and_marks_the_words():
+    found = asyncio.run(knowledge.search(KnowledgeDocs(), KnowledgeHub(), "LUT version"))
+    assert [r["domain"] for r in found["results"]] == ["work", "docs"]  # best score first
+    work = found["results"][0]
+    assert [work["snippet"][a:b] for a, b in work["marks"]] == ["LUT", "version"]
+    assert [work["title"][a:b] for a, b in work["title_marks"]] == ["LUT", "version"]
+    assert found["good"] is True and all(d["ok"] for d in found["domains"])
+
+
+def test_knowledge_shows_nothing_from_a_repository_the_login_cant_read():
+    found = asyncio.run(knowledge.search(KnowledgeDocs(), KnowledgeHub(), "LUT", domains="work"))
+    assert {r["repo"] for r in found["results"]} == {"hub"}  # not secret, which the overview doesn't list
+    with pytest.raises(BadRequest, match="isn't a repository the hub can read"):
+        asyncio.run(knowledge.search(KnowledgeDocs(), KnowledgeHub(), "LUT", repos="secret"))
+
+
+def test_knowledge_refuses_a_planned_or_unknown_domain():
+    for domains, words in (("code", "planned"), ("docs,shells", "not a domain"), ("docs,docs", "once")):
+        with pytest.raises(BadRequest, match=words):
+            asyncio.run(knowledge.search(KnowledgeDocs(), KnowledgeHub(), "LUT", domains=domains))
+
+
+def test_knowledge_one_failed_domain_leaves_the_other():
+    found = asyncio.run(knowledge.search(KnowledgeDocs(fail=True), KnowledgeHub(), "LUT"))
+    assert [d["ok"] for d in found["domains"]] == [False, True] and "no index here" in found["domains"][0]["error"]
+    assert found["results"] and all(r["domain"] == "work" for r in found["results"])
+
+
+def test_knowledge_repositories_and_open_only_narrow_the_work_items():
+    hub = KnowledgeHub()
+    asyncio.run(knowledge.search(KnowledgeDocs(), hub, "LUT", domains="work", repos="hub,boot", open_only=True))
+    assert hub.asked == [("LUT", "hub", "open"), ("LUT", "boot", "open")]
+
+
+def test_knowledge_no_good_hits_offers_research():
+    weak = KnowledgeHub(rows=[{"kind": "issue", "repo": "hub", "number": 1, "title": "t", "state": "OPEN", "url": "u", "passage": "p",
+                               "meaning": 0.1, "words": 0.0}])
+    assert asyncio.run(knowledge.search(KnowledgeDocs(meaning=0.1), weak, "why LUT version 3"))["good"] is False
+    exact = asyncio.run(knowledge.search(KnowledgeDocs(), KnowledgeHub(), "panel needs", mode="exact"))
+    assert exact["good"] is True and [r["number"] for r in exact["results"]] == [3]  # only the hit with every word
+    assert asyncio.run(knowledge.search(KnowledgeDocs(), KnowledgeHub(), "nowhere words", mode="exact"))["good"] is False
+    unembedded = KnowledgeHub(rows=[{"kind": "issue", "repo": "hub", "number": 1, "title": "t", "state": "OPEN", "url": "u", "passage": "p",
+                                     "meaning": None, "words": 0.667}])
+    assert asyncio.run(knowledge.search(KnowledgeDocs(), unembedded, "why LUT version 3", domains="work"))["good"] is False
+
+
+def test_knowledge_needs_words_within_limits():
+    for q, words in (("", "needs words"), ("x" * 501, "at most")):
+        with pytest.raises(BadRequest, match=words):
+            asyncio.run(knowledge.search(KnowledgeDocs(), KnowledgeHub(), q))
+    with pytest.raises(BadRequest, match="mode"):
+        asyncio.run(knowledge.search(KnowledgeDocs(), KnowledgeHub(), "LUT", mode="fuzzy"))
+
+
+def test_knowledge_indexes_say_state_and_age():
+    rows = {r["id"]: r for r in asyncio.run(knowledge.indexes(KnowledgeDocs(), KnowledgeHub()))}
+    assert (rows["docs"]["state"], rows["docs"]["stale"], rows["docs"]["action"], rows["docs"]["can_act"]) == ("ready", True, "reindex", True)
+    assert (rows["work"]["state"], rows["work"]["size"], rows["work"]["action"]) == ("ready", 6, "sync")  # issues and PRs, not runs
+    assert (rows["code"]["state"], rows["code"]["action"]) == ("planned", None)
+    failed = {r["id"]: r for r in asyncio.run(knowledge.indexes(KnowledgeDocs(fail=True), KnowledgeHub()))}
+    assert failed["docs"]["state"] == "failed" and "no index here" in failed["docs"]["says"]
+
+
+def test_knowledge_routes_need_a_login(client):
+    assert client.get("/api/knowledge/search?q=x").status_code == 401
+    assert client.get("/api/knowledge/indexes").status_code == 401
+
+
+def test_knowledge_view_in_the_page():
+    script = _app_js()
+    view = _component(script, "Knowledge")
+    for text in ("Research this…", "Open only", "Try:", "Exact words", "KN_LAYOUTS", "KnowledgeResult", "ResearchFlyout"):
+        assert text in view, text
+    assert "Pin as context" in _component(script, "KnowledgeResult") and "SessionChip" in _component(script, "KnowledgeResult")
+    assert 'KN_PLANNED = ["code"]' in script and "disabled aria-pressed=\"false\" title=\"Not indexed yet\"" in script
+    flyout = _component(script, "ResearchFlyout")
+    assert 'action: "knowledge-research"' in flyout and "Plan a research session…" in flyout and "<${KnowledgeReports} />" in flyout
+    assert 'kept: "1"' in _component(script, "KnowledgeReports") and "Follow up…" in _component(script, "KnowledgeReports")
+    assert 'pins: [{ kind: "report", label: r.id }]' in _component(script, "KnowledgeReports")  # by its id, never its text
+    assert "Run docs CI now" in _component(script, "KnowledgeIndexes") and "Ingest now" in _component(script, "KnowledgeIndexes")
+    assert 'NO_REPO = ["knowledge"]' in script and "noRepo" in _component(script, "LaunchBrief")
+
+
+def test_knowledge_judges_docs_by_their_cosine_not_the_fused_rank():
+    # The docs' own score fuses ranks and never passes 2/61; the cosine is what clears GOOD_SCORE (008 FR-006).
+    found = asyncio.run(knowledge.search(KnowledgeDocs(meaning=0.55), KnowledgeHub(), "LUT version", domains="docs"))
+    assert found["good"] is True and found["results"][0]["score"] == 0.55 and found["results"][0]["by"] == "meaning"
+    weak = KnowledgeHub(rows=[{"kind": "issue", "repo": "hub", "number": 1, "title": "LUT", "state": "OPEN", "url": "u", "passage": "p", "meaning": 0.4}])
+    both = asyncio.run(knowledge.search(KnowledgeDocs(meaning=0.55), weak, "LUT version"))
+    assert [r["domain"] for r in both["results"]] == ["docs", "work"]  # one scale for both domains
+    assert asyncio.run(knowledge.search(KnowledgeDocs(meaning=0.2), KnowledgeHub(rows=[]), "LUT version", domains="docs"))["good"] is False
+
+
+def test_knowledge_a_hit_found_only_by_words_ranks_below_any_meaning_score():
+    rows = [{"kind": "issue", "repo": "hub", "number": 1, "title": "LUT version", "state": "OPEN", "url": "u1", "passage": "p", "meaning": None},
+            {"kind": "issue", "repo": "hub", "number": 2, "title": "panel", "state": "OPEN", "url": "u2", "passage": "p", "meaning": 0.35}]
+    found = asyncio.run(knowledge.search(KnowledgeDocs(meaning=None, text="The LUT table"), KnowledgeHub(rows=rows), "LUT version"))
+    assert [(r["domain"], r.get("number")) for r in found["results"]] == [("work", 2), ("work", 1), ("docs", None)]
+    assert found["results"][1]["score"] is None and found["results"][1]["words"] == 1.0 and found["results"][1]["by"] == "words"
+
+
+def test_knowledge_marks_count_utf16_units_as_the_page_slices():
+    text = "🤖 Generated with Claude Code; the LUT version is 3"
+    spans = knowledge.marks(text, "LUT version")
+    utf16 = text.encode("utf-16-le")
+    assert [utf16[2 * a:2 * b].decode("utf-16-le") for a, b in spans] == ["LUT", "version"]
+    assert knowledge.marks("the LUT version", "LUT version") == [[4, 7], [8, 15]]  # plain text: unchanged
+
+
+def test_knowledge_exact_words_on_work_use_the_whole_passage():
+    rows = [{"kind": "issue", "repo": "hub", "number": 1, "title": "t", "state": "OPEN", "url": "u1", "passage": "the start",
+             "full": "the start, and far below it the panel needs a waveform", "meaning": 0.2},
+            {"kind": "issue", "repo": "hub", "number": 2, "title": "t", "state": "OPEN", "url": "u2", "passage": "panel", "meaning": 0.9}]
+    hub = KnowledgeHub(rows=rows)
+    found = asyncio.run(knowledge.search(KnowledgeDocs(), hub, "panel waveform", mode="exact", domains="work"))
+    assert [r["number"] for r in found["results"]] == [1] and hub.k == knowledge.WORK_EXACT_K
+
+
+def test_knowledge_exact_words_on_docs_search_every_passage():
+    docs = KnowledgeDocs()
+    found = asyncio.run(knowledge.search(docs, KnowledgeHub(), "version is", mode="exact", domains="docs"))
+    assert docs.exact_asked == 1 and [r["title"] for r in found["results"]] == ["Display › LUT"]
+
+
+def test_knowledge_exact_needs_a_usable_word():
+    for q in ("C", "?", "a ?"):
+        with pytest.raises(BadRequest, match="two letters"):
+            asyncio.run(knowledge.search(KnowledgeDocs(), KnowledgeHub(), q, mode="exact"))
+    assert asyncio.run(knowledge.search(KnowledgeDocs(), KnowledgeHub(), "C"))["query"] == "C"  # by meaning it can still be asked
+
+
+class ExactSearcher(FakeSearcher):
+    """A docs index whose ranked search finds one passage, though two have every word."""
+    class site(FakeSearcher.site):
+        @staticmethod
+        def url(u):
+            return f"https://docs.glassine.org/{u}"
+
+    chunks = [{"title": "A", "heading": "a", "url": "a", "text": "LUT version table"},
+              {"title": "B", "heading": "b", "url": "b", "text": "no match here"},
+              {"title": "C", "heading": "c", "url": "c", "text": "the version of the LUT"}]
+
+    def search(self, q, k):
+        hit = types.SimpleNamespace(rank=1, score=0.0328, vector_score=0.61, url="https://docs.glassine.org/a", chunk=self.chunks[0])
+        return [hit], 0.001
+
+
+def test_docsearch_exact_finds_what_the_ranked_search_leaves_out(github):
+    docs = DocSearch(github, loader=lambda: ExactSearcher())
+    keep = lambda r: "lut" in r["text"].lower() and "version" in r["text"].lower()
+    found = asyncio.run(docs.exact("LUT version", keep, 8))["results"]
+    assert [(r["title"], r["meaning"]) for r in found] == [("A", 0.61), ("C", None)]  # ranked first, then the rest, once each
+
+
+def test_read_report_is_listed_only_for_a_research_session_and_goes_to_hubd_under_its_token(github, hubd):
+    from hubd.agents import Library
+    library = Library(Path(__file__).parents[1] / "agents")
+    assert "read_report" in listed_for({"session": "s", "tools": library.actions["knowledge-research"]["hub_tools"], "persona": "researcher"})
+    others = [a for a, spec in library.actions.items() if "read_report" in spec["hub_tools"]]
+    assert others == ["knowledge-research"]
+    listed = {t.name: t for t in asyncio.run(tools.build(GitHub(Hubd("/nonexistent"), CONFIG), FakeDocs()).list_tools())}
+    assert listed["read_report"].annotations.read_only_hint is True
+
+    async def call(**request):
+        assert request == {"op": "result.report", "agent_token": "session-token", "id": "r-0123456789ab"}
+        return {"ok": True, "report": {"id": "r-0123456789ab", "question": "q", "answer": "a"}}
+    hubd.call = call
+
+    async def go():
+        hubd_client.CALLER.set("session-token")
+        return await github.read_report("r-0123456789ab")
+    assert asyncio.run(go())["answer"] == "a"

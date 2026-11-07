@@ -117,7 +117,8 @@ def test_every_persona_has_a_family_and_every_action_a_result():
     assert {v: i for (_o, v), i in verbs.items() if i != "run-fix"} == {"review": "pr-review", "address": "pr-address-review", "fix": "pr-fix-checks",
                      "implement": "issue-implement", "triage": "issue-triage", "investigate": "run-diagnose",
                      "issue": "new-issue", "sec": "new-security-audit", "arch": "new-architecture-audit",
-                     "road": "new-roadmap-item", "docs": "new-docs-sweep", "deps": "new-dependency-review"}
+                     "road": "new-roadmap-item", "docs": "new-docs-sweep", "deps": "new-dependency-review",
+                     "research": "knowledge-research"}
     assert verbs[("run", "fix")] == "run-fix"  # fix on a run, beside fix on a pull request
     # The rest stay in the library, under "More…". Those that post or open a PR say so.
     handed = {"pr-security-audit": "comment", "issue-docs": "pr"}
@@ -1343,7 +1344,7 @@ def test_a_session_token_is_its_own_and_ends_with_it(tmp_path, remote):
     assert token != "SECRET" and token not in (directory / "run.sh").read_text()
     assert f'cat {directory / "tool-token"}' in (directory / "run.sh").read_text()
     instance = a.session_id_of(name)
-    assert instance and a.scope(token) == {"session": name, "instance": instance, "tools": good()["hub_tools"], "persona": good()["persona"], "all_repos": False, "asks_first": []}
+    assert instance and a.scope(token) == {"session": name, "instance": instance, "tools": good()["hub_tools"], "persona": good()["persona"], "all_repos": False, "asks_first": [], "reports": []}
     assert a.scope("nope") is None and a.scope(None) is None
     # a restarted hubd knows it again
     again = agents(tmp_path, clone_base=remote)
@@ -1542,6 +1543,7 @@ PINS = [{"kind": "ref", "label": "hub#44"}, {"kind": "text", "label": "Panel ran
     {"pins": [{"kind": "secret", "label": "x"}]}, {"pins": [{"kind": "ref", "label": ""}]},
     {"pins": [{"kind": "ref", "label": "x" * 1001}]}, {"pins": [{"kind": "ref", "label": "x", "more": 1}]},
     {"pins": [{"kind": "ref", "label": str(i)} for i in range(13)]},
+    {"pins": [{"kind": "report", "label": "the whole report text"}]}, {"pins": [{"kind": "report", "label": "r-0123456789AB"}]},
 ])
 def test_notes_and_pins_are_checked(over):
     with pytest.raises(AgentError):
@@ -3140,3 +3142,56 @@ def test_plan_steps_reach_the_prompt_below_the_planners_banner(tmp_path):
         with pytest.raises(AgentError, match="steps"):
             validate(LIBRARY, {**good(), "steps": bad})
     assert validate(LIBRARY, good())["steps"] == []
+
+
+# --- Knowledge's research action: about a question, not a repository (008 FR-007) ---------------------
+def test_research_needs_no_repository_and_refuses_one(tmp_path):
+    a = steward(tmp_path)
+    config = a.defaults("knowledge-research", None, None)
+    assert config["repo"] is None and config["number"] is None and config["covers"] == []
+    with pytest.raises(AgentError, match="isn't about one"):
+        validate(LIBRARY, {**config, "repo": "boot"})
+    with pytest.raises(AgentError, match="isn't about items"):
+        validate(LIBRARY, {**config, "covers": [{"repo": "boot", "number": 1}]})
+
+
+def test_research_reads_the_whole_project_and_posts_nothing(tmp_path):
+    a = steward(tmp_path)
+    started = asyncio.run(a.start(a.defaults("knowledge-research", None, None)))
+    scope = a.scope((a.sessions / started["name"] / "tool-token").read_text().strip())
+    assert scope["all_repos"] is True and "code_search" in scope["tools"] and scope["asks_first"] == []
+    assert not {"create_issue", "comment_issue", "comment_pr", "review_pr", "plan_work", "message_session"} & set(scope["tools"])
+    action = LIBRARY.action("knowledge-research")
+    assert (action["object"], action["result"], action["checkout"], action.get("access")) == ("knowledge", "report", False, None)
+    assert "submit_result" in action["hub_tools"] and set(action["tools"]) <= agents_module.READING_TOOLS
+    assert set(action["hub_tools"]) - {"submit_result"} <= agents_module.READS_ONLY
+
+
+def test_research_plans_without_a_repository(tmp_path):
+    a = agents(tmp_path, planned(persona="researcher", hub_tools=["docs_search", "submit_result"], tools=["AskUserQuestion"]))
+    config = asyncio.run(a.plan("knowledge-research", None, None, notes="Question: why LUT version 3"))["config"]
+    assert config["repo"] is None and config["notes"] == "Question: why LUT version 3"
+    args = (tmp_path / "args").read_text()
+    assert "GlassineOS/None" not in args and "mcp__glassine-hub__docs_search" in args
+
+
+def test_research_starts_with_no_checkout_under_its_own_name(tmp_path):
+    a = steward(tmp_path)
+    started = asyncio.run(a.start(a.defaults("knowledge-research", None, None)))
+    assert started["name"] == "knowledge-research" and "None" not in started["name"]
+    assert not (a.work / started["name"]).exists()
+
+
+def test_a_session_cant_spawn_research():
+    with pytest.raises(AgentError, match="plan_work"):
+        Agents.check_spawn(type("A", (), {"library": LIBRARY})(), {"action": "knowledge-research"})
+
+
+def test_a_report_pin_is_an_id_and_its_session_alone_may_read_it():
+    """008 FR-008: Follow up pins a kept report by its id; the session's scope names it, so read_report gives it that one."""
+    from hubd.agents import _session_scope
+    pins = [{"kind": "report", "label": "r-0123456789ab"}, {"kind": "text", "label": "r-ffffffffffff"}]
+    validate(LIBRARY, good(pins=pins))
+    config = {**good(), "pins": pins}
+    assert _session_scope("s", config, False)["reports"] == ["r-0123456789ab"]  # a text pin that looks like an id isn't one
+    assert _session_scope("s", good(), False)["reports"] == []

@@ -1,0 +1,15 @@
+order = 1
+ceiling = "Read-only. Hands in a report; nothing is posted."
+object = "knowledge"
+verb = "research"
+result = "report"
+title = "Research a question"
+summary = "Searches the docs, the work items and the code for an answer, and hands in a report you can keep."
+all_repos = true
+personas = ["researcher"]
+prompt = "knowledge-research"
+models = ["sonnet", "opus", "haiku"]
+efforts = ["high", "xhigh", "medium"]
+tools = ["AskUserQuestion"]
+hub_tools = ["docs_search", "work_search", "list_repo_files", "read_repo_file", "map_overview", "map_definition", "map_usages", "map_string", "code_search", "get_issue", "list_issues", "get_pr", "list_prs", "read_report", "submit_result"]
+checkout = false

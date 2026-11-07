@@ -911,7 +911,7 @@ const STEER_CHIPS = {
   issue: ["only propose, don't apply", "look for duplicates", "keep the change small"],
   run: ["compare with earlier runs", "don't touch the runner image"],
 };
-const PIN_WORDS = { thread: "Review thread", ref: "Issue / PR", file: "Repo file", docs: "Docs page", url: "Link", text: "Text snippet" };
+const PIN_WORDS = { thread: "Review thread", ref: "Issue / PR", file: "Repo file", docs: "Docs page", url: "Link", text: "Text snippet", report: "Kept report" };
 const PIN_HINTS = { ref: "hub#44", file: "kernel:drivers/gpu/drm/epd/epd_lut.c", docs: "docs path", text: "Something the agent should know" };
 const pinKind = (v) => (/^https?:/.test(v) ? "url" : /#\d/.test(v) ? "ref" : v.indexOf(":") > 0 ? "file" : "docs");
 
@@ -1866,62 +1866,182 @@ function WorkLists({ query, asks }) {
   </main>`;
 }
 
-// --- docs ----------------------------------------------------------------------------------
-const INDEX_WORD = {
-  current: ["dim", "Index matches the docs head."],
-  building: ["dim", "The docs CI is publishing the head."],
-  stale: ["mark", "Head moved and no docs run is active."],
-  failed: ["bad", "The docs CI failed; search still uses the published index."],
-};
+// --- Knowledge -----------------------------------------------------------------------------------
+// 008 FR-002: the three domains; Code is shown, and can't be chosen until it is indexed.
+const KN_DOMAINS = [["docs", "Docs"], ["work", "Work items"], ["code", "Code"]];
+const KN_PLANNED = ["code"];
+const KN_TRY = ["how do I get back into recovery?", "why LUT version 3", "which repositories does the Steward read?", "e-ink refresh modes"];
+const KN_KIND = { docs: "Docs page", issue: "Issue", pr: "Pull request" };
+const KN_INDEX = { docs: "Docs", work: "Work items", code: "Code" };
+const KN_STATE = { ready: "", indexing: "dim", planned: "dim", failed: "bad" };
+const KN_LAYOUTS = [["ranked", "Ranked"], ["grouped", "By repository"]];
+const KN_DOCS_SITE = "docs.glassine.org";
 
-function urlPath(url) {
-  try { const u = new URL(url); return u.pathname.replace(/^\//, "") + u.hash; } catch (e) { return url; }
+// What Knowledge searched for, from the address: a reload or a link gives the same page, and the Steward's
+// panel can see the chosen repositories (010 FR-004). Pins and the flyout stay on the page.
+function readKnowledge(q) {
+  const list = (v) => (v || "").split(",").filter(Boolean);
+  const domains = list(q.domains).filter((d) => KN_DOMAINS.some(([id]) => id === d) && !KN_PLANNED.includes(d));
+  return { q: (q.q || "").slice(0, 500), mode: q.mode === "exact" ? "exact" : "meaning", domains: domains.length ? domains : ["docs", "work"],
+    repos: list(q.repos).filter((r) => /^[A-Za-z0-9._-]+$/.test(r)).slice(0, 10), open: q.open === "1", layout: q.layout === "grouped" ? "grouped" : "ranked" };
+}
+const knowledgeHash = (k) => hash("knowledge", { q: k.q, mode: k.mode === "exact" ? "exact" : undefined,
+  domains: k.domains.join(",") === "docs,work" ? undefined : k.domains.join(","), repos: k.repos.join(","), open: k.open ? "1" : undefined,
+  layout: k.layout === "grouped" ? "grouped" : undefined });
+
+// 008 FR-004: the matched words marked, from hubd's own spans, never by HTML in the text.
+function Marked({ text, marks }) {
+  const parts = [];
+  let at = 0;
+  for (const [a, b] of marks || []) {
+    if (a < at || b > text.length) continue;
+    if (a > at) parts.push(text.slice(at, a));
+    parts.push(html`<mark>${text.slice(a, b)}</mark>`);
+    at = b;
+  }
+  parts.push(text.slice(at));
+  return parts;
 }
 
-// Knowledge: the docs search, until the Knowledge view of PR 15 replaces it (001 FR-001).
-function Knowledge() {
-  const status = useLoad(() => api("docs/status"), [], 60000);
-  const [q, setQ] = useState("");
-  const [results, setResults] = useState(null);
-  const search = useAct();
-  const reindex = useAct(status.reload);
-  const s = status.data;
-  const top = results && results.results.length ? results.results[0].score || 1 : 1;
-  const auto = !s ? "" : s.auto.kind === "waiting" ? `Starts the docs CI in ${Math.ceil(s.auto.seconds / 60)} min · once for this commit`
-    : s.auto.kind === "done" ? "Already started once for this commit: run it by hand." : s.state === "failed" ? "Run it by hand." : "Nothing to do.";
-  const run = s && s.latest_run;
-  return html`<main class="page"><div class="columns">
-    <section class="wide stack" style="gap: 20px" aria-labelledby="h-search">
-      <div class="stack tight"><${Eyebrow} soft>docs.glassine.org · search by meaning<//><h1 id="h-search">Knowledge</h1></div>
-      <form role="search" class="row" style="gap: 12px" onSubmit=${(e) => { e.preventDefault(); search.run(async () => setResults(await api(`docs/search${params({ q })}`))); }}>
-        <div class="searchbox big" style="flex: 1 1 360px"><${SearchIcon} /><label class="sr" for="docs-q">Search the docs</label>
-          <input id="docs-q" type="search" placeholder="Ask in plain words: how do I get back into recovery?" value=${q} onInput=${(e) => setQ(e.target.value)} /></div>
-        <button class="primary" style="min-height: 52px; padding: 0 20px" disabled=${search.busy || !q.trim()}>Search</button></form>
-      <${Err} text=${search.error} />
-      ${search.busy && html`<p class="soft small">Searching… the first search downloads the model once.</p>`}
-      ${results && html`<span class="small soft">${count(results.results.length, "passage")} · searched the index at <span class="mono">${(results.commit || "").slice(0, 7)}</span></span>
-        <ol>${results.results.map((h) => html`<li class="hit">
-          <div class="row" style="gap: 4px 12px; align-items: baseline"><a href=${h.url} target="_blank" rel="noreferrer noopener">${h.title}${h.heading && h.heading !== h.title ? ` › ${h.heading}` : ""}</a>
-            <span class="mono soft" style="font-size: 12.5px">${urlPath(h.url)}</span></div>
-          <p>${h.text.length > 400 ? `${h.text.slice(0, 400)}…` : h.text}</p>
-          ${h.score != null && html`<div class="match"><span class="bar ink"><i style="width: ${Math.round(h.score / top * 100)}%"></i></span>match ${(h.score / top).toFixed(2)}</div>`}
-        </li>`)}</ol>
-        ${!results.results.length && html`<p class="soft">Nothing found. That doesn't prove it isn't documented.</p>`}`}
-    </section>
-    <aside class="aside panel" aria-labelledby="h-index" style="gap: 18px; padding: 24px">
-      <h2 id="h-index" class="eyebrow">Search index</h2>
-      <${Err} text=${status.error || reindex.error} />
-      ${s && html`<div class="row"><span class="badge ${INDEX_WORD[s.state][0]}">${s.state}</span><span class="grow" style="font-weight: 500">${INDEX_WORD[s.state][1]}</span></div>
-        <ol aria-label="Index states" class="steps">${["current", "building", "stale", "failed"].map((n) => html`<li aria-current=${n === s.state ? "step" : "false"}>${n}</li>`)}</ol>
-        <dl class="defs"><dt>Published</dt><dd class="mono">${s.published.slice(0, 7)}</dd>
-          <dt>Docs head</dt><dd class="mono">${s.head.slice(0, 7)}</dd>
-          <dt>Size</dt><dd>${s.chunks} passages · ${s.profile}</dd>
-          <dt>CI</dt><dd>${run ? html`<a href=${run.url} target="_blank" rel="noreferrer noopener">${run.conclusion || run.status}</a>, ${ago(run.createdAt)}` : "no recent run"}</dd>
-          <dt>Auto</dt><dd>${auto}</dd></dl>
-        <div class="row"><button class="primary" disabled=${reindex.busy || s.state === "current" || s.state === "building"} onClick=${() => reindex.run(() => post("docs/reindex"))}>Run docs CI now</button>
-          <a class="button" href=${hash("work", { tab: "actions", repo: "docs" })}>Docs runs</a></div>
-        <p class="small soft" style="border-top: 1px dotted var(--ink); padding-top: 14px">Agents query the same index through the tool server, so results here match what a session sees.</p>`}
-    </aside></div></main>`;
+const pinOf = (r) => (r.domain === "docs" ? { kind: "docs", label: r.link } : { kind: "ref", label: `${r.repo}#${r.number}` });
+
+function KnowledgeResult({ r, sessions, pinned, onPin }) {
+  const item = r.domain === "work" ? { kind: r.kind, repo: r.repo, number: r.number } : null;
+  const on = item ? sessionsOn(item, sessions) : [];
+  const open = item ? itemHref(item) : r.link;
+  return html`<li class="hit kn-hit">
+    <div class="row" style="gap: 4px 10px; align-items: baseline">
+      <span class="label" style="padding-right: 8px">${KN_KIND[r.kind] || r.kind}</span>
+      ${item ? html`<${ItemPill} ...${item} state=${pillState(r.kind, r)} href=${open} />` : html`<span class="mono soft small">${KN_DOCS_SITE}</span>`}
+      <b style="flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere"><${Marked} text=${r.title} marks=${r.title_marks} /></b>
+      ${r.score == null
+        ? html`<span class="small soft mono" title="Found by its words alone: no meaning score to show">words ${Math.round((r.words || 0) * 100)}%</span>`
+        : html`<span class="small soft mono" title="How close it is in meaning (cosine)">score ${r.score.toFixed(2)}</span>`}</div>
+    ${r.snippet && html`<p style="overflow-wrap: anywhere"><${Marked} text=${r.snippet} marks=${r.marks} /></p>`}
+    <div class="row" style="gap: 6px 10px">
+      ${on.map((s) => html`<${SessionChip} key=${s.name} session=${s} href=${open} />`)}
+      ${item ? html`<a class="button" href=${open}>Open</a>` : html`<a class="button" href=${r.link} target="_blank" rel="noreferrer noopener">Open</a>`}
+      <button aria-pressed=${pinned ? "true" : "false"} onClick=${onPin}>${pinned ? "Pinned ✓" : "Pin as context"}</button></div></li>`;
+}
+
+// 008 FR-009: each index with its state and age, and what starts it again.
+function KnowledgeIndexes() {
+  const { data, error, reload } = useLoad(() => api("knowledge/indexes"), [], 60000);
+  const act = useAct(reload);
+  const press = { reindex: ["Run docs CI now", () => post("docs/reindex")], sync: ["Ingest now", () => post("work/sync")] };
+  return html`<section class="stack" style="gap: 8px" aria-labelledby="kn-idx"><h3 id="kn-idx" class="eyebrow">Indexes</h3>
+    <${Err} text=${error || act.error} />
+    ${data && html`<ul class="stack" style="gap: 10px">${data.map((i) => html`<li class="stack tight">
+      <div class="row" style="gap: 8px"><b>${KN_INDEX[i.id] || i.id}</b><span class="badge ${KN_STATE[i.state] || ""}">${i.state}${i.stale ? " · stale" : ""}</span>
+        ${i.age && html`<span class="small soft">${ago(i.age)}</span>`}${i.size != null && html`<span class="small soft">${i.size.toLocaleString()} ${i.id === "docs" ? "passages" : "issues and pull requests"}</span>`}</div>
+      <span class="small">${i.says}</span>
+      ${press[i.action] && html`<button style="align-self: flex-start" disabled=${act.busy || !i.can_act} title=${i.can_act ? "" : "Nothing to do now"}
+        onClick=${() => act.run(press[i.action][1])}>${press[i.action][0]}</button>`}</li>`)}</ul>`}</section>`;
+}
+
+// 008 FR-008: kept reports, newest first, 20 then more; each opens, or is followed up in Launch.
+function KnowledgeReports() {
+  const [pages, setPages] = useState([]);
+  const [open, setOpen] = useState(null);
+  const first = useLoad(() => api(`results${params({ type: "report", kept: "1" })}`), []);
+  const more = useAct();
+  const rows = [...((first.data && first.data.results) || []), ...pages];
+  const last = rows[rows.length - 1];
+  // 008 FR-008: the report goes by its id, which only a research session can read (read_report): its text, which can be
+  // private, never sits in Launch, where the action could be switched to one that posts.
+  const followUp = (r) => launch({ action: "knowledge-research", notes: `Follow-up on the kept report ${r.id}: ${(r.payload || {}).question || ""}`.slice(0, 4000),
+    pins: [{ kind: "report", label: r.id }], from: { view: "Knowledge" } });
+  return html`<section class="stack" style="gap: 8px" aria-labelledby="kn-rep"><h3 id="kn-rep" class="eyebrow">Research reports</h3>
+    <${Err} text=${first.error || more.error} />
+    ${first.data && !rows.length && html`<p class="small soft">No reports kept yet. A research session's report is kept when you press "Save to Knowledge" on it.</p>`}
+    <ul class="stack" style="gap: 8px">${rows.map((r) => html`<li class="stack tight" key=${r.id}>
+      <b style="overflow-wrap: anywhere">${(r.payload || {}).question || r.id}</b>
+      <span class="small soft">${r.session} · ${whenAgo(r.made)}</span>
+      <div class="row" style="gap: 6px"><button aria-expanded=${open === r.id ? "true" : "false"} onClick=${() => setOpen(open === r.id ? null : r.id)}>${open === r.id ? "Close" : "Open"}</button>
+        <button onClick=${() => followUp(r)}>Follow up…</button></div>
+      ${open === r.id && html`<${ResultView} r=${r} where="Knowledge" />`}</li>`)}</ul>
+    ${first.data && first.data.results.length >= 20 && (pages.length === 0 || pages.length % 20 === 0) && last && html`<button class="link" style="align-self: flex-start" disabled=${more.busy}
+      onClick=${() => more.run(async () => { const r = await api(`results${params({ type: "report", kept: "1", after: last.id })}`); setPages([...pages, ...r.results]); })}>More reports</button>`}</section>`;
+}
+
+// 008 FR-007: the question, the scope and the pins, then Launch's research action. It needs no repository.
+function ResearchFlyout({ k, pins, onPins, onClose }) {
+  const ref = useRef();
+  const [question, setQuestion] = useState(k.q);
+  useEffect(() => { ref.current.showModal(); }, []);
+  const scope = `${k.domains.map((d) => KN_INDEX[d]).join(" and ")}${k.repos.length ? `, in ${k.repos.join(", ")}` : ", every repository"}${k.open && k.domains.includes("work") ? ", open work items only" : ""}`;
+  const plan = () => {
+    launch({ action: "knowledge-research", notes: `Question: ${question.trim()}\nScope: ${scope}`.slice(0, 4000), pins: pins.slice(0, 12), from: { view: "Knowledge" } });
+    ref.current.close();
+  };
+  return html`<dialog class="flyout" ref=${ref} onClose=${onClose} aria-labelledby="kn-fly">
+    <div class="row" style="justify-content: space-between"><h2 id="kn-fly">Research this</h2><button class="plain" onClick=${() => ref.current.close()}>Close</button></div>
+    <div class="stack" style="gap: 18px">
+      <label class="field"><span>Question</span><textarea rows="3" maxlength="2000" value=${question} onInput=${(e) => setQuestion(e.target.value)} /></label>
+      <div class="stack tight"><span class="eyebrow">Scope</span><span class="small">${scope}</span></div>
+      <div class="stack tight"><span class="eyebrow">Pins · ${pins.length || "none"}</span>
+        ${pins.length > 0 ? html`<ul class="row" style="gap: 6px">${pins.map((p) => html`<li class="label"><span class="soft">${PIN_WORDS[p.kind]}</span> <span class="mono" style="overflow-wrap: anywhere">${p.label}</span>
+          <button aria-label=${`Remove ${p.label}`} onClick=${() => onPins(pins.filter((x) => x !== p))}>×</button></li>`)}</ul>`
+          : html`<span class="small soft">Pin results as context, or plan without them.</span>`}</div>
+      <div class="row"><button class="primary" disabled=${!question.trim()} onClick=${plan}>Plan a research session…</button>
+        <span class="small soft">Opens Launch. The session reads only, hands in a report and posts nothing.</span></div>
+      <${KnowledgeReports} />
+      <${KnowledgeIndexes} /></div></dialog>`;
+}
+
+function Knowledge({ query }) {
+  const k = readKnowledge(query);
+  const go = (patch) => { location.hash = knowledgeHash({ ...k, ...patch }); };
+  const [typed, setTyped] = useState(k.q);
+  useEffect(() => setTyped(k.q), [k.q]);
+  const [pins, setPins] = useState([]);
+  const [flyout, setFlyout] = useState(false);
+  const sessions = useSessions();
+  const overview = useLoad(() => api("overview"), []);
+  const groups = overview.data ? overview.data.groups : [];
+  const found = useLoad(() => (k.q ? api(`knowledge/search${params({ q: k.q, mode: k.mode, domains: k.domains.join(","), repos: k.repos.join(","), open: k.open ? "1" : "" })}`) : Promise.resolve(null)),
+    [k.q, k.mode, k.domains.join(), k.repos.join(), k.open]);
+  const data = found.data;
+  const results = data ? data.results : [];
+  const pinned = (r) => pins.some((p) => p.label === pinOf(r).label);
+  const togglePin = (r) => setPins(pinned(r) ? pins.filter((p) => p.label !== pinOf(r).label) : pins.length >= 12 ? pins : [...pins, pinOf(r)]);
+  const toggleDomain = (d) => { const next = k.domains.includes(d) ? k.domains.filter((x) => x !== d) : [...k.domains, d]; if (next.length) go({ domains: next }); };
+  const card = (r) => html`<${KnowledgeResult} key=${pinOf(r).label} r=${r} sessions=${sessions.data} pinned=${pinned(r)} onPin=${() => togglePin(r)} />`;
+  const grouped = () => {
+    const by = new Map();
+    for (const r of results) { const g = r.repo || KN_DOCS_SITE; by.set(g, [...(by.get(g) || []), r]); }
+    return [...by].map(([g, rows]) => html`<section class="stack" style="gap: 6px" aria-label=${g}><h3 class="mono" style="font-size: 15px">${g} (${rows.length})</h3><ol>${rows.map(card)}</ol></section>`);
+  };
+  const failed = data ? data.domains.filter((d) => !d.ok) : [];
+  return html`<main class="page"><div class="stack" style="gap: 20px">
+    <div class="row" style="justify-content: space-between; align-items: flex-end">
+      <div class="stack tight"><${Eyebrow} soft>Docs, work items and code<//><h1 id="h-search">Knowledge</h1></div>
+      <button class="primary" onClick=${() => setFlyout(true)}>Research this…${pins.length ? ` (${count(pins.length, "pin")})` : ""}</button></div>
+    <form role="search" class="row" style="gap: 12px" onSubmit=${(e) => { e.preventDefault(); if (typed.trim()) go({ q: typed.trim() }); }}>
+      <div class="searchbox big" style="flex: 1 1 360px"><${SearchIcon} /><label class="sr" for="kn-q">Search docs, work items and code</label>
+        <input id="kn-q" type="search" maxlength="500" placeholder="Ask in plain words, or type the exact words" value=${typed} onInput=${(e) => setTyped(e.target.value)} /></div>
+      <button class="primary" style="min-height: 52px; padding: 0 20px" disabled=${!typed.trim()}>Search</button></form>
+    <div class="row" style="gap: 10px 18px; align-items: center">
+      <div role="radiogroup" aria-label="Match by" class="seg">${[["meaning", "Meaning"], ["exact", "Exact words"]].map(([m, w]) => html`<button role="radio" aria-checked=${k.mode === m ? "true" : "false"} onClick=${() => go({ mode: m })}>${w}</button>`)}</div>
+      <div role="group" aria-label="Domains" class="row" style="gap: 6px">${KN_DOMAINS.map(([d, w]) => KN_PLANNED.includes(d)
+        ? html`<button class="pill" disabled aria-pressed="false" title="Not indexed yet">${w} · planned</button>`
+        : html`<button class="pill" aria-pressed=${k.domains.includes(d) ? "true" : "false"} onClick=${() => toggleDomain(d)}>${w}</button>`)}</div>
+      <${RepoPicker} many allowAll value=${k.repos} onChange=${(v) => go({ repos: v || [] })} groups=${groups} label="Repositories" />
+      <label class="row small" style="gap: 6px"><input type="checkbox" checked=${k.open} disabled=${!k.domains.includes("work")} onChange=${(e) => go({ open: e.target.checked })} />Open only <span class="soft">(work items)</span></label>
+      <div role="radiogroup" aria-label="Layout" class="seg">${KN_LAYOUTS.map(([l, w]) => html`<button role="radio" aria-checked=${k.layout === l ? "true" : "false"} onClick=${() => go({ layout: l })}>${w}</button>`)}</div></div>
+    ${k.repos.length > 0 && k.domains.includes("docs") && html`<p class="small soft">Repositories narrow the work items. The docs are one site, ${KN_DOCS_SITE}, and are searched whole.</p>`}
+    ${!k.q && html`<div class="row" style="gap: 6px"><span class="small soft">Try:</span>${KN_TRY.map((t) => html`<button class="pill" onClick=${() => go({ q: t })}>${t}</button>`)}</div>`}
+    <${Err} text=${found.error} />
+    ${failed.map((d) => html`<p class="small" role="status"><b>${KN_INDEX[d.id]}</b> couldn't be searched: ${d.error}</p>`)}
+    ${k.q && found.loading && html`<p class="soft small" role="status">Searching… the first search by meaning may download the model once.</p>`}
+    ${data && !data.good && html`<div class="panel stack" style="gap: 8px; padding: 16px" role="status">
+      <b>${results.length ? "Nothing here answers it well." : "Nothing found."}</b>
+      <span class="small">That doesn't prove it isn't written down. A research session can look further and hand in a report.</span>
+      <button class="primary" style="align-self: flex-start" onClick=${() => setFlyout(true)}>Research this…${pins.length ? ` (${count(pins.length, "pin")})` : ""}</button></div>`}
+    ${data && results.length > 0 && html`<span class="small soft" role="status">${count(results.length, "result")}${data.mode === "exact" ? ", each with every word" : ", best match first"}</span>`}
+    ${results.length > 0 && (k.layout === "grouped" ? grouped() : html`<ol>${results.map(card)}</ol>`)}
+    ${flyout && html`<${ResearchFlyout} k=${k} pins=${pins} onPins=${setPins} onClose=${() => setFlyout(false)} />`}
+  </div></main>`;
 }
 
 // --- terminal ----------------------------------------------------------------------------------
@@ -2342,8 +2462,10 @@ const PLANNER_DEFAULT = "haiku";
 const nwWaits = (item) => NW_WAITING.includes(item.state);
 // 005 FR-002, in this order. failed and dismissed are where a Launch stopped, shown on the stage it stopped at.
 const LAUNCH_STAGES = [["brief", "Brief"], ["planning", "Planning"], ["plan", "Plan"], ["run", "Run"], ["result", "Result"]];
-const OBJECT_WORDS = { issue: "an issue", pr: "a pull request", run: "a run", repo: "a repository" };
-const VERB_OBJECT = { issue: "issue", pr: "PR", run: "run", repo: "repo" }; // beside a verb two kinds share, as fix
+const OBJECT_WORDS = { issue: "an issue", pr: "a pull request", run: "a run", repo: "a repository", knowledge: "a question" };
+const VERB_OBJECT = { issue: "issue", pr: "PR", run: "run", repo: "repo", knowledge: "question" }; // beside a verb two kinds share, as fix
+// Actions about no repository and no item: a research question (008 FR-007). hubd's NO_REPO_OBJECTS, less the Steward's.
+const NO_REPO = ["knowledge"];
 const MAX_COVERS = 6; // hubd's: one item and five more
 const coverOf = (c) => ({ kind: c.kind, repo: c.repo, number: c.number });
 // A record from before covers were kept names its items by number.
@@ -2353,6 +2475,7 @@ const recordCovers = (r, object) => (r.covers && r.covers.length ? r.covers.map(
 function launchRefusal(action, covers) {
   if (!action) return null;
   if (action.object === "repo") return covers.length ? `${action.title} works on a repository, not on an item like ${ref(covers[0])}. Remove the items, or choose another action.` : null;
+  if (NO_REPO.includes(action.object)) return covers.length ? `${action.title} works on ${OBJECT_WORDS[action.object]}, not on an item like ${ref(covers[0])}. Remove the items, or choose another action.` : null;
   const other = covers.find((c) => c.kind !== action.object);
   if (other) return `${action.title} works on ${OBJECT_WORDS[action.object]}, and ${ref(other)} is ${OBJECT_WORDS[other.kind]}, so it can't start there.`;
   return covers.length ? null : `${action.title} works on ${OBJECT_WORDS[action.object]}: add one below.`;
@@ -2520,8 +2643,9 @@ function LaunchBrief({ seed, actions, templates, groups, onPlanned, onCancel, bu
   const [driver, setDriver] = useState(seed.driver || (steward ? "steward" : "you"));
   const act = useAct();
   if (!action) return html`<div class="nw-body"><p>No actions are set up on this hub.</p></div>`;
-  const onItems = action.object !== "repo";
-  const chosenRepo = action.repo || repo;
+  const noRepo = NO_REPO.includes(action.object);
+  const onItems = action.object !== "repo" && !noRepo;
+  const chosenRepo = noRepo ? null : action.repo || repo;
   const refusal = launchRefusal(action, covers);
   const verbs = actions.filter((a) => a.verb);
   const more = actions.filter((a) => !a.verb && (!covers.length || a.object === covers[0].kind));
@@ -2551,6 +2675,7 @@ function LaunchBrief({ seed, actions, templates, groups, onPlanned, onCancel, bu
         ${covers.length < MAX_COVERS && html`<${ItemPicker} repos=${allRepos} kind=${action.object} many label=${`Add ${OBJECT_WORDS[action.object]}`}
           exclude=${covers.map(ref)} onPick=${(item) => setCovers((now) => (now.some((c) => ref(c) === ref(item)) || now.length >= MAX_COVERS ? now : [...now, coverOf({ ...item, kind: item.kind || action.object })]))} />`}
         ${covers.length > 1 && html`<span class="small soft">The session's checkout is in ${covers[0].repo}, the first item's repository; the others are listed as covered.</span>`}</div>`
+      : noRepo ? html`<div class="small"><${Eyebrow}>About<//> ${action.object === "knowledge" ? "a question: no repository and no checkout. The notes below are the question and its scope." : "no repository"}</div>`
       : action.repo ? html`<div class="small"><${Eyebrow}>In<//> <span class="mono">GlassineOS/${action.repo}</span> · org board</div>`
       : html`<${RepoPicker} value=${repo} onChange=${setRepo} groups=${groups} label="Repository" />`}
     ${launchRefusal(action, covers) && html`<p class="small" role="alert">${refusal}</p>`}
@@ -2570,8 +2695,8 @@ function LaunchBrief({ seed, actions, templates, groups, onPlanned, onCancel, bu
           <button role="radio" aria-checked=${driver === "steward" ? "true" : "false"} onClick=${() => setDriver("steward")}>The Steward, to refine</button></div></div>`}</div>
     <${Err} text=${act.error} />
     <div class="row">
-      <button class="primary" disabled=${act.busy || Boolean(refusal) || (!onItems && !chosenRepo) || (action.asks_describe && !describe.trim())}
-        title=${refusal || (!onItems && !chosenRepo ? "Choose a repository first" : "")} onClick=${plan}>${action.plan === false ? "Next: nothing to plan" : "Plan"}</button>
+      <button class="primary" disabled=${act.busy || Boolean(refusal) || (action.object === "repo" && !chosenRepo) || (action.asks_describe && !describe.trim())}
+        title=${refusal || (action.object === "repo" && !chosenRepo ? "Choose a repository first" : "")} onClick=${plan}>${action.plan === false ? "Next: nothing to plan" : "Plan"}</button>
       <span class="small soft" style="flex: 1 1 220px">${action.plan === false ? "This action has no planner: its plan is the action's own." : `The planner (${NW_MODEL[plannerModel]}) reads first, read-only. Nothing runs until you've read its plan.`}</span>
       ${onCancel && html`<button class="plain" onClick=${onCancel}>Back to the plan</button>`}</div>
   </div>`;
@@ -3659,7 +3784,7 @@ function Hub({ host: first, route, onOut }) {
         <button class="plain" onClick=${async () => { await post("logout"); onOut(); }}>Sign out</button>
       </div></header>
     ${unreachable && html`<div class="unreachable" role="status">hubd can't be reached — showing what was last read.</div>`}
-    <${View} key=${path + JSON.stringify(path === "shells" || path === "work" ? {} : query)} query=${query} asks=${asks} /></div>
+    <${View} key=${path + JSON.stringify(path === "shells" || path === "work" || path === "knowledge" ? {} : query)} query=${query} asks=${asks} /></div>
     <${Steward} route=${route} asks=${asks} />
     ${launching && html`<${LaunchModal} key=${launching.key} open=${launching} work=${asks.work} asks=${asks} reload=${reloadAll}
       onClose=${() => setLaunching(null)} onBehind=${(b) => { setLaunching(null); setBehind(b); }} />`}

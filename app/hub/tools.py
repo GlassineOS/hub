@@ -463,11 +463,13 @@ def build(github: GitHub, docs: DocSearch) -> MCPServer:
 
     @mcp.tool(annotations=WRITE)
     @_says_why
-    async def plan_work(action: str, repo: str, why: str, notes: str = "", describe: str = "", paths: str = "") -> dict:
+    async def plan_work(action: str, repo: str = "", why: str = "", notes: str = "", describe: str = "", paths: str = "") -> dict:
         """Suggest planned work to the person: nothing runs until they open it and press Start, and they can change
         everything first. action is one of new-issue, new-security-audit, new-architecture-audit, new-roadmap-item,
-        new-docs-sweep or new-dependency-review. why is one sentence on why it's worth doing now."""
-        return await github.plan_work(action, repo, why, notes, describe, paths)
+        new-docs-sweep, new-dependency-review or knowledge-research. repo is the repository; leave it out for
+        knowledge-research, which is about a question, and put the question in notes. why is one sentence on why
+        it's worth doing now."""
+        return await github.plan_work(action, repo or None, why, notes, describe, paths)
 
     @mcp.tool(annotations=WRITE)
     @_says_why
@@ -498,6 +500,13 @@ def build(github: GitHub, docs: DocSearch) -> MCPServer:
         report (payload: question, answer, unsettled [text], sources [{link, why}], followups [text]). Unknown keys are refused.
         Handing in again replaces what's still waiting."""
         return await github.submit_result(type, payload)
+
+    @mcp.tool(annotations=READ)
+    @_says_why
+    async def read_report(id: str) -> dict:
+        """A kept research report pinned for this session (a pin of kind report, id r- and 12 hex digits): question, answer,
+        unsettled, sources and followups. Only a report pinned when this session was started can be read."""
+        return await github.read_report(id)
 
     @mcp.tool(annotations=READ)
     @_says_why

@@ -36,6 +36,13 @@ def _profile() -> str:
     return "transformer"
 
 
+def _row(h) -> dict:
+    """score is the fused rank (reciprocal ranks, at most 2/61), which orders hits but measures nothing; meaning is the
+    cosine of the passage and the query, None when only the words found it."""
+    return {"rank": h.rank, "title": h.chunk["title"], "heading": h.chunk["heading"], "score": round(h.score, 4),
+            "meaning": None if h.vector_score is None else round(h.vector_score, 4), "url": h.url, "text": h.chunk["text"]}
+
+
 class DocSearch:
     def __init__(self, github: GitHub, cache: Path | None = None, clock=time.monotonic,
                  loader=None):
@@ -68,9 +75,28 @@ class DocSearch:
         searcher = await self._current()
         hits, seconds = await asyncio.to_thread(searcher.search, query, max(1, min(int(k), 20)))
         return {"query": query, "profile": searcher.profile, "commit": searcher.site.manifest["commit"],
-                "ms": round(seconds * 1000, 1),
-                "results": [{"rank": h.rank, "title": h.chunk["title"], "heading": h.chunk["heading"], "score": round(h.score, 4),
-                             "url": h.url, "text": h.chunk["text"]} for h in hits]}
+                "ms": round(seconds * 1000, 1), "results": [_row(h) for h in hits]}
+
+    async def exact(self, query: str, keep, k: int = 8) -> dict:
+        """Every passage keep(row) accepts, not only the ones the search ranks near the top: those it ranks come first, in
+        its order, then the rest in the order of the docs, with no score. keep sees the same row search gives."""
+        searcher = await self._current()
+
+        def run():
+            hits, _ = searcher.search(query, 20)
+            rows = [r for r in map(_row, hits) if keep(r)]
+            seen = {(r["url"], r["heading"]) for r in rows}
+            for c in searcher.chunks:
+                if len(rows) >= k:
+                    break
+                row = {"rank": None, "title": c["title"], "heading": c["heading"], "score": None, "meaning": None,
+                       "url": searcher.site.url(c["url"]), "text": c["text"]}
+                if (row["url"], row["heading"]) not in seen and keep(row):
+                    rows.append(row)
+            return rows[:k]
+
+        return {"query": query, "profile": searcher.profile, "commit": searcher.site.manifest["commit"],
+                "results": await asyncio.to_thread(run)}
 
     async def status(self) -> dict:
         """How the published index compares with the docs repository and its CI."""
