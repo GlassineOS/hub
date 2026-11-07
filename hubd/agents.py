@@ -113,6 +113,7 @@ PRS_FOR = 60  # seconds a session's pull requests, as GitHub gave them, are show
 MAX_SEND = 4000
 MAX_MESSAGE = 3500  # leaves room for saying whose it is
 MAX_WAITING_MESSAGES = 3  # to one session from another, until it has read them
+MAX_WAITING_FROM_PERSON = 20  # a login's words and buttons to one session, until its turn ends: a stuck session mustn't hold them for good
 HUB_SENDER = "@hub"  # who a ping is from: not a valid session name, so it can't be one
 # What a started session may be sent with no card: it reads, and at most suggests work, which waits for you. Anything that
 # writes or has a shell was allowed for one job, and a message would direct those rights at another. Named, so a new tool
@@ -1451,6 +1452,8 @@ class Agents:
         if state in ("Not started", "Stopped"):
             raise AgentError(f"{name} isn't running")
         if by is None:
+            if len(self._sends.get(name, ())) >= MAX_WAITING_FROM_PERSON:  # a login is trusted, but a double-click loop isn't a person
+                raise AgentError(f"{name} already has {MAX_WAITING_FROM_PERSON} messages waiting: they go when its turn ends, or Esc drops them")
             self._lost.pop(name, None)  # yours, and you've seen it. Another session's mustn't clear your notice.
         # Here, after the wait above, or calls at once could all pass.
         elif len(self._sends.get(name, ())) >= MAX_WAITING_MESSAGES:

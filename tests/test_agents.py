@@ -2850,3 +2850,21 @@ def test_a_refused_paste_takes_back_only_what_that_call_added(tmp_path, monkeypa
         assert a.shells.pasted == [(name, "earlier")]
         _cancel_senders(a)
     asyncio.run(go())
+
+
+def test_a_login_cant_queue_without_limit(tmp_path, monkeypatch):
+    monkeypatch.setattr(agents_module, "SEND_POLL", 60)
+    monkeypatch.setattr(agents_module, "INTERRUPT_SETTLE", 0)
+    a, name, directory, fire = bridged(tmp_path)
+
+    async def go():
+        for i in range(agents_module.MAX_WAITING_FROM_PERSON):  # mid-turn, so every one waits
+            assert (await a.say(name, f"m{i}"))["queued"] == i + 1
+        for send in (a.say(name, "one too many"), a.press(name, "status")):
+            with pytest.raises(AgentError, match=r"already has \d+ messages waiting.*Esc"):
+                await send
+        assert (await a.session_state(name))["queued"] == agents_module.MAX_WAITING_FROM_PERSON
+        await a.interrupt(name)  # Esc drops them, and the field works again
+        assert await a.say(name, "again") == {"sent": True, "queued": 0}
+        _cancel_senders(a)
+    asyncio.run(go())
