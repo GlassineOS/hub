@@ -5,6 +5,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import time
 from pathlib import Path
 import re
 
@@ -2071,11 +2072,230 @@ def test_a_partial_review_clone_of_a_private_repository_gets_its_history(tmp_pat
 def test_a_full_session_can_cover_several_issues(tmp_path):
     a = agents(tmp_path)
     action = LIBRARY.action("issue-implement")
-    config = {**a.defaults("issue-implement", "boot", 9), "also_numbers": [11, 14]}
+    config = agents_module.with_also(a.defaults("issue-implement", "boot", 9), [11, 14])
     assert validate(LIBRARY, config)["also_numbers"] == [11, 14]
     prompt = a._prompt(config, action, tmp_path)
     assert "also covers #11, #14 of GlassineOS/boot" in prompt and "`Closes #N`" in prompt
     assert "also covers" not in a._prompt(a.defaults("issue-implement", "boot", 9), action, tmp_path)
+
+
+def implement(**over):
+    return {**good(action="issue-implement", persona="engineer", model="opus", tools=[], hub_tools=[], number=9, brief=""), **over}
+
+
+def test_covers_name_the_items_and_the_first_is_the_sessions_own():
+    config = validate(LIBRARY, implement(covers=[{"repo": "boot", "number": 9}, {"repo": "kernel", "number": 204}, {"repo": "boot", "number": 11}]))
+    assert config["covers"] == [{"repo": "boot", "number": 9}, {"repo": "kernel", "number": 204}, {"repo": "boot", "number": 11}]
+    assert (config["repo"], config["number"], config["also_numbers"]) == ("boot", 9, [11])
+    assert validate(LIBRARY, config) == config  # what validate gave passes again, both lists agreeing
+    # #29 review: a stale copy of one list never wins over an edit to the other. They must agree, or neither is taken.
+    for stale in ({**config, "also_numbers": [14]},
+                  {**config, "covers": [*config["covers"], {"repo": "boot", "number": 12}]},
+                  {**config, "covers": [{"repo": "boot", "number": 9}, {"repo": "boot", "number": 11}, {"repo": "kernel", "number": 1}],
+                   "also_numbers": []}):
+        with pytest.raises(AgentError, match="disagree"):
+            validate(LIBRARY, stale)
+    # Sent alone, either one is taken as it is.
+    only_covers = {k: v for k, v in config.items() if k != "also_numbers"}
+    edited = validate(LIBRARY, {**only_covers, "covers": [*config["covers"], {"repo": "boot", "number": 12}]})
+    assert edited["covers"][-1] == {"repo": "boot", "number": 12} and edited["also_numbers"] == [11, 12]
+    only_numbers = {k: v for k, v in config.items() if k != "covers"}
+    assert validate(LIBRARY, {**only_numbers, "also_numbers": [14]})["covers"] == [{"repo": "boot", "number": 9}, {"repo": "boot", "number": 14}]
+    # An old config, with also_numbers only, folds in.
+    assert validate(LIBRARY, implement(also_numbers=[11]))["covers"] == [{"repo": "boot", "number": 9}, {"repo": "boot", "number": 11}]
+    assert validate(LIBRARY, good())["covers"] == [{"repo": "boot", "number": 5}]
+    assert validate(LIBRARY, {**good(), "covers": [{"repo": "boot", "number": 5}]})["covers"] == [{"repo": "boot", "number": 5}]
+
+
+@pytest.mark.parametrize("covers, words", [
+    ([{"repo": "../boot", "number": 9}], "repository"),
+    ([{"repo": "boot", "number": 9}, {"repo": "a b", "number": 1}], "repository"),
+    ([{"repo": "boot", "number": 9}, {"repo": "boot", "number": 0}], "number"),
+    ([{"repo": "boot", "number": 9}, {"repo": "boot", "number": "11"}], "number"),
+    ([{"repo": "boot", "number": 9}, {"repo": "boot", "number": 11, "title": "x"}], "repo and a number"),
+    ([{"repo": "boot", "number": 9}, *({"repo": "boot", "number": n} for n in range(20, 26))], "at most 6"),
+    ([{"repo": "boot", "number": 9}, {"repo": "kernel", "number": 2}, {"repo": "kernel", "number": 2}], "twice"),
+    ([{"repo": "boot", "number": 11}, {"repo": "boot", "number": 9}], "first covered item"),
+    ("boot#9", "list"),
+])
+def test_what_a_session_covers_is_checked(covers, words):
+    with pytest.raises(AgentError, match=words):
+        validate(LIBRARY, implement(covers=covers))
+
+
+def test_only_a_full_session_with_a_checkout_covers_other_repositories():
+    # A locked action works on one item; a full one with no checkout of its own has nowhere to work on another repository.
+    with pytest.raises(AgentError, match="one item"):
+        validate(LIBRARY, {**good(), "covers": [{"repo": "boot", "number": 5}, {"repo": "kernel", "number": 2}]})
+    for checkout in (False, "default"):  # only a session that opens a pull request of its own closes items elsewhere
+        no_branch = {**LIBRARY.action("issue-implement"), "checkout": checkout}
+        with pytest.raises(AgentError, match="pull request of its own"):
+            agents_module._covers(no_branch, {"covers": [{"repo": "boot", "number": 9}, {"repo": "kernel", "number": 2}]}, "boot", 9)
+    with pytest.raises(AgentError, match="isn't about items"):
+        agents_module._covers(LIBRARY.action("project-steward"), {"covers": [{"repo": "boot", "number": 1}]}, None, None)
+
+
+def test_the_prompt_names_covered_items_in_other_repositories(tmp_path):
+    a = agents(tmp_path)
+    action = LIBRARY.action("issue-implement")
+    config = validate(LIBRARY, {**a.defaults("issue-implement", "boot", 9), "covers": [{"repo": "boot", "number": 9}, {"repo": "kernel", "number": 204}]})
+    # Not asked of GitHub (a preview): the item is named as covered, never as a line for the pull request.
+    prompt = a._prompt(config, action, tmp_path)
+    assert "GlassineOS/kernel#204" in prompt and "worktree is in GlassineOS/boot, the first item's" in prompt
+    assert "`Closes GlassineOS/<repo>#N`" not in prompt and "don't name them" in prompt
+    assert "also covers #" not in prompt  # nothing else of boot
+    assert "other repositories" not in a._prompt(a.defaults("issue-implement", "boot", 9), action, tmp_path)
+    # Both public: the Closes line. kernel private (or unknown): kept out of the pull request.
+    assert "`Closes GlassineOS/<repo>#N` line, for GlassineOS/kernel#204" in a._prompt(config, action, tmp_path, unnamed=set())
+    assert "don't name them" in a._prompt(config, action, tmp_path, unnamed={"kernel"})
+
+
+class RepoGh:
+    """GitHub's answer about each repository's visibility: True private, False public, None no answer."""
+    def __init__(self, private):
+        self.private = private
+
+    async def run(self, argv, timeout=None):
+        said = self.private.get(argv[1].rsplit("/", 1)[1])
+        if said is None:
+            return {"code": 1, "stdout": "", "stderr": "HTTP 502"}
+        return {"code": 0, "stdout": json.dumps({"private": said}), "stderr": ""}
+
+
+def test_a_pull_request_names_only_what_may_be_named_in_it(tmp_path):
+    """#29 review: from a public repository, a covered item of a private one (or one GitHub doesn't answer for) isn't named."""
+    a = agents(tmp_path)
+    config = validate(LIBRARY, {**a.defaults("issue-implement", "boot", 9),
+                                "covers": [{"repo": "boot", "number": 9}, {"repo": "kernel", "number": 2}, {"repo": "docs", "number": 3}]})
+    for private, unnamed in (({"boot": False, "kernel": True, "docs": False}, {"kernel"}),
+                             ({"boot": False, "kernel": None, "docs": False}, {"kernel"}),
+                             ({"boot": None, "kernel": False, "docs": True}, {"docs"}),
+                             ({"boot": True, "kernel": True, "docs": None}, set()),
+                             ({"boot": False, "kernel": False, "docs": False}, set())):
+        a.gh = RepoGh(private)
+        assert asyncio.run(a._unnamed_here(config)) == unnamed, private
+    a.gh = None
+    assert asyncio.run(a._unnamed_here(config)) == {"kernel", "docs"}
+
+
+def _session_file(a, name, config, **more):
+    (a.sessions / name).mkdir(parents=True, exist_ok=True)
+    (a.sessions / name / "session.json").write_text(json.dumps({"title": "t", "object": more.pop("object", "issue"), "session_id": "sid-1",
+                                                               "config": config, **more}))
+
+
+def test_an_old_record_describes_what_it_covers(tmp_path):
+    a = agents(tmp_path)
+    old = {"repo": "boot", "number": 9, "also_numbers": [11], "model": "opus", "effort": "high", "persona": "engineer", "action": "issue-implement"}
+    _session_file(a, "old-one", old, full=True)
+    seen = a.describe("old-one")
+    assert seen["covers"] == [{"repo": "boot", "number": 9}, {"repo": "boot", "number": 11}] and seen["also_numbers"] == [11]
+    assert (seen["view"], seen["origin"], seen["prs"]) == ({"mode": "background", "where": None, "ref": None}, None, [])
+    assert seen["permission_mode"] is None  # #29 review: not kept then, so not made up now
+    _session_file(a, "locked", {**good(), "action": "pr-review"}, object="pr", permission_mode="dontAsk")
+    assert a.describe("locked")["permission_mode"] == "dontAsk"
+    assert a.describe("locked")["prs"] == [{"repo": "boot", "number": 5, "state": None}]  # on a pull request: that one
+    _session_file(a, "gone", {**old, "action": "an-action-since-removed"}, full=True, permission_mode="auto")
+    assert a.describe("gone")["permission_mode"] == "auto"  # as it ran, whatever the library says now
+
+
+def test_where_a_session_shows_is_kept_in_its_folder(tmp_path):
+    a = agents(tmp_path)
+    _session_file(a, "s1", {**good()}, object="pr")
+    assert a.set_view("s1", "embedded", "Work", "boot#5") == {"view": {"mode": "embedded", "where": "Work", "ref": "boot#5"}}
+    assert json.loads((a.sessions / "s1" / agents_module.VIEW_FILE).read_text())["mode"] == "embedded"
+    assert a.describe("s1")["view"] == {"mode": "embedded", "where": "Work", "ref": "boot#5"}
+    a.set_view("s1", "background", "Work")
+    assert a.describe("s1")["view"] == {"mode": "background", "where": "Work", "ref": None}
+    for bad in (("s1", "floating", "Work"), ("s1", "embedded", "Nowhere"), ("s1", "embedded", "Work", "boot 5"), ("nobody", "embedded", "Work"),
+                ("../s1", "embedded", "Work")):
+        with pytest.raises(AgentError):
+            a.set_view(*bad)
+    (a.sessions / "s1" / agents_module.VIEW_FILE).write_text("{not json")
+    assert a.describe("s1")["view"]["mode"] == "background"
+
+
+class PullsGh:
+    """GitHub's answer for a branch's pull requests, and what was asked."""
+    def __init__(self, found=(), fail=False):
+        self.found, self.fail, self.asked = list(found), fail, []
+
+    async def run(self, argv, timeout=None):
+        self.asked.append(argv)
+        self.timeouts = [*getattr(self, "timeouts", []), timeout]
+        if self.fail:
+            return {"code": 1, "stdout": "", "stderr": "HTTP 502"}
+        return {"code": 0, "stdout": json.dumps(self.found), "stderr": ""}
+
+
+def test_a_session_on_its_own_branch_shows_its_pull_requests(tmp_path):
+    a = agents(tmp_path)
+    a.gh = PullsGh([{"number": 31, "state": "closed", "merged_at": "2026-11-01T00:00:00Z", "head": {"sha": "a" * 40}},
+                    {"number": 40, "state": "open", "head": {"sha": "b" * 40}}])
+    config = validate(LIBRARY, {**a.defaults("issue-implement", "boot", 9), "covers": [{"repo": "boot", "number": 9}, {"repo": "kernel", "number": 2}],
+                                "also_repos": ["docs"]})
+    _session_file(a, "impl", config, full=True)
+    asyncio.run(a.refresh_prs(["impl", "no-such-session"]))
+    # #29 review: only where the session has a checkout, so a branch: kernel is covered, but has none.
+    assert [argv[1].split("?")[0] for argv in a.gh.asked] == ["repos/GlassineOS/boot/pulls", "repos/GlassineOS/docs/pulls"]
+    assert all("head=GlassineOS:agent/impl" in argv[1] for argv in a.gh.asked)
+    assert a.gh.timeouts == [agents_module.PRS_ASK] * 2
+    assert a.describe("impl")["prs"] == [{"repo": "boot", "number": 40, "state": "OPEN"}, {"repo": "docs", "number": 40, "state": "OPEN"}]
+    asyncio.run(a.refresh_prs(["impl"]))
+    assert len(a.gh.asked) == 2  # kept for a minute
+    a._prs["impl"] = (a._prs["impl"][0] - agents_module.PRS_FOR - 1, *a._prs["impl"][1:])
+    a.gh.fail = True
+    asyncio.run(a.refresh_prs(["impl"]))
+    assert len(a.gh.asked) == 4 and len(a.describe("impl")["prs"]) == 2  # a failed look keeps what was found
+    # A new session under the old name isn't the old one's pull requests.
+    _session_file(a, "impl", config, full=True, session_id="sid-2")
+    assert a.describe("impl")["prs"] == []
+
+
+class SlowGh:
+    """docs answers at once; boot fails; kernel never answers until let go."""
+    def __init__(self):
+        self.go = asyncio.Event()
+        self.asked = []
+
+    async def run(self, argv, timeout=None):
+        repo = argv[1].split("/")[2]
+        self.asked.append(repo)
+        if repo == "boot":
+            return {"code": 1, "stdout": "", "stderr": "HTTP 502"}
+        if repo == "kernel":
+            await self.go.wait()
+        return {"code": 0, "stdout": json.dumps([{"number": 7, "state": "open", "head": {"sha": "c" * 40}}]), "stderr": ""}
+
+
+def test_a_slow_repository_holds_up_a_list_once_and_the_others_still_answer(tmp_path):
+    """#29 review: repositories are asked together; a list waits for a lookup it started, not for one already under way."""
+    async def go():
+        a = agents(tmp_path)
+        a.gh = SlowGh()
+        config = validate(LIBRARY, {**a.defaults("issue-implement", "boot", 9), "also_repos": ["kernel", "docs"]})
+        _session_file(a, "impl", config, full=True)
+        _session_file(a, "other", {**config, "also_repos": ["docs"]}, full=True)
+        await a.refresh_prs(["impl"], wait=0.05)
+        assert sorted(a.gh.asked) == ["boot", "docs", "kernel"]  # all three asked, not one after another
+        assert "impl" in a._pr_lookups and a.describe("impl")["prs"] == []
+        started = time.monotonic()
+        await a.refresh_prs(["impl", "other"], wait=0.5)
+        assert "other" in a._prs  # the new lookup was waited for
+        assert time.monotonic() - started < 0.4, "the one under way isn't waited for again"
+        a.gh.go.set()
+        await a._pr_lookups["impl"]
+        assert a.describe("impl")["prs"] == [{"repo": "kernel", "number": 7, "state": "OPEN"}, {"repo": "docs", "number": 7, "state": "OPEN"}]
+    asyncio.run(go())
+
+
+def test_a_session_with_no_branch_of_its_own_asks_github_nothing(tmp_path):
+    a = agents(tmp_path)
+    a.gh = PullsGh()
+    _session_file(a, "review", good(), object="pr")
+    _session_file(a, "steward", validate(LIBRARY, a.defaults("project-steward", None, None)), object="project")
+    asyncio.run(a.refresh_prs(["review", "steward"]))
+    assert a.gh.asked == [] and a.describe("steward")["prs"] == []
 
 
 @pytest.mark.parametrize("numbers", [[9], [0], [-1], ["11"], [True], [11, 11], list(range(20, 40)), "11"])
@@ -2225,7 +2445,9 @@ def test_the_steward_can_see_every_running_session_but_not_what_it_said(tmp_path
     (a.sessions / "ended-one" / agents_module.ENDED_FILE).write_text("")
     rows = asyncio.run(a.running_sessions("steward"))
     assert [r["name"] for r in rows] == [name]
-    assert set(rows[0]) == {"name", "title", "repo", "number", "also_numbers", "state", "queued", "started_by"}
+    # Refs only: an item's title is an outsider's text, and this list goes to any session that may message.
+    assert set(rows[0]) == {"name", "title", "repo", "number", "also_numbers", "covers", "state", "queued", "started_by"}
+    assert all(re.fullmatch(r"[A-Za-z0-9._-]+#[0-9]+", c) for c in rows[0]["covers"]) and rows[0]["covers"]
     assert rows[0]["started_by"] == "steward"
     record = json.loads((directory / "session.json").read_text())
     del record["started_by"]  # one you opened

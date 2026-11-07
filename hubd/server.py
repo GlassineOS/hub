@@ -25,7 +25,7 @@ from pathlib import Path
 
 from . import auth, decisions, devices, newwork, notes
 from . import feed as feedlib
-from .agents import MAX_NOTES, PLANNER_MODELS, AgentError, Agents, Library, load_environment, validate
+from .agents import MAX_NOTES, PLANNER_MODELS, AgentError, Agents, Library, load_environment, validate, with_also
 from .apps import AppError, Apps, is_write
 from .asks import GRANT_LIFE, MAX_INPUT, TOOL_PREFIX, AskError, Asks
 from .ghpolicy import ORG, Refused, check, is_merge, merge_request
@@ -217,6 +217,7 @@ class Hubd:
             if op == "shell.list":
                 sessions = await self.shells.list()
                 if self.agents:
+                    await self.agents.refresh_prs([s["name"] for s in sessions])
                     for session in sessions:
                         session["agent"] = self.agents.describe(session["name"])
                 return {"ok": True, "sessions": sessions}
@@ -687,8 +688,8 @@ class Hubd:
         action = self.agents.library.action(req.get("action"))
         if action.get("access") != "full" or action["object"] not in ("issue", "pr"):
             raise AgentError(f"{action['id']} isn't a full session on an issue or pull request: use spawn_session or plan_work")
-        config = {**self.agents.defaults(action["id"], req.get("repo"), req.get("number")),
-                  "notes": req.get("notes") or "", "also_numbers": req.get("also_numbers") or []}
+        config = with_also({**self.agents.defaults(action["id"], req.get("repo"), req.get("number")), "notes": req.get("notes") or ""},
+                                         req.get("also_numbers") or [])
         validate(self.agents.library, config)
         return {"action": action["id"], "title": action["title"], "repo": config["repo"], "number": config["number"], "also_numbers": config["also_numbers"],
                 "why": req["why"].strip()[:300], "notes": config["notes"], "describe": "", "paths": "", "context": "", "pins": [],
@@ -844,9 +845,9 @@ class Hubd:
                 planner_model = req.get("planner_model") or None
                 if planner_model not in (None, *PLANNER_MODELS):
                     raise AgentError(f"the planner runs on one of {', '.join(PLANNER_MODELS)}")
-                config = validate(self.agents.library, {**self.agents.defaults(record["action"], record["repo"], req.get("number") or record["number"]),
-                                                        "model": record["model"], "notes": req.get("notes") or "", "pins": record["pins"],
-                                                        "also_numbers": req.get("also_numbers") or []})
+                config = validate(self.agents.library, with_also(
+                    {**self.agents.defaults(record["action"], record["repo"], req.get("number") or record["number"]),
+                     "model": record["model"], "notes": req.get("notes") or "", "pins": record["pins"]}, req.get("also_numbers") or []))
                 self.work.move(record, "planning", number=config["number"], also_numbers=config["also_numbers"], notes=config["notes"],
                                planner_model=planner_model, error=None)
                 self._keep(self._plan_work(record, config, planner_model))
@@ -994,6 +995,8 @@ class Hubd:
             return {"ok": True, **await self.agents.press(req.get("name"), req.get("button"), req.get("kind"), req.get("selection"))}
         if op == "agent.interrupt":
             return {"ok": True, **await self.agents.interrupt(req.get("name"))}
+        if op == "agent.view":
+            return {"ok": True, **self.agents.set_view(req.get("name"), req.get("mode"), req.get("where"), req.get("ref"))}
         if op == "agent.context":
             return {"ok": True, **self.agents.set_context(req.get("name"), req.get("screen"), req.get("kind"), req.get("selection"))}
         if op == "agent.buttons":
