@@ -1124,6 +1124,31 @@ def test_a_result_is_handed_in_only_by_its_session_and_of_its_type(result_hub):
     assert record["items"] == [{"kind": "pr", "repo": "boot", "number": 5}] and record["persona"] == "reviewer" and record["state"] == "pending"
 
 
+def test_a_session_hands_in_no_second_result_once_its_first_was_applied(result_hub):
+    """SECURITY.md: a session hands in one result. The Launch keeps pointing at the one that went out."""
+    first = _submit(result_hub, "review-token", "comment", REVIEW)["id"]
+    assert run(result_hub.request({"op": "result.apply", "token": "login", "id": first}))["ok"]
+    again = _submit(result_hub, "review-token", "comment", {**REVIEW, "summary": "Two bugs."})
+    assert not again["ok"] and "one result" in again["error"]
+    assert [r["state"] for r in result_hub.results.all()] == ["applied"]
+    # being applied counts too; a dismissed result doesn't, so a session may hand in again after it was set aside
+    result_hub.results.get(first)["state"] = "applying"
+    assert not _submit(result_hub, "review-token", "comment", REVIEW)["ok"]
+    result_hub.results.get(first)["state"] = "dismissed"
+    assert _submit(result_hub, "review-token", "comment", REVIEW)["ok"]
+
+
+def test_the_launch_stays_on_the_applied_result(result_hub):
+    launch = result_hub.work.new({"action": "pr-review", "title": "Review", "repo": "boot", "by": "you", "driver": "person"}, "running")
+    result_hub.work.move(launch, "running", session="pr-review-boot-5", session_id="conv-1")
+    first = _submit(result_hub, "review-token", "comment", REVIEW)["id"]
+    assert launch["state"] == "done" and launch["result"] == first
+    assert run(result_hub.request({"op": "result.apply", "token": "login", "id": first}))["ok"]
+    assert launch["state"] == "filed"
+    assert not _submit(result_hub, "review-token", "comment", REVIEW)["ok"]
+    assert launch["state"] == "filed" and launch["result"] == first
+
+
 def test_a_labels_result_names_only_the_items_its_session_covers(result_hub):
     other = {"issues": [{**LABELS["issues"][0], "ref": "boot#8"}]}
     assert "isn't an item this session covers" in _submit(result_hub, "triage-token", "labels", other)["error"]

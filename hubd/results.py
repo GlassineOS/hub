@@ -196,11 +196,15 @@ class Results:
         return record
 
     def submit(self, kind: str, payload, *, session: str, session_id, launch, items: list[dict], action: str, persona) -> dict:
-        """One pending result per session: a new hand-in replaces the one still waiting, which nobody has acted on."""
+        """One pending result per session: a new hand-in replaces the one still waiting, which nobody has acted on. Once one is
+        being applied or has been, the session has handed in its result and a second is refused (SECURITY.md: one result)."""
         if kind not in HANDED_IN:
             raise ResultError(f"a session hands in one of {', '.join(HANDED_IN)}")
+        mine = [r for r in self.records.values() if r["session"] == session and r.get("session_id") == session_id and r["type"] in HANDED_IN]
+        if any(r["state"] in ("applying", "applied") for r in mine):
+            raise ResultError("this session's result was already applied or is being applied: a session hands in one result")
         cleaned = clean_payload(kind, payload, items)
-        for old in [r for r in self.records.values() if r["session"] == session and r.get("session_id") == session_id and r["state"] == "pending"]:
+        for old in [r for r in mine if r["state"] == "pending"]:
             del self.records[old["id"]]
             (self.folder / f"{old['id']}.json").unlink(missing_ok=True)
         return self._new(type=kind, payload=cleaned, session=session, session_id=session_id, launch=launch, items=items,
