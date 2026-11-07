@@ -1594,12 +1594,13 @@ def test_run_keeps_notes_and_pins_with_and_without_a_plan(tmp_path, action):
     a = agents(tmp_path, planned())
     started = []
 
-    async def start(config):
-        started.append(config)
+    async def start(config, origin=None):
+        started.append((config, origin))
         return {"name": "x"}
     a.start = start
-    asyncio.run(a.run(action, "boot", 5, "error paths first", PINS))
-    assert started[0]["notes"] == "error paths first" and started[0]["pins"] == PINS
+    asyncio.run(a.run(action, "boot", 5, "error paths first", PINS, origin={"by": "you"}))
+    config, origin = started[0]
+    assert config["notes"] == "error paths first" and config["pins"] == PINS and origin == {"by": "you"}
 
 
 # --- what the Steward starts ----------------------------------------------------------------------
