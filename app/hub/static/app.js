@@ -1914,7 +1914,9 @@ function KnowledgeResult({ r, sessions, pinned, onPin }) {
       <span class="label" style="padding-right: 8px">${KN_KIND[r.kind] || r.kind}</span>
       ${item ? html`<${ItemPill} ...${item} state=${pillState(r.kind, r)} href=${open} />` : html`<span class="mono soft small">${KN_DOCS_SITE}</span>`}
       <b style="flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere"><${Marked} text=${r.title} marks=${r.title_marks} /></b>
-      <span class="small soft mono" title="How well it matched">score ${r.score == null ? "—" : r.score.toFixed(2)}</span></div>
+      ${r.score == null
+        ? html`<span class="small soft mono" title="Found by its words alone: no meaning score to show">words ${Math.round((r.words || 0) * 100)}%</span>`
+        : html`<span class="small soft mono" title="How close it is in meaning (cosine)">score ${r.score.toFixed(2)}</span>`}</div>
     ${r.snippet && html`<p style="overflow-wrap: anywhere"><${Marked} text=${r.snippet} marks=${r.marks} /></p>`}
     <div class="row" style="gap: 6px 10px">
       ${on.map((s) => html`<${SessionChip} key=${s.name} session=${s} href=${open} />`)}
@@ -1931,7 +1933,7 @@ function KnowledgeIndexes() {
     <${Err} text=${error || act.error} />
     ${data && html`<ul class="stack" style="gap: 10px">${data.map((i) => html`<li class="stack tight">
       <div class="row" style="gap: 8px"><b>${KN_INDEX[i.id] || i.id}</b><span class="badge ${KN_STATE[i.state] || ""}">${i.state}${i.stale ? " · stale" : ""}</span>
-        ${i.age && html`<span class="small soft">${ago(i.age)}</span>`}${i.size != null && html`<span class="small soft">${i.size.toLocaleString()} ${i.id === "docs" ? "passages" : "items"}</span>`}</div>
+        ${i.age && html`<span class="small soft">${ago(i.age)}</span>`}${i.size != null && html`<span class="small soft">${i.size.toLocaleString()} ${i.id === "docs" ? "passages" : "issues and pull requests"}</span>`}</div>
       <span class="small">${i.says}</span>
       ${press[i.action] && html`<button style="align-self: flex-start" disabled=${act.busy || !i.can_act} title=${i.can_act ? "" : "Nothing to do now"}
         onClick=${() => act.run(press[i.action][1])}>${press[i.action][0]}</button>`}</li>`)}</ul>`}</section>`;

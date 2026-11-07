@@ -910,7 +910,7 @@ class Hubd:
 
     def _tell_steward(self, record: dict, text: str) -> None:
         if record["by"] == STEWARD or record["driver"] == "steward":
-            self.agents.tell(STEWARD, f"New work {record['id']} ({record['title']}, {record['repo']}): {text}")
+            self.agents.tell(STEWARD, f"New work {record['id']} ({record['title']}, {record['repo'] or 'no repository'}): {text}")
 
     async def work_tool(self, op: str, req: dict) -> dict:
         """By a session's own token. A full session may suggest work; it doesn't plan or read drafts."""
@@ -1077,7 +1077,7 @@ class Hubd:
                     raise newwork.WorkError("it's still running: cancel it first")
                 with_it = sum(d["state"] == "handed" for d in record["drafts"])
                 if with_it:  # whoever drove this, those are the Steward's to hear about
-                    self.agents.tell(STEWARD, f"New work {record['id']} ({record['title']}, {record['repo']}): the person set this aside. The {with_it} draft(s) they handed you are still yours.")
+                    self.agents.tell(STEWARD, f"New work {record['id']} ({record['title']}, {record['repo'] or 'no repository'}): the person set this aside. The {with_it} draft(s) they handed you are still yours.")
                 else:
                     self._tell_steward(record, "the person set this aside.")
                 return {"ok": True, "work": self.work.move(record, "dismissed")}
