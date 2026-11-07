@@ -1592,5 +1592,7 @@ def test_sessions_running_groups_badges_and_history_filters():
     past = _component(script, "PastSessions")
     assert 'post("agents/past", { persona: persona || undefined, repo: repo || undefined, outcome:' in past
     assert "Running again" in past and "Resuming…" in past and "Restoring…" in past
+    # #36 review, 3: by the conversation's id from hubd, and Transcript stays whatever the first button is.
+    assert "[persona, repo, filter, running]" in past and "const runningAgain = (r) => r.running_again;" in past and "${r.transcript && html`<button disabled=${act.busy} onClick=${() => setReading(r)}>Transcript</button>`}" in past
     clean = _component(script, "Cleanup")
     assert "safe.filter((r) => r.pr_settled)" in clean and ">Select safe<" in clean and "r.commands.join" in clean and 'role="switch"' in clean

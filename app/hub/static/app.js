@@ -2538,10 +2538,12 @@ function PastSessions() {
   const [filter, setFilter] = useState("all");
   const [persona, setPersona] = useState("");
   const [repo, setRepo] = useState("");
-  // 004 FR-016: hubd narrows by persona, repository and outcome.
-  const { data, error, reload } = useLoad(() => post("agents/past", { persona: persona || undefined, repo: repo || undefined, outcome: filter === "all" ? undefined : filter }), [persona, repo, filter]);
-  const everything = useLoad(() => post("agents/past"), []);
   const live = useSessions();
+  // Asked again when a session starts or ends anywhere: a conversation running again leaves this list (hubd decides which).
+  const running = (live.data || []).filter((s) => s.agent && !s.agent.ended).map((s) => s.name).sort().join(" ");
+  // 004 FR-016: hubd narrows by persona, repository and outcome.
+  const { data, error, reload } = useLoad(() => post("agents/past", { persona: persona || undefined, repo: repo || undefined, outcome: filter === "all" ? undefined : filter }), [persona, repo, filter, running]);
+  const everything = useLoad(() => post("agents/past"), []);
   const [resuming, setResuming] = useState(null);
   const [words, setWords] = useState("");
   const [found, setFound] = useState(null);
@@ -2558,8 +2560,9 @@ function PastSessions() {
   const all = everything.data ? everything.data.sessions : [];
   const personas = [...new Set(all.map((r) => r.persona).filter(Boolean))].sort();
   const repos = [...new Set(all.map((r) => r.repo).filter(Boolean))].sort();
-  // 004 FR-018: one already running again says so, instead of offering to resume it twice.
-  const runningAgain = (r) => (live.data || []).some((s) => s.name === r.name && s.agent && !s.agent.ended);
+  // 004 FR-018: one already running again says so, instead of offering to resume it twice. hubd says which, by the
+  // conversation's own id: a later session can reuse the name, and that one is a different conversation.
+  const runningAgain = (r) => r.running_again;
   const resume = (r) => { setResuming(r.id); act.run(async () => { try { await post("agents/resume_past", { id: r.id }); setBack(r.name); live.reload(); } finally { setResuming(null); } }); };
   return html`<section class="stack" style="gap: 14px" aria-labelledby="h-hist">
     ${reading && html`<${Transcript} id=${reading.id} name=${reading.name} onClose=${() => setReading(null)} />`}
@@ -2584,9 +2587,9 @@ function PastSessions() {
       <span class="past-tag">${PAST_TAG[r.worktree]}</span>
       <div class="row" style="gap: 6px; flex: none">
         ${runningAgain(r) ? html`<span class="small">Running again · <a href=${hash("shells", { tab: "all", name: r.name })}>Open it</a></span>`
-          : r.transcript ? html`<button class="primary" disabled=${act.busy} onClick=${() => resume(r)}>${resuming === r.id ? (r.worktree === "removed" ? "Restoring…" : "Resuming…") : r.worktree === "removed" ? "Restore & resume" : "Resume"}</button>
-            <button disabled=${act.busy} onClick=${() => setReading(r)}>Transcript</button>`
-          : html`<span class="small soft">Its transcript is gone.</span>`}</div></div>`)}</div>
+          : r.transcript ? html`<button class="primary" disabled=${act.busy} onClick=${() => resume(r)}>${resuming === r.id ? (r.worktree === "removed" ? "Restoring…" : "Resuming…") : r.worktree === "removed" ? "Restore & resume" : "Resume"}</button>`
+          : html`<span class="small soft">Its transcript is gone.</span>`}
+        ${r.transcript && html`<button disabled=${act.busy} onClick=${() => setReading(r)}>Transcript</button>`}</div></div>`)}</div>
     <p class="small soft">Claude Code keys transcripts by folder, and a session runs from the same folder when it comes back. When a worktree was removed, the hub recreates it at the same path first: from its branch, or from the pull request. Uncommitted files in a removed worktree don't come back, which is why the hub won't remove one that has them. The Steward isn't listed: it has its own place in the sidebar.</p>
   </section>`;
 }

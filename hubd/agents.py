@@ -2219,10 +2219,14 @@ class Agents:
         return found
 
     def _past_rows(self, live: set[str]) -> list[dict]:
-        rows = []
+        rows, running = [], set()
         for directory in (self.sessions.iterdir() if self.sessions.is_dir() else ()):
             ended = directory / ENDED_FILE
             if directory.name in self._starting or (directory.name in live and not ended.exists()):
+                try:  # 004 FR-018: the conversation running now, by its own id; a name can come back for another one
+                    running.add(json.loads((directory / "session.json").read_text()).get("session_id"))
+                except (OSError, ValueError, AttributeError):
+                    pass
                 continue
             try:
                 record = json.loads((directory / "session.json").read_text())
@@ -2239,6 +2243,8 @@ class Agents:
             if record["session_id"] not in seen and record["config"].get("action") in self.library.actions:
                 checkout = self.library.actions[record["config"]["action"]].get("checkout")
                 rows.append(self._past_row(record, {"you": "ended", "interrupted": "interrupted"}.get(record.get("how"), "finished"), record["ended"], "removed" if checkout else "none"))
+        for r in rows:
+            r["running_again"] = r["id"] in running
         return sorted(rows, key=lambda r: r["ended"], reverse=True)
 
     def _known_transcript(self, session_id) -> Path:

@@ -592,3 +592,31 @@ def test_select_safe_leaves_commits_pushed_after_the_pull_request(world):
     assert (rows[after_merge]["state"], rows[after_merge]["pr_settled"]) == ("safe", False)
     assert rows[after_merge]["what"] == "boot: commits after pull request #7 merged."
     assert (rows[after_close]["state"], rows[after_close]["pr_settled"]) == ("safe", False)
+
+
+def test_running_again_is_by_the_conversation_not_the_name(world):
+    """#36 review, 3 (004 FR-018): a resumed conversation's row says it's running again; an older one with the same name, while
+    a later session uses it, is a different conversation and doesn't."""
+    a, _gh, tmp = world
+    first = full_session(a, "same")
+    old = a.session_id_of(first)
+    transcript(tmp, old, ("user", "x"))
+    a.shells.live.discard(first)
+    run(a.forget(first))
+    second = full_session(a, "same")
+    newer = a.session_id_of(second)
+    transcript(tmp, newer, ("user", "y"))
+    a.shells.live.discard(second)
+    run(a.forget(second))
+    assert {r["id"]: r["running_again"] for r in run(a.past())} == {old: False, newer: False}
+    # While it starts again (resume_past's own steps: its folder back, the name starting, its history kept until it runs).
+    record = a.history.get(newer)
+    (a.sessions / "same").mkdir(mode=0o700)
+    (a.sessions / "same" / "session.json").write_text(json.dumps({k: record[k] for k in record if k not in ("how", "ended")}))
+    a._starting.add("same")
+    assert {r["id"]: r["running_again"] for r in run(a.past())} == {old: False, newer: True}
+    a._starting.discard("same")
+    run(a.forget("same"))
+    # Once it runs, its row goes and the older conversation still offers its own buttons.
+    run(a.resume_past(newer))
+    assert {r["id"]: r["running_again"] for r in run(a.past())} == {old: False}
