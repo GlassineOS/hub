@@ -2621,3 +2621,15 @@ def test_the_steward_panel_shows_what_hubd_says_it_was_told():
     assert "＋ Plan new work with the Steward" in panel
     # 010 FR-003: the compact session view, with the model and its select.
     assert "<${StewardModel}" in panel and 'mode="compact"' in _component(script, "StewardSession")
+
+
+def test_the_steward_panel_is_a_button_at_phone_width():
+    script = _app_js()
+    css = (Path(__file__).resolve().parents[1] / "app" / "hub" / "static" / "style.css").read_text()
+    # 001 FR-008: at phone width a floating button that opens a full sheet, at the same width the stylesheet makes it one.
+    assert 'const PHONE = "(max-width: 1000px)";' in script and "@media (max-width: 1000px) {\n  .dock { position: fixed; inset: 0;" in css
+    panel = _component(script, "Steward")
+    # The per-view choice is the side panel's: on a phone it isn't applied, isn't kept, and the sheet closes with the view.
+    assert "const open = phone ? sheet === view : view in panels ? panels[view] : panelOpen(view);" in panel
+    assert panel.index("if (phone) return setSheet(next ? null : view);") < panel.index("keepPanel(view, !next);")
+    assert "useEffect(() => setSheet(null), [view]);" in panel and 'm.addEventListener("change", changed)' in _component(script, "usePhone")

@@ -3735,6 +3735,21 @@ function panelOpen(view) {
 function keepPanel(view, open) {
   try { localStorage.setItem("steward-panel", JSON.stringify({ ...readPanels(), [view]: open ? "open" : "rail" })); } catch { /* it only helps */ }
 }
+// 001 FR-008: at phone width (style.css's own breakpoint) the Steward is a floating button that opens a full sheet. The
+// per-view choice is the side panel's: on a phone it's neither applied nor kept, and the sheet closes when the view changes.
+const PHONE = "(max-width: 1000px)";
+function usePhone() {
+  const query = () => { try { return matchMedia(PHONE); } catch { return null; } };
+  const [phone, setPhone] = useState(() => !!(query() && query().matches));
+  useEffect(() => {
+    const m = query();
+    if (!m) return undefined;
+    const changed = () => setPhone(m.matches);
+    m.addEventListener("change", changed);
+    return () => m.removeEventListener("change", changed);
+  }, []);
+  return phone;
+}
 // 010 FR-001: the panel's width, 320 to 760 px, kept per viewer in this browser.
 const STEWARD_WIDTH = { min: 320, max: 760, start: 440, step: 16 };
 const clampWidth = (w) => Math.min(STEWARD_WIDTH.max, Math.max(STEWARD_WIDTH.min, Math.round(Number(w) || STEWARD_WIDTH.start)));
@@ -3832,10 +3847,17 @@ function StewardModel({ running, current, open }) {
 function Steward({ route, asks }) {
   const seen = seenFrom(route);
   const view = stewardView(seen);
+  const phone = usePhone();
   const [panels, setPanels] = useState(() => ({ [view]: panelOpen(view) }));
-  const open = view in panels ? panels[view] : panelOpen(view);
+  const [sheet, setSheet] = useState(null);  // on a phone: the view the sheet was opened on
+  useEffect(() => setSheet(null), [view]);
+  const open = phone ? sheet === view : view in panels ? panels[view] : panelOpen(view);
   const rail = !open;
-  const setRail = (next) => { keepPanel(view, !next); setPanels({ ...panels, [view]: !next }); };
+  const setRail = (next) => {
+    if (phone) return setSheet(next ? null : view);
+    keepPanel(view, !next);
+    setPanels({ ...panels, [view]: !next });
+  };
   const [width, setWidthState] = useState(readWidth);
   const setWidth = (w) => { setWidthState(w); try { localStorage.setItem("steward-width", String(w)); } catch { /* it only helps */ } };
   const [modelOpen, setModelOpen] = useState(false);
