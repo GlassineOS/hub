@@ -5,7 +5,8 @@ Each session's settings carry a status-line command (agents._hooks) that copies 
 that session's own folder as status.json, at most MAX_BYTES. Nothing here asks Claude Code or the network.
 
 The status-line input is Claude Code's, not ours, and not pinned. If the newest file carries rate limits (a used
-percentage and a reset time) those are shown; otherwise the total cost of the sessions active today is compared with
+percentage and a reset time, and the reset is not already past) those are shown; only that newest file is looked at,
+so a slightly older session's limits are not used when the newest has none. Otherwise the total cost of the sessions active today is compared with
 an allowance you set (HUBD_DAILY_USAGE_USD in agents.env). Claude Code's cost is a running total for a session (it
 resets on /clear), so a session that began on an earlier day counts whole: this is not the day's own spend, and the
 words say so. With neither, the meter says it doesn't know.
@@ -38,8 +39,9 @@ def _number(value) -> float | None:
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0 else None
 
 
-def _rate_limit(status: dict) -> dict | None:
-    """The fullest window among the rate limits, if the file has any we can read: {used, resets}."""
+def _rate_limit(status: dict, now: float | None = None) -> dict | None:
+    """The fullest window among the rate limits, if the file has any we can read: {used (0..1), resets}.
+    A window whose numeric reset time is already past is skipped: its percentage is from before the reset."""
     limits = status.get("rate_limits")
     windows = limits.values() if isinstance(limits, dict) else limits if isinstance(limits, list) else ()
     best = None
@@ -49,6 +51,8 @@ def _rate_limit(status: dict) -> dict | None:
         used = _number(window.get("used_percentage"))
         resets = window.get("resets_at")
         if used is None or not isinstance(resets, (int, float, str)) or isinstance(resets, bool):
+            continue
+        if now is not None and isinstance(resets, (int, float)) and resets <= now:
             continue
         used = min(used, 100.0) / 100  # the file says 0..100: compare on one scale
         if best is None or used > best["used"]:
@@ -75,7 +79,7 @@ def status(sessions: Path | None, allowance: float | None = None, now: float | N
     files.sort(reverse=True)
     if files:
         newest = _read(files[0][1])
-        limit = _rate_limit(newest) if newest else None
+        limit = _rate_limit(newest, now) if newest else None
         if limit:
             return _words(limit["used"], "rate limit", resets=limit["resets"])
     if allowance:

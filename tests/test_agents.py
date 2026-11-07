@@ -1802,6 +1802,9 @@ def test_the_status_line_writes_only_status_json_in_its_own_folder(tmp_path):
     assert json.loads((directory / "status.json").read_text()) == status and not (directory / "status.json.part").exists()
 
 
+FAR = 4_000_000_000  # a reset in the future (the year 2096)
+
+
 def test_usage_says_not_known_without_a_status_and_low_from_eighty_percent(tmp_path):
     sessions = tmp_path / "sessions"
     assert usage.status(sessions)["says"] == "usage not known" and usage.status(None)["known"] is False
@@ -1812,13 +1815,13 @@ def test_usage_says_not_known_without_a_status_and_low_from_eighty_percent(tmp_p
     assert today["known"] and today["low"] and today["used"] == 0.8 and today["says"] == "$4.00 of $5.00 spent by sessions active today (80%), low"
     assert not usage.status(sessions, allowance=10.0)["low"]
     (sessions / "b").mkdir()
-    (sessions / "b" / "status.json").write_text(json.dumps({"rate_limits": {"five_hour": {"used_percentage": 30, "resets_at": 99},
+    (sessions / "b" / "status.json").write_text(json.dumps({"rate_limits": {"five_hour": {"used_percentage": 30, "resets_at": FAR},
                                                                              "seven_day": {"used_percentage": 81.5, "resets_at": "Monday"}}}))
     limited = usage.status(sessions, allowance=10.0)
     assert limited["source"] == "rate limit" and limited["low"] and limited["resets"] == "Monday" and limited["says"].endswith(", low")
-    for first, second, shown in (({"used_percentage": 90, "resets_at": 1}, {"used_percentage": 20, "resets_at": 2}, 0.9),
-                                 ({"used_percentage": 20, "resets_at": 1}, {"used_percentage": 90, "resets_at": 2}, 0.9),
-                                 ({"used_percentage": 80, "resets_at": 1}, {"used_percentage": 10, "resets_at": 2}, 0.8)):
+    for first, second, shown in (({"used_percentage": 90, "resets_at": FAR}, {"used_percentage": 20, "resets_at": FAR + 1}, 0.9),
+                                 ({"used_percentage": 20, "resets_at": FAR}, {"used_percentage": 90, "resets_at": FAR + 1}, 0.9),
+                                 ({"used_percentage": 80, "resets_at": FAR}, {"used_percentage": 10, "resets_at": FAR + 1}, 0.8)):
         (sessions / "b" / "status.json").write_text(json.dumps({"rate_limits": {"five_hour": first, "seven_day": second}}))
         fullest = usage.status(sessions)
         assert fullest["used"] == shown and fullest["low"] and fullest["says"] == f"{round(shown * 100)}% of the rate limit used, low", \
@@ -1841,6 +1844,32 @@ def test_the_allowance_counts_whole_sessions_active_today_not_a_days_spend(tmp_p
     assert meter["source"] == "cost of today's sessions" and meter["low"] and meter["used"] == 0.8
     assert meter["says"] == "$16.00 of $20.00 spent by sessions active today (80%), low", "the 15 carried over counts, the idle 50 does not"
     assert "used today" not in meter["says"], "it is not the day's own spend, and must not read as that"
+
+
+def test_rate_limits_after_their_reset_are_ignored_and_only_the_newest_file_is_read(tmp_path):
+    sessions = tmp_path / "sessions"
+    now = 1_800_000_000.0
+    def write(name, status, age):
+        (sessions / name).mkdir(parents=True, exist_ok=True)
+        path = sessions / name / "status.json"
+        path.write_text(json.dumps(status))
+        os.utime(path, (now - age, now - age))
+    window = lambda used, resets: {"used_percentage": used, "resets_at": resets}
+    write("a", {"rate_limits": {"five_hour": window(95, now - 3600), "seven_day": window(30, now + 86400)}}, 10)
+    seen = usage.status(sessions, now=now)
+    assert seen["used"] == 0.3 and not seen["low"] and seen["resets"] == now + 86400, "the 95 % window reset an hour ago"
+    write("a", {"rate_limits": {"five_hour": window(95, now - 3600)}}, 10)
+    assert usage.status(sessions, now=now)["known"] is False, "all reset: nothing to show"
+    write("a", {"rate_limits": {"five_hour": window(95, now)}}, 10)
+    assert usage.status(sessions, now=now)["known"] is False, "resetting this second is reset"
+    write("a", {"rate_limits": {"five_hour": window(95, "Monday")}}, 10)
+    assert usage.status(sessions, now=now)["low"], "a reset time we can't read as a number is not ruled out"
+    # The newest file has no rate limits (an API-key session): an older one's limits are not used.
+    write("a", {"rate_limits": {"five_hour": window(90, now + 3600)}}, 600)
+    write("b", {"cost": {"total_cost_usd": 2.0}}, 5)
+    assert usage.status(sessions, now=now)["known"] is False
+    cost = usage.status(sessions, allowance=10.0, now=now)
+    assert cost["source"] == "cost of today's sessions" and cost["used"] == 0.2
 
 
 def test_a_resumed_session_is_at_its_prompt(tmp_path):

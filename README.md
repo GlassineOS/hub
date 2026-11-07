@@ -171,7 +171,8 @@ HUBD_DAILY_USAGE_USD=20
 
 The header's usage meter reads `status.json` in each session's folder: every session's settings run a status-line
 command that copies Claude Code's status-line JSON there (at most 16 KiB, whole or not at all). If the newest has rate
-limits, the meter shows the fullest; otherwise the total cost of the sessions active today against
+limits that haven't reset yet, the meter shows the fullest (a window whose reset time has passed is ignored, and an
+older session's limits are not used when the newest file has none); otherwise the total cost of the sessions active today against
 `HUBD_DAILY_USAGE_USD`. That cost is Claude Code's running total for each session, so a session that began on an
 earlier day counts whole, not just today's part; the meter says "spent by sessions active today", not a day's spend.
 With neither it says "usage not known". It says "low" from 80 %. Which fields your Claude Code version sends hasn't been tried yet.
