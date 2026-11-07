@@ -23,7 +23,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import auth, decisions, devices, interactions, newwork, notes
+from . import auth, decisions, devices, interactions, newwork, notes, usage
 from . import feed as feedlib
 from .agents import MAX_NOTES, PLANNER_MODELS, AgentError, Agents, Library, load_environment, validate, with_also
 from .apps import AppError, Apps, is_write
@@ -108,8 +108,11 @@ class Hubd:
                  authenticate=auth.pam_authenticate, pam_service: str = PAM_SERVICE, agents: Agents | None = None,
                  apps: Apps | None = None, work: newwork.NewWork | None = None, device_reports: devices.Devices | None = None,
                  decision_store: decisions.Decisions | None = None, notes_search: notes.Notes | None = None,
-                 change_feed: feedlib.Feed | None = None, ping_seconds: float = feedlib.DEFAULT_PING):
+                 change_feed: feedlib.Feed | None = None, ping_seconds: float = feedlib.DEFAULT_PING,
+                 usage_allowance: float | None = None):
         self.feed = change_feed
+        self.socket_path: Path | None = None  # set by serve, for the header's "connected to" (001 FR-005)
+        self.usage_allowance = usage_allowance  # HUBD_DAILY_USAGE_USD, for the usage meter when no rate limit is known
         self._visible: dict[str, tuple[bool, float]] = {}
         self.pings = feedlib.Pings(change_feed, agents, self.public_among, ping_seconds) if change_feed and agents else None
         self.asks = Asks()
@@ -152,7 +155,7 @@ class Hubd:
         op = req.get("op")
         if op == "ping":
             return {"ok": True, "gh": self.gh.available(), "tmux": self.shells.available(),
-                    "user": self.sessions.own_user()}
+                    "user": self.sessions.own_user(), "socket": str(self.socket_path) if self.socket_path else None}
         if op == "auth.login":
             return await self.login(req)
         if op == "auth.check":
@@ -197,11 +200,15 @@ class Hubd:
             return await self.started_request(op, req)
         if op in REPO_OPS:
             return await self.repo_request(op, req)
-        if op in ("shell.list", "shell.new", "shell.kill") or op.startswith(("agent.", "ask.", "work.", "decision.", "notes.", "interaction.")):
+        if op in ("shell.list", "shell.new", "shell.kill") or op.startswith(("agent.", "ask.", "work.", "decision.", "notes.", "interaction.", "usage.")):
             if not self.sessions.check(req.get("token")):
                 return {"ok": False, "error": "login required", "denied": True}
             if op.startswith("interaction."):
                 return await self.interaction_request(op, req)
+            if op.startswith("usage."):
+                if op != "usage.status":
+                    return {"ok": False, "error": f"unknown request: {op}"}
+                return {"ok": True, **usage.status(self.agents.sessions if self.agents else None, self.usage_allowance)}
             if op == "ask.list":
                 return {"ok": True, **self.asks.list()}
             if op == "ask.answer":
@@ -1165,6 +1172,7 @@ async def serve(hubd: Hubd, path: Path) -> None:
     path.parent.chmod(0o700)
     if path.exists():
         path.unlink()
+    hubd.socket_path = path
     previous = os.umask(0o177)
     try:
         server = await asyncio.start_unix_server(hubd.connection, path=str(path), limit=MAX_REQUEST)
@@ -1208,6 +1216,7 @@ def main(argv=None) -> int:
         claude = keep.pop("HUBD_CLAUDE", os.environ.get("HUBD_CLAUDE", "claude"))
         workspace = keep.pop("HUBD_WORKSPACE", os.environ.get("HUBD_WORKSPACE"))
         ping_setting = keep.pop("HUBD_PING_SECONDS", os.environ.get("HUBD_PING_SECONDS"))
+        allowance = usage.allowance_of(keep.pop("HUBD_DAILY_USAGE_USD", os.environ.get("HUBD_DAILY_USAGE_USD")))
         # From before agents.env, until install.sh has moved it there.
         if "CLAUDE_CONFIG_DIR" in os.environ:
             keep.setdefault("CLAUDE_CONFIG_DIR", os.environ["CLAUDE_CONFIG_DIR"])
@@ -1225,7 +1234,7 @@ def main(argv=None) -> int:
             log.exception("no change feed")
             change_feed = None
         hubd = Hubd(gh, shells, auth.Sessions(), agent_token, pam_service=a.pam_service, agents=agents, apps=apps,
-                    change_feed=change_feed, ping_seconds=feedlib.ping_interval(ping_setting),
+                    change_feed=change_feed, ping_seconds=feedlib.ping_interval(ping_setting), usage_allowance=allowance,
                     work=newwork.NewWork(state_dir() / "newwork"), device_reports=devices.Devices(state_dir() / "devices"),
                     decision_store=decisions.Decisions(state_dir() / "decisions"), notes_search=notes.Notes(agents.workspace))
         await serve(hubd, a.socket)

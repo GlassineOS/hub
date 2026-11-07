@@ -55,7 +55,8 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .top nav { display: flex; flex-wrap: wrap; gap: 4px; }
 .top nav a { display: flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 12px; color: var(--ink); text-decoration: none; }
 .top nav a:hover { background: var(--sheet); }
-.top nav a[aria-current] { background: var(--mark); font-weight: 600; }
+/* The current view is outlined, not yellow: yellow is only for what waits for you. */
+.top nav a[aria-current] { box-shadow: inset 0 0 0 1.5px var(--ink); font-weight: 600; }
 .top .end { flex: 1 1 280px; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 12px; }
 .budget { display: flex; align-items: center; gap: 8px; font: 400 12.5px var(--mono); color: var(--soft); }
 .budget b { font: 500 11.5px var(--mono); letter-spacing: .08em; color: var(--ink); }
@@ -295,7 +296,6 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
 .term-copied { position: fixed; right: 24px; bottom: 24px; z-index: 20; padding: 6px 12px; background: var(--ink); color: var(--paper, #fff); border-radius: 8px; }
 
 /* --- what sessions ask ------------------------------------------------------------------------- */
-.nav-count { display: inline-block; min-width: 22px; height: 22px; margin-left: 8px; padding: 0 6px; border: 1.5px solid var(--ink); border-radius: 999px; background: var(--mark); color: var(--ink); font: 600 12px/19px var(--mono); text-align: center; }
 .ask-tally { margin-left: 8px; padding: 1px 7px; border: 1.5px solid var(--ink); border-radius: 999px; font: 400 13px var(--mono); }
 .ask-tally.on { background: var(--mark); }
 .ask { display: flex; flex-direction: column; border: 1.5px solid var(--ink); border-radius: 16px; overflow: hidden; box-shadow: 0 3px 0 var(--shade); background: var(--paper); }
@@ -515,4 +515,11 @@ dialog.needs .row { margin-top: 0; }
 .icard.dense[data-waits] .icard-line .ask-kind { background: var(--mark); }
 .needs-open { min-height: 40px; padding: 0 14px; border-radius: 999px; box-shadow: none; font-size: 14px; }
 .needs-open[data-waits], .needs-open[data-waits]:hover:not(:disabled) { background: var(--mark); font-weight: 600; }
-button.nav-count { min-height: 0; box-shadow: none; cursor: pointer; }
+
+/* header (001 FR-002, 001 FR-005, 001 FR-006, 001 FR-020) */
+.top .needs-open[data-state="none"] { border-color: var(--rule); color: var(--soft); font-weight: 400; }
+.top .needs-open[data-state="blocking"] { border-width: 2.5px; }
+.top .new-work { min-height: 40px; border-radius: 999px; box-shadow: none; font-size: 14px; }
+.whoami { display: inline-flex; flex-wrap: wrap; gap: 0 6px; max-width: 32ch; overflow-wrap: anywhere; }
+.budget.usage.low { color: var(--ink); font-weight: 600; }
+.unreachable { padding: 8px 32px; border-bottom: 1.5px dashed var(--ink); background: var(--sheet); font-size: 14px; }

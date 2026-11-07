@@ -38,7 +38,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
-from . import auth, shell_hook
+from . import auth, shell_hook, usage
 from .asks import FOREVER, HOOK_MARGIN, QUESTION_TOOL, WAIT
 from .codemap import UNREADABLE, CodeMaps, MapError
 from .codesearch import CodeSearch, SearchError
@@ -132,7 +132,14 @@ def _draws_nothing(c: str) -> bool:
                                  or any(low <= ord(c) <= high for low, high in _BLANK_RANGES))
 
 
-SCREENS = ("Overview", "Roadmap", "Work", "Docs", "Sessions", "Device", "Decisions", "Queue", "Notes")
+# The header's views (001 FR-001) and the queue under Work. A page from before PR 5 may still say "Docs": that's Knowledge now.
+# Device and Decisions are gone (Overview and Needs you have them), so a page naming them is refused like any other.
+SCREENS = ("Overview", "Roadmap", "Work", "Knowledge", "Notes", "Sessions", "Queue")
+OLD_SCREENS = {"Docs": "Knowledge"}
+
+
+def screen_of(screen):
+    return OLD_SCREENS.get(screen, screen) if isinstance(screen, str) else screen
 SEEN_KINDS = ("issue", "pull request", "run")
 _SELECTION_RE = re.compile(r"[A-Za-z0-9._-]+#[0-9]+")
 SEND_POLL = 1  # seconds, while something waits to be sent
@@ -1022,10 +1029,20 @@ class Agents:
         read_outcomes = f"if mv {outcomes} {read} 2>/dev/null; then cat {read}; rm -f {read}; fi"
         context = shlex.quote(str(directory / CONTEXT_FILE))
         asks = self._ask_hooks(directory, config, action, [*hook(f"rm -f {marker} {idle}"), *self._shell_hooks(directory, config, action)])
-        return {"hooks": {"Notification": hook(f"touch {marker}"), "UserPromptSubmit": hook(f"rm -f {marker} {idle}; {read_outcomes}; cat {context} 2>/dev/null; true"),
+        return {"statusLine": self._status_line(directory), "hooks": {"Notification": hook(f"touch {marker}"), "UserPromptSubmit": hook(f"rm -f {marker} {idle}; {read_outcomes}; cat {context} 2>/dev/null; true"),
                           **asks, "Stop": [*hook(f"touch {idle}"), *asks.get("Stop", ())], "SessionStart": [{"matcher": "startup", **hook(f"sleep {TOOL_SERVER_WAIT}")[0]},
                                            # A resume has no first turn, so nothing else would say it's at its prompt.
                                            {"matcher": "resume", **hook(f"touch {idle}")[0]}]}}
+
+    @staticmethod
+    def _status_line(directory: Path) -> dict:
+        """Claude Code's status-line JSON, copied to status.json in this session's own folder for the usage meter (001 FR-006).
+        Whole or not at all: over usage.MAX_BYTES it is dropped, and the line it shows in the terminal stays empty."""
+        status = shlex.quote(str(directory / usage.STATUS_FILE))
+        part = shlex.quote(str(directory / (usage.STATUS_FILE + ".part."))) + "$$"  # one per invocation: two at once don't share it
+        command = (f"head -c {usage.MAX_BYTES + 1} > {part} && [ \"$(wc -c < {part})\" -le {usage.MAX_BYTES} ] && mv -f {part} {status}; "
+                   f"rm -f {part}; true")
+        return {"type": "command", "command": command, "padding": 0}
 
     def _shell_hooks(self, directory: Path, config: dict, action: dict) -> list:
         if "Bash" not in config["tools"] or _full(action):
@@ -1472,6 +1489,7 @@ class Agents:
 
     def set_context(self, name, screen, kind=None, selection=None) -> dict:
         """Checked here, as it joins the session's turn as the hub's own words."""
+        screen = screen_of(screen)
         if screen not in SCREENS:
             raise AgentError("not a screen")
         _check_seen(kind, selection)
@@ -1667,6 +1685,7 @@ class Agents:
             raise AgentError(f"no session named {name}")
         if mode not in VIEW_MODES:
             raise AgentError(f"a session is shown {' or '.join(VIEW_MODES)}")
+        where = screen_of(where)
         if where not in SCREENS:
             raise AgentError("not a screen")
         _check_seen(None, ref)

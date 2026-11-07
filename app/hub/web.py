@@ -72,7 +72,11 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
             try:
                 if not token or not (await hubd.call(op="auth.check", token=token))["ok"]:
                     return JSONResponse({"error": "login required"}, 401)
-            except HubdError:
+            except HubdError as e:
+                # Still nothing without a login, but a page that can't reach hubd says so and keeps what it last read
+                # instead of signing you out (001 FR-005, 001 FR-020).
+                if e.unreachable:
+                    return JSONResponse({"error": "hubd can't be reached", "unreachable": True}, 503)
                 return JSONResponse({"error": "login required"}, 401)
             if request.method != "GET" and not _same_origin(request.headers):
                 return JSONResponse({"error": "cross-origin request refused"}, 403)
@@ -123,7 +127,7 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
 
     async def host_status(_request, _body, _token):
         reply = await hubd.call(op="ping")
-        return {"user": reply["user"], "gh": reply["gh"], "tmux": reply["tmux"]}
+        return {"user": reply["user"], "gh": reply["gh"], "tmux": reply["tmux"], "hubd": reply.get("socket")}
 
     # --- overview and board --------------------------------------------------
     async def overview(request, _b, _t):
@@ -180,6 +184,10 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         return github.merge_queue((await hubd.call(op="decision.list", token=token))["decisions"])
 
     # --- notes: the one query, by your login -------------------------------------
+    async def usage_status(_r, _b, token):  # the header's meter (001 FR-006): read from the sessions' own status.json files
+        reply = await hubd.call(op="usage.status", token=token)
+        return {k: reply.get(k) for k in ("known", "used", "low", "says", "resets", "source")}
+
     async def notes_status(_r, _b, token):
         reply = await hubd.call(op="notes.status", token=token)
         return {"here": reply["here"], "says": reply["says"]}
@@ -452,6 +460,7 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         Route("/api/decisions", api(decision_add), methods=["POST"]),
         Route("/api/decisions/{id}/{move}", api(decision_move), methods=["POST"]),
         Route("/api/queue", api(merge_queue)),
+        Route("/api/usage", api(usage_status)),
         Route("/api/notes", api(notes_status)),
         Route("/api/notes/find", api(notes_find), methods=["POST"]),
         Route("/api/repo-copies", api(repo_copies)),

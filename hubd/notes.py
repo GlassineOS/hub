@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""The Notes tab's one query: `notes find`, by a login, in the words the tool answers.
+"""The Notes page's one query: `notes find`, by a login, in the words the tool answers.
 
 The tool lives in the workspace and is run as a program, never imported: hubd stays standard
 library, and the index stays the tool's own business, in its 0700 cache. Notes and the sources

@@ -214,6 +214,17 @@ in its state folder, with the host's time. The hub never asks the device, runs n
 - `device_status` is by list, because a report's text is free. No locked action lists it, nor does the Steward, and hubd checks
   the list as well as the tool server. Full sessions and hub shells can read it. The page needs a login.
 
+## The usage meter
+
+The header's meter reads `status.json` in each session's own folder, which a status-line command in that session's settings writes from
+Claude Code's status-line JSON. hubd never asks Claude or the network for it.
+
+- **`usage.status` needs a login** (the `usage.` prefix in `Hubd.request`), and the page reads it through `/api/usage`, with no token path.
+- **The command writes one file in its own folder.** Its path is fixed when the settings are written, it keeps at most 16 KiB and drops
+  anything bigger whole, and it prints nothing into the session's terminal. A session runs as your user and could write the file
+  itself: that can only change the meter's words, which say "usage not known" for anything they can't read as numbers.
+- **The `ping` reply names hubd's socket path**, for the header's "connected to". Anything that can ask is already on that socket.
+
 ## The change feed and the Steward's pings
 
 hubd keeps a feed of what changed in issues, pull requests and runs (`feed.sqlite` in its state folder), and pings each running

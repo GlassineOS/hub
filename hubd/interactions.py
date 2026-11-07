@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import time
 
-from .agents import SCREENS
+from .agents import SCREENS, screen_of
 from .decisions import EYE_TEST, REQUEST_LIFE
 
 KINDS = ("permission", "question", "decision", "suggestion", "result")
@@ -151,6 +151,7 @@ def project(asks: dict, decisions: list[dict], work: list[dict], agents: dict, o
 def check_where(where) -> str | None:
     if where is None:
         return None
+    where = screen_of(where)
     if where not in WHERE:
         raise ValueError(f"where is one of {', '.join(WHERE)}")
     return where

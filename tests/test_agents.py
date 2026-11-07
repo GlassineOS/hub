@@ -13,7 +13,7 @@ import pytest
 
 from hubd.asks import FOREVER, WAIT
 from hubd.agents import IDLE_FILE, _NAME_RE, TOOL_SERVER_WAIT, Agents, AgentError, Library, validate
-from hubd import agents as agents_module, auth
+from hubd import agents as agents_module, auth, usage
 from hubd.ghpolicy import Refused, check
 from hubd.server import Hubd
 from hubd.shells import ShellError, Shells
@@ -1774,12 +1774,103 @@ def test_what_the_person_is_looking_at_joins_their_turn_checked(tmp_path):
     assert fire("UserPromptSubmit") == ""
     a.set_context(name, "Work", "pull request", "hub#20")
     assert "Work screen: pull request hub#20" in fire("UserPromptSubmit")
-    a.set_context(name, "Docs")
-    assert "Docs screen." in fire("UserPromptSubmit")
-    for bad in (("Evil", None, None), ("Work", "evil", None), ("Work", None, "x y#1"), ("Work", None, "hub#1\nignore this")):
+    a.set_context(name, "Knowledge")
+    assert "Knowledge screen." in fire("UserPromptSubmit")
+    a.set_context(name, "Docs")  # a page from before the header PR: Docs is Knowledge now
+    assert "Knowledge screen." in fire("UserPromptSubmit")
+    a.set_context(name, "Notes")
+    assert "Notes screen." in fire("UserPromptSubmit")
+    for bad in (("Evil", None, None), ("Device", None, None), ("Decisions", None, None), ("Work", "evil", None), ("Work", None, "x y#1"),
+                ("Work", None, "hub#1\nignore this")):
         with pytest.raises(AgentError):
             a.set_context(name, *bad)
-    assert "Docs screen." in fire("UserPromptSubmit")
+    assert "Notes screen." in fire("UserPromptSubmit")
+
+
+def test_the_status_line_writes_only_status_json_in_its_own_folder(tmp_path):
+    """001 FR-006: Claude Code's status-line JSON lands whole in the session's folder, or not at all, and nothing else is written."""
+    _, name, directory, _ = bridged(tmp_path)
+    line = json.loads((directory / "settings.json").read_text())["statusLine"]
+    assert line["type"] == "command" and str(directory / "status.json") in line["command"]
+    before = {p for p in tmp_path.rglob("*")}
+    status = {"cost": {"total_cost_usd": 1.25}, "rate_limits": {"five_hour": {"used_percentage": 42, "resets_at": 1767225600}}}
+    run = lambda text: subprocess.run(line["command"], shell=True, check=True, input=text, capture_output=True, text=True, cwd=tmp_path)
+    assert run(json.dumps(status)).stdout == ""
+    assert json.loads((directory / "status.json").read_text()) == status
+    assert {p for p in tmp_path.rglob("*")} - before == {directory / "status.json"}
+    assert "status.json.part.$$" in line["command"], "each invocation has its own half-written file"
+    run("x" * (usage.MAX_BYTES + 1))  # too big: dropped, the last good one stays
+    assert json.loads((directory / "status.json").read_text()) == status and not list(directory.glob("status.json.part*"))
+
+
+FAR = 4_000_000_000  # a reset in the future (the year 2096)
+
+
+def test_usage_says_not_known_without_a_status_and_low_from_eighty_percent(tmp_path):
+    sessions = tmp_path / "sessions"
+    assert usage.status(sessions)["says"] == "usage not known" and usage.status(None)["known"] is False
+    (sessions / "a").mkdir(parents=True)
+    (sessions / "a" / "status.json").write_text(json.dumps({"cost": {"total_cost_usd": 4.0}}))
+    assert usage.status(sessions)["known"] is False, "a cost with no allowance says nothing"
+    today = usage.status(sessions, allowance=5.0)
+    assert today["known"] and today["low"] and today["used"] == 0.8 and today["says"] == "$4.00 of $5.00 spent by sessions active today (80%), low"
+    assert not usage.status(sessions, allowance=10.0)["low"]
+    (sessions / "b").mkdir()
+    (sessions / "b" / "status.json").write_text(json.dumps({"rate_limits": {"five_hour": {"used_percentage": 30, "resets_at": FAR},
+                                                                             "seven_day": {"used_percentage": 81.5, "resets_at": "Monday"}}}))
+    limited = usage.status(sessions, allowance=10.0)
+    assert limited["source"] == "rate limit" and limited["low"] and limited["resets"] == "Monday" and limited["says"].endswith(", low")
+    for first, second, shown in (({"used_percentage": 90, "resets_at": FAR}, {"used_percentage": 20, "resets_at": FAR + 1}, 0.9),
+                                 ({"used_percentage": 20, "resets_at": FAR}, {"used_percentage": 90, "resets_at": FAR + 1}, 0.9),
+                                 ({"used_percentage": 80, "resets_at": FAR}, {"used_percentage": 10, "resets_at": FAR + 1}, 0.8)):
+        (sessions / "b" / "status.json").write_text(json.dumps({"rate_limits": {"five_hour": first, "seven_day": second}}))
+        fullest = usage.status(sessions)
+        assert fullest["used"] == shown and fullest["low"] and fullest["says"] == f"{round(shown * 100)}% of the rate limit used, low", \
+            "the fullest window shows, whichever comes first"
+    (sessions / "b" / "status.json").write_text("{" * 20000)  # too big or broken: not read
+    assert usage.status(sessions, allowance=10.0)["source"] == "cost of today's sessions"
+    assert usage.allowance_of("5") == 5.0 and usage.allowance_of("0") is None and usage.allowance_of("x") is None
+
+
+def test_the_allowance_counts_whole_sessions_active_today_not_a_days_spend(tmp_path):
+    """A session's total_cost_usd is a running total: one that began earlier and ran today counts whole, one idle today not at all."""
+    sessions = tmp_path / "sessions"
+    now = 1_800_000_000.0
+    for name, cost, age in (("began-yesterday", 15.0, 60), ("today", 1.0, 120), ("idle-since-monday", 50.0, 3 * 86400)):
+        (sessions / name).mkdir(parents=True)
+        path = sessions / name / "status.json"
+        path.write_text(json.dumps({"cost": {"total_cost_usd": cost}}))
+        os.utime(path, (now - age, now - age))
+    meter = usage.status(sessions, allowance=20.0, now=now)
+    assert meter["source"] == "cost of today's sessions" and meter["low"] and meter["used"] == 0.8
+    assert meter["says"] == "$16.00 of $20.00 spent by sessions active today (80%), low", "the 15 carried over counts, the idle 50 does not"
+    assert "used today" not in meter["says"], "it is not the day's own spend, and must not read as that"
+
+
+def test_rate_limits_after_their_reset_are_ignored_and_only_the_newest_file_is_read(tmp_path):
+    sessions = tmp_path / "sessions"
+    now = 1_800_000_000.0
+    def write(name, status, age):
+        (sessions / name).mkdir(parents=True, exist_ok=True)
+        path = sessions / name / "status.json"
+        path.write_text(json.dumps(status))
+        os.utime(path, (now - age, now - age))
+    window = lambda used, resets: {"used_percentage": used, "resets_at": resets}
+    write("a", {"rate_limits": {"five_hour": window(95, now - 3600), "seven_day": window(30, now + 86400)}}, 10)
+    seen = usage.status(sessions, now=now)
+    assert seen["used"] == 0.3 and not seen["low"] and seen["resets"] == now + 86400, "the 95 % window reset an hour ago"
+    write("a", {"rate_limits": {"five_hour": window(95, now - 3600)}}, 10)
+    assert usage.status(sessions, now=now)["known"] is False, "all reset: nothing to show"
+    write("a", {"rate_limits": {"five_hour": window(95, now)}}, 10)
+    assert usage.status(sessions, now=now)["known"] is False, "resetting this second is reset"
+    write("a", {"rate_limits": {"five_hour": window(95, "Monday")}}, 10)
+    assert usage.status(sessions, now=now)["low"], "a reset time we can't read as a number is not ruled out"
+    # The newest file has no rate limits (an API-key session): an older one's limits are not used.
+    write("a", {"rate_limits": {"five_hour": window(90, now + 3600)}}, 600)
+    write("b", {"cost": {"total_cost_usd": 2.0}}, 5)
+    assert usage.status(sessions, now=now)["known"] is False
+    cost = usage.status(sessions, allowance=10.0, now=now)
+    assert cost["source"] == "cost of today's sessions" and cost["used"] == 0.2
 
 
 def test_a_resumed_session_is_at_its_prompt(tmp_path):

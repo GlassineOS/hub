@@ -165,7 +165,19 @@ CLAUDE_CONFIG_DIR=~/.claude-something
 HUBD_CLAUDE=/path/to/claude
 # seconds between pings to a Steward about changes: 60 to 86400, 300 if unset or not a number
 HUBD_PING_SECONDS=300
+# dollars for the header's usage meter to compare the cost of today's sessions with, when the status line gives no rate limit
+HUBD_DAILY_USAGE_USD=20
 ```
+
+The header's usage meter reads `status.json` in each session's folder: every session's settings run a status-line
+command that copies Claude Code's status-line JSON there (at most 16 KiB, whole or not at all). If the newest has rate
+limits that haven't reset yet, the meter shows the fullest (a window whose reset time has passed is ignored, and an
+older session's limits are not used when the newest file has none); otherwise the total cost of the sessions active today against
+`HUBD_DAILY_USAGE_USD`. That cost is Claude Code's running total for each session, so a session that began on an
+earlier day counts whole, not just today's part; the meter says "spent by sessions active today", not a day's spend.
+With neither it says "usage not known". The status-line command is the hub's, set for hub sessions through
+`--settings`, which wins over your own `~/.claude` settings: in a session the hub starts, a status line of your own is
+replaced by an empty one (your settings file is not touched). That is intended: the meter needs the status line. It says "low" from 80 %. Which fields your Claude Code version sends hasn't been tried yet.
 
 The work sync records what changed (an issue, a pull request or a run: its state, head commit, who, when and a link,
 never a title or text) in hubd's change feed, `feed.sqlite` in its state folder. Each running Steward reads it from its
@@ -224,7 +236,7 @@ The index is published with the docs site by the docs repository's CI, so keepin
 current means keeping that CI current. The app compares the published commit with the
 docs repository's head. A push starts the CI by itself; if the index is still stale after
 15 minutes and no run is active, the app starts the workflow, once per commit. **Run docs
-CI** on the Docs page and the `docs_reindex` tool do the same on request. Searches pick up
+CI** on the Knowledge page and the `docs_reindex` tool do the same on request. Searches pick up
 a new index by themselves.
 
 ## On the LAN
