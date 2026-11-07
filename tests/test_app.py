@@ -1484,7 +1484,8 @@ def test_the_work_item_has_its_black_github_button_and_its_sections():
     ids = re.findall(r'\{ id: "([a-z-]+)"', entries) + re.findall(r'id: `close-\$\{reason\}`', entries)
     assert len(ids) >= 13
     assert entries.count("disabled:") >= len(ids) + 1, "every entry, Open on GitHub too, says whether it's off"
-    assert "blockers.join" in entries and "merged pull requests can't reopen" in entries and '"assigned to you"' in entries
+    assert "blockers.join" in entries and "merged pull requests can't reopen" in entries
+    assert "HOST_USER" not in entries and "assigned to you" not in entries, "the host's Unix user is not a GitHub login"
     gh = _component(script, "GhActions")
     assert 'class="gh"' in gh and "On GitHub, as" in gh and 'aria-haspopup="menu"' in gh and 'role="menuitem"' in gh
     assert "/merge`, { method, head: data.headRefOid })" in gh and "confirm({ ...e.confirm, danger: true }, doIt)" in gh

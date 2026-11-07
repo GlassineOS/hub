@@ -980,7 +980,6 @@ function ghEntries({ kind, data, repo, number, base, behind }) {
   }
   if (kind === "issue") {
     const open = data.state === "OPEN";
-    const mine = (data.assignees || []).some((a) => a.login === HOST_USER);
     const close = (reason, label) => ({ id: `close-${reason}`, label, done: `Closed as ${reason}`, run: () => post(`${base}/close`, { reason }),
       disabled: open ? null : "already closed", confirm: { title: `${label}?`, text: `${repo}#${number}: ${data.title}`, label } });
     return [
@@ -988,7 +987,7 @@ function ghEntries({ kind, data, repo, number, base, behind }) {
       close("not planned", "Close as not planned"),
       { id: "reopen", label: "Reopen", done: "Reopened", run: () => post(`${base}/reopen`), disabled: open ? "it's open" : null },
       { id: "labels", label: "Labels…", labels: `${base}/labels`, disabled: null },
-      { id: "assign", label: "Assign to me", done: "Assigned", run: () => post(`${base}/assign-me`), disabled: mine ? "assigned to you" : null },
+      { id: "assign", label: "Assign to me", done: "Assigned", run: () => post(`${base}/assign-me`), disabled: null },
       page,
     ];
   }
@@ -1024,7 +1023,7 @@ function GhActions({ kind, data, repo, number, base, behind, onDone }) {
     return () => { document.removeEventListener("pointerdown", away); document.removeEventListener("keydown", esc); };
   }, [menu]);
   // The view reloads at once and again after a few seconds, as GitHub can take a moment to show the change (FR-038).
-  const finish = async (words) => { setSaid(`${words} by ${HOST_USER || "you"}.`); await onDone(); setTimeout(onDone, 4000); };
+  const finish = async (words) => { setSaid(`${words}.`); await onDone(); setTimeout(onDone, 4000); };
   const go = (e) => {
     setMenu(false);
     if (e.disabled) return;
