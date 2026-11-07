@@ -2233,6 +2233,13 @@ def test_progress_is_sub_issues_and_part_of_each_counted_once():
     assert progress({"repo": "hub", "number": 40, "subs": []}, part_index([])) == []
 
 
+def test_progress_reads_the_repository_in_a_part_of_line_without_regard_to_case():
+    from hub.github import part_index, progress
+    issues = [_issue("kernel", 1, "Part of GlassineOS/Hub#40"), _issue("kernel", 2, "part of glassineos/hub#40"), _issue("kernel", 3, "PART OF HUB#41")]
+    assert progress({"repo": "hub", "number": 40, "subs": []}, part_index(issues)) == [{"repo": "kernel", "done": 0, "total": 2}]
+    assert progress({"repo": "Hub", "number": 41, "subs": []}, part_index(issues)) == [{"repo": "kernel", "done": 0, "total": 1}]
+
+
 def test_progress_parses_each_issue_once_however_many_items_there_are(monkeypatch):
     """The Part of line of an issue is searched once per read, not once per board item."""
     import hub.github as gh

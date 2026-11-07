@@ -1400,21 +1400,21 @@ def _board(project: dict, stages: dict[str, str] | None = None) -> dict:
 
 def part_index(issues: list[dict]) -> dict:
     """Store issues (open and closed) indexed once for `progress`: each one's state by (repository, number), and the issues
-    whose body says "Part of" an item, by that item as repo#N."""
+    whose body says "Part of" an item, by that item as a lower-case repo#N (GitHub names are case-blind, as the pattern is)."""
     state: dict[tuple, bool] = {}
     parts: dict[str, list[tuple]] = {}
     for row in issues:
         key = (row["repo"], int(row["number"]))
         state[key] = row.get("state") == "CLOSED"
         if ref := part_of(row.get("body"), row["repo"]):
-            parts.setdefault(ref, []).append(key)
+            parts.setdefault(ref.lower(), []).append(key)
     return {"state": state, "parts": parts}
 
 
 def progress(item: dict, index: dict) -> list[dict]:
     """007 FR-010: a roadmap item's progress per repository: its sub-issues and the issues whose body says "Part of" it
     (the index of store rows), each issue counted once. The store's state wins over the board's, which can be older."""
-    ref = f"{item.get('repo')}#{item.get('number')}"
+    ref = f"{item.get('repo')}#{item.get('number')}".lower()
     closed: dict[tuple, bool] = {(s["repo"], int(s["number"])): s["closed"] for s in item.get("subs") or [] if s.get("repo") and s.get("number")}
     for key in [*closed, *index["parts"].get(ref, ())]:
         if key in index["state"]:
