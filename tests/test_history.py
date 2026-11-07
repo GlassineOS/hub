@@ -574,3 +574,21 @@ def test_select_safe_takes_only_a_merged_or_closed_pull_request(world):
     inner = run(a._cleanup_row(done, a._cleanup_folders()[done], live))
     assert [shlex.join(c) for c in inner["_argv"]] == rows[done]["commands"][:len(inner["_argv"])]
     assert rows[done]["commands"][0].endswith(f"worktree remove {a.work / done / 'boot'}")
+
+
+def test_select_safe_leaves_commits_pushed_after_the_pull_request(world):
+    """#36 review, 2: a merged or closed pull request speaks only for the commit it was on. More pushed after it is safe to
+    remove by hand (it's all on GitHub) but "Select safe" doesn't take it."""
+    a, gh, _tmp = world
+    after_merge, after_close = full_session(a, "aftermerge"), full_session(a, "afterclose")
+    for name in (after_merge, after_close):
+        ended(a, name)
+    merged(a, gh, after_merge, 1)
+    push_commit(a, after_merge)
+    push_commit(a, after_close)
+    gh.prs[f"agent/{after_close}"] = [pr(8, "closed", None, tip(a, after_close))]
+    push_commit(a, after_close, file="more")
+    rows = {r["id"]: r for r in run(a.cleanup_scan())}
+    assert (rows[after_merge]["state"], rows[after_merge]["pr_settled"]) == ("safe", False)
+    assert rows[after_merge]["what"] == "boot: commits after pull request #7 merged."
+    assert (rows[after_close]["state"], rows[after_close]["pr_settled"]) == ("safe", False)

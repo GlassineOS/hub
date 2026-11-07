@@ -2424,7 +2424,8 @@ class Agents:
                     return {**row, "state": "review", "what": f"{s['repo']}: its branch isn't on GitHub any more."}
             except (AgentError, Refused, ValueError, TypeError, KeyError) as e:
                 return {**row, "state": "review", "what": f"Couldn't check its pull request: {e}"}
-            settled = settled and bool(pr) and pr["state"] in ("MERGED", "CLOSED")
+            # Its latest commits, not only its name: a branch pushed to after its pull request is in none (#36 review, 2).
+            settled = settled and bool(pr) and pr["state"] in ("MERGED", "CLOSED") and pr["sha"] == s["tip"]
             if done:
                 merged.append(pr["mergedAt"])
                 what.append(f"{s['repo']}: pull request #{pr['number']} merged")
