@@ -1211,7 +1211,7 @@ function noteBelongsTo(thread, row) {
 }
 
 // One file in Files changed (006 FR-020, FR-021): opens to its hunks with line numbers and the review notes at their lines.
-// A large or binary file waits for "load the diff".
+// A large file waits for "load the diff".
 function FileDiff({ base, file, threads }) {
   const [open, setOpen] = useState(false);
   const [asked, setAsked] = useState(!file.large);
@@ -1225,11 +1225,12 @@ function FileDiff({ base, file, threads }) {
       <${Chevron} right=${!open} /><span class="mono grow" style="overflow-wrap: anywhere">${file.path}</span>
       ${notes.length > 0 && html`<span class="badge dim">${count(notes.length, "note")}</span>`}
       <span class="mono small"><span class="add">+${file.additions}</span> <span class="del">−${file.deletions}</span></span></button>
-    ${open && !asked && html`<div class="row" style="padding: 8px 12px"><span class="small soft grow">${file.binary ? "A binary file: no lines to show." : `${file.additions + file.deletions} lines changed.`}</span>
-      ${!file.binary && html`<button onClick=${() => setAsked(true)}>Large file — load the diff</button>`}</div>`}
+    ${open && !asked && html`<div class="row" style="padding: 8px 12px"><span class="small soft grow">${file.additions + file.deletions} lines changed.</span>
+      <button onClick=${() => setAsked(true)}>Large file — load the diff</button></div>`}
     ${open && asked && html`<${Err} text=${diff.error} />${!diff.data && !diff.error && html`<p class="small soft" style="padding: 8px 12px">Loading…</p>`}
       ${loose.length > 0 && html`<div class="diffnotes">${loose.map((t) => html`<${DiffNote} thread=${t} />`)}</div>`}
-      ${diff.data !== null && html`<div class="diffbox"><table class="diff"><tbody>${rows.map((r) => html`
+      ${typeof diff.data === "string" && rows.length === 0 && html`<p class="small soft" style="padding: 8px 12px">No lines to show: a rename, a mode change, an empty file or a binary one.</p>`}
+      ${rows.length > 0 && html`<div class="diffbox"><table class="diff"><tbody>${rows.map((r) => html`
         <tr class=${r.kind}><td class="ln">${r.a || ""}</td><td class="ln">${r.b || ""}</td><td class="code">${r.kind === "add" ? "+" : r.kind === "del" ? "−" : " "}${r.text}</td></tr>
         ${at(r).length > 0 && html`<tr class="notes"><td colspan="3">${at(r).map((t) => html`<${DiffNote} thread=${t} />`)}</td></tr>`}`)}</tbody></table></div>`}`}
   </div>`;

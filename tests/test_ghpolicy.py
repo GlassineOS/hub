@@ -47,6 +47,7 @@ ALLOWED = [
     ["issue", "create", *R, "--title", "t", "--body-file", "-", "-a=@me"],
     ["api", "repos/GlassineOS/boot/compare/main...a1b2c3d4"],
     ["api", "repos/GlassineOS/boot/labels?per_page=100"],
+    ["api", "--paginate", "repos/GlassineOS/boot/labels?per_page=100"],
     ["api", "repos/GlassineOS/boot/actions/runs/123/jobs"],
 ]
 

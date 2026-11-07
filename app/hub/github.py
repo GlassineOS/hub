@@ -98,6 +98,17 @@ _LOG_TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z ?")
 MAX_STEP_LINES = 2000
 
 
+def _json_pages(text: str) -> list:
+    """`gh api --paginate` prints one JSON array per page, joined however it happens to: read them all into one list."""
+    decoder, at, found, text = json.JSONDecoder(), 0, [], text.strip()
+    while at < len(text):
+        page, at = decoder.raw_decode(text, at)
+        found.extend(page if isinstance(page, list) else [page])
+        while at < len(text) and text[at].isspace():
+            at += 1
+    return found
+
+
 def merge_blockers(pr: dict, open_threads) -> list[dict]:
     """Why Merge… is off for an open pull request, in words (006 FR-031). Empty: nothing stops it."""
     out = []
@@ -732,13 +743,13 @@ class GitHub:
         return {"behind_by": behind, "open_threads": threads, "merge_blockers": merge_blockers(row, threads)}
 
     async def pr_files(self, repo, number) -> list[dict]:
-        """The changed files with their counts. `large`: over LARGE_FILE changed lines, or binary (no lines at all)."""
+        """The changed files with their counts. `large`: over LARGE_FILE changed lines. A file with no counted lines (a rename,
+        a mode change, an empty or a binary file) is not guessed to be binary: its diff is short, and the page shows it."""
         row = await self.pr(repo, number)
         out = []
         for f in row.get("files") or []:
             added, removed = int(f.get("additions") or 0), int(f.get("deletions") or 0)
-            out.append({"path": f.get("path"), "additions": added, "deletions": removed,
-                        "large": added + removed > LARGE_FILE or added + removed == 0, "binary": added + removed == 0})
+            out.append({"path": f.get("path"), "additions": added, "deletions": removed, "large": added + removed > LARGE_FILE})
         return out
 
     async def pr(self, repo, number) -> dict:
@@ -1025,7 +1036,7 @@ class GitHub:
 
     async def labels(self, repo) -> list[dict]:
         """The repository's labels, for Labels… and New issue…"""
-        rows = await self.hubd.gh_json("api", f"repos/{_full(repo)}/labels?per_page=100") or []
+        rows = _json_pages(await self.hubd.gh("api", "--paginate", f"repos/{_full(repo)}/labels?per_page=100"))
         return [{"name": r.get("name"), "color": r.get("color"), "description": r.get("description") or ""} for r in rows]
 
     async def ready_pr(self, repo, number) -> dict:

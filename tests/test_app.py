@@ -973,12 +973,13 @@ def test_a_closed_pr_asks_nothing_more(github, hubd):
     assert not any(c[0][0] == "api" for c in hubd.commands)
 
 
-def test_pr_files_marks_large_and_binary_files(github, hubd):
+def test_pr_files_marks_large_files_and_doesnt_guess_at_binary_ones(github, hubd):
     hubd.answers["pr view 4"] = _open_pr(files=[{"path": "a.py", "additions": 10, "deletions": 2},
                                                   {"path": "big.json", "additions": 390, "deletions": 11},
-                                                  {"path": "logo.png", "additions": 0, "deletions": 0}])
+                                                  {"path": "moved.py", "additions": 0, "deletions": 0}])
     files = asyncio.run(github.pr_files("boot", 4))
-    assert [(f["path"], f["large"], f["binary"]) for f in files] == [("a.py", False, False), ("big.json", True, False), ("logo.png", True, True)]
+    # #37 review 5: a rename or a mode change has no counted lines either, so it is not "binary", and its diff can be shown
+    assert [(f["path"], f["large"]) for f in files] == [("a.py", False), ("big.json", True), ("moved.py", False)]
 
 
 def test_labels_reopen_and_assign_me_go_out_with_the_login(client, hubd):
@@ -1000,8 +1001,10 @@ def test_labels_reopen_and_assign_me_go_out_with_the_login(client, hubd):
 
 def test_the_repository_labels_are_read_from_the_api(client, hubd):
     signed_in(client)
-    hubd.answers["api repos/GlassineOS/boot/labels"] = json.dumps([{"name": "bug", "color": "d73a4a", "description": None, "id": 1}])
-    assert client.get("/api/labels/boot").json() == [{"name": "bug", "color": "d73a4a", "description": ""}]
+    # gh --paginate prints one array per page, run together
+    page = lambda *names: json.dumps([{"name": n, "color": "d73a4a", "description": None, "id": 1} for n in names])
+    hubd.answers["api --paginate repos/GlassineOS/boot/labels?per_page=100"] = page("bug") + page("later") + "\n"
+    assert client.get("/api/labels/boot").json() == [{"name": n, "color": "d73a4a", "description": ""} for n in ("bug", "later")]
 
 
 def test_the_failed_step_marks_its_error_lines(client, hubd):
