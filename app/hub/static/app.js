@@ -2792,10 +2792,13 @@ function Sessions({ query, asks }) {
   return html`<${Shells} query=${query} asks=${asks} />`;
 }
 
+const SESSIONS_EVERY = 4000; // ms
+
 function Shells({ query, asks }) {
   const [kept, setKept] = useState(null);
-  const { data, error, reload } = useLoad(() => api("shells"), [], 15000);
-  const stopped = useLoad(() => api("agents/stopped").catch(() => []), [], 15000);
+  // Sessions are started from other pages and by the Steward, so this list is the one that polls quickly.
+  const { data, error, reload } = useLoad(() => api("shells"), [], SESSIONS_EVERY);
+  const stopped = useLoad(() => api("agents/stopped").catch(() => []), [], SESSIONS_EVERY);
   const reloadAll = () => Promise.all([reload(), stopped.reload()]);
   const [discarding, setDiscarding] = useState(null);
   const [ignoring, setIgnoring] = useState(null);

@@ -1420,6 +1420,14 @@ def test_the_steward_panel_reloads_its_state_after_a_press():
     assert "after=${reload}" in _component(script, "StewardSession")
 
 
+def test_the_sessions_list_polls_quickly():
+    """A static check only (the JS isn't run): a session started elsewhere shows within seconds, not after the 15 s poll or a reload."""
+    script = _app_js()
+    assert re.search(r"^const SESSIONS_EVERY = (\d+);", script, re.M) and int(re.search(r"^const SESSIONS_EVERY = (\d+);", script, re.M).group(1)) <= 5000
+    shells = _component(script, "Shells")
+    assert 'useLoad(() => api("shells"), [], SESSIONS_EVERY)' in shells and "SESSIONS_EVERY)" in shells.split("const stopped")[1]
+
+
 def test_the_terminal_keeps_your_place():
     """A static check (004 FR-005) of the page's own scrollback only: new output follows the end while you're at it. In tmux the
     place is kept by tmux's copy mode, which test_hubd.py tests against a real tmux."""
