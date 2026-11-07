@@ -1589,6 +1589,9 @@ def test_sessions_running_groups_badges_and_history_filters():
     assert "Badges only" in shells and "<${FamilyLegend} />" in shells and "waiting" in shells and "⇄ also on" in shells
     assert "originWords(a)" in shells and "Resume a past session" in shells and "<${NewShell} " in shells
     assert 'post("agents/worktrees", { repo })' in _component(script, "NewShell") and "<${RepoPicker} " in _component(script, "NewShell")
+    # #36 review, 4: no Start in the last repository's folder while the next one's list loads.
+    new_shell = _component(script, "NewShell")
+    assert "setRepo(r); setCwd(\"\");" in new_shell and "!name.trim() || loadingPlaces}" in new_shell
     past = _component(script, "PastSessions")
     assert 'post("agents/past", { persona: persona || undefined, repo: repo || undefined, outcome:' in past
     assert "Running again" in past and "Resuming…" in past and "Restoring…" in past

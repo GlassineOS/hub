@@ -1616,16 +1616,20 @@ function NewShell({ initial, groups, onDone, onCancel }) {
   const act = useAct();
   const places = useLoad(() => (repo ? post("agents/worktrees", { repo }).then((r) => r.worktrees) : Promise.resolve([])), [repo]);
   useEffect(() => { const first = (places.data || [])[0]; setCwd(first ? first.path : ""); }, [places.data]);
+  // #36 review, 4: the list keeps the last repository's folders while the next one loads, so a switch clears the folder
+  // and Start waits for the new list: a shell never starts in the repository you just left.
+  const loadingPlaces = Boolean(repo) && places.loading;
   return html`<div class="panel" style="padding: 14px; gap: 10px">
     <${Err} text=${act.error || places.error} />
     <label class="field"><span>Name</span><input value=${name} onInput=${(e) => setName(e.target.value)} /></label>
-    <${RepoPicker} value=${repo} onChange=${(r) => { setRepo(r); if (!name.trim() && r) setName(`shell-${r.replace(/^\./, "")}`); }} groups=${groups} label="Repository" />
+    <${RepoPicker} value=${repo} onChange=${(r) => { setRepo(r); setCwd(""); if (!name.trim() && r) setName(`shell-${r.replace(/^\./, "")}`); }} groups=${groups} label="Repository" />
     ${repo && html`<label class="field"><span>Worktree</span><select value=${cwd} onChange=${(e) => setCwd(e.target.value)}>
       ${(places.data || []).map((w) => html`<option value=${w.path}>${w.label} · ${w.path}</option>`)}
       <option value="">home</option></select></label>
       ${places.data && !places.data.length && html`<span class="small soft">No checkout of ${repo} in the workspace yet: the shell starts in your home.</span>`}`}
     <label class="field"><span>Command</span><input placeholder="your shell" value=${command} onInput=${(e) => setCommand(e.target.value)} /></label>
-    <div class="row"><button class="primary" disabled=${act.busy || !name.trim()} onClick=${async () => {
+    ${loadingPlaces && html`<span role="status" class="small soft">Finding ${repo}'s worktrees…</span>`}
+    <div class="row"><button class="primary" disabled=${act.busy || !name.trim() || loadingPlaces} onClick=${async () => {
       const r = await act.run(() => post("shells", { name, cwd: cwd || null, command: command || null }));
       if (r) onDone(name);
     }}>Start</button><button onClick=${onCancel}>Cancel</button></div></div>`;
