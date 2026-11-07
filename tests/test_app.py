@@ -2269,6 +2269,30 @@ def test_the_roadmap_reads_progress_from_the_store(github, hubd):
     assert board["columns"][0]["items"][0]["progress"] == [], "a draft has no progress"
 
 
+def test_a_session_that_reads_the_whole_project_gets_progress_marked_private(github, hubd):
+    """The roadmap tool is read by sessions that see every repository: each progress row, and an item that names a private
+    repository, says so. The page's own reads (no whole-project scope) are unchanged."""
+    from hub.hubd_client import ALL_REPOS
+    store = WorkStore(":memory:")
+    for repo, number in (("kernel", 11), ("secret", 12)):
+        store.upsert({"__typename": "Issue", "id": f"K{number}", "number": number, "title": "t", "body": "Part of hub#1\n\nWork", "state": "OPEN", "url": "u",
+                      "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z", "author": {"login": "a"}, "repository": {"name": repo},
+                      "labels": {"nodes": []}, "assignees": {"nodes": []}, "comments": {"totalCount": 0, "nodes": []}})
+    github.store = store
+
+    async def public():
+        return {"hub", "kernel"}
+    github._public_repos = public
+
+    async def read(whole):
+        ALL_REPOS.set(whole)
+        return (await github.project())["columns"][3]["items"][0]
+    item = asyncio.run(read(True))
+    assert {p["repo"]: p["private"] for p in item["progress"]} == {"kernel": False, "secret": True} and item["private"] is True
+    plain = asyncio.run(read(False))
+    assert "private" not in plain and not any("private" in p for p in plain["progress"])
+
+
 def test_roadmap_page_static_parts():
     """007 FR-010–FR-012: the card's progress in words, who, its sessions, Plan issues… with the road action; opening a card
     opens its Work item, where Plan issues… is offered too."""

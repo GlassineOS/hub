@@ -1280,8 +1280,15 @@ class GitHub:
             return board
         issues = (self.store.with_bodies("issue", "OPEN") + self.store.with_bodies("issue", "CLOSED")) if self.store else []
         index = part_index(issues)  # once per read: each issue's body is searched once, not once per item
-        return {**board, "from_store": bool(self.store), "columns": [
-            {**c, "items": [{**i, "progress": progress(i, index) if i.get("kind") == "Issue" else []} for i in c["items"]]} for c in board["columns"]]}
+        columns = [{**c, "items": [{**i, "progress": progress(i, index) if i.get("kind") == "Issue" else []} for i in c["items"]]} for c in board["columns"]]
+        if ALL_REPOS.get():  # a session that reads the whole project can't tell private repositories apart by name
+            public = await self._public_repos()
+            items = [i for c in columns for i in c["items"]]
+            await self._say_private([p for i in items for p in i["progress"]])
+            for i in items:  # private when anything the item names is: its repository, a sub-issue's, or a repository with progress
+                i["private"] = (bool(i.get("repo")) and i["repo"] not in public) or any(p["private"] for p in i["progress"]) or any(
+                    s.get("repo") not in public for s in i.get("subs") or ())
+        return {**board, "from_store": bool(self.store), "columns": columns}
 
     async def _board(self) -> dict:
         stamp = str(int(time.time() // BOARD_TTL))
