@@ -104,7 +104,8 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         value = request.query_params.get("limit")
         if value is None:
             return default
-        if not value.isdigit() or int(value) <= 0:
+        # isdigit() alone takes "²" (which int() refuses) and other scripts' digits; 9 digits keep int() from refusing a long one.
+        if not (value.isascii() and value.isdigit()) or len(value) > 9 or int(value) <= 0:
             raise BadRequest("limit is a positive number")
         return int(value)
 

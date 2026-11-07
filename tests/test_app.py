@@ -1908,6 +1908,9 @@ def test_lists_ask_for_as_many_rows_as_the_page_wants(client, hubd):
     assert any(c[:2] == ["pr", "list"] and c[c.index("--limit") + 1] == "100" for c in argv)
     assert any(c[:2] == ["run", "list"] and c[c.index("--limit") + 1] == "25" for c in argv)
     assert client.get("/api/prs?limit=lots").status_code == 400
+    for odd in ("²", "١٢", "0", "-3", "9" * 5000):  # #41 review: the page's own words, not Python's, and no other script's digits
+        r = client.get("/api/prs", params={"limit": odd})
+        assert (r.status_code, r.json()["error"]) == (400, "limit is a positive number"), odd
 
 
 def _work_js(fn):
