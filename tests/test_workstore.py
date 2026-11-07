@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from hub.github import BadRequest, GitHub  # noqa: E402
 from hub.hubd_client import ALL_REPOS, GhError, Hubd, HubdError  # noqa: E402
-from hub.workstore import WorkStore, chunks, normalize, run_row  # noqa: E402
+from hub.workstore import WorkStore, chunks, normalize, part_of, run_row  # noqa: E402
 from hub.worksync import WorkSync  # noqa: E402
 from hubd.ghrun import Gh  # noqa: E402
 from hubd.ghpolicy import Refused  # noqa: E402
@@ -860,3 +860,51 @@ def test_agents_list_runs_of_public_repositories_unless_they_name_one(hubd):
     assert {r["repo"] for r in you} == {"boot", "secret"}
     assert {r["repo"] for r in agent} == {"boot"} and {r["repo"] for r in named} == {"secret"}
 
+
+
+@pytest.mark.parametrize("body, repo, found", [
+    ("Part of GlassineOS/hub#40\n\nText", "boot", "hub#40"),
+    ("Some text first.\n\nPart of hub#40 and more", "boot", "hub#40"),
+    ("Part of #12", "boot", "boot#12"),
+    ("Part of https://github.com/GlassineOS/kernel/issues/7", "boot", "kernel#7"),
+    ("> Part of hub#40", "boot", None),
+    ("This is part of hub#40", "boot", None),
+    ("Part of the roadmap", "boot", None),
+    (None, "boot", None),
+])
+def test_part_of_reads_the_line_the_filing_writes(body, repo, found):
+    """006 FR-006: the row's "Part of"; 007 counts the same line."""
+    assert part_of(body, repo) == found
+
+
+def test_a_listed_row_has_its_part_of_but_not_its_body(tmp_path):
+    store = WorkStore(tmp_path / "w.sqlite")
+    store.upsert(issue(number=1, body="Part of GlassineOS/hub#40\n\nThe rest."))
+    store.upsert(issue(number=2, body="Nothing"))
+    rows = {r["number"]: r for r in store.issues("boot")}
+    assert rows[1]["part_of"] == "hub#40" and rows[2]["part_of"] is None and "body" not in rows[1]
+
+
+def test_the_workflow_list_isnt_kept_while_a_file_couldnt_be_read(world, hubd, monkeypatch):
+    """A read GitHub failed just now is tried again at the next look; a settled list is kept for the hour."""
+    import base64
+    github, _, _ = synced(world)
+    good = base64.b64encode(b"on: workflow_dispatch").decode()
+    answers = {"fail": True}
+    reads = []
+
+    async def gh(*argv, stdin=None, timeout=None):
+        if argv[:2] == ("workflow", "list"):
+            return json.dumps([{"id": 1, "name": "CI", "path": ".github/workflows/ci.yml", "state": "active"}])
+        reads.append(argv)
+        if answers["fail"]:
+            raise GhError("HTTP 502")
+        return json.dumps({"encoding": "base64", "content": good})
+    monkeypatch.setattr(hubd, "gh", gh)
+    first = asyncio.run(github.workflows("boot"))
+    assert first[0]["dispatchable"] is None and "couldn't read ci.yml" in first[0]["inputs_error"]
+    answers["fail"] = False
+    assert asyncio.run(github.workflows("boot"))[0]["dispatchable"] is True  # not the failed read, kept
+    count = len(reads)
+    answers["fail"] = True
+    assert asyncio.run(github.workflows("boot"))[0]["dispatchable"] is True and len(reads) == count  # the good one is kept

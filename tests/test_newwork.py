@@ -151,6 +151,25 @@ def test_a_model_the_action_doesnt_list_is_refused(hub):
     assert not hub.agents.started
 
 
+def test_run_fix_starts_on_a_run_and_is_refused_on_an_issue(hub):
+    """006 T018: run-fix's object is a run."""
+    error = call(hub, "work.start", token="login", action="run-fix", covers=[{"kind": "issue", "repo": "kernel", "number": 204}])["error"]
+    assert "works on a run, and kernel#204 is an issue, so it can't start there" in error
+    reply = call(hub, "work.start", token="login", action="run-fix", covers=[{"kind": "run", "repo": "kernel", "number": 4242}])
+    assert reply["ok"], reply
+    assert reply["work"]["covers"] == [{"kind": "run", "repo": "kernel", "number": 4242}]
+
+
+def test_run_fix_starts_on_a_real_run_id(hub):
+    """A run's number is its databaseId, 11 digits today: the item reference takes up to 15, like the feed."""
+    run = 42401463461
+    reply = call(hub, "work.start", token="login", action="run-fix", covers=[{"kind": "run", "repo": "kernel", "number": run}])
+    assert reply["ok"], reply
+    assert reply["work"]["covers"] == [{"kind": "run", "repo": "kernel", "number": run}]
+    too_long = call(hub, "work.start", token="login", action="run-fix", covers=[{"kind": "run", "repo": "kernel", "number": 10 ** 15}])
+    assert "not an item" in too_long["error"]
+
+
 def test_an_item_of_the_wrong_kind_is_refused_by_name(hub):
     """005 FR-011: the action's object decides; the refusal names the item and both kinds."""
     assert "isn't a kind" in call(hub, "work.start", token="login", action="project-steward")["error"]
@@ -799,6 +818,44 @@ def test_the_steward_can_suggest_a_full_session_and_nothing_starts(hub):
 def test_a_suggestion_that_doesnt_fit_is_refused(hub, change, word):
     reply = suggest(hub, **change)
     assert not reply["ok"] and word in reply["error"]
+
+
+def test_a_suggestion_covers_items_across_repositories(hub):
+    reply = suggest(hub, covers=["kernel#204", "epd#11", "epd#9"], also_numbers=[12])
+    assert reply["ok"], reply
+    record = hub.work.get(reply["id"])
+    assert record["covers"] == [{"kind": "issue", "repo": "epd", "number": 9}, {"kind": "issue", "repo": "kernel", "number": 204},
+                                {"kind": "issue", "repo": "epd", "number": 12}, {"kind": "issue", "repo": "epd", "number": 11}]
+    assert record["also_numbers"] == [12, 11]
+    listed = call(hub, "interaction.list", token="login")
+    row = next(r for r in listed["items"] if r["id"] == f"w:{reply['id']}")
+    assert [f"{i['repo']}#{i['number']}" for i in row["items"]] == ["epd#9", "kernel#204", "epd#12", "epd#11"]
+    started_work = call(hub, "work.start", token="login", id=reply["id"], action="issue-implement")
+    assert started_work["ok"], started_work
+    assert [f"{c['repo']}#{c['number']}" for c in hub.work.get(reply["id"])["covers"]] == ["epd#9", "kernel#204", "epd#12", "epd#11"]
+
+
+@pytest.mark.parametrize("covers, word", [
+    (["kernel#1", "kernel#2", "kernel#3", "kernel#4", "kernel#5", "kernel#6"], "at most 6 items"),
+    (["kernel"], "not an item"),
+    (["../x#1"], "not an item"),
+    ("kernel#1", "list of items"),
+    ([204], "list of items"),
+    (["kernel#1000000000000000"], "not an item"),
+])
+def test_a_suggestions_covers_are_checked(hub, covers, word):
+    reply = suggest(hub, covers=covers)
+    assert not reply["ok"] and word in reply["error"], reply
+
+
+def test_a_suggestion_can_cover_a_run_with_an_11_digit_id(hub):
+    reply = suggest(hub, covers=["kernel#42401463461"])
+    assert "not an item" not in str(reply.get("error")), reply
+
+
+def test_a_suggestion_on_one_item_cant_cover_more(hub):
+    reply = suggest(hub, action="pr-fix-checks", number=5, covers=["kernel#3"])
+    assert not reply["ok"] and "one item" in reply["error"]
 
 
 def test_only_a_session_with_the_tool_may_suggest(hub):

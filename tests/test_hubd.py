@@ -1371,3 +1371,10 @@ def test_results_are_interactions_answered_like_any_card(result_hub):
     assert "applied, kept or set aside" in run(result_hub.request({"op": "interaction.answer", "token": "login", "id": rid, "verdict": "allow"}))["error"]
     answered = run(result_hub.request({"op": "interaction.answer", "token": "login", "id": rid, "verdict": "apply", "where": "Needs you"}))
     assert answered["ok"] and answered["item"]["status"] == "answered" and answered["item"]["handled"]["where"] == "Needs you"
+
+
+def test_a_result_names_a_run_by_its_11_digit_id():
+    from hubd import results
+    assert results._ref("kernel#42401463461", "an item") == "kernel#42401463461"
+    with pytest.raises(results.ResultError):
+        results._ref("kernel#1000000000000000", "an item")

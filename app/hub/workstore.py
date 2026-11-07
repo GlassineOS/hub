@@ -54,6 +54,18 @@ FRESH_RUN = 2 * 86400  # a run first seen finishing longer ago than this isn't n
 _DECIDED = {"SUCCESS": "passing", "FAILURE": "failing", "ERROR": "failing", "PENDING": "pending", "EXPECTED": "pending"}
 
 
+_PART_OF_RE = re.compile(r"^Part of\s+(?:https://github\.com/)?(?:GlassineOS/)?([A-Za-z0-9._-]+)?(?:#|/issues/)([1-9][0-9]{0,9})\b", re.M | re.I)
+
+
+def part_of(body, repo=None) -> str | None:
+    """The item a body names on a line that starts "Part of", as repo#N (#N: of the body's own repository, given as repo):
+    the line the hub's own filing writes. A quoted line ("> Part of …") doesn't start with it, so it doesn't count."""
+    m = _PART_OF_RE.search(body) if isinstance(body, str) else None
+    if not m or not (m.group(1) or repo):
+        return None
+    return f"{m.group(1) or repo}#{m.group(2)}"
+
+
 def normalize(node: dict) -> tuple[str, dict, list[dict], int]:
     """A GraphQL issue or pull request as (kind, row, comments, comment total): rows look like gh's."""
     row = {k: v for k, v in node.items() if k not in ("__typename", "repository", "comments", "commits", "labels", "assignees")}
@@ -340,7 +352,8 @@ class WorkStore:
             words = search.lower().split()
             rows = [r for r in rows if all(w in f"{r['title']} {r.get('body') or ''}".lower() for w in words)]
         rows.sort(key=lambda r: r["updatedAt"], reverse=True)
-        return [{k: v for k, v in r.items() if k != "body"} for r in rows]
+        # The body stays out of a list; its "Part of" line is what a row shows of it (006 FR-006).
+        return [{**{k: v for k, v in r.items() if k != "body"}, "part_of": part_of(r.get("body"), r.get("repo"))} for r in rows]
 
     def counts(self) -> dict:
         with self.lock:

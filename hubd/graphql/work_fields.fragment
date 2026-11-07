@@ -10,7 +10,7 @@ fragment IssueFields on Issue {
 
 fragment PrFields on PullRequest {
   id number title body state isDraft url createdAt updatedAt closedAt mergedAt
-  headRefName baseRefName headRefOid reviewDecision mergeable
+  headRefName baseRefName headRefOid reviewDecision mergeable additions deletions
   author { login }
   repository { name }
   labels(first: 30) { nodes { name color description } }

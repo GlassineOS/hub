@@ -66,7 +66,7 @@ request, the Roadmap, a repository in Overview, and the Steward's sidebar.
 A full session has your rights, so only you start one. The Steward can suggest one with `suggest_session`: a card in
 Needs you opens a start form over the page you're on, filled in, with its notes marked as its own. There you can change
 what it covers, which issue is primary, the model and the notes, or go to the full form with a planner step. An issue
-session can also cover other issues of the same repository, and one pull request closes them all.
+session can also cover other issues, of other repositories too (`covers`, as repo#N), and one pull request closes them all.
 
 The Steward can message a session through the hub. `message_started_session` goes straight to one it started that only
 reads: no write tools and no shell. A message to one that's idle wakes it, so it counts against the limit of 4.

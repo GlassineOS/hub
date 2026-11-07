@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import difflib
 import hashlib
 import json
@@ -15,6 +17,7 @@ from urllib.parse import quote
 
 from . import diffbudget
 from . import mergequeue
+from . import workflowfile
 from .hubd_client import ALL_REPOS, CALLER, INSTANCE, SESSION, GhError, Hubd, HubdError
 
 ORG = "GlassineOS"
@@ -23,6 +26,10 @@ _HEAD_RE = re.compile(r"[0-9a-f]{40}")
 _ISSUE_FIELDS = "number,title,state,labels,assignees,author,createdAt,updatedAt,url,comments"
 _PR_FIELDS = ("number,title,state,isDraft,labels,author,createdAt,updatedAt,url,headRefName,baseRefName,"
               "reviewDecision,mergeable,statusCheckRollup")
+_PR_LIST_FIELDS = _PR_FIELDS + ",additions,deletions"  # a list row's size (006 FR-006)
+_WORKFLOW_FILE_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,99}\.ya?ml")
+_GIT_REF_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._/-]{0,199}")
+_PART_OF_REF_RE = re.compile(r"(?:GlassineOS/)?[A-Za-z0-9._-]+#[1-9][0-9]{0,9}")
 _RUN_FIELDS = "databaseId,displayTitle,workflowName,status,conclusion,event,headBranch,headSha,createdAt,updatedAt,url"
 OVERVIEW_TTL = 60.0
 BOARD_TTL = 120
@@ -495,9 +502,14 @@ class GitHub:
         self._know(repo, number, version, result["title"], result["body"])
         return {**result, "version": version}
 
-    async def create_issue(self, repo, title, body="", labels=None, roadmap=False) -> dict:
+    async def create_issue(self, repo, title, body="", labels=None, roadmap=False, part_of=None) -> dict:
         if not title or not str(title).strip():
             raise BadRequest("an issue needs a title")
+        if part_of:  # 006 FR-035: the body's first line, as filed drafts write it, so Roadmap counts it (007 R2)
+            if not isinstance(part_of, str) or not _PART_OF_REF_RE.fullmatch(part_of):
+                raise BadRequest("Part of is an item, as repo#N")
+            ref = part_of if part_of.startswith(f"{ORG}/") else f"{ORG}/{part_of}"
+            body = f"Part of {ref}\n\n{body or ''}".rstrip() + "\n"
         argv = ["issue", "create", "-R", _full(repo), "--title", str(title), "--body-file", "-"]
         for label in labels or []:
             argv += ["--label", str(label)]
@@ -706,7 +718,7 @@ class GitHub:
 
         async def one(name):
             return await self.hubd.gh_json("pr", "list", "-R", _full(name), "--state", state, "--limit",
-                                           _limit(limit), "--json", _PR_FIELDS)
+                                           _limit(limit), "--json", _PR_LIST_FIELDS)
         rows = await self._across(repo, one)
         for r in rows:
             r["checks"] = _rollup(r)
@@ -829,10 +841,10 @@ class GitHub:
                                      notes=notes, describe=describe, paths=paths)
         return {"waiting_for_the_person": reply["id"]}
 
-    async def suggest_session(self, action, repo, number, why, notes="", also_numbers=None) -> dict:
-        """Under the calling session's token: a full session the person may start. It starts nothing."""
+    async def suggest_session(self, action, repo, number, why, notes="", also_numbers=None, covers=None) -> dict:
+        """Under the calling session's token: a full session the person may start. It starts nothing. covers: repo#N, hubd checks them."""
         reply = await self.hubd.call(op="work.suggest", agent_token=CALLER.get(), action=action, repo=repo, number=number, why=why,
-                                     notes=notes, also_numbers=also_numbers or [])
+                                     notes=notes, also_numbers=also_numbers or [], **({"covers": covers} if covers is not None else {}))
         return {"waiting_for_the_person": reply["id"]}
 
     async def submit_drafts(self, drafts) -> dict:
@@ -1165,12 +1177,53 @@ class GitHub:
             self.sync.wake()
 
     async def workflows(self, repo) -> list[dict]:
-        key, stamp = f"workflows/{repo}", str(int(time.time() // WORKFLOWS_TTL))
+        """The repository's workflows, each saying whether it can be started by hand (`dispatchable`, None when its
+        file couldn't be read, with `inputs_error` saying why). Read once an hour."""
+        # dispatch/: rows kept before they said whether they can be started by hand are left to expire.
+        key, stamp = f"workflows/dispatch/{repo}", str(int(time.time() // WORKFLOWS_TTL))
         if (kept := self._kept(key, stamp)) is not None:
             return kept
         rows = await self.hubd.gh_json("workflow", "list", "-R", _full(repo), "--json", "id,name,path,state") or []
-        self._keep(key, stamp, rows)
+        failed = []  # files GitHub couldn't be asked for just now: tried again next time, not kept for the hour
+
+        async def one(row):
+            file = str(row.get("path") or "")
+            if row.get("state") != "active" or not file.startswith(".github/workflows/"):
+                return {**row, "dispatchable": False}
+            name = file.rsplit("/", 1)[-1]
+            try:
+                read = await self._read_workflow(repo, name, None, failed)
+            except BadRequest:  # a file name the form can't ask for: this one workflow is unread, the rest of the list stays
+                return {**row, "dispatchable": None, "inputs_error": f"couldn't read {name[:60]}: not a file name this can ask for"}
+            return {**row, "dispatchable": read["dispatchable"], **({"inputs_error": read["error"]} if read["error"] else {})}
+        rows = list(await asyncio.gather(*(one(r) for r in rows)))
+        if not failed:
+            self._keep(key, stamp, rows)
         return rows
+
+    async def workflow_inputs(self, repo, file, ref=None) -> dict:
+        """006 FR-036: what a workflow file asks for when started by hand, at a branch or tag (the default branch without one)."""
+        return await self._read_workflow(repo, file, ref, [])
+
+    async def _read_workflow(self, repo, file, ref, failed: list) -> dict:
+        if not isinstance(file, str) or not _WORKFLOW_FILE_RE.fullmatch(file):
+            raise BadRequest("name the workflow file, e.g. docs.yml")
+        if ref is not None and (not isinstance(ref, str) or not _GIT_REF_RE.fullmatch(ref) or ".." in ref or ref.endswith((".", "/", ".lock"))):
+            raise BadRequest(f"not a branch or tag: {ref}")
+        path = f"repos/{_full(repo)}/contents/.github/workflows/{file}" + (f"?ref={quote(ref, safe='')}" if ref else "")
+        out = {"file": file, "ref": ref, "dispatchable": None, "inputs": [], "error": None}
+        try:
+            reply = await self.hubd.gh_json("api", path) or {}
+            if not isinstance(reply, dict) or reply.get("encoding") != "base64":
+                raise workflowfile.Unreadable("GitHub didn't send the file's text")
+            text = base64.b64decode(reply.get("content") or "").decode("utf-8")
+            out["dispatchable"], out["inputs"] = workflowfile.dispatch_inputs(text)
+        except HubdError as e:
+            failed.append(file)
+            out["error"] = f"couldn't read {file}{f' at {ref}' if ref else ''}: {e}"
+        except (workflowfile.Unreadable, binascii.Error, UnicodeDecodeError) as e:
+            out["error"] = f"couldn't read {file}{f' at {ref}' if ref else ''}: {e}"
+        return out
 
     async def dispatch(self, repo, workflow, ref="main", inputs=None) -> dict:
         if not workflow or "/" in str(workflow):
