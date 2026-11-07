@@ -564,7 +564,7 @@ class Hubd:
             if op == "notes.status":
                 return {"ok": True, **self.notes.status()}
             if op == "notes.find":
-                return {"ok": True, **await self.notes.find(req.get("words"), req.get("limit"))}
+                return {"ok": True, **await self.notes.find(req.get("words"), req.get("limit"), counted=True)}
             if op == "notes.totals":
                 return {"ok": True, **await self.notes.totals()}
         except notes.NotesError as e:

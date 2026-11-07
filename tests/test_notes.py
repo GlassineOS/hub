@@ -469,3 +469,14 @@ def test_totals_come_from_the_last_search_and_say_so(tmp_path, workspace):
     totals = call(hubd, op="notes.totals", token=login)
     assert totals["source"] == "last-search" and totals["rows"] == 3
     assert totals["by_label"] == {"current": 1, "retracted": 1, "archive, unreviewed": 1} and totals["by_topic"] == {"gpu/hang": 2}
+
+
+def test_a_sessions_search_leaves_your_totals_alone(tmp_path, workspace):
+    hubd, login = world(tmp_path, workspace)
+    hubd.agents = NotesAgents()
+    assert call(hubd, op="notes_tool.find", agent_token="compact-token", words="fault")["ok"]
+    assert call(hubd, op="notes.totals", token=login)["source"] is None  # the Archivist's search isn't yours
+    call(hubd, op="notes.find", token=login, words="fault", limit=2)
+    assert call(hubd, op="notes.totals", token=login)["rows"] == 2
+    assert call(hubd, op="notes_tool.find", agent_token="compact-token", words="fault")["ok"]
+    assert call(hubd, op="notes.totals", token=login)["rows"] == 2

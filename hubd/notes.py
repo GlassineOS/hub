@@ -183,7 +183,7 @@ class Notes:
         self.timeout = timeout
         self.write_timeout = write_timeout
         self.finding = 0  # searches under way: each brings the tool's index up to date first (009 FR-004)
-        self.last: dict | None = None  # totals of the last search's rows, counts only (009 FR-005)
+        self.last: dict | None = None  # totals of a login's last search's rows, counts only (009 FR-005); never a session's
 
     def missing(self) -> str | None:
         """Words for what isn't there yet, as neither has to be, and this creates neither."""
@@ -198,7 +198,9 @@ class Notes:
         missing = self.missing()
         return {"here": missing is None, "says": missing, "indexing": self.finding > 0}
 
-    async def find(self, words, limit=None) -> dict:
+    async def find(self, words, limit=None, counted: bool = False) -> dict:
+        """`counted` is for a login's search: its counts become the totals. A session's search leaves them as they are, so the
+        flyout never counts what an Archivist looked for."""
         words, limit = words_of(words), limit_of(limit)
         if missing := self.missing():
             return {"here": False, "says": missing, "rows": [], "total": 0, "warnings": []}
@@ -217,13 +219,14 @@ class Notes:
             by_label[row["state"]] = by_label.get(row["state"], 0) + 1
             if row["topic"]:
                 by_topic[row["topic"]] = by_topic.get(row["topic"], 0) + 1
-        self.last = {"by_label": by_label, "by_topic": by_topic, "rows": len(rows[:limit])}
+        if counted:
+            self.last = {"by_label": by_label, "by_topic": by_topic, "rows": len(rows[:limit])}
         return {"here": True, "says": f"{count(int(summary[1]))} from {summary[2]}" if summary else f"{count(len(rows))}",
                 "rows": rows[:limit], "total": int(summary[1]) if summary else len(rows),
                 "warnings": [_capped(line.removeprefix("notes: ")) for line in said if line.startswith("notes: ")][:MAX_WARNINGS]}
 
     async def totals(self) -> dict:
-        """009 FR-005: totals per label and per topic. The tool has no stats command yet, so they're counted from the last
+        """009 FR-005: totals per label and per topic. The tool has no stats command yet, so they're counted from your last
         search's rows here, and `source` says so."""
         if missing := self.missing():
             return {"here": False, "says": missing, "by_label": {}, "by_topic": {}, "source": None, "rows": 0}

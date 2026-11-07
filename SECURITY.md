@@ -337,8 +337,8 @@ mounts none of it.
   environment, and what you typed follows `--`, so it's only ever words. It creates nothing: if the tool or `notes/` isn't there, hubd says
   so in words. The index is the tool's own 0700 cache, and hubd doesn't read it.
 - **What you look for stays out of addresses.** The page sends it in a POST body and keeps it out of the location, which the Steward's
-  panel reads, so it isn't in access logs or browser history. The answer isn't kept: not in the work store, not in the browser's storage; hubd keeps only the last search's counts per
-  label and topic, in memory, for the totals. Note operations a session proposes are kept like any result, in hubd's 0700 state.
+  panel reads, so it isn't in access logs or browser history. The answer isn't kept: not in the work store, not in the browser's storage; hubd keeps only your last search's counts per
+  label and topic, in memory, for the totals; a session's search doesn't change them. Note operations a session proposes are kept like any result, in hubd's 0700 state.
 - **Every row says what it is,** in words, and a row without a state says so, so a retracted theory can't pass as a fact.
 - **The limit.** Anyone with the login reads everything the search covers. Full sessions run as your user and can read the same files, as
   `docs/workspace.md` says. The tool runs with hubd's rights, so whoever can write `tools/notes` in the workspace runs code as you, which a

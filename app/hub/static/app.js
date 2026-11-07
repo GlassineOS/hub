@@ -3619,7 +3619,7 @@ function KeepNotesUseful({ onClose }) {
       <${Err} text=${error} />
       ${data && !data.here && html`<p class="small" role="status">${data.says}</p>`}
       ${data && data.here && !data.source && html`<p class="small soft">Totals come from a search: search first, and the totals of its rows show here.</p>`}
-      ${data && data.source && html`<p class="small soft">Counted from the last search's ${count(data.rows, "row")}: the notes tool has no totals of its own yet.</p>
+      ${data && data.source && html`<p class="small soft">Counted from your last search's ${count(data.rows, "row")}: the notes tool has no totals of its own yet.</p>
         <section class="stack tight" aria-label="Per label"><span class="eyebrow">Per label</span>
           <ul class="stack tight">${Object.entries(data.by_label).map(([state, n]) => html`<li class="row" style="gap: 8px"><span class="badge ${trustOf(state)[1]}">${trustOf(state)[0]}</span><span>${n}</span></li>`)}</ul></section>
         <section class="stack tight" aria-label="Per topic"><span class="eyebrow">Per topic</span>
