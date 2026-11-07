@@ -526,3 +526,8 @@ dialog.needs .row { margin-top: 0; }
 .whoami { display: inline-flex; flex-wrap: wrap; gap: 0 6px; max-width: 32ch; overflow-wrap: anywhere; }
 .budget.usage.low { color: var(--ink); font-weight: 600; }
 .unreachable { padding: 8px 32px; border-bottom: 1.5px dashed var(--ink); background: var(--sheet); font-size: 14px; }
+/* Sessions › Running, badges only (004 FR-014) */
+.sess-badge { position: relative; min-height: 44px; min-width: 44px; padding: 4px; box-shadow: none; }
+.sess-badge[aria-pressed="true"] { background: var(--mark); }
+.sess-badge .dock-count { position: absolute; top: -4px; right: -4px; }
+.clean-cmd { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }

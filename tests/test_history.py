@@ -2,6 +2,7 @@
 """Past sessions and cleaning up: what's removed is only what's safe, looked at again at the time."""
 import asyncio
 import json
+import shlex
 import os
 import subprocess
 import time
@@ -517,3 +518,59 @@ def test_restoring_a_merged_pull_request_branch_uses_the_pull_ref(world):
                                        ("https://github.com/GlassineOS/boot", "boot")])
 def test_the_repository_comes_from_origin_not_the_folder(url, repo):
     assert _ORIGIN_REPO_RE.search(url).group(1) == repo
+
+
+# --- 004/PR 4: History filters, worktrees for a plain shell, "Select safe" ------------------------
+def test_past_narrows_by_persona_repository_and_outcome(world):
+    """004 FR-016: hubd filters; a filter that isn't a name is refused."""
+    a, _gh, _tmp = world
+    first, second = full_session(a, "one"), full_session(a, "two")
+    a.shells.live.discard(first)
+    a.shells.live.discard(second)
+    (a.sessions / second / ENDED_FILE).write_text("")
+    assert {r["name"] for r in run(a.past())} == {first, second}
+    assert [r["name"] for r in run(a.past(outcome="finished"))] == [second]
+    assert [r["name"] for r in run(a.past(outcome="interrupted"))] == [first]
+    assert {r["name"] for r in run(a.past(persona="engineer", repo="boot"))} == {first, second}
+    assert run(a.past(persona="code-reviewer")) == [] and run(a.past(repo="kernel")) == []
+    for bad in ({"outcome": "gone"}, {"repo": "../etc"}, {"persona": "a b"}):
+        with pytest.raises(AgentError):
+            run(a.past(**bad))
+
+
+def test_a_plain_shell_can_start_in_a_repositorys_checkout_or_its_worktrees(world):
+    """004 FR-015: the workspace's checkout first, then each session worktree of that repository."""
+    a, _gh, _tmp = world
+    name = full_session(a, "wt")
+    places = a.worktrees("boot")
+    assert places[0] == {"path": str(a.main_checkout("boot")), "label": "the workspace's checkout"}
+    assert {"path": str(a.work / name / "boot"), "label": f"session {name}"} in places
+    assert a.worktrees("kernel") == []
+    with pytest.raises(AgentError):
+        a.worktrees("../boot")
+
+
+def test_select_safe_takes_only_a_merged_or_closed_pull_request(world):
+    """004 FR-022, SC-001: a dirty worktree, a running session and an open pull request are never picked; safe with no
+    pull request is safe to remove but not picked by "Select safe"; each safe row says the exact command removal runs."""
+    a, gh, _tmp = world
+    done, closed, nopr, dirty, running, opened = (full_session(a, n) for n in ("done", "closed", "nopr", "dirty", "running", "opened"))
+    for name in (done, closed, nopr, dirty, opened):
+        ended(a, name)
+    merged(a, gh, done, 1)
+    push_commit(a, closed)
+    git(a.work / closed / "boot", "push", "-q", "origin", f"agent/{closed}")
+    gh.prs[f"agent/{closed}"] = [pr(8, "closed", None, tip(a, closed))]
+    (a.work / dirty / "boot" / "new").write_text("x")
+    gh.prs[f"agent/{opened}"] = [pr(9, "open")]
+    rows = {r["id"]: r for r in run(a.cleanup_scan())}
+    picked = {n for n, r in rows.items() if r["state"] == "safe" and r["pr_settled"]}
+    assert picked == {done, closed}
+    assert rows[nopr]["state"] == "safe" and not rows[nopr]["pr_settled"]
+    assert (rows[dirty]["state"], rows[running]["state"], rows[opened]["state"]) == ("review", "inuse", "keep")
+    assert not any(rows[n]["pr_settled"] for n in (dirty, running, opened))
+    # What the page shows is what removal runs (_argv), joined for reading.
+    live = {s["name"] for s in run(a.shells.list())}
+    inner = run(a._cleanup_row(done, a._cleanup_folders()[done], live))
+    assert [shlex.join(c) for c in inner["_argv"]] == rows[done]["commands"][:len(inner["_argv"])]
+    assert rows[done]["commands"][0].endswith(f"worktree remove {a.work / done / 'boot'}")

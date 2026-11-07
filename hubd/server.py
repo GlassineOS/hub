@@ -1320,7 +1320,9 @@ class Hubd:
         if op == "agent.resume":
             return {"ok": True, **await self.agents.resume(req.get("name"))}
         if op == "agent.past":
-            return {"ok": True, "sessions": await self.agents.past()}
+            return {"ok": True, "sessions": await self.agents.past(req.get("persona"), req.get("repo"), req.get("outcome"))}
+        if op == "agent.worktrees":
+            return {"ok": True, "worktrees": self.agents.worktrees(req.get("repo"))}
         if op == "agent.past_transcript":
             return {"ok": True, **await self.agents.past_transcript(req.get("id"))}
         if op == "agent.past_search":
