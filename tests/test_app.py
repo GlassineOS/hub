@@ -1544,6 +1544,9 @@ def test_launch_is_one_modal_with_five_stages_opened_by_one_event():
     assert "<${ItemPicker} " in brief and "<${RepoPicker} " in brief and "<${SteerFields} " in brief and "<${PlannerModel} " in brief
     modal = _component(script, "LaunchModal")
     assert "`new-work/${live.id}/background`, { on: true }" in modal and "/approve`" in modal
+    # between Plan and the list having the new record, the brief must not come back with Plan enabled (a second click would plan twice)
+    assert "setFresh(w.id); setId(w.id)" in modal and 'const starting = !live && id !== null && id === fresh;' in modal
+    assert 'starting ? "planning" :' in modal
     assert 'mode="compact"' in _component(script, "LaunchRun")
     # Each entry point says where it was opened (005 FR-001), in the screens hubd knows.
     assert 'launch({ action: action.id, covers: [{ kind, repo: row.repo, number: row.number }], from: { view: "Work"' in _component(script, "WorkRow")

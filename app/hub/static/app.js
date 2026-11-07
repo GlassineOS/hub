@@ -2168,6 +2168,7 @@ function LaunchModal({ open, work, asks, reload, onClose, onBehind }) {
   const dialog = useRef();
   const [id, setId] = useState(open.id || null);
   const [editing, setEditing] = useState(false);
+  const [fresh, setFresh] = useState(null); // a record Plan just made, until the list has it: the brief must not come back with Plan enabled
   const [note, setNote] = useState(null);
   const { list: actions, error: actionsError } = useLaunchActions(work.templates);
   const { data: overview } = useLoad(() => api("overview"), []);
@@ -2176,7 +2177,9 @@ function LaunchModal({ open, work, asks, reload, onClose, onBehind }) {
   useEffect(() => { dialog.current.showModal(); }, []);
   const live = id ? work.items.find((i) => i.id === id) || null : null;
   const action = actions && live ? actions.find((a) => a.id === live.action) : null;
-  const stage = !live || live.state === "offered" || editing ? "brief" : live.stage || "brief";
+  useEffect(() => { if (live && fresh) setFresh(null); }, [Boolean(live)]);
+  const starting = !live && id !== null && id === fresh;
+  const stage = starting ? "planning" : !live || live.state === "offered" || editing ? "brief" : live.stage || "brief";
   const stopped = live && (live.state === "failed" ? "stopped" : live.state === "dismissed" ? "set aside" : null);
   const results = useLaunchResults(live);
   // A session that ends in a pull request hands in nothing: its record stays at run, and the result is the PR the hub found.
@@ -2206,9 +2209,9 @@ function LaunchModal({ open, work, asks, reload, onClose, onBehind }) {
       ${!actions ? html`<div class="nw-body"><${Err} text=${actionsError} />${!actionsError && html`<p class="soft">Loading…</p>`}</div>`
         : shown === "brief" ? html`<${LaunchBrief} key=${`${id}-${editing}`} seed=${seed} actions=${actions} templates=${work.templates} groups=${overview ? overview.groups : []}
             busyId=${live && ["offered", "planned"].includes(live.state) ? live.id : null}
-            onCancel=${editing ? () => setEditing(false) : null} onPlanned=${(w) => { setId(w.id); setEditing(false); reload(); }} />`
+            onCancel=${editing ? () => setEditing(false) : null} onPlanned=${(w) => { setFresh(w.id); setId(w.id); setEditing(false); return reload(); }} />`
         : shown === "planning" ? html`<div class="nw-body" role="status"><span class="row" style="font-weight: 600; font-size: 18px"><${StateIcon} kind="run" />The planner is reading</span>
-            <span class="mono soft" style="font-size: 12.5px">claude -p · ${NW_MODEL[live.planner_model || PLANNER_DEFAULT]} · read-only hub tools · up to a few minutes</span>
+            <span class="mono soft" style="font-size: 12.5px">claude -p · ${live ? `${NW_MODEL[live.planner_model || PLANNER_DEFAULT]} · ` : ""}read-only hub tools · up to a few minutes</span>
             <p class="small soft">Nothing runs yet. You read the plan before any session starts.</p></div>`
         : shown === "plan" ? html`<${LaunchPlan} key=${live.moved} live=${live} action=${action} act=${act} onEdit=${() => setEditing(true)} onStart=${start} />`
         : shown === "run" ? html`<${LaunchRun} live=${live} asks=${asks} />`
