@@ -1844,6 +1844,19 @@ def test_the_workflow_reader_says_what_it_cant_read(text, words):
         dispatch_inputs(text)
 
 
+def test_the_workflow_reader_refuses_a_long_file_before_reading_it():
+    """#41 review: it reads on the event loop. A file over MAX_TEXT is Unreadable unparsed, and too many inputs are counted
+    before any is read (input 0's bad type isn't what it says)."""
+    from hub.workflowfile import MAX_INPUTS, MAX_TEXT, Unreadable, dispatch_inputs
+    head = "on:\n  workflow_dispatch:\n    inputs:\n"
+    with pytest.raises(Unreadable, match="over 256 KB"):
+        dispatch_inputs(head + "#" * MAX_TEXT)
+    many = head + "      i0:\n        type: secret\n" + "".join(f"      i{k}:\n        type: string\n" for k in range(1, MAX_INPUTS + 1))
+    with pytest.raises(Unreadable, match=f"more than {MAX_INPUTS} inputs"):
+        dispatch_inputs(many)
+    assert len(dispatch_inputs(head + "".join(f"      i{k}:\n        type: string\n" for k in range(MAX_INPUTS)))[1]) == MAX_INPUTS
+
+
 def _contents(text):
     import base64
     return json.dumps({"encoding": "base64", "content": base64.b64encode(text.encode()).decode()})
