@@ -325,6 +325,8 @@ mounts none of it.
   which a login reads before anything happens; `session_summary` refuses its words, so the Steward can't read notes through
   it, and the Steward has no `notes_find` (Decision 4 in `docs/workspace.md`). Sweep drafts are filed in public by you, so
   read them for private details first: the prompt asks the session to leave them out, which is a rule, not a control.
+  "Send to the Steward" works on them as on any drafts: only by your press, and then the Steward reads what they carry of
+  the notes, and each issue it files still asks you. So read them before sending them too.
 - **Applying note operations is a login's alone.** A notes result is a closed list of operations (supersede, merge,
   distil, retract, answer, add), each checked against the tool's own shapes (topic `AREA/TOPIC`, ids `cN`, one-line words
   with nothing invisible). hubd builds each command from those fields and never takes one from the payload; the card shows
