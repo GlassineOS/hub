@@ -59,7 +59,7 @@ PUBLIC_KNOWN, PUBLIC_UNSURE = 600, 60  # seconds a repository's visibility is ke
 COPIES_EVERY = 1800  # seconds between refreshes of the repository copies
 WORK_TOOL_OPS = {"work.offer": "plan_work", "work.suggest": "suggest_session", "work.submit": "submit_drafts", "work.handed": "new_work_drafts"}
 STEWARD = "steward"
-RESULT_TOOL_OPS = {"result.submit": "submit_result"}  # 005 R2: by a session's own token, checked like WORK_TOOL_OPS
+RESULT_TOOL_OPS = {"result.submit": "submit_result"}  # By a session's own token, checked like WORK_TOOL_OPS
 ITEM_OBJECTS = ("issue", "pr", "run")  # what a Launch's covered items can be (005 FR-011)
 KIND_WORDS = {"issue": "an issue", "pr": "a pull request", "run": "a run", "repo": "a repository", "project": "the whole project"}
 _ITEM_REF_RE = re.compile(r"\.?[A-Za-z0-9_][A-Za-z0-9._-]{0,99}#[1-9][0-9]{0,9}")
@@ -1128,7 +1128,7 @@ class Hubd:
         return [{"kind": kind, "repo": c["repo"], "number": c["number"]} for c in agent.get("covers") or ()] if kind else []
 
     def result_tool(self, op: str, req: dict) -> dict:
-        """submit_result, by a session's own token: only a session whose list has the tool, only its action's result type (005 R2).
+        """submit_result, by a session's own token: only a session whose list has the tool, only its action's result type.
         A full session has no list, and its result is the pull request the hub finds, so it can't hand one in."""
         scope = self.agents.scope(req.get("agent_token")) if self.agents else None
         tool = RESULT_TOOL_OPS[op]
@@ -1172,7 +1172,7 @@ class Hubd:
                     log.warning("no pr result for %s: %s", session["name"], e)
 
     async def result_request(self, op: str, req: dict) -> dict:
-        """Behind the login check: the cards' results, and what a press does to them (005 R2)."""
+        """Behind the login check: the cards' results, and what a press does to them."""
         if self.results is None or self.agents is None:
             return {"ok": False, "error": "results aren't set up on this host"}
         try:

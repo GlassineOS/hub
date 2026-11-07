@@ -17,7 +17,8 @@ The project dashboard, tool server and host shells (see `README.md`, threat mode
 - Commits carry an `Assisted-by:` or `Co-Authored-By:` trailer. Never add
   `Signed-off-by`. Run `.glassine/org/scripts/safety-scan.sh --staged` before committing.
 - Specs: Spec Kit 1.1.0 with the org preset (`.specify/`, setup in
-  `.glassine/org/SPECS.md`); features go in `specs/###-name/`. The repository principles
+  `.glassine/org/SPECS.md`); features go in `specs/###-name/spec.md`, the only file committed: it
+  names no part of the code, and plans, research and task lists stay local. The repository principles
   are the last section of `.specify/memory/constitution.md`.
 - Organization guidance for coding agents (run `git submodule update --init` if the import
   below is missing):

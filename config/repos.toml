@@ -4,6 +4,14 @@
 
 project = "GlassineOS roadmap"   # the organization project that tracks strategy
 
+# The Roadmap's four columns, from the project's Status options by name (case doesn't matter).
+# An option named nowhere here, and an item with no status, show under Planned with a note.
+[roadmap]
+planned = ["Todo", "Planned", "Backlog"]
+in_progress = ["In progress"]
+in_review = ["In review"]
+done = ["Done"]
+
 [[group]]
 key = "strategy"
 title = "Strategy"

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Results: what a session hands in, which nothing applies until a login says so (005 R2).
+"""Results: what a session hands in, which nothing applies until a login says so.
 
 A session's own token hands in one result of its action's type (submit_result), in a closed shape per type. A login
 reads it on a card and applies it: a review posted, labels set, a report kept. Applying writes only through the tools the
