@@ -1566,3 +1566,7 @@ def test_every_result_type_has_its_view_in_launch_and_in_needs_you():
     drafts = _component(script, "DraftsResult")
     assert "`new-work/${item.id}/file`" in drafts and "`new-work/${item.id}/hand`" in drafts and "`new-work/${item.id}/edit`" in drafts
     assert "dangerouslySetInnerHTML" not in view, "a session's text is shown, never rendered"
+    # the findings are a session's words: the fix session's brief says whose they are, and shows them in full
+    assert 'launch({ verb: "fix", notes, by: r.session, from: { view: where } })' in view
+    brief = _component(script, "LaunchBrief")
+    assert "rows=${suggester ? 8 : 2}" in brief and "reach the planner and the session as yours" in brief

@@ -829,7 +829,7 @@ const PIN_WORDS = { thread: "Review thread", ref: "Issue / PR", file: "Repo file
 const PIN_HINTS = { ref: "hub#44", file: "kernel:drivers/gpu/drm/epd/epd_lut.c", docs: "docs path", text: "Something the agent should know" };
 const pinKind = (v) => (/^https?:/.test(v) ? "url" : /#\d/.test(v) ? "ref" : v.indexOf(":") > 0 ? "file" : "docs");
 
-function SteerFields({ kind, notes, pins, onNotes, onPins }) {
+function SteerFields({ kind, notes, pins, onNotes, onPins, rows }) {
   const [typed, setTyped] = useState("");
   const [forced, setForced] = useState(null);
   const add = () => {
@@ -840,7 +840,7 @@ function SteerFields({ kind, notes, pins, onNotes, onPins }) {
   };
   return html`<div class="stack" style="gap: 8px">
     <label class="field"><span>Notes for the planner</span>
-      <textarea rows="2" maxlength="4000" placeholder="What matters most here" value=${notes} onInput=${(e) => onNotes(e.target.value)}></textarea></label>
+      <textarea rows=${rows || 2} maxlength="4000" placeholder="What matters most here" value=${notes} onInput=${(e) => onNotes(e.target.value)}></textarea></label>
     <div class="row" style="gap: 6px"><span class="small soft">Add:</span>
       ${(STEER_CHIPS[kind] || []).map((t) => html`<button class="pill" onClick=${() => onNotes(notes.trim() ? `${notes.trim()}; ${t}` : t)}>+ ${t}</button>`)}</div>
     <${Eyebrow}>Pinned context · ${pins.length || "none yet"}<//>
@@ -2000,7 +2000,7 @@ function ResultView({ r, reload, where = "Needs you" }) {
     const notes = `Findings${r.items && r.items[0] ? ` on ${ref(r.items[0])}` : ""}, from ${r.session}:\nCause: ${p.cause}\nSmallest fix: ${p.fix}`.slice(0, 4000);
     body = html`<span class="eyebrow">Cause</span>${plainText(p.cause)}<span class="eyebrow">Smallest fix</span>${plainText(p.fix)}
       ${(p.files || []).length > 0 && html`<span class="eyebrow">Files</span>${plainText(p.files.join("\n"), true)}`}
-      <div class="row"><button class="primary" onClick=${() => launch({ verb: "fix", notes, from: { view: where } })}>Start a fix session</button>${setAside}</div>`;
+      <div class="row"><button class="primary" onClick=${() => launch({ verb: "fix", notes, by: r.session, from: { view: where } })}>Start a fix session</button>${setAside}</div>`;
   } else if (r.type === "report") {
     body = html`${p.question && html`<span class="eyebrow">Question</span>${plainText(p.question)}`}<span class="eyebrow">Answer</span>${plainText(p.answer)}
       ${(p.unsettled || []).length > 0 && html`<span class="eyebrow">Couldn't settle</span><ul>${p.unsettled.map((t) => html`<li>${plainText(t)}</li>`)}</ul>`}
@@ -2077,8 +2077,8 @@ function LaunchBrief({ seed, actions, templates, groups, onPlanned, onCancel, bu
       <input class="mono" value=${paths} placeholder="the whole repository" onInput=${(e) => setPaths(e.target.value)} /></label>`}
     ${action.asks_describe && html`<label class="nw-field">${text.label || "What to plan"}
       <textarea rows="3" placeholder=${text.hold || ""} value=${describe} onInput=${(e) => setDescribe(e.target.value)} /></label>`}
-    ${suggester && html`<p class="small"><span class="nw-tag">${suggester === "the Steward" ? "STEWARD" : "SUGGESTED"}</span> ${suggester} wrote the notes below; edit freely.</p>`}
-    <${SteerFields} kind=${action.object} notes=${notes} pins=${pins} onNotes=${setNotes} onPins=${setPins} />
+    ${suggester && html`<p class="small"><span class="nw-tag">${suggester === "the Steward" ? "STEWARD" : "SUGGESTED"}</span> ${suggester} wrote the notes below, and they reach the planner and the session as yours once you press Plan: read them first; edit freely.</p>`}
+    <${SteerFields} kind=${action.object} notes=${notes} pins=${pins} onNotes=${setNotes} onPins=${setPins} rows=${suggester ? 8 : 2} />
     <div class="row" style="gap: 14px 24px; align-items: flex-start">
       <div class="stack" style="gap: 6px"><span id="lb-model" class="eyebrow">Model</span>
         <div role="radiogroup" aria-labelledby="lb-model" class="seg">${action.models.map((m, i) => html`<button role="radio" aria-checked=${chosenModel === m ? "true" : "false"} onClick=${() => setModel(m)}>${NW_MODEL[m] || m}${i === 0 ? " · default" : ""}</button>`)}</div></div>
