@@ -286,7 +286,9 @@ class GitHub:
 
         def row(r):
             last = max([t for t in (r.get("pushed"), r.get("head_date"), activity.get(r["name"])) if t] or [None], key=lambda t: t or "")
-            runs = failing[r["name"]] if failing is not None else int(r.get("ci") in ("failure", "error"))
+            head_fails = int(r.get("ci") in ("failure", "error"))
+            # The store holds a window of runs: a red head on the default branch counts as at least one, whatever the window saw.
+            runs = max(failing[r["name"]], head_fails) if failing is not None else head_fails
             return {**r, "last_commit": {"title": r.get("head_title"), "date": r.get("head_date"), "oid": r.get("head")} if r.get("head") else None,
                     "last_activity": last, "failing_prs": (failing_prs or {}).get(r["name"], 0) if failing_prs is not None else None,
                     "attention": {"failing_runs": runs, "open_prs": r["prs"], "last_activity": last}}

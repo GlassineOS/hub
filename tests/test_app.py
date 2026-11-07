@@ -2028,10 +2028,11 @@ def _store_with(repos, items):
     return store
 
 
-def _run(repo, run_id, name, conclusion, created, branch="main", status="completed"):
+def _run(repo, run_id, name, conclusion, created, branch="main", status="completed", workflow=None):
     from hub.workstore import run_row
     return run_row(repo, {"id": run_id, "name": name, "status": status, "conclusion": conclusion, "head_branch": branch, "head_sha": "a",
-                          "created_at": created, "updated_at": created, "html_url": "u", "event": "push"})
+                          "created_at": created, "updated_at": created, "html_url": "u", "event": "push",
+                          **({"workflow_id": workflow} if workflow is not None else {})})
 
 
 def test_the_store_says_activity_failing_workflows_and_failing_prs():
@@ -2044,6 +2045,41 @@ def test_the_store_says_activity_failing_workflows_and_failing_prs():
         "the newest finished run per workflow, on the default branch only"
     assert store.latest_activity()["boot"] == "2026-11-30T00:00:00Z"
     assert store.open_pr_checks() == {"boot": 1}, "item 3 (boot) is the one failing PR of the six"
+
+
+def test_a_renamed_workflow_is_the_same_workflow():
+    """#41 review: the key is the workflow's id, so the old name's failed run isn't its newest run forever."""
+    store = WorkStore(":memory:")
+    store.upsert_run(_run("hub", 1, "CI", "failure", "2026-10-01T00:00:00Z", workflow=10))
+    store.upsert_run(_run("hub", 2, "Tests", "success", "2026-10-02T00:00:00Z", workflow=10))
+    store.upsert_run(_run("hub", 3, "Docs", "failure", "2026-10-03T00:00:00Z", workflow=11))
+    assert store.failing_workflows({"hub": "main"}) == {"hub": 1}
+
+
+def test_a_run_kept_from_before_the_id_goes_by_its_names_id():
+    """A row stored before `workflowId` was is the workflow its name has now, so it doesn't stay failing beside it."""
+    store = WorkStore(":memory:")
+    old = _run("hub", 1, "CI", "failure", "2026-10-01T00:00:00Z")
+    old.pop("workflowId")
+    store.upsert_run(old)
+    store.upsert_run(_run("hub", 2, "CI", "success", "2026-10-02T00:00:00Z", workflow=10))
+    assert store.failing_workflows({"hub": "main"}) == {"hub": 0}
+    gone = _run("hub", 3, "Gone", "failure", "2026-10-03T00:00:00Z")
+    gone.pop("workflowId")
+    store.upsert_run(gone)
+    assert store.failing_workflows({"hub": "main"}) == {"hub": 1}, "a name with no id-bearing run still counts by its name"
+
+
+def test_a_cancelled_run_isnt_a_failure_and_a_repo_without_a_default_branch_has_none():
+    """#41 review: `cancelled` is not failing, though it is the newest finished run; a null default branch matches no run,
+    not the runs with no branch."""
+    store = WorkStore(":memory:")
+    store.upsert_run(_run("hub", 1, "CI", "failure", "2026-10-01T00:00:00Z", workflow=10))
+    store.upsert_run(_run("hub", 2, "CI", "cancelled", "2026-10-02T00:00:00Z", workflow=10))
+    store.upsert_run(_run("hub", 3, "Lint", "cancelled", "2026-10-02T00:00:00Z", workflow=12))
+    store.upsert_run(_run("empty", 4, "CI", "failure", "2026-10-01T00:00:00Z", branch=None, workflow=20))
+    assert store.failing_workflows({"hub": "main", "empty": None}) == {"hub": 0, "empty": 0}
+    assert store.failing_workflows({"empty": None}) == {"empty": 0}, "no default branch at all: nothing to ask the store"
 
 
 def test_overview_is_served_from_the_store_without_a_gh_call(github, hubd):
@@ -2061,8 +2097,11 @@ def test_overview_is_served_from_the_store_without_a_gh_call(github, hubd):
     assert hubd.commands == [], "nothing asked of gh"
     rows = [r for g in view["groups"] for r in g["repos"]]
     assert len(rows) == 60 and view["from_store"] is True
-    first = view["groups"][-1]["repos"][0]
-    assert first["name"] == "repo07" and first["attention"]["failing_runs"] == 1, "the store's runs, not the head's checks (repo59)"
+    by_name = {r["name"]: r for r in rows}
+    assert by_name["repo07"]["attention"]["failing_runs"] == 1, "the store's runs"
+    assert by_name["repo59"]["attention"]["failing_runs"] == 1, "a red head counts though the store's run of it passed"
+    assert sum(r["attention"]["failing_runs"] for r in rows) == 2
+    first = by_name["repo07"]
     assert view["totals"]["failing_prs"] == sum(1 for i in range(500) if i % 2 and i % 3 == 0)
     assert all(r["last_activity"] for r in rows) and first["last_commit"]["oid"] == "a"
 
