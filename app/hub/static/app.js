@@ -1338,6 +1338,17 @@ function Work({ query, asks }) {
   return query.tab === "queue" ? html`<${WorkQueue} />` : html`<${WorkLists} query=${query} asks=${asks} />`;
 }
 
+// Whether a session is drawn embedded in the Work item `here` (owner/repo#n) or sits in the background there.
+// moved: what was set on this page, keyed `${name}@${here}`, so a move on item A says nothing about item B;
+// else the view hubd stored, which is embedded only for the item it was stored for.
+function embeddedPhase(session, here, moved) {
+  if (!session) return null;
+  const set = moved[`${session.name}@${here}`];
+  if (set) return set;
+  const stored = session.agent && session.agent.view;
+  return stored && stored.mode === "embedded" && stored.where === "Work" && (!stored.ref || stored.ref === here) ? "embedded" : "background";
+}
+
 function WorkLists({ query, asks }) {
   const overview = useLoad(() => api("overview"), []);
   const sessions = useSessions();
@@ -1356,7 +1367,7 @@ function WorkLists({ query, asks }) {
   const [allRepos, setAllRepos] = useState(false);
   const [panel, setPanel] = useState(query.new === "1" ? "new" : null);
   const [notice, setNotice] = useState(null);
-  const [phases, setPhases] = useState({}); // session name → embedded or background, as moved on this page; else its stored view
+  const [phases, setPhases] = useState({}); // `${session name}@${item}` → embedded or background, as moved on this page; else its stored view
   const [keptCheckout, setKeptCheckout] = useState(null); // { ref, path }: Stop ended a session whose checkout holds work that isn't on GitHub
   useEffect(() => { if (query.new === "1") setPanel("new"); }, [query.new]);
   const groups = overview.data ? overview.data.groups : [];
@@ -1425,21 +1436,25 @@ function WorkLists({ query, asks }) {
   if (current) {
     const session = sessionOf(current);
     const here = `${current.repo}#${current.number}`;
-    const stored = session && session.agent.view;
-    const phase = !session ? null : phases[session.name]
-      || (stored && stored.mode === "embedded" && stored.where === "Work" && (!stored.ref || stored.ref === here) ? "embedded" : "background");
+    const phase = embeddedPhase(session, here, phases);
     const embedded = phase === "embedded";
     // Moved here: shown so at once, and kept by hubd for the next page that draws it.
     const place = (name, mode) => {
-      setPhases((p) => ({ ...p, [name]: mode }));
-      post("agents/view", { name, mode, where: "Work", ref: here }).then(() => sessions.reload(), () => {});
+      const key = `${name}@${here}`;
+      setNotice(null);
+      setPhases((p) => ({ ...p, [key]: mode }));
+      post("agents/view", { name, mode, where: "Work", ref: here }).then(() => sessions.reload(), (e) => {
+        // Not stored, so not shown: back to what hubd has, and say so.
+        setPhases((p) => { const { [key]: _, ...rest } = p; return rest; });
+        setNotice(`Couldn't move ${name} to ${mode === "embedded" ? "this item" : "the background"}: ${e.message}`);
+      });
     };
     const spawn = ({ kind, failing, threads }) => html`<${Spawn} key=${current.key} kind=${kind} repo=${current.repo} number=${current.number} failing=${failing} threads=${threads}
         session=${session} phase=${phase}
         onStarted=${async (r) => { place(r.name, "embedded"); await sessions.reload(); }}
         onPhase=${(ph) => session && place(session.name, ph)} />
       ${embedded && html`<${SessionView} key=${session.name} session=${session} mode="embedded" asks=${asks} here=${here}
-        onView=${(m) => setPhases((p) => ({ ...p, [session.name]: m }))} onEnded=${(r) => { setKeptCheckout(r && r.kept ? { ref: here, path: r.kept } : null); sessions.reload(); }} onGone=${() => sessions.reload()} />`}
+        onView=${(m) => setPhases((p) => ({ ...p, [`${session.name}@${here}`]: m }))} onEnded=${(r) => { setKeptCheckout(r && r.kept ? { ref: here, path: r.kept } : null); sessions.reload(); }} onGone=${() => sessions.reload()} />`}
       ${keptCheckout && keptCheckout.ref === here && html`<div role="status" class="notice quiet"><span>That session had work that isn't on GitHub, so its checkout stays at <code>${keptCheckout.path}</code>.</span></div>`}`;
     const props = { key: current.key, repo: current.repo, spawn, onChanged: reload };
     return html`<main class="page close">
