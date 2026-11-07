@@ -280,7 +280,7 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
 .dock-s.small { width: 32px; min-width: 32px; height: 32px; font-size: 16px; }
 .dock-item { position: relative; display: flex; align-items: center; justify-content: center; width: 44px; min-width: 44px; height: 44px; padding: 0; box-shadow: none; font: 600 12px var(--mono); }
 .dock-count { position: absolute; top: -6px; right: -6px; min-width: 18px; padding: 0 4px; border: 1.5px solid var(--ink); border-radius: 999px; background: var(--mark); color: var(--ink); font: 600 11px/15px var(--mono); }
-.dock-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px dotted var(--ink); }
+.dock-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px dotted var(--ink); }
 .dock-sees { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 12px; }
 .dock-session { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .dock-term { flex: 1; min-height: 0; display: flex; flex-direction: column; }

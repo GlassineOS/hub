@@ -3258,7 +3258,7 @@ function StewardSession({ state, seen, buttons, reload, asks }) {
       <button class="primary" style="align-self: flex-start" disabled=${act.busy} onClick=${() => act.run(() => (words === "Stopped" ? post("agents/resume", { name: STEWARD }) : post("agents/run", { action: "project-steward" })))}>${act.busy ? "Starting…" : words === "Stopped" ? "Resume the Steward" : "Start the Steward"}</button></div>`;
   }
   const offers = asks.work.items.filter((i) => i.by === STEWARD && nwWaits(i));
-  // The panel's head has the Steward's name, model and state: below it is the compact SessionView (004 FR-001).
+  // The panel's head has the Steward's name, model, state and Stop: below it is the compact SessionView (004 FR-001).
   const session = { name: STEWARD, attached: 0, agent: { persona: STEWARD, persona_name: "Steward", waiting: words === "Waiting for you", idle: words === "Idle", ended: false } };
   return html`<${SessionView} session=${session} mode="compact" asks=${asks} seen=${seen} buttons=${buttons} queued=${state.queued} after=${reload} onGone=${reload}>
     ${offers.length > 0 && html`<div class="dock-asks stack" style="gap: 8px"><span class="eyebrow">Waiting for you</span>${offers.map((i) => html`<${WorkWaiting} key=${i.id} item=${i} compact reload=${asks.reload} />`)}</div>`}
@@ -3280,6 +3280,7 @@ function StewardModel({ running, current, open }) {
 function Steward({ route, asks }) {
   const [rail, setRailState] = useState(keptRail);
   const [modelOpen, setModelOpen] = useState(false);
+  const [confirm, dialog] = useConfirm();
   const setRail = (next) => { setRailState(next); try { localStorage.setItem("steward-rail", next ? "rail" : "open"); } catch { /* it only helps */ } };
   const { data: loaded, reload } = useLoad(() => post("agents/state", { name: STEWARD }), [], rail ? 15000 : 3000);
   // A failed read keeps what we knew, or a brief hubd error would close the terminal and offer Start.
@@ -3287,9 +3288,16 @@ function Steward({ route, asks }) {
   if (loaded) known.current = loaded;
   const state = known.current;
   const { data: buttons } = useLoad(() => post("agents/buttons").then((r) => r.buttons).catch(() => []), []);
+  const stopping = useAct(reload);
   const seen = seenFrom(route);
   const words = state ? state.state : "Not started";
   const running = words !== "Not started" && words !== "Stopped";
+  // 004 FR-011: only after a confirmation. Not discarded: "Stopped" offers Resume, with the conversation.
+  const stop = () => confirm(
+    { title: "Stop the Steward?", danger: true, label: "Stop session",
+      text: "Stops the Steward: Claude and everything running in its terminal. Its conversation can be resumed later." },
+    () => stopping.run(() => api(`shells/${encodeURIComponent(STEWARD)}`, { method: "DELETE" })),
+  );
   useEffect(() => { if (running) post("agents/context", { name: STEWARD, ...seen }).catch(() => {}); }, [running, seen.screen, seen.kind, seen.selection]);
   const asking = asks.open.filter((a) => a.session === STEWARD).length + asks.work.items.filter((i) => i.by === STEWARD && nwWaits(i)).length;
   const planFromSteward = () => planWork({ by: STEWARD, repo: seen.selection ? seen.selection.split("#")[0] : undefined, context: seen.selection || undefined, pins: seen.selection ? [{ kind: "ref", label: seen.selection }] : undefined });
@@ -3298,14 +3306,16 @@ function Steward({ route, asks }) {
       <button class="dock-s" aria-label=${`Open the Steward, ${words}${asking ? `, ${count(asking, "question")} for you` : ""}`} title=${`Steward: ${words}`} onClick=${() => setRail(false)}>S${asking > 0 && html`<span class="dock-count">${asking}</span>`}</button>
       <button class="dock-item" aria-label="Plan new work with the Steward" title="Plan new work with the Steward" onClick=${planFromSteward}>＋</button></nav>`;
   }
-  return html`<aside class="dock" aria-labelledby="dock-h">
+  return html`<aside class="dock" aria-labelledby="dock-h">${dialog}
     <div class="dock-head"><span class="dock-s small" aria-hidden="true">S</span>
       <span class="stack" style="gap: 0; flex: 1; min-width: 0"><h2 id="dock-h" style="font-size: 17px; font-weight: 600">Steward</h2>
         <button class="link dock-modelname mono" aria-expanded=${modelOpen ? "true" : "false"} aria-label=${`Steward model${state && state.model ? `: ${state.model}` : ""}. Change`} onClick=${() => setModelOpen(!modelOpen)}>${(state && state.model) || "model"}</button></span>
       <span class="badge ${STATE_BADGE[words] || ""}">${words}</span>
+      ${running && html`<button class="plain" disabled=${stopping.busy} onClick=${stop}>Stop…</button>`}
       <button class="square" aria-label="Plan new work with the Steward" title="Plan new work with the Steward" onClick=${planFromSteward}>＋</button>
       <button class="square" aria-label="Collapse the Steward to a rail" onClick=${() => setRail(true)}>›</button></div>
     <${StewardModel} running=${running} current=${state && state.model} open=${modelOpen} />
+    <${Err} text=${stopping.error} />
     <div class="dock-sees"><${Eyebrow} soft>Sees<//><span class="label" style="padding-right: 8px">${seen.screen}</span>${seen.selection && html`<span class="label mono" style="padding-right: 8px">${seen.selection}</span>`}</div>
     <${StewardSession} state=${state || { state: "Not started", queued: 0 }} seen=${seen} buttons=${buttons} reload=${reload} asks=${asks} />
     <p class="small soft" style="margin: 0; padding: 0 12px 12px">A configured session like any other: no shell, reads everything, and every write asks you first.</p>

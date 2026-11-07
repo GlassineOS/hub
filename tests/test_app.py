@@ -1420,6 +1420,17 @@ def test_the_steward_panel_reloads_its_state_after_a_press():
     assert "after=${reload}" in _component(script, "StewardSession")
 
 
+def test_the_steward_panel_has_stop_behind_a_confirmation():
+    """A static check only (the JS isn't run; 004 FR-011): the panel's head has Stop while the Steward runs, and the DELETE sits inside the confirm."""
+    steward = _component(_app_js(), "Steward")
+    stop = steward[steward.index("const stop = () => confirm("):]
+    stop = stop[:stop.index("\n  );")]
+    assert "danger: true" in stop and stop.index("confirm(") < stop.index('method: "DELETE"') and "shells/${encodeURIComponent(STEWARD)}" in stop
+    assert steward.count('method: "DELETE"') == 1 and "discard" not in stop
+    assert "${running && html`<button class=\"plain\" disabled=${stopping.busy} onClick=${stop}>Stop…</button>`}" in steward
+    assert "${dialog}" in steward and "useAct(reload)" in steward
+
+
 def test_the_sessions_list_polls_quickly():
     """A static check only (the JS isn't run): a session started elsewhere shows within seconds, not after the 15 s poll or a reload."""
     script = _app_js()
