@@ -3763,8 +3763,9 @@ function WidthHandle({ width, onWidth }) {
   const set = (w) => onWidth(clampWidth(w));
   const key = (e) => {
     const step = e.shiftKey ? STEWARD_WIDTH.step * 4 : STEWARD_WIDTH.step;
-    // The panel is on the right: Left widens it, Right narrows it.
-    const next = { ArrowLeft: width + step, ArrowRight: width - step, Home: STEWARD_WIDTH.max, End: STEWARD_WIDTH.min }[e.key];
+    // The panel is on the right: Left widens it, Right narrows it. Home and End go to aria-valuemin and aria-valuemax, the
+    // panel's narrowest and widest, as a window splitter's do for the pane its value is.
+    const next = { ArrowLeft: width + step, ArrowRight: width - step, Home: STEWARD_WIDTH.min, End: STEWARD_WIDTH.max }[e.key];
     if (next === undefined) return;
     e.preventDefault();
     set(next);

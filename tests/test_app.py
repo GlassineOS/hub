@@ -2668,3 +2668,10 @@ def test_knowledge_and_the_steward_chips_read_the_chosen_repositories_alike():
     code = src + f"\nconsole.log(JSON.stringify([readKnowledge({{repos: {json.dumps(crafted)}}}).repos, seenRepos({json.dumps(crafted)})]));"
     page, chips = json.loads(subprocess.run(["node", "-e", code], capture_output=True, text=True, check=True).stdout)
     assert page == chips == ["hub", ".github"] + [f"r{i}" for i in range(8)]  # each once, names only, then the first ten
+
+
+def test_home_and_end_on_the_width_handle_go_to_its_min_and_max():
+    handle = _component(_app_js(), "WidthHandle")
+    # Its value is the panel's width, so Home is aria-valuemin (narrowest) and End aria-valuemax (widest).
+    assert "aria-valuemin=${STEWARD_WIDTH.min} aria-valuemax=${STEWARD_WIDTH.max} aria-valuenow=${width}" in handle
+    assert "Home: STEWARD_WIDTH.min, End: STEWARD_WIDTH.max" in handle
