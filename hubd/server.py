@@ -59,6 +59,7 @@ PUBLIC_KNOWN, PUBLIC_UNSURE = 600, 60  # seconds a repository's visibility is ke
 COPIES_EVERY = 1800  # seconds between refreshes of the repository copies
 WORK_TOOL_OPS = {"work.offer": "plan_work", "work.suggest": "suggest_session", "work.submit": "submit_drafts", "work.handed": "new_work_drafts"}
 STEWARD = "steward"
+DIRECT_ORIGIN = {"launch": None, "from": None, "by": "you"}  # a session you started with the one click or the advanced form: no Launch record behind it
 RESULT_TOOL_OPS = {"result.submit": "submit_result"}  # 005 R2: by a session's own token, checked like WORK_TOOL_OPS
 ITEM_OBJECTS = ("issue", "pr", "run")  # what a Launch's covered items can be (005 FR-011)
 KIND_WORDS = {"issue": "an issue", "pr": "a pull request", "run": "a run", "repo": "a repository", "project": "the whole project"}
@@ -1376,7 +1377,7 @@ class Hubd:
         if op == "agent.plan":
             return {"ok": True, **await self.agents.plan(req.get("action"), req.get("repo"), req.get("number"), req.get("notes"), req.get("pins"), planner_model=req.get("planner_model"))}
         if op == "agent.start":
-            return {"ok": True, **await self.agents.start(req.get("config"))}
+            return {"ok": True, **await self.agents.start(req.get("config"), origin=dict(DIRECT_ORIGIN))}
         if op == "agent.state":
             return {"ok": True, **await self.agents.session_state(req.get("name"))}
         if op == "agent.press":
@@ -1402,7 +1403,8 @@ class Hubd:
         if op == "agent.draft":
             return {"ok": True, **await self.agents.draft(req.get("kind"), req.get("object"), req.get("repo"), req.get("number"), req.get("thread"))}
         if op == "agent.run":
-            return {"ok": True, **await self.agents.run(req.get("action"), req.get("repo"), req.get("number"), req.get("notes"), req.get("pins"))}
+            return {"ok": True, **await self.agents.run(req.get("action"), req.get("repo"), req.get("number"), req.get("notes"), req.get("pins"),
+                                                        origin=dict(DIRECT_ORIGIN))}
         return {"ok": False, "error": f"unknown request: {op}"}
 
     async def connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:

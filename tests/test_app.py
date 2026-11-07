@@ -1376,8 +1376,74 @@ def test_every_claude_session_is_a_chat():
     field = _component(script, "MessageField")
     assert 'post("agents/say", { name, text, where })' in field and "agents/press" not in field
     assert 'role="status"' in field and "<${Err} text=${act.error}" in field and "<label" in field
-    assert "<${MessageField} name=${STEWARD}" in _component(script, "StewardSession")
-    assert "<${MessageField} key=${current.name} name=${current.name}" in _component(script, "Shells")
+    # Both draw it through the SessionView, which has the field for every Claude session.
+    assert "<${MessageField} key=${name} name=${name} where=${where}" in _component(script, "SessionView")
+    assert '<${SessionView} session=${session} mode="compact"' in _component(script, "StewardSession")
+    assert '<${SessionView} key=${current.name} session=${current} mode="full"' in _component(script, "Shells")
+
+
+def test_one_session_view_everywhere():
+    """A static check (004 FR-001, FR-005, FR-009, FR-011): one SessionView in Sessions, Work and the Steward panel;
+    its terminal on night paper; Stop only after a confirmation; the old manifest column gone."""
+    script, css = _app_js(), _style_css()
+    view = _component(script, "SessionView")
+    assert '<${SessionView} key=${session.name} session=${session} mode="embedded"' in _component(script, "WorkLists")
+    assert "function Manifest(" not in script and "<${Manifest}" not in script and ".manifest" not in css
+    assert "background: var(--night)" in re.search(r"\n\.term \{[^}]*\}", css).group(0)
+    assert "background: var(--night)" in re.search(r"\n\.svterm \{[^}]*\}", css).group(0)
+    assert 'getPropertyValue("--night")' in script and "background: nightPaper()" in _component(script, "TerminalView")
+    # Stop: a Confirm first, then the DELETE, never the DELETE on its own.
+    stop = view[view.index("const stop = () => confirm("):]
+    stop = stop[:stop.index("\n  );")]
+    assert 'danger: true' in stop and stop.index("confirm(") < stop.index('method: "DELETE"')
+    assert view.count('method: "DELETE"') == 1 and "onClick=${stop}" in view
+    # The spec, the origin in words, the state in words, the stored view, the other items.
+    spec = _component(script, "SessionSpec")
+    for row in ("Persona", "Action", "Model", "Permission mode", "Ceiling", "Covered items", "Worktree", "Branch", "Start command"):
+        assert f"<dt>{row}</dt>" in spec, row
+    assert "started before origins were kept" in _component(script, "originWords")
+    assert 'post("agents/view"' in view and 'aria-label="Also on these items"' in view and "Ask} key=${x.id}" in view
+    assert "Waiting for you" in _component(script, "sessionWords")
+
+
+def test_work_says_when_stop_kept_the_checkout():
+    """A static check only (the JS isn't run): Stop from a Work item uses shell.kill's reply, as Sessions does (#34 review 4)."""
+    lists = _component(_app_js(), "WorkLists")
+    assert "onEnded=${(r) => { setKeptCheckout(r && r.kept ? { ref: here, path: r.kept } : null)" in lists
+    assert "keptCheckout.ref === here" in lists and "<code>${keptCheckout.path}</code>" in lists
+
+
+def test_the_steward_panel_reloads_its_state_after_a_press():
+    """A static check only (the JS isn't run): the compact SessionView gets the panel's reload as `after` (#34 review 6)."""
+    script = _app_js()
+    assert "const act = useAct(after);" in _component(script, "SessionView")
+    assert "after=${reload}" in _component(script, "StewardSession")
+
+
+def test_the_steward_panel_has_stop_behind_a_confirmation():
+    """A static check only (the JS isn't run; 004 FR-011): the panel's head has Stop while the Steward runs, and the DELETE sits inside the confirm."""
+    steward = _component(_app_js(), "Steward")
+    stop = steward[steward.index("const stop = () => confirm("):]
+    stop = stop[:stop.index("\n  );")]
+    assert "danger: true" in stop and stop.index("confirm(") < stop.index('method: "DELETE"') and "shells/${encodeURIComponent(STEWARD)}" in stop
+    assert steward.count('method: "DELETE"') == 1 and "discard" not in stop
+    assert "${running && html`<button class=\"plain\" disabled=${stopping.busy} onClick=${stop}>Stop…</button>`}" in steward
+    assert "${dialog}" in steward and "useAct(reload)" in steward
+
+
+def test_the_sessions_list_polls_quickly():
+    """A static check only (the JS isn't run): a session started elsewhere shows within seconds, not after the 15 s poll or a reload."""
+    script = _app_js()
+    assert re.search(r"^const SESSIONS_EVERY = (\d+);", script, re.M) and int(re.search(r"^const SESSIONS_EVERY = (\d+);", script, re.M).group(1)) <= 5000
+    shells = _component(script, "Shells")
+    assert 'useLoad(() => api("shells"), [], SESSIONS_EVERY)' in shells and "SESSIONS_EVERY)" in shells.split("const stopped")[1]
+
+
+def test_the_terminal_keeps_your_place():
+    """A static check (004 FR-005) of the page's own scrollback only: new output follows the end while you're at it. In tmux the
+    place is kept by tmux's copy mode, which test_hubd.py tests against a real tmux."""
+    term = _component(_app_js(), "TerminalView")
+    assert "b.viewportY >= b.baseY" in term and "if (atEnd) term.scrollToBottom()" in term
 
 
 # --- results (005 R2): who sees submit_result, and sessions started before it ----------------------

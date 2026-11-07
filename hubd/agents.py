@@ -28,6 +28,7 @@ import re
 import secrets
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -411,6 +412,46 @@ def with_also(config: dict, numbers) -> dict:
 def _mode(action: dict) -> str:
     """The permission mode a session of this action runs with."""
     return action["permission_mode"] if _full(action) else "dontAsk"
+
+
+def _small_file(path: Path, limit: int = 512) -> str | None:
+    """A regular file's first `limit` bytes as text, or None. The checkout is the session's own to rewrite, so a FIFO
+    where a file should be mustn't block hubd's loop: open without waiting or following a link, and read only what fstat says is a file."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY | os.O_NOFOLLOW)
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        return os.read(fd, limit).decode()
+    except (OSError, UnicodeError):
+        return None
+    finally:
+        os.close(fd)
+
+
+def _branch_of(checkout: Path) -> str | None:
+    """The branch a worktree is on, read from its HEAD, or the commit it's detached at. No git run for a page's read.
+    The checkout is the session's to change, so only plain small files are read, and only in the layout `git worktree add`
+    makes (<repository>/worktrees/<id>, with or without a .git folder in it), or the checkout's own .git folder."""
+    git = Path(checkout) / ".git"
+    if git.is_dir() and not git.is_symlink():
+        gitdir = git
+    else:
+        pointer = _small_file(git, 4096)
+        if pointer is None or not pointer.startswith("gitdir:"):
+            return None
+        gitdir = Path(os.path.normpath(Path(checkout) / pointer[len("gitdir:"):].strip()))  # an absolute path replaces the checkout's
+        if gitdir.parent.name != "worktrees":
+            return None
+    head = _small_file(gitdir / "HEAD")
+    if head is None:
+        return None
+    head = head.strip()
+    if head.startswith("ref: "):
+        return head.removeprefix("ref: ").removeprefix("refs/heads/").splitlines()[0]
+    return f"detached at {head[:12]}" if re.fullmatch(r"[0-9a-f]{40,64}", head) else None
 
 
 def _number_ok(n) -> bool:
@@ -1203,6 +1244,16 @@ class Agents:
         return script
 
     @staticmethod
+    def _invocation(script: Path) -> str | None:
+        """What the launch script runs: its last line, `exec <claude and its arguments>`. The exports above it hold the
+        environment, and that line reads the token and the prompt from files, so none of them is in what this returns."""
+        try:
+            last = script.read_text().rstrip("\n").rsplit("\n", 1)[-1]
+        except OSError:
+            return None
+        return last.removeprefix("exec ") if last.startswith("exec ") else None
+
+    @staticmethod
     def _command(directory: Path, script: Path) -> str:
         """The shell stays when Claude ends, so the marker is how the hub knows it has."""
         return f"sh {shlex.quote(str(script))}; touch {shlex.quote(str(directory / ENDED_FILE))}"
@@ -1356,12 +1407,12 @@ class Agents:
         log.info("agent session %s resumed", name)
         return {"name": name, "title": record["title"], "config": config}
 
-    async def run(self, action_id, repo, number, notes=None, pins=None) -> dict:
+    async def run(self, action_id, repo, number, notes=None, pins=None, origin: dict | None = None) -> dict:
         """The one click: plan, then start."""
         if not self.library.action(action_id).get("plan", True):
-            return await self.start({**self.defaults(action_id, repo, number), "notes": notes or "", "pins": pins or []})
+            return await self.start({**self.defaults(action_id, repo, number), "notes": notes or "", "pins": pins or []}, origin=origin)
         planned = await self.plan(action_id, repo, number, notes, pins)
-        return {**await self.start(planned["config"]), "planner_cost_usd": planned["planner_cost_usd"]}
+        return {**await self.start(planned["config"], origin=origin), "planner_cost_usd": planned["planner_cost_usd"]}
 
     # --- started by a session, after you approved ----------------------------------
     def check_spawn(self, arguments) -> dict:
@@ -1851,10 +1902,13 @@ class Agents:
         directory = self.sessions / name
         record = json.loads((directory / "session.json").read_text())
         checkouts = self._present(name)
+        script = directory / ("resume.sh" if (directory / "resume.sh").exists() else "run.sh")
         return {**summary, "config": record["config"], "prompt": (directory / "prompt.md").read_text(),
                 "persona_text": (directory / "persona.md").read_text(), "skills": self.library.skills(),
                 "ceiling": self.library.action(record["config"]["action"])["ceiling"],
-                "checkout": str(checkouts[0]) if checkouts else None, "checkouts": [str(c) for c in checkouts]}
+                "checkout": str(checkouts[0]) if checkouts else None, "checkouts": [str(c) for c in checkouts],
+                # 004 FR-009: the branch it's on and the command that started Claude (the launch script's last line), for the Session spec. The token and the prompt are read from files by that line.
+                "branch": _branch_of(checkouts[0]) if checkouts else None, "command": self._invocation(script) or self._command(directory, script)}
 
     def _present(self, name: str) -> list[Path]:
         found = sorted(c for folder in (self.work / name, self.sessions / name / "checkout") if folder.is_dir()

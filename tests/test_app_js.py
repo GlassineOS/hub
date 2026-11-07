@@ -62,3 +62,42 @@ def test_esc_is_left_alone_when_no_list_is_open():
         };
         return [press(true), press(false)];""")
     assert got == [[True, True, True], [False, False, False]]
+
+
+def test_a_session_is_embedded_only_in_the_item_it_was_placed_on():
+    """#34 review 5: a move on this page is keyed by session and item, and the stored view counts only for its own item."""
+    got = run(["embeddedPhase"], """
+        const view = (over) => ({ name: "s", agent: { view: { mode: "embedded", where: "Work", ref: "hub#1", ...over } } });
+        const A = "hub#1", B = "hub#2";
+        return [
+          embeddedPhase(null, A, {}),                                   // no session
+          embeddedPhase(view({}), A, {}),                               // stored for this item
+          embeddedPhase(view({}), B, {}),                               // stored for another item: background here, as after a reload
+          embeddedPhase(view({ ref: null }), B, {}),                    // stored with no item: any
+          embeddedPhase(view({ where: "Sessions" }), A, {}),            // placed from Sessions
+          embeddedPhase(view({ mode: "background" }), A, {}),
+          embeddedPhase({ name: "s", agent: {} }, A, {}),               // no stored view at all
+          embeddedPhase(view({}), B, { "s@hub#1": "embedded" }),        // moved on item A says nothing about B
+          embeddedPhase(view({}), A, { "s@hub#1": "background" }),      // moved here wins over the stored view
+          embeddedPhase(view({ mode: "background" }), B, { "s@hub#2": "embedded" }),
+        ];""")
+    assert got == [None, "embedded", "background", "embedded", "background", "background", "background", "background", "background", "embedded"]
+
+
+def test_the_origin_is_told_in_words():
+    """#34 follow-up: a session started with the one click says so, and only one with no origin at all is called old."""
+    constants = "\n".join(re.search(rf"^const {n} = .*;$", APP.read_text(), re.M).group(0) for n in ("STEWARD", "byWords"))
+    script = f"{constants}\n{function('originWords')}\nconsole.log(JSON.stringify((() => {{ %s }})()));"
+    body = """
+        const words = (a) => originWords(a);
+        return [
+          words({ origin: { launch: null, from: null, by: "you" } }),
+          words({ origin: { launch: "w1", from: { view: "Work", ref: "hub#4" }, by: "you" } }),
+          words({ origin: { launch: "w2", from: { view: "Needs you", ref: null }, by: "steward" } }),
+          words({ origin: { launch: "w3", from: null, by: "you" } }),
+          words({ origin: null, started_by: "steward" }),
+          words({ origin: null, started_by: null }),
+        ];"""
+    out = subprocess.run([NODE, "-e", script % body], capture_output=True, text=True, timeout=30, check=True).stdout
+    assert json.loads(out) == ["started directly, by you", "from Work item hub#4, by you", "from Needs you, by the Steward",
+                               "from Launch, by you", "started by the Steward", "started before origins were kept"]

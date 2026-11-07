@@ -5,6 +5,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 import re
@@ -12,7 +13,7 @@ import re
 import pytest
 
 from hubd.asks import FOREVER, WAIT
-from hubd.agents import IDLE_FILE, _NAME_RE, TOOL_SERVER_WAIT, Agents, AgentError, Library, validate
+from hubd.agents import IDLE_FILE, _NAME_RE, TOOL_SERVER_WAIT, Agents, AgentError, Library, _branch_of, validate
 from hubd import agents as agents_module, auth, usage
 from hubd.ghpolicy import Refused, check
 from hubd.server import Hubd
@@ -1077,7 +1078,7 @@ def test_every_kind_of_agent_gets_the_private_rule(tmp_path, remote):
 
 
 def test_manifest_and_preview_show_what_runs(tmp_path, remote):
-    a = agents(tmp_path, clone_base=remote)
+    a = agents(tmp_path, clone_base=remote, environment={"HUB_MARK": "ENVVALUE"})
     a.shells = FakeShells()
     config = good(docs=[{"link": "https://docs.glassine.org/x/", "why": "the design"}], docs_query="q")
     preview = a.preview(config)
@@ -1087,9 +1088,112 @@ def test_manifest_and_preview_show_what_runs(tmp_path, remote):
     manifest = a.manifest(name)
     assert manifest["config"]["persona"] == "reviewer" and "look at x" in manifest["prompt"] and manifest["ceiling"]
     assert "search-the-docs" in manifest["skills"] and manifest["checkout"]
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=manifest["checkout"], check=True, capture_output=True, text=True).stdout.strip()
+    assert manifest["branch"] == f"detached at {head[:12]}"  # this one's worktree is detached at the pull request's head
+    # The start command is Claude's own invocation, as run.sh execs it (the same as the preview's, bar the session id), not the tmux wrapper.
+    command = manifest["command"]
+    directory = tmp_path / "state" / "sessions" / name
+    assert shlex.split(command)[0] == a.claude and command.startswith(f"{a.claude} --session-id ")
+    assert f"--name {name} " in command and "--permission-mode dontAsk" in command and "--model " in command
+    assert command == (directory / "run.sh").read_text().splitlines()[-1].removeprefix("exec ")
+    assert "run.sh" not in command and "touch" not in command
+    # What it must not show is in run.sh and the token file, so this fails if it ever leaks: the environment's value, the token, the prompt.
+    script = (directory / "run.sh").read_text()
+    token = (directory / agents_module.TOKEN_FILE).read_text().strip()
+    assert "ENVVALUE" in script and len(token) > 20 and token not in script  # the script reads the token from its file
+    assert "look at x" in (directory / "prompt.md").read_text()
+    shown = json.dumps(manifest)
+    assert all(x not in shown for x in ("ENVVALUE", "SECRET", token)) and "look at x" not in command  # the config has the brief; the command does not
+    assert "$(cat " in command  # the prompt and the token are read from files, not written out
     for bad in ("../x", "nope", None):
         with pytest.raises(AgentError):
             a.manifest(bad)
+
+
+def test_run_gives_its_origin_to_start(tmp_path):
+    """#34 follow-up: the one click records where it came from, planned or not, and a record keeps it."""
+    a = agents(tmp_path)
+    started = []
+
+    async def start(config, started_by=None, origin=None):
+        started.append((config, origin))
+        return {"name": "n"}
+
+    async def plan(*args, **kw):
+        return {"config": {"planned": True}, "planner_cost_usd": 0.0}
+
+    a.start, a.plan = start, plan
+    origin = {"launch": None, "from": None, "by": "you"}
+    assert asyncio.run(a.run("pr-review", "boot", 5, origin=origin))["name"] == "n"
+    assert started == [({"planned": True}, origin)]
+
+
+SHA = "0123456789abcdef0123456789abcdef01234567"
+
+
+def _worktree(tmp_path, head, gitdir=None, absolute=True):
+    """A checkout whose .git points at <repository>/worktrees/<id>, as `git worktree add` leaves it."""
+    checkout = tmp_path / "checkout"
+    checkout.mkdir(parents=True)
+    home = gitdir or tmp_path / "repos" / "boot" / "worktrees" / "id"
+    home.mkdir(parents=True)
+    (home / "HEAD").write_text(head)
+    (checkout / ".git").write_text(f"gitdir: {home if absolute else os.path.relpath(home, checkout)}\n")
+    return checkout, home
+
+
+@pytest.mark.parametrize("absolute", [True, False])
+def test_branch_of_a_worktree_on_a_branch(tmp_path, absolute):
+    checkout, _ = _worktree(tmp_path, "ref: refs/heads/agent/fix-it\n", absolute=absolute)
+    assert _branch_of(checkout) == "agent/fix-it"
+
+
+def test_branch_of_a_detached_worktree_and_a_checkout_with_its_own_git_folder(tmp_path):
+    checkout, _ = _worktree(tmp_path, SHA + "\n")
+    assert _branch_of(checkout) == "detached at 0123456789ab"
+    plain = tmp_path / "plain"
+    (plain / ".git").mkdir(parents=True)
+    (plain / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+    assert _branch_of(plain) == "main"
+
+
+def test_branch_of_gives_none_for_what_is_not_a_worktree(tmp_path):
+    assert _branch_of(tmp_path / "gone") is None
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    assert _branch_of(bare) is None  # no .git
+    for text in ("", "not a pointer\n", "gitdir:", "gitdir: /nowhere/worktrees/x\n", "gitdir: ../elsewhere\n"):
+        (bare / ".git").write_text(text)
+        assert _branch_of(bare) is None, text
+    # A pointer to a folder that isn't a worktree's, a HEAD that is junk, one that is empty, one that is too long to be one.
+    other, _ = _worktree(tmp_path / "a", "ref: refs/heads/x\n", gitdir=tmp_path / "a" / "somewhere")
+    assert _branch_of(other) is None
+    for n, head in enumerate(("junk\n", "", "0123 not hex\n", "../../etc/passwd\n")):
+        checkout, _ = _worktree(tmp_path / f"head{n}", head)
+        assert _branch_of(checkout) is None, head
+    checkout, _ = _worktree(tmp_path / "long", "ref: refs/heads/" + "x" * 5000)
+    assert len(_branch_of(checkout)) <= 512
+
+
+def test_branch_of_does_not_wait_for_or_follow_what_a_session_put_in_place_of_head(tmp_path):
+    """The checkout is the session's: a FIFO as HEAD (or as .git) must not stall hubd's loop, and a link must not make it read elsewhere."""
+    checkout, home = _worktree(tmp_path / "fifo", "")
+    (home / "HEAD").unlink()
+    os.mkfifo(home / "HEAD")
+    pointer = tmp_path / "pointer"
+    pointer.mkdir()
+    os.mkfifo(pointer / ".git")
+    secret = tmp_path / "secret"
+    secret.write_text(SHA)
+    linked, home = _worktree(tmp_path / "link", "")
+    (home / "HEAD").unlink()
+    (home / "HEAD").symlink_to(secret)
+    got = {}
+    worker = threading.Thread(target=lambda: got.update(fifo=_branch_of(checkout), pointer=_branch_of(pointer), link=_branch_of(linked)), daemon=True)
+    worker.start()
+    worker.join(5)
+    assert not worker.is_alive(), "reading the branch blocked on a FIFO"
+    assert got == {"fifo": None, "pointer": None, "link": None}
 
 
 @pytest.mark.parametrize("over", [
@@ -1490,12 +1594,13 @@ def test_run_keeps_notes_and_pins_with_and_without_a_plan(tmp_path, action):
     a = agents(tmp_path, planned())
     started = []
 
-    async def start(config):
-        started.append(config)
+    async def start(config, origin=None):
+        started.append((config, origin))
         return {"name": "x"}
     a.start = start
-    asyncio.run(a.run(action, "boot", 5, "error paths first", PINS))
-    assert started[0]["notes"] == "error paths first" and started[0]["pins"] == PINS
+    asyncio.run(a.run(action, "boot", 5, "error paths first", PINS, origin={"by": "you"}))
+    config, origin = started[0]
+    assert config["notes"] == "error paths first" and config["pins"] == PINS and origin == {"by": "you"}
 
 
 # --- what the Steward starts ----------------------------------------------------------------------

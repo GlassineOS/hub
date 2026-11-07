@@ -243,6 +243,33 @@ def test_plan_and_run_are_given_the_notes_and_pins(tmp_path, fake_gh):
     assert Agents.given == [("pr-review", "boot", 5, "n", ["p"])] * 2
 
 
+def test_a_session_you_start_directly_says_so_in_its_origin(tmp_path, fake_gh):
+    """#34 follow-up: the one click and the advanced form have no Launch record, so their sessions would read as old without this."""
+    class Agents:
+        seen = []
+
+        def scope(self, token):
+            return None
+
+        async def start(self, config, **kw):
+            self.seen.append(("start", kw))
+            return {"name": "n"}
+
+        async def run(self, *args, **kw):
+            self.seen.append(("run", kw))
+            return {"name": "n"}
+
+    async def go():
+        async with Harness(tmp_path, fake_gh) as h:
+            h.hubd.agents = Agents()
+            token = await h.login()
+            await h.call(op="agent.start", token=token, config={})
+            await h.call(op="agent.run", token=token, action="pr-review", repo="boot", number=5)
+    run(go())
+    direct = {"launch": None, "from": None, "by": "you"}
+    assert Agents.seen == [("start", {"origin": direct}), ("run", {"origin": direct})]
+
+
 def test_a_session_token_cant_start_anything_and_reads_only_with_the_tool(tmp_path, fake_gh):
     class Agents:
         def scope(self, token):
@@ -431,6 +458,39 @@ def test_shells_set_the_terminal_options(tmp_path, fake_gh, monkeypatch):
         await shells._tmux("kill-server")
         return mouse.strip(), clipboard.strip()
     assert asyncio.run(run()) == ("on", "external")
+
+
+@needs_tmux
+def test_scrolled_up_in_a_session_you_stay_where_you_read(tmp_path, monkeypatch):
+    """004 FR-005 in the real terminal: the wheel is tmux's (mouse on), and its copy mode holds the lines you scrolled to
+    while output arrives, then lets go when you're back at the end. The page's own scrollback code can't do this: tmux
+    draws on the alternate screen, which has none."""
+    monkeypatch.setenv("TMUX_TMPDIR", str(tmp_path))
+    async def go():
+        shells = Shells()
+        target = "=scroll:"
+        try:
+            await shells.new("scroll", command="i=0; while :; do i=$((i+1)); echo line $i; sleep 0.05; done")
+            view = lambda: shells._tmux("capture-pane", "-M", "-p", "-t", target)
+            for _ in range(100):  # output enough to scroll
+                if "line 60" in (await shells._tmux("capture-pane", "-p", "-t", target))[1]:
+                    break
+                await asyncio.sleep(0.1)
+            assert await shells._tmux("copy-mode", "-e", "-t", target) == (0, "", "")
+            assert (await shells._tmux("send-keys", "-t", target, "-X", "-N", "5", "scroll-up"))[0] == 0
+            rc, before, _ = await view()
+            if rc != 0:
+                pytest.skip("this tmux can't capture the copy-mode view (capture-pane -M)")
+            await asyncio.sleep(1.5)  # 30 more lines
+            _, after, _ = await view()
+            _, mode, _ = await shells._tmux("display-message", "-p", "-t", target, "#{pane_in_mode}")
+            await shells._tmux("send-keys", "-t", target, "-X", "-N", "1000", "scroll-down")
+            _, left, _ = await shells._tmux("display-message", "-p", "-t", target, "#{pane_in_mode}")
+            return before, after, mode.strip(), left.strip()
+        finally:
+            await shells._tmux("kill-server")
+    before, after, mode, left = asyncio.run(go())
+    assert before.strip() and after == before and mode == "1" and left == "0"
 
 
 @needs_tmux

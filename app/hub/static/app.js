@@ -982,8 +982,6 @@ function Spawn({ kind, repo, number, failing, session, phase, threads, onStarted
         <button onClick=${() => { setPlan(null); setOpen(true); }}>Edit notes and context</button>
         <button disabled=${act.busy} onClick=${() => go(plan.action)}>Re-plan with current notes</button>
         <button class="link" onClick=${() => setPlan(null)}>Discard</button></div></div>`}
-    ${session && phase === "embedded" && html`<div role="status" class="notice"><span><span class="mono">${session.name}</span> is open below</span>
-      <button class="plain" onClick=${() => onPhase("background")}>Send to background</button></div>`}
     ${session && phase !== "embedded" && html`<div role="status" class="notice quiet"><span><span class="mono" style="font-weight: 600">${session.name}</span> · ${session.agent.persona} · <span class="badge ${w ? "mark" : ""}">${w ? "waiting" : "running"}</span> in the background</span>
       <button class="plain" onClick=${() => onPhase("embedded")}>Bring back</button></div>`}
     <${Err} text=${act.error} />
@@ -1336,11 +1334,22 @@ function WorkRow({ row, tab, scope, sessions, action }) {
 }
 
 // Work's tabs. The queue is its own view of the pull requests, so it has the page to itself.
-function Work({ query }) {
-  return query.tab === "queue" ? html`<${WorkQueue} />` : html`<${WorkLists} query=${query} />`;
+function Work({ query, asks }) {
+  return query.tab === "queue" ? html`<${WorkQueue} />` : html`<${WorkLists} query=${query} asks=${asks} />`;
 }
 
-function WorkLists({ query }) {
+// Whether a session is drawn embedded in the Work item `here` (owner/repo#n) or sits in the background there.
+// moved: what was set on this page, keyed `${name}@${here}`, so a move on item A says nothing about item B;
+// else the view hubd stored, which is embedded only for the item it was stored for.
+function embeddedPhase(session, here, moved) {
+  if (!session) return null;
+  const set = moved[`${session.name}@${here}`];
+  if (set) return set;
+  const stored = session.agent && session.agent.view;
+  return stored && stored.mode === "embedded" && stored.where === "Work" && (!stored.ref || stored.ref === here) ? "embedded" : "background";
+}
+
+function WorkLists({ query, asks }) {
   const overview = useLoad(() => api("overview"), []);
   const sessions = useSessions();
   // What the address says, so an item can be linked to and Back returns to the list as it was.
@@ -1358,7 +1367,8 @@ function WorkLists({ query }) {
   const [allRepos, setAllRepos] = useState(false);
   const [panel, setPanel] = useState(query.new === "1" ? "new" : null);
   const [notice, setNotice] = useState(null);
-  const [phases, setPhases] = useState({}); // session name → embedded, or background when absent
+  const [phases, setPhases] = useState({}); // `${session name}@${item}` → embedded or background, as moved on this page; else its stored view
+  const [keptCheckout, setKeptCheckout] = useState(null); // { ref, path }: Stop ended a session whose checkout holds work that isn't on GitHub
   useEffect(() => { if (query.new === "1") setPanel("new"); }, [query.new]);
   const groups = overview.data ? overview.data.groups : [];
   const filter = parseFilter(applied);
@@ -1425,18 +1435,27 @@ function WorkLists({ query }) {
   const stateWord = (STATES[tab].find(([v]) => v === state) || [state, state])[1];
   if (current) {
     const session = sessionOf(current);
-    const embedded = session && phases[session.name] === "embedded";
+    const here = `${current.repo}#${current.number}`;
+    const phase = embeddedPhase(session, here, phases);
+    const embedded = phase === "embedded";
+    // Moved here: shown so at once, and kept by hubd for the next page that draws it.
+    const place = (name, mode) => {
+      const key = `${name}@${here}`;
+      setNotice(null);
+      setPhases((p) => ({ ...p, [key]: mode }));
+      post("agents/view", { name, mode, where: "Work", ref: here }).then(() => sessions.reload(), (e) => {
+        // Not stored, so not shown: back to what hubd has, and say so.
+        setPhases((p) => { const { [key]: _, ...rest } = p; return rest; });
+        setNotice(`Couldn't move ${name} to ${mode === "embedded" ? "this item" : "the background"}: ${e.message}`);
+      });
+    };
     const spawn = ({ kind, failing, threads }) => html`<${Spawn} key=${current.key} kind=${kind} repo=${current.repo} number=${current.number} failing=${failing} threads=${threads}
-        session=${session} phase=${session ? phases[session.name] : null}
-        onStarted=${async (r) => { setPhases((p) => ({ ...p, [r.name]: "embedded" })); await sessions.reload(); }}
-        onPhase=${(ph) => session && setPhases((p) => ({ ...p, [session.name]: ph }))} />
-      ${embedded && html`<section class="embedded" aria-labelledby="h-emb">
-        <div class="termhead"><h2 id="h-emb">${session.name}</h2>
-          <span class="badge ${session.agent.waiting ? "mark" : ""}">${session.agent.waiting ? "waiting" : "running"}</span>
-          <span class="small soft" style="flex: 1 1 260px">${session.agent.persona} · <span class="mono">${session.agent.model}</span></span>
-          <button class="plain" onClick=${() => setPhases((p) => ({ ...p, [session.name]: "background" }))}>Send to background</button>
-          <a class="button plain" href=${hash("shells", { name: session.name })}>Open in Sessions</a></div>
-        <${TerminalView} key=${session.name} name=${session.name} onGone=${() => sessions.reload()} /></section>`}`;
+        session=${session} phase=${phase}
+        onStarted=${async (r) => { place(r.name, "embedded"); await sessions.reload(); }}
+        onPhase=${(ph) => session && place(session.name, ph)} />
+      ${embedded && html`<${SessionView} key=${session.name} session=${session} mode="embedded" asks=${asks} here=${here}
+        onView=${(m) => setPhases((p) => ({ ...p, [`${session.name}@${here}`]: m }))} onEnded=${(r) => { setKeptCheckout(r && r.kept ? { ref: here, path: r.kept } : null); sessions.reload(); }} onGone=${() => sessions.reload()} />`}
+      ${keptCheckout && keptCheckout.ref === here && html`<div role="status" class="notice quiet"><span>That session had work that isn't on GitHub, so its checkout stays at <code>${keptCheckout.path}</code>.</span></div>`}`;
     const props = { key: current.key, repo: current.repo, spawn, onChanged: reload };
     return html`<main class="page close">
       <div class="crumbs"><a href=${hash("work", { tab, repo: scope })} style="font-weight: 600">← ${TABS.find((t) => t[0] === tab)[1]}</a>
@@ -1579,6 +1598,9 @@ function clipboardPayload(data) {
 }
 
 // `quiet`: beside a page you're using, so it takes the keyboard only when you click it.
+// Terminals are on night paper (#121212), the --night token, in both themes.
+const nightPaper = () => (getComputedStyle(document.documentElement).getPropertyValue("--night").trim() || "#121212");
+
 function TerminalView({ name, onGone, focusRef, quiet }) {
   const box = useRef();
   const [note, setNote] = useState("Connecting…");
@@ -1587,7 +1609,7 @@ function TerminalView({ name, onGone, focusRef, quiet }) {
   useEffect(() => {
     const term = new Terminal({
       cursorBlink: true, fontFamily: '"IBM Plex Mono", ui-monospace, monospace', fontSize: 14, scrollback: 5000,
-      theme: { background: "#121212", foreground: "#eeeeee", cursor: "#eeeeee" },
+      theme: { background: nightPaper(), foreground: "#eeeeee", cursor: "#eeeeee" },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -1644,7 +1666,15 @@ function TerminalView({ name, onGone, focusRef, quiet }) {
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ rows: term.rows, cols: term.cols }));
     };
     ws.onopen = () => { setNote(""); sendSize(); toBody(); };
-    ws.onmessage = (e) => term.write(new Uint8Array(e.data));
+    // 004 FR-005: it opens at the end, and follows new output only while you're there. This is for xterm's own scrollback.
+    // Inside tmux (everything here) the wheel is tmux's, and its copy mode is what holds your place and lets go at the end.
+    let first = true;
+    ws.onmessage = (e) => {
+      const b = term.buffer.active;
+      const atEnd = first || b.viewportY >= b.baseY;
+      first = false;
+      term.write(new Uint8Array(e.data), () => { if (atEnd) term.scrollToBottom(); });
+    };
     ws.onclose = (e) => {
       setNote(e.code === 1000 || e.code === 1006 ? "Disconnected. The session keeps running; open it again to reattach." : `Closed: ${e.reason || e.code}`);
       if (e.code === 4404) onGone();
@@ -1713,44 +1743,142 @@ function NewShell({ initial, onDone, onCancel }) {
 
 const shortModel = (m) => (m ? m[0].toUpperCase() + m.slice(1) : "");
 
-function Manifest({ session, work }) {
-  const a = session && session.agent;
-  const { data, error } = useLoad(() => (a ? post("agents/manifest", { name: session.name }) : Promise.resolve(null)), [session && session.name]);
-  const [show, setShow] = useState(false);
-  if (!session) return html`<aside class="manifest panel"><h2 class="eyebrow">Session</h2><p class="small soft">Choose a session. They keep running on the host when you close this page.</p></aside>`;
+// --- SessionView (004 FR-001–FR-011) --------------------------------------------------------------
+// The state in words: the badge beside it is a second sign, never the only one.
+function sessionWords(session) {
+  const a = session.agent;
+  if (!a) return session.attached > 0 ? "Attached" : "Plain shell";
+  if (a.ended) return "Claude has ended";
+  if (a.waiting) return "Waiting for you";
+  return a.idle ? "Idle at its prompt" : "Working";
+}
+const byWords = (by) => (by === "you" ? "you" : by === STEWARD ? "the Steward" : by);
+// 004 FR-002: where and why it was started, from its Launch record (005 FR-010).
+function originWords(a) {
+  const o = a.origin;
+  if (!o) return a.started_by ? `started by ${byWords(a.started_by)}` : "started before origins were kept";
+  const f = o.from || {};
+  if (o.launch == null && !f.view) return `started directly${o.by ? `, by ${byWords(o.by)}` : ""}`; // the one click or the advanced form: no Launch behind it
+  const where = !f.view ? "Launch" : f.ref ? `${f.view}${f.view === "Work" ? " item" : ","} ${f.ref}` : f.view;
+  return `from ${where}${o.by ? `, by ${byWords(o.by)}` : ""}`;
+}
+const coversOf = (a) => (a ? (a.covers || []).map((c) => ({ kind: c.kind || a.object, repo: c.repo, number: c.number })) : []);
+
+// 004 FR-009: what it was started with. Replaces the old manifest column.
+function SessionSpec({ session, manifest: m, error }) {
+  const a = session.agent;
+  const [prompt, setPrompt] = useState(false);
+  const attach = `tmux -L glassine-hub attach -t ${session.name}`;
   if (!a) {
-    return html`<aside class="manifest panel" aria-labelledby="h-man"><h2 id="h-man" class="eyebrow">Plain shell</h2>
-      <p style="font-size: 14.5px">A plain tmux shell as your user. No persona, no prompt; the tool server's URL and a token are in its environment, so a <code>claude</code> you start here can use the hub too.</p>
-      <dl class="defs"><dt>Directory</dt><dd class="mono" style="font-size: 13px">${session.cwd}</dd><dt>Running</dt><dd class="mono" style="font-size: 13px">${session.command}</dd>
-        <dt>Attach</dt><dd class="mono" style="font-size: 13px">tmux -L glassine-hub attach -t ${session.name}</dd></dl></aside>`;
+    return html`<details class="svspec"><summary>Session spec</summary>
+      <p class="small">A plain tmux shell as your user. No persona, no prompt; the tool server's URL and a token are in its environment, so a <code>claude</code> you start here can use the hub too.</p>
+      <dl class="defs"><dt>Directory</dt><dd class="mono">${session.cwd}</dd><dt>Start command</dt><dd class="mono">${session.command}</dd><dt>Attach</dt><dd class="mono">${attach}</dd></dl></details>`;
   }
-  const m = data && data.manifest;
-  const tab = a.object === "pr" ? "prs" : a.object === "issue" ? "issues" : "actions";
-  const closes = a.full && a.object === "issue" && a.number ? [a.number, ...(a.also_numbers || [])] : [];
-  const suggested = work.items.find((i) => i.session === session.name && i.number);
-  return html`<aside class="manifest panel" aria-labelledby="h-man">
-    <div class="row" style="justify-content: space-between"><h2 id="h-man" class="eyebrow">Session manifest</h2>
-      ${m && a.repo && a.number && html`<a class="small" href=${hash("launch", { action: a.action, repo: a.repo, number: a.number })} onClick=${() => { advancedHandoff = m.config; }}>Clone setup</a>`}</div>
+  const covers = coversOf(a);
+  return html`<details class="svspec"><summary>Session spec</summary>
     <${Err} text=${error} />
-    <div class="persona"><i aria-hidden="true">${a.persona[0]}</i><span><b>${a.persona}</b><span class="mono soft" style="font-size: 12.5px; overflow-wrap: anywhere">${a.model} · ${a.effort}</span></span></div>
-    <div class="stack tight"><h3 class="eyebrow">Prompt builder</h3><span style="font-size: 14px">${a.title} · ${whereFrom(a)}</span>
-      ${m && m.config.docs_query && html`<span class="soft" style="font-size: 13px">${count(m.config.docs.length, "docs passage")} from “${m.config.docs_query}”</span>`}
-      <button class="plain" aria-expanded=${show ? "true" : "false"} style="align-self: flex-start; min-height: 36px; border-radius: 10px" onClick=${() => setShow(!show)}>${show ? "Hide built prompt" : "Show built prompt"}</button>
-      ${show && m && html`<pre class="shadow">${m.prompt}</pre>`}</div>
+    <dl class="defs">
+      <dt>Persona</dt><dd>${a.persona_name || a.persona}${a.persona_name && a.persona_name !== a.persona ? html` <span class="mono soft">${a.persona}</span>` : ""}</dd>
+      <dt>Action</dt><dd>${a.title} <span class="mono soft">${a.action}</span></dd>
+      <dt>Model</dt><dd class="mono">${a.model} · ${a.effort}</dd>
+      <dt>Permission mode</dt><dd class="mono">${a.permission_mode || "not recorded (started before it was kept)"}</dd>
+      <dt>Ceiling</dt><dd>${m ? m.ceiling : "…"}</dd>
+      <dt>Covered items</dt><dd>${covers.length ? html`<span class="row" style="gap: 6px">${covers.map((c) => html`<${ItemPill} ...${c} />`)}</span>` : "the whole project"}</dd>
+      ${(m ? m.checkouts : []).map((c) => html`<dt>Worktree</dt><dd class="mono" style="overflow-wrap: anywhere">${c}</dd>`)}
+      ${m && !m.checkouts.length && html`<dt>Worktree</dt><dd>none: it reads, with no checkout</dd>`}
+      <dt>Branch</dt><dd class="mono">${m ? m.branch || "none" : "…"}</dd>
+      <dt>Start command</dt><dd class="mono" style="overflow-wrap: anywhere">${m ? m.command : "…"}</dd>
+      <dt>Posts as</dt><dd class="mono">${a.posts_as || "you"}</dd>
+      <dt>Attach</dt><dd class="mono">${attach}</dd></dl>
     ${m && html`<div class="stack tight"><h3 class="eyebrow">Skills</h3><div class="row" style="gap: 6px">${m.skills.map((s) => html`<span class="badge" style="text-transform: none; letter-spacing: 0; font-size: 12.5px">${s}</span>`)}</div></div>
       <div class="stack" style="gap: 4px"><h3 class="eyebrow">Tools${a.full ? "" : ` · ${m.config.tools.length + m.config.hub_tools.length}`}</h3>
         ${a.full ? html`<p class="small">Full Claude Code, with your rights.</p>`
-          : [...m.config.hub_tools, ...m.config.tools].map((t) => html`<div class="tool-row"><span class="mono" style="font-size: 13px">${t}</span><span class="badge">allow</span></div>`)}
-        <span class="soft" style="font-size: 12.5px; margin-top: 4px">${m.ceiling}</span></div>
-      <dl class="defs" style="border-top: 1px dotted var(--ink); padding-top: 12px">
-        <dt>Posts as</dt><dd class="mono" style="font-size: 13px">${a.posts_as || "you"}</dd>
-        <dt>From</dt><dd>${suggested ? `${suggested.by === STEWARD ? "Steward" : suggested.by} suggestion · ` : ""}${a.repo && a.number ? html`<a href=${hash("work", { tab, repo: a.repo, item: a.number })}>${whereFrom(a)}</a>` : whereFrom(a)}</dd>
-        ${(a.covers || []).length > 1 && html`<dt>Covers</dt><dd class="mono" style="font-size: 13px">${a.covers.map((c, i) => `${c.repo}#${c.number}${i ? "" : " (primary)"}`).join(", ")}</dd>`}
-        <dt>Permission mode</dt><dd class="mono" style="font-size: 13px">${a.permission_mode || "not recorded (started before it was kept)"}</dd>
-        ${closes.length > 0 && html`<dt>PR will say</dt><dd class="mono" style="font-size: 13px">${closes.map((n) => `Closes #${n}`).join(" · ")}</dd>`}
-        ${m.checkouts.map((c) => html`<dt>Worktree</dt><dd class="mono" style="font-size: 13px; overflow-wrap: anywhere">${c}</dd>`)}
-        <dt>Attach</dt><dd class="mono" style="font-size: 13px">tmux -L glassine-hub attach -t ${session.name}</dd></dl>`}
-  </aside>`;
+          : [...m.config.hub_tools, ...m.config.tools].map((t) => html`<div class="tool-row"><span class="mono" style="font-size: 13px">${t}</span><span class="badge">allow</span></div>`)}</div>
+      <div class="row" style="gap: 8px">
+        <button class="plain" aria-expanded=${prompt ? "true" : "false"} onClick=${() => setPrompt(!prompt)}>${prompt ? "Hide built prompt" : "Show built prompt"}</button>
+        ${a.repo && a.number && html`<a class="button plain" href=${hash("launch", { action: a.action, repo: a.repo, number: a.number })} onClick=${() => { advancedHandoff = m.config; }}>Clone setup</a>`}</div>
+      ${prompt && html`<pre class="shadow">${m.prompt}</pre>`}`}
+  </details>`;
+}
+
+// One session, three places (004 FR-001): full under Sessions, embedded in a Work item, compact in the Steward panel.
+// here: the Work item it's embedded in. seen: what the Steward sees, for its preset buttons.
+// onView(mode): it was moved between embedded and background. onEnded(reply): Stop ended it. onResume: Claude ended, resume it.
+// after: run once a button, Esc or a move has gone through (the Steward panel reloads its state, so the queued count follows).
+function SessionView({ session, mode = "full", asks, here, seen, buttons, queued = 0, after, onView, onEnded, onResume, onGone, onClose, children }) {
+  const a = session.agent;
+  const name = session.name;
+  const full = mode === "full", compact = mode === "compact";
+  const act = useAct(after);
+  const [confirm, dialog] = useConfirm();
+  const [note, setNote] = useState("");
+  const focus = useRef(null);
+  const { data, error } = useLoad(() => (a && !compact ? post("agents/manifest", { name }) : Promise.resolve(null)), [name, a ? a.persona : ""]);
+  const m = data && data.manifest;
+  const mine = ((asks && asks.open) || []).filter((x) => x.session === name);
+  const words = sessionWords(session);
+  const covers = coversOf(a);
+  const prs = a ? a.prs || [] : [];
+  // 004 FR-004: the others, beside the one you're on.
+  const others = here ? covers.filter((c) => `${c.repo}#${c.number}` !== here) : covers.slice(1);
+  const hid = `sv-${mode}-${name}`;
+  const where = full ? "Sessions" : compact ? (seen && seen.screen) || "Sessions" : "Work";
+  const live = a && !a.ended;
+  const thisItem = seen && seen.selection ? `${seen.kind || "item"} ${seen.selection}` : "";
+  // The presets are written for the Steward (steward-buttons.toml). Other sessions get Esc and your own words.
+  const offered = name === STEWARD && seen ? (buttons || []).filter((b) => b.screen === seen.screen && (seen.selection || !b.text.includes("{selection}")) && (!b.kinds || b.kinds.includes(seen.kind))) : [];
+  const press = (b) => act.run(async () => {
+    const r = await post("agents/press", { name, button: b.id, kind: seen.kind, selection: seen.selection });
+    setNote(r.sent ? `Sent: ${b.label}` : `Queued: ${b.label}. It goes when the turn ends.`);
+  });
+  const place = (to) => act.run(async () => {
+    await post("agents/view", { name, mode: to, where: to === "embedded" || !a.view || !a.view.where ? where : a.view.where, ref: here || (a.view && a.view.ref) || undefined });
+    if (onView) onView(to);
+  });
+  const stop = () => confirm(
+    { title: a ? "Stop this session?" : "End this shell?", danger: true, label: a ? "Stop session" : "End shell",
+      text: a ? `Stops “${name}”: Claude and everything running in its terminal. Its conversation can be resumed later.` : `Ends “${name}” and everything running in it.` },
+    () => act.run(async () => {
+      const r = await api(`shells/${encodeURIComponent(name)}`, { method: "DELETE" });
+      if (onEnded) onEnded(r);
+    }),
+  );
+  const embeddedNow = mode === "embedded" || (a && a.view && a.view.mode === "embedded");
+  const family = a && FAMILY_WORD[a.family] ? a.family : a ? "unknown" : "shell";
+  const head = !compact && html`<header class="svhead ${family}">
+    <${PersonaBadge} persona=${personaOf(a)} />
+    <span class="stack" style="gap: 2px; flex: 1 1 220px; min-width: 0">
+      <h2 id=${hid}>${a ? a.persona_name || a.persona : name}</h2>
+      <span class="mono small" style="overflow-wrap: anywhere">${a ? html`${name} · ${shortModel(a.model)}${m && m.branch ? ` · ${m.branch}` : ""}` : session.cwd}</span>
+      ${a && html`<span class="small">${originWords(a)}</span>`}</span>
+    <span class="badge ${words === "Waiting for you" ? "mark" : a && a.ended ? "dim" : ""}">${words}</span>
+    <span class="row" style="gap: 6px">
+      ${a && embeddedNow && html`<button class="plain" disabled=${act.busy} onClick=${() => place("background")}>Send to background</button>`}
+      ${!full && html`<a class="button plain" href=${hash("shells", { name })}>Open in Sessions</a>`}
+      ${full && onClose && html`<button class="plain" onClick=${onClose}>Detach</button>`}
+      <button class="plain" disabled=${act.busy} onClick=${stop}>${a ? "Stop…" : "End…"}</button></span></header>`;
+  const pills = !compact && (covers.length > 0 || prs.length > 0) && html`<div class="svitems">
+    ${covers.length > 0 && html`<span class="row" style="gap: 6px"><span class="eyebrow">Covers</span><${ItemPill} ...${here ? covers.find((c) => `${c.repo}#${c.number}` === here) || covers[0] : covers[0]} /></span>`}
+    ${others.length > 0 && html`<nav class="row" style="gap: 6px" aria-label="Also on these items"><span class="eyebrow">Also on these items</span>${others.map((c) => html`<${ItemPill} ...${c} />`)}</nav>`}
+    ${prs.length > 0 && html`<span class="row" style="gap: 6px"><span class="eyebrow">Pull requests</span>${prs.map((p) => html`<${ItemPill} kind="pr" repo=${p.repo} number=${p.number} state=${p.state ? String(p.state).toLowerCase() : undefined} />`)}</span>`}</div>`;
+  return html`${dialog}<section class="sv ${mode} ${full ? "termbox" : mode === "embedded" ? "embedded" : "dock-session"}" aria-labelledby=${compact ? undefined : hid} aria-label=${compact ? `Session ${name}` : undefined}>
+    ${head}${pills}
+    ${!compact && html`<${SessionSpec} session=${session} manifest=${m} error=${error} />`}
+    <${Err} text=${act.error} />
+    ${mine.length > 0 && html`<div class="${compact ? "dock-asks" : "session-asks"} stack" style="gap: ${compact ? 8 : 10}px">${mine.map((x) => html`<${Ask} key=${x.id} ask=${x} compact=${compact} onDone=${asks.reload} />`)}</div>`}
+    ${children}
+    ${a && a.waiting && !mine.length && !compact && html`<div role="status" class="waitbar"><span>Waiting for you: answer in the terminal below.</span>
+      <button class="plain" onClick=${() => focus.current && focus.current()}>Jump to prompt</button></div>`}
+    ${a && a.ended && onResume && html`<div role="status" class="waitbar ended"><span>Claude has ended in this session.</span>
+      <button class="plain" disabled=${act.busy} onClick=${onResume}>Resume…</button></div>`}
+    <div class=${compact ? "dock-term" : "svterm"}><${TerminalView} key=${name} name=${name} quiet=${compact} focusRef=${focus} onGone=${onGone || (() => {})} /></div>
+    ${a && html`<div class="svsend ${compact ? "compact" : ""}">
+      <div class="row" style="gap: 6px">
+        ${offered.map((b) => html`<button class="dock-msg" disabled=${act.busy || !live} title=${b.text.replaceAll("{selection}", thisItem)} onClick=${() => press(b)}>${b.label}</button>`)}
+        <button class="dock-msg" title="Stops the turn, and anything queued for after it" disabled=${act.busy || !live} onClick=${() => act.run(async () => { await post("agents/interrupt", { name }); setNote("Sent Esc."); })}>Esc</button>
+        <span role="status" class="small soft">${queued > 0 ? `${count(queued, "message")} queued until the turn ends, with the prompt empty. If it has ended, clear what's typed there. After Esc in the terminal, press Esc here too.` : note.startsWith("Queued") ? "" : note}</span></div>
+      <${MessageField} key=${name} name=${name} where=${where} off=${a.ended ? "Claude has ended in this session: resume it to write to it." : ""} /></div>`}
+  </section>`;
 }
 
 const hubTool = (tool) => tool.replace(/^mcp__glassine-hub__/, "hub.");
@@ -2664,10 +2792,13 @@ function Sessions({ query, asks }) {
   return html`<${Shells} query=${query} asks=${asks} />`;
 }
 
+const SESSIONS_EVERY = 4000; // ms
+
 function Shells({ query, asks }) {
   const [kept, setKept] = useState(null);
-  const { data, error, reload } = useLoad(() => api("shells"), [], 15000);
-  const stopped = useLoad(() => api("agents/stopped").catch(() => []), [], 15000);
+  // Sessions are started from other pages and by the Steward, so this list is the one that polls quickly.
+  const { data, error, reload } = useLoad(() => api("shells"), [], SESSIONS_EVERY);
+  const stopped = useLoad(() => api("agents/stopped").catch(() => []), [], SESSIONS_EVERY);
   const reloadAll = () => Promise.all([reload(), stopped.reload()]);
   const [discarding, setDiscarding] = useState(null);
   const [ignoring, setIgnoring] = useState(null);
@@ -2675,7 +2806,6 @@ function Shells({ query, asks }) {
   const [creating, setCreating] = useState(query.new === "1");
   const [confirm, dialog] = useConfirm();
   const act = useAct(reloadAll);
-  const focus = useRef(null);
   const list = data || [];
   const current = list.find((s) => s.name === open) || null;
   // Closed first: the old terminal goes away with the old session, and would close the new one's view.
@@ -2697,7 +2827,6 @@ function Shells({ query, asks }) {
   const started = list.filter((s) => s.agent && s.agent.started_by);
   const startedWorking = started.filter((s) => !s.agent.ended && !s.agent.idle).length;
   const plain = list.filter((s) => !s.agent);
-  const currentAsks = current ? asks.open.filter((a) => a.session === current.name) : [];
   return html`${dialog}<main class="page wide"><${SessionTabs} tab="all" asks=${asks} /><div class="columns near">
     <nav class="sesslist" aria-labelledby="h-sessions">
       <h1 id="h-sessions">Sessions</h1>
@@ -2721,32 +2850,14 @@ function Shells({ query, asks }) {
       ${plain.map(item)}
       ${!plain.length && html`<p class="small soft">None open.</p>`}
     </nav>
-    <section class="termbox" aria-labelledby="h-term">
-      ${current ? html`<div class="termhead"><h2 id="h-term">${current.name}</h2>
-          <span class="mono soft" style="font-size: 13px; flex: 1 1 200px; overflow-wrap: anywhere">${current.cwd}</span>
-          <button class="plain" onClick=${() => setOpen(null)}>Detach</button>
-          <button class="plain" disabled=${act.busy} onClick=${() => confirm(
-            { title: "End this session?", text: `Ends “${current.name}” and everything running in it.`, label: "End session", danger: true },
-            () => act.run(async () => {
-              const r = await api(`shells/${encodeURIComponent(current.name)}`, { method: "DELETE" });
-              setKept(r && r.kept ? r.kept : null);
-              setOpen(null);
-            }),
-          )}>End…</button></div>
-        ${currentAsks.length > 0 && html`<div class="session-asks stack" style="gap: 10px">${currentAsks.map((a) => html`<${Ask} key=${a.id} ask=${a} onDone=${asks.reload} />`)}</div>`}
-        ${current.agent && current.agent.waiting && !currentAsks.length && html`<div role="status" class="waitbar"><span>Waiting for you: answer in the terminal below.</span>
-          <button class="plain" onClick=${() => focus.current && focus.current()}>Jump to prompt</button></div>`}
-        ${current.agent && current.agent.ended && html`<div role="status" class="waitbar"><span>Claude has ended in this session.</span>
-          <button class="plain" disabled=${act.busy} onClick=${() => confirm(
-            { title: "Resume this session?", text: "Its conversation continues in a new terminal. The shell open here closes, with anything running in it.", label: "Resume" },
-            () => resume(current.name),
-          )}>Resume…</button></div>`}
-        <${TerminalView} key=${current.name} name=${current.name} focusRef=${focus} onGone=${() => { setOpen(null); reload(); }} />
-        ${current.agent && html`<div class="termsay"><${MessageField} key=${current.name} name=${current.name} where="Sessions"
-          off=${current.agent.ended ? "Claude has ended in this session: resume it to write to it." : ""} /></div>`}`
-      : html`<div class="empty" id="h-term">${list.length || (stopped.data || []).length ? "Choose a session." : "No sessions yet."}</div>`}
-    </section>
-    <${Manifest} key=${current ? current.name : "none"} session=${current} work=${asks.work} />
+    ${current ? html`<${SessionView} key=${current.name} session=${current} mode="full" asks=${asks} onClose=${() => setOpen(null)}
+        onEnded=${(r) => { setKept(r && r.kept ? r.kept : null); setOpen(null); reloadAll(); }}
+        onView=${reloadAll} onGone=${() => { setOpen(null); reload(); }}
+        onResume=${() => confirm(
+          { title: "Resume this session?", text: "Its conversation continues in a new terminal. The shell open here closes, with anything running in it.", label: "Resume" },
+          () => resume(current.name),
+        )} />`
+      : html`<section class="termbox" aria-labelledby="h-term"><div class="empty" id="h-term">${list.length || (stopped.data || []).length ? "Choose a session." : "No sessions yet."}</div></section>`}
     ${discarding && html`<${Confirm} title=${`Discard ${discarding}?`} danger label="Discard"
       text="It can't be resumed after this. Its worktree goes, with anything uncommitted in it. Commits stay on the branch."
       onNo=${() => setDiscarding(null)} onYes=${() => { const name = discarding; setDiscarding(null);
@@ -3138,33 +3249,20 @@ function keptRail() {
 
 function StewardSession({ state, seen, buttons, reload, asks }) {
   const act = useAct(reload);
-  const [note, setNote] = useState("");
   const words = state.state;
   const running = words !== "Not started" && words !== "Stopped";
-  const thisItem = seen.selection ? `${seen.kind || "item"} ${seen.selection}` : "";
-  const offered = (buttons || []).filter((b) => b.screen === seen.screen && (seen.selection || !b.text.includes("{selection}")) && (!b.kinds || b.kinds.includes(seen.kind)));
-  const send = (b) => act.run(async () => {
-    const r = await post("agents/press", { name: STEWARD, button: b.id, kind: seen.kind, selection: seen.selection });
-    setNote(r.sent ? `Sent: ${b.label}` : `Queued: ${b.label}. It goes when the turn ends.`);
-  });
   if (!running) {
     return html`<div class="stack" style="gap: 12px; padding: 14px">
       <p style="font-size: 14.5px">${words === "Stopped" ? "The session has stopped. Resuming continues the same conversation." : "One long-lived session for the whole project. Every write it tries asks you first, on a card."}</p>
       <${Err} text=${act.error} />
       <button class="primary" style="align-self: flex-start" disabled=${act.busy} onClick=${() => act.run(() => (words === "Stopped" ? post("agents/resume", { name: STEWARD }) : post("agents/run", { action: "project-steward" })))}>${act.busy ? "Starting…" : words === "Stopped" ? "Resume the Steward" : "Start the Steward"}</button></div>`;
   }
-  const mine = asks.open.filter((a) => a.session === STEWARD);
   const offers = asks.work.items.filter((i) => i.by === STEWARD && nwWaits(i));
-  return html`<div class="dock-session">
-    ${mine.length > 0 && html`<div class="dock-asks stack" style="gap: 8px">${mine.map((a) => html`<${Ask} key=${a.id} ask=${a} compact onDone=${asks.reload} />`)}</div>`}
+  // The panel's head has the Steward's name, model, state and Stop: below it is the compact SessionView (004 FR-001).
+  const session = { name: STEWARD, attached: 0, agent: { persona: STEWARD, persona_name: "Steward", waiting: words === "Waiting for you", idle: words === "Idle", ended: false } };
+  return html`<${SessionView} session=${session} mode="compact" asks=${asks} seen=${seen} buttons=${buttons} queued=${state.queued} after=${reload} onGone=${reload}>
     ${offers.length > 0 && html`<div class="dock-asks stack" style="gap: 8px"><span class="eyebrow">Waiting for you</span>${offers.map((i) => html`<${WorkWaiting} key=${i.id} item=${i} compact reload=${asks.reload} />`)}</div>`}
-    <div class="dock-term"><${TerminalView} key=${STEWARD} name=${STEWARD} quiet onGone=${reload} /></div>
-    <div class="row" style="gap: 6px; padding: 8px 12px 0">
-      ${offered.map((b) => html`<button class="dock-msg" disabled=${act.busy} title=${b.text.replaceAll("{selection}", thisItem)} onClick=${() => send(b)}>${b.label}</button>`)}
-      <button class="dock-msg" title="Stops the turn, and anything queued for after it" disabled=${act.busy} onClick=${() => act.run(async () => { await post("agents/interrupt", { name: STEWARD }); setNote("Sent Esc."); })}>Esc</button></div>
-    <div class="dock-say"><${MessageField} name=${STEWARD} where=${seen.screen} /></div>
-    <div role="status" class="small soft" style="padding: 4px 12px 8px; min-height: 28px">${state.queued > 0 ? `${count(state.queued, "message")} queued until the turn ends, with the prompt empty. If it has ended, clear what's typed there. After Esc in the terminal, press Esc here too.` : note.startsWith("Queued") ? "" : note}</div>
-    <${Err} text=${act.error || state.lost} /></div>`;
+    <${Err} text=${state.lost} /><//>`;
 }
 
 function StewardModel({ running, current, open }) {
@@ -3182,6 +3280,7 @@ function StewardModel({ running, current, open }) {
 function Steward({ route, asks }) {
   const [rail, setRailState] = useState(keptRail);
   const [modelOpen, setModelOpen] = useState(false);
+  const [confirm, dialog] = useConfirm();
   const setRail = (next) => { setRailState(next); try { localStorage.setItem("steward-rail", next ? "rail" : "open"); } catch { /* it only helps */ } };
   const { data: loaded, reload } = useLoad(() => post("agents/state", { name: STEWARD }), [], rail ? 15000 : 3000);
   // A failed read keeps what we knew, or a brief hubd error would close the terminal and offer Start.
@@ -3189,9 +3288,16 @@ function Steward({ route, asks }) {
   if (loaded) known.current = loaded;
   const state = known.current;
   const { data: buttons } = useLoad(() => post("agents/buttons").then((r) => r.buttons).catch(() => []), []);
+  const stopping = useAct(reload);
   const seen = seenFrom(route);
   const words = state ? state.state : "Not started";
   const running = words !== "Not started" && words !== "Stopped";
+  // 004 FR-011: only after a confirmation. Not discarded: "Stopped" offers Resume, with the conversation.
+  const stop = () => confirm(
+    { title: "Stop the Steward?", danger: true, label: "Stop session",
+      text: "Stops the Steward: Claude and everything running in its terminal. Its conversation can be resumed later." },
+    () => stopping.run(() => api(`shells/${encodeURIComponent(STEWARD)}`, { method: "DELETE" })),
+  );
   useEffect(() => { if (running) post("agents/context", { name: STEWARD, ...seen }).catch(() => {}); }, [running, seen.screen, seen.kind, seen.selection]);
   const asking = asks.open.filter((a) => a.session === STEWARD).length + asks.work.items.filter((i) => i.by === STEWARD && nwWaits(i)).length;
   const planFromSteward = () => planWork({ by: STEWARD, repo: seen.selection ? seen.selection.split("#")[0] : undefined, context: seen.selection || undefined, pins: seen.selection ? [{ kind: "ref", label: seen.selection }] : undefined });
@@ -3200,14 +3306,16 @@ function Steward({ route, asks }) {
       <button class="dock-s" aria-label=${`Open the Steward, ${words}${asking ? `, ${count(asking, "question")} for you` : ""}`} title=${`Steward: ${words}`} onClick=${() => setRail(false)}>S${asking > 0 && html`<span class="dock-count">${asking}</span>`}</button>
       <button class="dock-item" aria-label="Plan new work with the Steward" title="Plan new work with the Steward" onClick=${planFromSteward}>＋</button></nav>`;
   }
-  return html`<aside class="dock" aria-labelledby="dock-h">
+  return html`<aside class="dock" aria-labelledby="dock-h">${dialog}
     <div class="dock-head"><span class="dock-s small" aria-hidden="true">S</span>
       <span class="stack" style="gap: 0; flex: 1; min-width: 0"><h2 id="dock-h" style="font-size: 17px; font-weight: 600">Steward</h2>
         <button class="link dock-modelname mono" aria-expanded=${modelOpen ? "true" : "false"} aria-label=${`Steward model${state && state.model ? `: ${state.model}` : ""}. Change`} onClick=${() => setModelOpen(!modelOpen)}>${(state && state.model) || "model"}</button></span>
       <span class="badge ${STATE_BADGE[words] || ""}">${words}</span>
+      ${running && html`<button class="plain" disabled=${stopping.busy} onClick=${stop}>Stop…</button>`}
       <button class="square" aria-label="Plan new work with the Steward" title="Plan new work with the Steward" onClick=${planFromSteward}>＋</button>
       <button class="square" aria-label="Collapse the Steward to a rail" onClick=${() => setRail(true)}>›</button></div>
     <${StewardModel} running=${running} current=${state && state.model} open=${modelOpen} />
+    <${Err} text=${stopping.error} />
     <div class="dock-sees"><${Eyebrow} soft>Sees<//><span class="label" style="padding-right: 8px">${seen.screen}</span>${seen.selection && html`<span class="label mono" style="padding-right: 8px">${seen.selection}</span>`}</div>
     <${StewardSession} state=${state || { state: "Not started", queued: 0 }} seen=${seen} buttons=${buttons} reload=${reload} asks=${asks} />
     <p class="small soft" style="margin: 0; padding: 0 12px 12px">A configured session like any other: no shell, reads everything, and every write asks you first.</p>

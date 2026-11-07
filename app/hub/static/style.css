@@ -198,8 +198,6 @@ label.field > span, div.field > span { font: 500 11.5px var(--mono); letter-spac
 .checkrow .badge { min-width: 52px; text-align: center; }
 .checkrow span.n { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .embedded { display: flex; flex-direction: column; border: 1.5px solid var(--ink); border-radius: 16px; overflow: hidden; box-shadow: 0 3px 0 var(--shade); }
-.termhead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 8px 16px; border-bottom: 1.5px solid var(--ink); background: var(--sheet); }
-.termhead h2 { font: 600 15px var(--mono); }
 .term { background: var(--night); padding: 8px 12px; height: 520px; }
 .embedded .term { height: 380px; }
 .waitbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 16px; border-bottom: 1.5px solid var(--ink); background: var(--mark); }
@@ -224,10 +222,20 @@ label.field > span, div.field > span { font: 500 11.5px var(--mono); letter-spac
 .sess-item .h b { font: 600 14px var(--mono); overflow-wrap: anywhere; }
 .termbox { flex: 999 1 520px; min-width: 0; display: flex; flex-direction: column; border: 1.5px solid var(--ink); border-radius: 16px; overflow: hidden; box-shadow: 0 3px 0 var(--shade); }
 .termbox .empty { padding: 48px 24px; color: var(--soft); text-align: center; }
-.manifest { flex: 1 1 320px; min-width: 0; padding: 20px; }
-.persona { display: flex; gap: 12px; align-items: center; padding: 12px 14px; background: var(--paper); border: 1.5px solid var(--ink); border-radius: 12px; }
-.persona i { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; flex: none; border: 1.5px solid var(--pen); border-radius: 999px; font: 400 21px var(--hand); color: var(--pen); text-transform: uppercase; }
-.persona span { display: flex; flex-direction: column; min-width: 0; }
+/* SessionView (004): the header carries the persona's family tint; the state is in its words beside it. */
+.svhead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 16px; border-bottom: 1.5px solid var(--ink); background: var(--sheet); }
+.svhead h2 { font-size: 16px; font-weight: 600; }
+.svhead.build { background: var(--family-build); } .svhead.review { background: var(--family-review); }
+.svhead.investigate { background: var(--family-investigate); } .svhead.write { background: var(--family-write); }
+.svhead.organise { background: var(--family-organise); }
+.svitems { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 8px 16px; border-bottom: 1px dotted var(--ink); }
+.svspec { padding: 8px 16px; border-bottom: 1px dotted var(--ink); }
+.svspec summary { cursor: pointer; font: 400 12px/2 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.svspec[open] { display: flex; flex-direction: column; gap: 12px; padding-bottom: 14px; }
+.svspec .defs dd.mono { font-size: 13px; }
+.svterm { display: flex; flex-direction: column; background: var(--night); }
+.svsend { display: flex; flex-direction: column; gap: 8px; padding: 10px 16px 12px; border-top: 1.5px solid var(--ink); background: var(--sheet); }
+.svsend.compact { padding: 8px 12px; border-top: 0; background: none; }
 .tool-row { display: flex; align-items: center; gap: 10px; min-height: 30px; border-bottom: 1px solid var(--rule); font-size: 14px; }
 .tool-row span:first-child { flex: 1; overflow-wrap: anywhere; }
 .shadow { font: 400 12.5px/1.55 var(--mono); padding: 10px 12px; background: var(--paper); border: 1px solid var(--rule); border-radius: 6px; max-height: 360px; overflow-y: auto; }
@@ -272,15 +280,13 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
 .dock-s.small { width: 32px; min-width: 32px; height: 32px; font-size: 16px; }
 .dock-item { position: relative; display: flex; align-items: center; justify-content: center; width: 44px; min-width: 44px; height: 44px; padding: 0; box-shadow: none; font: 600 12px var(--mono); }
 .dock-count { position: absolute; top: -6px; right: -6px; min-width: 18px; padding: 0 4px; border: 1.5px solid var(--ink); border-radius: 999px; background: var(--mark); color: var(--ink); font: 600 11px/15px var(--mono); }
-.dock-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px dotted var(--ink); }
+.dock-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px dotted var(--ink); }
 .dock-sees { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 12px; }
 .dock-session { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .dock-term { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .dock-term .term { flex: 1; min-height: 0; height: auto; padding: 6px 8px; }
 .dock-waiting { justify-content: space-between; margin: 8px 12px 0; background: var(--mark); box-shadow: none; }
 .dock-msg { min-height: 36px; padding: 0 10px; font-size: 13px; box-shadow: none; }
-.dock-say { padding: 8px 12px 0; }
-.termsay { padding: 10px 16px 12px; border-top: 1.5px solid var(--ink); background: var(--sheet); }
 .msgfield textarea { min-height: 56px; }
 @media (max-width: 1000px) {
   .dock { position: fixed; inset: 0; z-index: 30; width: auto; border-left: 0; }
