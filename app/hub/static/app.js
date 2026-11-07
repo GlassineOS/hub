@@ -1464,6 +1464,7 @@ function Dispatch({ groups, initial, onDone, onCancel }) {
     <${Err} text=${error || act.error} />
     <div class="field"><span aria-hidden="true">Repository</span><${RepoPicker} value=${repo} onChange=${(r) => { setRepo(r); setFile(""); }} groups=${groups} /></div>
     ${repo && data && !startable.length && html`<p role="status" class="notice quiet"><span>No workflow of ${repo} can be started by hand: none has <span class="mono">on: workflow_dispatch</span>.${unread.length ? ` ${count(unread.length, "file")} couldn't be read: ${unread.map((w) => w.name).join(", ")}.` : ""}</span></p>`}
+    ${repo && data && startable.length > 0 && unread.length > 0 && html`<p role="status" class="small soft">${count(unread.length, "workflow")} of ${repo} can't be listed here: ${unread.map((w) => w.inputs_error || `couldn't read ${w.name}`).join("; ")}.</p>`}
     ${(!repo || !data || startable.length > 0) && html`
       <label class="field"><span>Workflow</span><select value=${file} disabled=${!repo || !data} onChange=${(e) => setFile(e.target.value)}>
         <option value="">Choose…</option>${startable.map((w) => html`<option value=${w.path.split("/").pop()}>${w.name}</option>`)}</select></label>

@@ -1184,6 +1184,7 @@ class GitHub:
         if (kept := self._kept(key, stamp)) is not None:
             return kept
         rows = await self.hubd.gh_json("workflow", "list", "-R", _full(repo), "--json", "id,name,path,state") or []
+        failed = []  # files GitHub couldn't be asked for just now: tried again next time, not kept for the hour
 
         async def one(row):
             file = str(row.get("path") or "")
@@ -1191,16 +1192,20 @@ class GitHub:
                 return {**row, "dispatchable": False}
             name = file.rsplit("/", 1)[-1]
             try:
-                read = await self.workflow_inputs(repo, name)
+                read = await self._read_workflow(repo, name, None, failed)
             except BadRequest:  # a file name the form can't ask for: this one workflow is unread, the rest of the list stays
                 return {**row, "dispatchable": None, "inputs_error": f"couldn't read {name[:60]}: not a file name this can ask for"}
             return {**row, "dispatchable": read["dispatchable"], **({"inputs_error": read["error"]} if read["error"] else {})}
         rows = list(await asyncio.gather(*(one(r) for r in rows)))
-        self._keep(key, stamp, rows)
+        if not failed:
+            self._keep(key, stamp, rows)
         return rows
 
     async def workflow_inputs(self, repo, file, ref=None) -> dict:
         """006 FR-036: what a workflow file asks for when started by hand, at a branch or tag (the default branch without one)."""
+        return await self._read_workflow(repo, file, ref, [])
+
+    async def _read_workflow(self, repo, file, ref, failed: list) -> dict:
         if not isinstance(file, str) or not _WORKFLOW_FILE_RE.fullmatch(file):
             raise BadRequest("name the workflow file, e.g. docs.yml")
         if ref is not None and (not isinstance(ref, str) or not _GIT_REF_RE.fullmatch(ref) or ".." in ref or ref.endswith((".", "/", ".lock"))):
@@ -1213,7 +1218,10 @@ class GitHub:
                 raise workflowfile.Unreadable("GitHub didn't send the file's text")
             text = base64.b64decode(reply.get("content") or "").decode("utf-8")
             out["dispatchable"], out["inputs"] = workflowfile.dispatch_inputs(text)
-        except (HubdError, workflowfile.Unreadable, binascii.Error, UnicodeDecodeError) as e:
+        except HubdError as e:
+            failed.append(file)
+            out["error"] = f"couldn't read {file}{f' at {ref}' if ref else ''}: {e}"
+        except (workflowfile.Unreadable, binascii.Error, UnicodeDecodeError) as e:
             out["error"] = f"couldn't read {file}{f' at {ref}' if ref else ''}: {e}"
         return out
 

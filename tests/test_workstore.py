@@ -883,3 +883,28 @@ def test_a_listed_row_has_its_part_of_but_not_its_body(tmp_path):
     store.upsert(issue(number=2, body="Nothing"))
     rows = {r["number"]: r for r in store.issues("boot")}
     assert rows[1]["part_of"] == "hub#40" and rows[2]["part_of"] is None and "body" not in rows[1]
+
+
+def test_the_workflow_list_isnt_kept_while_a_file_couldnt_be_read(world, hubd, monkeypatch):
+    """A read GitHub failed just now is tried again at the next look; a settled list is kept for the hour."""
+    import base64
+    github, _, _ = synced(world)
+    good = base64.b64encode(b"on: workflow_dispatch").decode()
+    answers = {"fail": True}
+    reads = []
+
+    async def gh(*argv, stdin=None, timeout=None):
+        if argv[:2] == ("workflow", "list"):
+            return json.dumps([{"id": 1, "name": "CI", "path": ".github/workflows/ci.yml", "state": "active"}])
+        reads.append(argv)
+        if answers["fail"]:
+            raise GhError("HTTP 502")
+        return json.dumps({"encoding": "base64", "content": good})
+    monkeypatch.setattr(hubd, "gh", gh)
+    first = asyncio.run(github.workflows("boot"))
+    assert first[0]["dispatchable"] is None and "couldn't read ci.yml" in first[0]["inputs_error"]
+    answers["fail"] = False
+    assert asyncio.run(github.workflows("boot"))[0]["dispatchable"] is True  # not the failed read, kept
+    count = len(reads)
+    answers["fail"] = True
+    assert asyncio.run(github.workflows("boot"))[0]["dispatchable"] is True and len(reads) == count  # the good one is kept
