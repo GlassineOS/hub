@@ -327,6 +327,34 @@ class WorkStore:
         with self.lock:
             return [json.loads(r["data"]) for r in self.db.execute(sql, args).fetchall()]
 
+    def latest_activity(self) -> dict[str, str]:
+        """Each repository's newest change the store has seen: an issue, a pull request or a run (007 FR-007)."""
+        with self.lock:
+            rows = self.db.execute("SELECT repo, max(updated_at) AS at FROM items GROUP BY repo").fetchall()
+        return {r["repo"]: r["at"] for r in rows if r["at"]}
+
+    def failing_workflows(self, branches: dict[str, str]) -> dict[str, int]:
+        """How many workflows' newest finished run on each repository's default branch failed (007 FR-004)."""
+        newest: dict[tuple[str, str], dict] = {}
+        for run in self._rows("run", None):
+            if run.get("status") != "completed" or run.get("headBranch") != branches.get(run["repo"]):
+                continue
+            key = (run["repo"], run.get("workflowName") or "")
+            if key not in newest or (run.get("createdAt") or "") > (newest[key].get("createdAt") or ""):
+                newest[key] = run
+        out = {repo: 0 for repo in branches}
+        for (repo, _workflow), run in newest.items():
+            out[repo] = out.get(repo, 0) + (run.get("conclusion") in ("failure", "timed_out", "startup_failure"))
+        return out
+
+    def open_pr_checks(self) -> dict[str, int]:
+        """Open pull requests whose checks fail, by repository."""
+        out: dict[str, int] = {}
+        for pr in self._rows("pr", None):
+            if pr.get("state") == "OPEN" and pr.get("checks") == "failing":
+                out[pr["repo"]] = out.get(pr["repo"], 0) + 1
+        return out
+
     def issues(self, repo=None, state="open", label=None, assignee=None, search=None, limit=50) -> list[dict]:
         rows = self._listed("issue", repo, state, search)
         if label:

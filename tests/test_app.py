@@ -1097,7 +1097,9 @@ def test_the_header_has_six_views_needs_you_new_work_and_the_meter():
     hub = _component(script, "Hub")
     assert "<${NeedsButton} asks=${asks} />" in hub and 'class="primary new-work" onClick=${() => launch({ from: { view: SEEN_SCREEN[here] || "Overview" } })}' in hub
     assert "<${UsageMeter} />" in hub and "host.hubd" in hub and "hubd can't be reached" in hub and 'api("host"), [], 15000' in hub
-    assert "<${ApiBudget} />" in _component(script, "Overview") and "<${DeviceCard} asks=${asks} />" in _component(script, "Overview")
+    overview = _component(script, "Overview")
+    assert "<${NeedsYouCard} asks=${asks} />" in overview and "<${BudgetStat} />" in overview and "<${DeviceCard} asks=${asks} />" in overview
+    assert "ApiBudget" not in script and "function NeedsYou(" not in script, "the budget is a stat now, and Needs you is a card"
     meter = _component(script, "UsageMeter")
     assert 'api("usage")' in meter and '" · low"' in meter and '"not known"' in meter and "aria-label=${label}" in meter
     # The Steward is told where the person is, in the screens hubd knows.
@@ -1881,3 +1883,129 @@ def test_work_shows_github_actions_for_work_and_the_queue():
     assert 'query.tab === "queue" ? html`<${WorkQueue} />`' in _component(script, "Work")
     assert 'launch({ action: "new-issue", repos: [repo], describe: text' in _component(script, "NewIssue")
     assert "No workflow of ${repo} can be started by hand" in _component(script, "Dispatch")
+
+
+# --- Overview (007/PR 1) -----------------------------------------------------------------------------------
+
+
+def _overview_row(name, failing=0, prs=0, last=None):
+    return {"name": name, "attention": {"failing_runs": failing, "open_prs": prs, "last_activity": last}}
+
+
+def test_attention_order_is_failing_then_waiting_then_prs_then_activity():
+    """007 FR-004: failing workflows first, then sessions waiting for you, then open PRs, then the newest activity; none last."""
+    from hub.github import attention_key
+    rows = [_overview_row("quiet"), _overview_row("old", last="2026-01-01T00:00:00Z"), _overview_row("new", last="2026-11-01T00:00:00Z"),
+            _overview_row("prs", prs=3), _overview_row("fails", failing=1), _overview_row("fails-more", failing=2, last="2025-01-01T00:00:00Z")]
+    waiting = {"old": 1}
+    order = [r["name"] for r in sorted(rows, key=lambda r: attention_key(r, waiting.get(r["name"], 0)))]
+    assert order == ["fails-more", "fails", "old", "prs", "new", "quiet"]
+
+
+def _overview_js(fn):
+    import shutil
+    import subprocess
+    if not shutil.which("node"):
+        pytest.skip("node isn't installed")
+    script = _app_js()
+    src = script[script.index("function byAttention"):script.index("// 007 FR-007: one repository")]
+    return subprocess.run(["node", "-e", src + fn], capture_output=True, text=True, check=True).stdout
+
+
+def test_the_page_sorts_like_the_server_and_shows_five_then_the_rest():
+    """byAttention in app.js orders as github.attention_key, with the page's waiting sessions; layerRows shows 5, then "Show N more"."""
+    from hub.github import attention_key
+    rows = [{**_overview_row(f"r{i}", failing=i % 3 == 0, prs=i % 4, last=f"2026-10-{i + 1:02d}T00:00:00Z"), "waiting": int(i == 7), "description": ""}
+            for i in range(12)]
+    rows.append({**_overview_row("never"), "waiting": 0, "description": "the boot loader"})
+    out = json.loads(_overview_js(f"""const rows = {json.dumps(rows)};
+      const a = layerRows(rows), all = layerRows(rows, {{ all: true }}), only = layerRows(rows, {{ attentionOnly: true }}), boot = layerRows(rows, {{ needle: "boot" }});
+      console.log(JSON.stringify({{ shown: a.shown.map((r) => r.name), more: a.more, all: all.shown.length, allMore: all.more,
+        order: all.rows.map((r) => r.name), only: only.rows.map((r) => r.name), boot: boot.shown.map((r) => r.name) }}));"""))
+    expected = [r["name"] for r in sorted(rows, key=lambda r: attention_key(r, r["waiting"]))]
+    assert out["order"] == expected and out["shown"] == expected[:5]
+    assert out["more"] == 8 and (out["all"], out["allMore"]) == (13, 0)
+    assert sorted(out["only"]) == sorted(r["name"] for r in rows if r["attention"]["failing_runs"] or r["waiting"])
+    assert out["boot"] == ["never"], "the filter reads the description too"
+
+
+def _store_with(repos, items):
+    store = WorkStore(":memory:")
+    author = {"login": "a"}
+    for i in range(items):
+        repo = repos[i % len(repos)]
+        when = f"2026-10-{i % 28 + 1:02d}T00:00:00Z"
+        if i % 2:
+            store.upsert({"__typename": "PullRequest", "id": f"P{i}", "number": i + 1, "title": "t", "body": "", "state": "OPEN", "isDraft": False, "url": "u",
+                          "createdAt": when, "updatedAt": when, "headRefName": "x", "baseRefName": "main", "headRefOid": "a" * 40, "reviewDecision": "",
+                          "mergeable": "MERGEABLE", "author": author, "repository": {"name": repo}, "labels": {"nodes": []}, "assignees": {"nodes": []},
+                          "comments": {"totalCount": 0, "nodes": []}, "additions": 1, "deletions": 0,
+                          "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "FAILURE" if i % 3 == 0 else "SUCCESS"}}}]}})
+        else:
+            store.upsert({"__typename": "Issue", "id": f"I{i}", "number": i + 1, "title": "t", "body": "", "state": "OPEN", "url": "u", "createdAt": when,
+                          "updatedAt": when, "author": author, "repository": {"name": repo}, "labels": {"nodes": []}, "assignees": {"nodes": []},
+                          "comments": {"totalCount": 0, "nodes": []}})
+    store.put("synced_at", "100.0")
+    return store
+
+
+def _run(repo, run_id, name, conclusion, created, branch="main", status="completed"):
+    from hub.workstore import run_row
+    return run_row(repo, {"id": run_id, "name": name, "status": status, "conclusion": conclusion, "head_branch": branch, "head_sha": "a",
+                          "created_at": created, "updated_at": created, "html_url": "u", "event": "push"})
+
+
+def test_the_store_says_activity_failing_workflows_and_failing_prs():
+    store = _store_with(["hub", "boot"], 6)
+    for row in (_run("hub", 1, "CI", "failure", "2026-10-01T00:00:00Z"), _run("hub", 2, "CI", "success", "2026-10-02T00:00:00Z"),  # CI passes again
+                _run("hub", 3, "Docs", "failure", "2026-10-03T00:00:00Z"), _run("hub", 4, "Lint", "failure", "2026-10-04T00:00:00Z", branch="topic"),
+                _run("boot", 5, "CI", "timed_out", "2026-10-05T00:00:00Z"), _run("boot", 6, "CI", None, "2026-11-30T00:00:00Z", status="in_progress")):
+        store.upsert_run(row)
+    assert store.failing_workflows({"hub": "main", "boot": "main", "empty": "main"}) == {"hub": 1, "boot": 1, "empty": 0}, \
+        "the newest finished run per workflow, on the default branch only"
+    assert store.latest_activity()["boot"] == "2026-11-30T00:00:00Z"
+    assert store.open_pr_checks() == {"boot": 1}, "item 3 (boot) is the one failing PR of the six"
+
+
+def test_overview_is_served_from_the_store_without_a_gh_call(github, hubd):
+    """007 SC: 60 repositories and 500 items, all from the work store: no gh, no GraphQL."""
+    names = [f"repo{i:02d}" for i in range(60)]
+    hubd.nodes = [node(n, prs=i % 3, state="FAILURE" if i == 59 else "SUCCESS") for i, n in enumerate(names)]
+    github.store = _store_with(names, 500)
+    asyncio.run(github.overview())  # the first sync keeps the overview in the store
+    for i, n in enumerate(names):
+        github.store.upsert_run(_run(n, i + 1, "CI", "failure" if n == "repo07" else "success", "2026-10-01T00:00:00Z"))
+    fresh = GitHub(hubd, CONFIG, store=github.store)
+    fresh.sync = type("Sync", (), {"ready": lambda self: True, "status": lambda self: {"synced_at": 100.0}, "wake": lambda self: None})()
+    hubd.commands.clear()
+    view = asyncio.run(fresh.overview_page())
+    assert hubd.commands == [], "nothing asked of gh"
+    rows = [r for g in view["groups"] for r in g["repos"]]
+    assert len(rows) == 60 and view["from_store"] is True
+    first = view["groups"][-1]["repos"][0]
+    assert first["name"] == "repo07" and first["attention"]["failing_runs"] == 1, "the store's runs, not the head's checks (repo59)"
+    assert view["totals"]["failing_prs"] == sum(1 for i in range(500) if i % 2 and i % 3 == 0)
+    assert all(r["last_activity"] for r in rows) and first["last_commit"]["oid"] == "a"
+
+
+def test_overview_before_a_sync_falls_back_to_the_heads_checks(github):
+    view = asyncio.run(github.overview_page())
+    rows = {r["name"]: r for g in view["groups"] for r in g["repos"]}
+    assert rows["boot"]["attention"] == {"failing_runs": 1, "open_prs": 2, "last_activity": None}
+    assert view["from_store"] is False and view["totals"]["failing_prs"] is None and rows["hub"]["failing_prs"] is None
+
+
+def test_overview_page_static_parts():
+    """007 FR-001, FR-002, FR-005–FR-008: the Needs you card opens the modal; the stats; filter, switch, collapse; each row's Launch…;
+    no button inside a button."""
+    script = _app_js()
+    card = _component(script, "NeedsYouCard")
+    assert "onClick=${() => needsYou()}" in card and "c.by_kind" in card and "c.longest_wait" in card
+    overview = _component(script, "Overview")
+    for text in ("Running sessions", "Open issues", "Open PRs", "<${KnowledgeStat} />", "Needs attention only", "Collapse all", "Expand all",
+                 "Show ${g.more} more", "Unplaced"):
+        assert text in overview, text
+    card = _component(script, "RepoCard")
+    assert 'launch({ repos: [r.name], from: { view: "Overview" } })' in card and "<${Strip}" in card and "SessionChip" in card
+    assert card.count("<button") == 2 and '<div class="repo keycap"' in card, "the name and Launch… are two buttons side by side"
+    assert "data.chunks" in _component(script, "KnowledgeStat")
