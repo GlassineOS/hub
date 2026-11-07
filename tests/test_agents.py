@@ -2746,3 +2746,72 @@ def test_typed_words_that_draw_nothing_are_refused_before_they_queue(tmp_path):
         assert await a.say(name, text) == {"sent": True, "queued": 0}
         assert a.shells.pasted == [(name, text)]
     asyncio.run(go())
+
+
+class _SlowTmux(FakeShells):
+    """A tmux that takes its time, as the real one does: other calls run while it looks at the prompt or pastes."""
+    def __init__(self, started):
+        super().__init__()
+        self.started = started
+        self.log = []
+        self.gate = None  # a test sets this to act in the middle of the look at the prompt
+        self.looking = asyncio.Event()
+
+    async def list(self):
+        return [{"name": s[0]} for s in self.started]
+
+    async def prompt_empty(self, name):
+        self.looking.set()
+        if self.gate:
+            await self.gate.wait()
+        await asyncio.sleep(0)
+        return await super().prompt_empty(name)
+
+    async def paste(self, name, text):
+        self.log.append(f"start {text}")
+        await asyncio.sleep(0)
+        await super().paste(name, text)
+        await asyncio.sleep(0)
+        self.log.append(f"end {text}")
+
+
+def _cancel_senders(a):
+    for task in a._senders.values():
+        task.cancel()
+
+
+def test_two_messages_at_once_are_pasted_one_after_the_other(tmp_path, monkeypatch):
+    """Both found the session idle while the prompt was looked at, and both pasted into the same tmux buffer."""
+    monkeypatch.setattr(agents_module, "SEND_POLL", 60)
+    a, name, directory, fire = bridged(tmp_path)
+    a.shells = _SlowTmux(a.shells.started)
+    fire("Stop")
+
+    async def go():
+        one, two = await asyncio.gather(a._send(name, "one"), a._send(name, "two"))
+        assert a.shells.log == ["start one", "end one"]  # the second waited its turn, and the first one's paste ended the session's
+        assert (one, two) == ({"sent": True, "queued": 1}, {"sent": False, "queued": 1})  # `one` is sent; `two` waits for the next Stop
+        assert a.shells.pasted == [(name, "one")] and (await a.session_state(name))["queued"] == 1
+        fire("Stop")
+        await a._send_next(name)
+        assert a.shells.log == ["start one", "end one", "start two", "end two"] and (await a.session_state(name))["queued"] == 0
+        _cancel_senders(a)
+    asyncio.run(go())
+
+
+def test_a_turn_that_starts_while_the_prompt_is_looked_at_isnt_pasted_into(tmp_path, monkeypatch):
+    monkeypatch.setattr(agents_module, "SEND_POLL", 60)
+    a, name, directory, fire = bridged(tmp_path)
+    a.shells = _SlowTmux(a.shells.started)
+    fire("Stop")
+
+    async def go():
+        a.shells.gate = asyncio.Event()
+        sending = asyncio.ensure_future(a._send(name, "typed"))
+        await a.shells.looking.wait()
+        fire("UserPromptSubmit")  # the person typed in the terminal meanwhile, and a turn began
+        a.shells.gate.set()
+        assert await sending == {"sent": False, "queued": 1}
+        assert not getattr(a.shells, "pasted", [])
+        _cancel_senders(a)
+    asyncio.run(go())
