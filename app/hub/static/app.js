@@ -1883,7 +1883,7 @@ function readKnowledge(q) {
   const list = (v) => (v || "").split(",").filter(Boolean);
   const domains = list(q.domains).filter((d) => KN_DOMAINS.some(([id]) => id === d) && !KN_PLANNED.includes(d));
   return { q: (q.q || "").slice(0, 500), mode: q.mode === "exact" ? "exact" : "meaning", domains: domains.length ? domains : ["docs", "work"],
-    repos: list(q.repos).filter((r) => /^[A-Za-z0-9._-]+$/.test(r)).slice(0, 10), open: q.open === "1", layout: q.layout === "grouped" ? "grouped" : "ranked" };
+    repos: seenRepos(q.repos), open: q.open === "1", layout: q.layout === "grouped" ? "grouped" : "ranked" };
 }
 const knowledgeHash = (k) => hash("knowledge", { q: k.q, mode: k.mode === "exact" ? "exact" : undefined,
   domains: k.domains.join(",") === "docs,work" ? undefined : k.domains.join(","), repos: k.repos.join(","), open: k.open ? "1" : undefined,
@@ -3702,7 +3702,8 @@ function movedRoute(route) {
   return { path: route.path, query: q, moved: false };
 }
 
-// The repositories chosen on the page, from the address: Work's one (or a list), Knowledge's list. hubd checks them again.
+// The repositories chosen on the page, from the address: Work's one (or a list), Knowledge's list. Knowledge reads its list
+// with this too, so the page and the Steward's chips name the same ones. hubd checks them again.
 const SEEN_REPOS_MOST = 10;
 function seenRepos(value) {
   const names = String(value || "").split(",").filter((r) => /^\.?[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$/.test(r));

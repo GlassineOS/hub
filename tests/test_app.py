@@ -2654,3 +2654,17 @@ def test_the_page_drops_what_hubd_would_refuse_in_the_context():
     assert "/^[A-Za-z0-9._-]{1,100}$/.test(repo" in _component(script, "seenFrom") and "/^[0-9]{1,20}$/.test(n" in _component(script, "seenFrom")
     from hubd import agents
     assert agents._SEEN_REPO_RE.pattern == r"\.?[A-Za-z0-9_][A-Za-z0-9._-]{0,99}" and agents._SELECTION_RE.pattern == r"[A-Za-z0-9._-]{1,100}#[0-9]{1,20}"
+
+
+def test_knowledge_and_the_steward_chips_read_the_chosen_repositories_alike():
+    """Review 5: one parser, so a crafted address can't make the Knowledge page and the chips name different repositories."""
+    script = _app_js()
+    assert "repos: seenRepos(q.repos)," in _component(script, "readKnowledge") and "seenRepos(moved.query.repos)" in _component(script, "seenFrom")
+    if not shutil.which("node"):
+        pytest.skip("node isn't installed")
+    src = "\n".join(re.search(rf"\nconst {name} = .*?;\n", script)[0] for name in ("KN_DOMAINS", "KN_PLANNED", "SEEN_REPOS_MOST"))
+    src += _component(script, "seenRepos") + _component(script, "readKnowledge")
+    crafted = ",".join(["hub", "hub", "-x", "r" * 101, ".github"] + [f"r{i}" for i in range(12)])
+    code = src + f"\nconsole.log(JSON.stringify([readKnowledge({{repos: {json.dumps(crafted)}}}).repos, seenRepos({json.dumps(crafted)})]));"
+    page, chips = json.loads(subprocess.run(["node", "-e", code], capture_output=True, text=True, check=True).stdout)
+    assert page == chips == ["hub", ".github"] + [f"r{i}" for i in range(8)]  # each once, names only, then the first ten
