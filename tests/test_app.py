@@ -2253,6 +2253,8 @@ def test_roadmap_page_static_parts():
     opens its Work item, where Plan issues… is offered too."""
     script = _app_js()
     assert 'const planIssues = (repo, number, view) => launch({ action: "new-roadmap-item"' in script
+    plan = script[script.index("const planIssues"):script.index("// 007 FR-010: progress per repository")]
+    assert "Draft no strategic issue: every draft's parent is ${repo}#${number}." in plan, "the session is told to plan under the item"
     card = _component(script, "RoadmapCard")
     assert "<${Progress} rows=${item.progress} />" in card and "planIssues(item.repo, item.number, \"Roadmap\")" in card
     assert "sessionsOn(" in card and "SessionChip" in card and "item.assignees" in card and "road: 1" in card

@@ -418,6 +418,14 @@ def test_a_child_links_to_a_parent_filed_with_it_and_only_the_parent_goes_on_the
     assert g.made[1]["body"].startswith("Part of https://x/1") and g.made[1]["repo"] == "hub"
 
 
+def test_drafts_that_name_a_board_item_as_their_parent_are_its_sub_issues_and_add_nothing_to_the_board():
+    """Plan issues… on a card: the drafts' parent is the item's reference, so each is filed as Part of that item and none is a new item."""
+    g = Filing(record([{"title": "One", "parent": "hub#40", "target": "hub"}, {"title": "Two", "parent": "hub#40", "target": "boot"}], roadmap=True))
+    result = asyncio.run(g.file_drafts("login", "w", [0, 1]))
+    assert not result["errors"] and [m["roadmap"] for m in g.made] == [False, False]
+    assert all(m["body"].startswith("Part of hub#40\n\n") for m in g.made)
+
+
 def test_a_missing_label_doesnt_lose_the_issue():
     g = Filing(record([{"title": "T", "labels": ["nope"]}]), fail={"T": "label"})
     result = asyncio.run(g.file_drafts("login", "w", [0]))

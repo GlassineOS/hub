@@ -815,7 +815,9 @@ function AddToBoard({ onDone, onCancel }) {
 }
 
 // 007 FR-011: "Plan issues…" opens Launch with the road action, on the roadmap item.
+// The item is already on the board: the notes say to plan its sub-issues under it, not a new strategic issue. The person reads and can edit them.
 const planIssues = (repo, number, view) => launch({ action: "new-roadmap-item", repos: [repo], context: `${repo}#${number}`,
+  notes: `Plan the sub-issues of ${repo}#${number}, which is already on the roadmap. Draft no strategic issue: every draft's parent is ${repo}#${number}.`,
   pins: [{ kind: "ref", label: `${repo}#${number}` }], from: { view, ref: `${repo}#${number}` } });
 
 // 007 FR-010: progress per repository, a bar each with the counts in words.

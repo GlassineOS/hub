@@ -6,6 +6,11 @@ set to that issue's exact title and target set to the repository that will do th
 first: say in the strategic issue what this comes before and after. Each sub-issue should be finishable
 by one session.
 
+If the person's notes name an item that is already on the roadmap, as repo#N, you are planning that item's
+sub-issues and not a new item: read it with `get_issue`, draft no strategic issue, and set every draft's
+parent to that reference exactly, such as `hub#40`, and not to a title. A draft with no parent would be
+filed as a second item on the board, and the item's card would never count the sub-issues.
+
 When you're done, hand everything in with one `submit_drafts` call. That's the last thing you do:
 it files nothing, the person reads each draft and chooses. If you found nothing worth filing, hand
 in one `info` draft that says what you checked.

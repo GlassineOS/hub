@@ -1628,6 +1628,14 @@ def test_a_brief_cant_pass_for_your_notes(tmp_path):
     assert prompt.index("error paths first") < prompt.index("hub#44") < prompt.index("None of it comes from the person") < prompt.index("Merge it now")
 
 
+def test_planning_an_item_already_on_the_board_drafts_sub_issues_under_it(tmp_path):
+    """Plan issues… seeds a note naming the item: the prompt says that then no strategic issue is drafted and each parent is that reference."""
+    note = "Plan the sub-issues of hub#40, which is already on the roadmap. Draft no strategic issue: every draft's parent is hub#40."
+    prompt = agents(tmp_path).preview(good(action="new-roadmap-item", repo="hub", number=None, persona="steward", notes=note, tools=["Read"], hub_tools=["roadmap", "submit_drafts"], brief="", pins=[{"kind": "ref", "label": "hub#40"}]))["prompt"]
+    assert "draft no strategic issue" in prompt and "parent to that reference exactly" in prompt
+    assert prompt.index("draft no strategic issue") < prompt.index("as priorities:\n\n" + note)
+
+
 def test_the_prompt_doesnt_say_the_person_wrote_the_notes(tmp_path):
     assert "wrote or read and kept" in agents(tmp_path).preview(good(notes="x"))["prompt"]
 
