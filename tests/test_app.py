@@ -1269,7 +1269,7 @@ def test_notes_on_the_page_go_with_the_login(client, hubd):
 
 
 def test_the_one_tool_that_reaches_notes_goes_by_the_sessions_token():
-    """009: notes_find, for a session about the notes, by its own token; hubd decides (tests/test_notes.py). No other op."""
+    """notes_find goes by the calling session's own token; hubd decides (tests/test_notes.py). No other op."""
     source = Path(tools.__file__).read_text() + Path(sys.modules["hub.github"].__file__).read_text()
     assert re.findall(r'op="notes[^"]*"', source) == ['op="notes_tool.find"'] and "/api/notes" not in source
     assert 'op="notes_tool.find", agent_token=CALLER.get()' in source
