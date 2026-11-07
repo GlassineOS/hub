@@ -774,7 +774,7 @@ class GitHub:
             seen = {i}
             while (at := titles.get(name)) is not None:
                 if at in seen:
-                    return f"Not filed: its parent line, {drafts[i]['parent']}, leads back to itself, so this can't be filed from here. Drafts can't be edited: set it aside, or file it by hand."
+                    return f"Not filed: its parent line, {drafts[i]['parent']}, leads back to itself, so this can't be filed from here. Editing a draft changes its title and body, not its parent: set it aside, or file it by hand."
                 seen.add(at)
                 name = drafts[at]["parent"]
             parent = drafts[i]["parent"]

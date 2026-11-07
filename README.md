@@ -77,20 +77,21 @@ memory; `HUB_WORK_EMBED=off` in `.env` leaves search by words only. `HUB_SYNC_SE
 `.env` too, and is at least 15. Until the model is loaded and everything is embedded, search works
 by words and says so. Agents searching without naming a repository see public repositories only, except the Steward.
 
-Every issue, pull request and run under Work has buttons that start an agent on it. One click
-runs a short planner (`claude -p`, read-only tools, up to $1) that reads the object and the
-docs and writes the session spec. You then start it, discard it, or open it in advanced mode
-to change the persona, briefing, docs passages and tools. The session runs in tmux and opens
-below the item, or in Sessions. Actions with `plan = false` skip the planner and start at
-once. The library is in `agents/`: actions, personas, prompts and a plugin with skills. Each
+Every issue, pull request and run under Work has buttons that open Launch on it, as does "＋ New work"
+in the header. Launch goes through five stages: the brief (action, items, model, notes), a short planner
+(`claude -p`, read-only tools, up to $1) that reads the items and the docs, the plan (its steps and what
+each touches, and the briefing, which you can edit), the run (the session, its asks inline) and the
+result. Every Launch is a record in hubd, and the session shows it as its origin. The session runs in
+tmux and opens below the item, or in Sessions; "Send to background" lets it go on without you, and its
+asks and result come to Needs you. Actions with `plan = false` skip the planner: their plan is the action's
+own. The library is in `agents/`: actions, personas, prompts and a plugin with skills. Each
 action names its short `verb` and its `result` type; each persona has a display name, initials and
 one of five families in `agents/personas/families.toml`, and hubd won't start if one is missing.
 
 - **Review, Security audit, Triage, Diagnose and the other read-and-report actions** are locked: only the tools the action lists.
-  They post what they say they post, directly.
+  Review, Triage and Diagnose hand in a result (a review, labels, findings) that you post or apply from its card.
 - **Implement, Fix checks, Open a session** are full Claude Code, with your rights. They start
-  in the workspace with a worktree in `work/<session>/<repo>`, and advanced mode can add more
-  repositories, each on its own `agent/<session>` branch. They don't run on a fork's pull request. Ending one with work
+  in the workspace with a worktree in `work/<session>/<repo>`, on its own `agent/<session>` branch. They don't run on a fork's pull request. Ending one with work
   that isn't on GitHub keeps its worktrees.
 
 **Repository copies.** hubd keeps its own clone of each repository in the organization under its state folder,

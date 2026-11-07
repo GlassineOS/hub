@@ -597,7 +597,8 @@ class Agents:
                  "full": _full(a), "plan": a.get("plan", True), "models": a["models"], "needs": a.get("needs"),
                  "verb": a.get("verb"), "result_words": RESULTS[a["result"]],
                  "family": self.library.family(a["personas"][0])["family"],
-                 "persona_name": self.library.family(a["personas"][0])["name"]}
+                 "persona_name": self.library.family(a["personas"][0])["name"],
+                 "persona": a["personas"][0], "initials": self.library.family(a["personas"][0])["initials"]}
                 for a in sorted(offered, key=lambda a: (a.get("order", 99), a["id"]))]
 
     def action(self, action_id) -> dict:

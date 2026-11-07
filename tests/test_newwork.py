@@ -340,6 +340,20 @@ def test_a_restart_keeps_drafts_and_says_what_it_broke(tmp_path):
     assert draft["state"] == "draft" and "check GitHub" in draft["note"]
 
 
+def test_an_edit_keeps_the_warning_about_an_interrupted_filing_and_drops_a_failure_note(tmp_path):
+    store = NewWork(tmp_path)
+    work = store.new({"by": "you", "repo": "boot", "title": "t"}, "done")
+    store.move(work, "done", drafts=clean_drafts([DRAFT, {"title": "Second"}], "boot"))
+    store.claim(work["id"], [0])
+    store = NewWork(tmp_path)  # hubd restarted while it was filing
+    store.edit(work["id"], 0, "Clearer", "words")
+    assert store.get(work["id"])["drafts"][0]["note"] == newwork.INTERRUPTED
+    assert NewWork(tmp_path).get(work["id"])["drafts"][0]["note"] == newwork.INTERRUPTED
+    store.get(work["id"])["drafts"][1]["note"] = "Not filed: no such repository."
+    store.edit(work["id"], 1, "Second, fixed", "")
+    assert store.get(work["id"])["drafts"][1]["note"] is None
+
+
 def test_a_store_file_is_private(tmp_path):
     record = NewWork(tmp_path).new({"by": "you"}, "offered")
     assert (tmp_path / f"{record['id']}.json").stat().st_mode & 0o077 == 0
@@ -528,6 +542,25 @@ def test_children_file_after_their_parents_however_deep():
     asyncio.run(g.file_drafts("login", "w", [0, 1, 2]))
     assert [m["title"] for m in g.made] == ["Top", "Mid", "Leaf"]
     assert g.made[2]["body"].startswith("Part of https://x/2")
+
+
+def test_editing_a_parents_title_keeps_its_children_after_it(tmp_path):
+    """A parent line is the parent's title: a new title is followed by its children, or they'd file first with plain text."""
+    store = NewWork(tmp_path)
+    work = store.new({"by": "you", "repo": "boot", "title": "t", "roadmap": False}, "done")
+    store.move(work, "done", drafts=clean_drafts([{"title": "Child", "parent": "Top"}, {"title": "Top"}, {"title": "Other"}], "boot"))
+    store.edit(work["id"], 1, "Top, reworded", "new words")
+    assert [d["parent"] for d in work["drafts"]] == ["Top, reworded", None, None]
+    g = Filing(work)
+    asyncio.run(g.file_drafts("login", "w", [0, 1]))
+    assert [m["title"] for m in g.made] == ["Top, reworded", "Child"]
+    assert g.made[1]["body"].startswith("Part of https://x/1")
+    # a title another draft has would make a parent line mean either; nothing changes then
+    work2 = store.new({"by": "you", "repo": "boot", "title": "t"}, "done")
+    store.move(work2, "done", drafts=clean_drafts([{"title": "Child", "parent": "Top"}, {"title": "Top"}, {"title": "Other"}], "boot"))
+    with pytest.raises(WorkError, match="another draft is called Other"):
+        store.edit(work2["id"], 1, "Other", "")
+    assert [d["title"] for d in work2["drafts"]] == ["Child", "Top", "Other"] and work2["drafts"][0]["parent"] == "Top"
 
 
 @pytest.mark.parametrize("chosen", [[0, 1], [0]])
@@ -942,3 +975,24 @@ def test_an_action_with_no_planning_step_goes_straight_to_its_plan(hub):
     assert reply["ok"], reply
     record = hub.work.get(reply["work"]["id"])
     assert record["state"] == "planned" and record["plan"] == {"steps": []} and not hub.agents.planned
+
+
+def test_a_waiting_draft_can_be_edited_before_filing_and_nothing_else(hub):
+    """005 FR-015: edit and file. Only a draft still waiting, only its title and body, within a draft's limits; a login op."""
+    work = done(hub, [DRAFT, {"title": "Second"}])
+    reply = call(hub, "work.edit", token="login", id=work, index=0, title="  Clearer title ", body="Better words")
+    assert reply["ok"]
+    draft = hub.work.get(work)["drafts"][0]
+    assert (draft["title"], draft["body"], draft["target"]) == ("Clearer title", "Better words", "boot")
+    assert "title" in call(hub, "work.edit", token="login", id=work, index=0, title="", body="x")["error"]
+    assert "body" in call(hub, "work.edit", token="login", id=work, index=0, title="t", body="x" * 9000)["error"]
+    call(hub, "work.hand", token="login", id=work, indexes=[1])
+    assert "already" in call(hub, "work.edit", token="login", id=work, index=1, title="t", body="")["error"]
+    assert "choose" in call(hub, "work.edit", token="login", id=work, index=7, title="t", body="")["error"]
+    assert not call(hub, "work.edit", token="nope", id=work, index=0, title="t", body="")["ok"]
+    # set aside, a draft isn't offered for editing; brought back, it is
+    assert call(hub, "work.dismiss", token="login", id=work)["ok"]
+    assert "bring it back" in call(hub, "work.edit", token="login", id=work, index=0, title="t", body="")["error"]
+    assert hub.work.get(work)["drafts"][0]["title"] == "Clearer title"
+    assert call(hub, "work.bring_back", token="login", id=work)["ok"]
+    assert call(hub, "work.edit", token="login", id=work, index=0, title="Back again", body="")["ok"]

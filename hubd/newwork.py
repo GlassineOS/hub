@@ -170,6 +170,33 @@ class NewWork:
             raise WorkError(f"already filed or handed over: {taken[0]}")
         return indexes
 
+    def edit(self, work_id, index, title, body) -> dict:
+        """005 FR-015: you change a draft's title and body before filing it. Only a draft still waiting, in work that is done and not set aside,
+        within a draft's limits.
+
+        A draft's `parent` is another draft's title, so a new title is followed by the drafts that name the old one, and a
+        title another draft already has is refused: a parent line would mean either."""
+        record = self.get(work_id)
+        if record["state"] != "done":  # as the page offers Edit: set aside or discarded drafts come back first, or are gone
+            raise WorkError("only drafts waiting in finished work can be edited" + (": bring it back first" if record["state"] == "dismissed" else ""))
+        self._chosen(record, [index])
+        drafts = record["drafts"]
+        draft = drafts[index]
+        cleaned = clean_drafts([{"title": title, "body": body, "severity": draft["severity"], "target": draft["target"],
+                                 "labels": draft["labels"], "parent": draft["parent"]}], draft["target"])[0]
+        old, new = draft["title"], cleaned["title"]
+        if new != old and any(d["title"] == new for d in drafts):
+            raise WorkError(f"another draft is called {new}: a title needs to be its own, as a parent is named by its title")
+        # file_drafts reads a parent line as the first draft with that title: if this is a second of the same name, nothing points here.
+        if new != old and next(i for i, d in enumerate(drafts) if d["title"] == old) == index:
+            for other in drafts:
+                if other["parent"] == old:
+                    other["parent"] = new
+        # An edit doesn't make a second filing safe: the INTERRUPTED warning stays. A "Not filed" note was about the old text.
+        draft.update(title=new, body=cleaned["body"], note=INTERRUPTED if draft["note"] == INTERRUPTED else None)
+        self._save(record)
+        return record
+
     def claim(self, work_id, indexes) -> dict:
         """Before filing: two clicks, or two tabs, can't file a draft twice."""
         record = self.get(work_id)
