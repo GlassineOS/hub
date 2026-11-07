@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, event T
 # what was waiting in it is lost, so a bump should wait for it to be empty (`feed_waiting` in the work status says).
 MAX_EVENTS = 5000  # waiting to be sent to hubd: a feed that never drains mustn't grow this without end. The oldest go, and are counted.
 FRESH_RUN = 2 * 86400  # a run first seen finishing longer ago than this isn't news: it's one the window returns again after a prune
+FAILED_RUN = ("failure", "timed_out", "startup_failure")  # what a failing workflow ended as: not cancelled, skipped or neutral
 _DECIDED = {"SUCCESS": "passing", "FAILURE": "failing", "ERROR": "failing", "PENDING": "pending", "EXPECTED": "pending"}
 
 
@@ -86,7 +87,7 @@ def normalize(node: dict) -> tuple[str, dict, list[dict], int]:
 def run_row(repo: str, run: dict) -> dict:
     """A run from the REST API, shaped like `gh run list --json`."""
     return {"repo": repo, "databaseId": run["id"], "displayTitle": run.get("display_title") or run.get("name") or "",
-            "workflowName": run.get("name") or "", "status": run.get("status"), "conclusion": run.get("conclusion"),
+            "workflowName": run.get("name") or "", "workflowId": run.get("workflow_id"), "status": run.get("status"), "conclusion": run.get("conclusion"),
             "event": run.get("event"), "headBranch": run.get("head_branch"), "headSha": run.get("head_sha"),
             "createdAt": run.get("created_at"), "updatedAt": run.get("updated_at"), "url": run.get("html_url")}
 
@@ -326,6 +327,50 @@ class WorkStore:
             sql, args = sql + " AND repo = ?", [kind, repo]
         with self.lock:
             return [json.loads(r["data"]) for r in self.db.execute(sql, args).fetchall()]
+
+    def latest_activity(self) -> dict[str, str]:
+        """Each repository's newest change the store has seen: an issue, a pull request or a run (007 FR-007)."""
+        with self.lock:
+            rows = self.db.execute("SELECT repo, max(updated_at) AS at FROM items GROUP BY repo").fetchall()
+        return {r["repo"]: r["at"] for r in rows if r["at"]}
+
+    def failing_workflows(self, branches: dict[str, str | None]) -> dict[str, int]:
+        """How many workflows' newest finished run on each repository's default branch failed (007 FR-004).
+
+        A workflow is its id, so a rename doesn't leave the old name failing; a run kept from before the id was stored goes
+        by the id its name has now. A repository with no default branch has none failing. This counts only what the store
+        holds: the newest RUNS_PER_REPO runs a sync sees, across branches, kept for KEEP_RUNS. A workflow whose last run on
+        the default branch is older than that isn't counted; the overview also counts the default branch's head checks."""
+        pairs = [(repo, branch) for repo, branch in branches.items() if branch]
+        out = {repo: 0 for repo in branches}
+        if not pairs:
+            return out
+        # Only the default branches' finished runs, and only the fields counted: not every stored row parsed per page load.
+        sql = ("SELECT repo, json_extract(data, '$.workflowId') AS id, json_extract(data, '$.workflowName') AS name, "
+               "json_extract(data, '$.conclusion') AS conclusion, json_extract(data, '$.createdAt') AS created FROM items "
+               "WHERE kind = 'run' AND json_extract(data, '$.status') = 'completed' "
+               f"AND (repo, json_extract(data, '$.headBranch')) IN (VALUES {', '.join(['(?, ?)'] * len(pairs))})")
+        with self.lock:
+            rows = self.db.execute(sql, [v for pair in pairs for v in pair]).fetchall()
+        named = {}  # (repo, name) -> the id of the newest run with that name and an id
+        for r in sorted((r for r in rows if r["id"] is not None), key=lambda r: r["created"] or ""):
+            named[(r["repo"], r["name"] or "")] = r["id"]
+        newest: dict[tuple, tuple] = {}
+        for r in rows:
+            workflow = r["id"] if r["id"] is not None else named.get((r["repo"], r["name"] or ""), f"name:{r['name'] or ''}")
+            key = (r["repo"], workflow)
+            if key not in newest or (r["created"] or "") > newest[key][0]:
+                newest[key] = (r["created"] or "", r["conclusion"])
+        for (repo, _workflow), (_created, conclusion) in newest.items():
+            out[repo] = out.get(repo, 0) + (conclusion in FAILED_RUN)
+        return out
+
+    def open_pr_checks(self) -> dict[str, int]:
+        """Open pull requests whose checks fail, by repository."""
+        with self.lock:
+            rows = self.db.execute("SELECT repo, count(*) AS n FROM items WHERE kind = 'pr' AND state = 'OPEN' "
+                                   "AND json_extract(data, '$.checks') = 'failing' GROUP BY repo").fetchall()
+        return {r["repo"]: r["n"] for r in rows}
 
     def issues(self, repo=None, state="open", label=None, assignee=None, search=None, limit=50) -> list[dict]:
         rows = self._listed("issue", repo, state, search)

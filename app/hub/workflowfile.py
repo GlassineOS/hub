@@ -9,6 +9,8 @@ import re
 
 TYPES = ("string", "choice", "boolean", "environment", "number")
 MAX_INPUTS = 25  # GitHub's own limit for workflow_dispatch inputs
+# This reads on the event loop: a file past this many characters is Unreadable before any of it is parsed. Ours are a few KB.
+MAX_TEXT = 256 * 1024
 _KEY_RE = re.compile(r"^(?P<indent> *)(?P<key>\"[^\"]*\"|'[^']*'|[A-Za-z0-9_.-]+)\s*:(?:\s+(?P<rest>.*?))?\s*$")
 _ITEM_RE = re.compile(r"^(?P<indent> *)-\s*(?P<rest>.*?)\s*$")
 _ON_KEYS = ("on", "true")  # YAML 1.1 reads a bare on as true; GitHub reads the key as "on"
@@ -86,12 +88,10 @@ def _lines(text: str) -> list[tuple[int, str]]:
 
 def _block(lines: list[tuple[int, str]], start: int, parent: int) -> list[tuple[int, str]]:
     """The lines under the one at start-1, more indented than parent."""
-    out = []
-    for indent, line in lines[start:]:
-        if indent <= parent:
-            break
-        out.append((indent, line))
-    return out
+    end = start
+    while end < len(lines) and lines[end][0] > parent:  # by index: a copy of the rest per key made a long file quadratic
+        end += 1
+    return lines[start:end]
 
 
 def _children(block: list[tuple[int, str]]) -> list[tuple[str, str | None, list[tuple[int, str]]]]:
@@ -159,6 +159,8 @@ def _input(name: str, rest: str | None, under) -> dict:
 
 def dispatch_inputs(text: str) -> tuple[bool, list[dict]]:
     """(whether it can be started by hand, its inputs). Raises Unreadable when it can't tell."""
+    if len(text) > MAX_TEXT:
+        raise Unreadable(f"a file over {MAX_TEXT // 1024} KB, more than this reader takes")
     lines = _lines(text)
     on_at = None
     for i, (indent, line) in enumerate(lines):
@@ -190,9 +192,9 @@ def dispatch_inputs(text: str) -> tuple[bool, list[dict]]:
                 continue
             if sub_value and sub_value.strip() not in ("{}", "null", "~"):
                 raise Unreadable("inputs aren't a block")
-            inputs = [_input(name, v, b) for name, v, b in _children(sub_below)]
-            if len(inputs) > MAX_INPUTS:
+            named = _children(sub_below)
+            if len(named) > MAX_INPUTS:  # before each is read
                 raise Unreadable(f"more than {MAX_INPUTS} inputs")
-            return True, inputs
+            return True, [_input(name, v, b) for name, v, b in named]
         return True, []
     return False, []
