@@ -5,6 +5,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 import re
@@ -12,7 +13,7 @@ import re
 import pytest
 
 from hubd.asks import FOREVER, WAIT
-from hubd.agents import IDLE_FILE, _NAME_RE, TOOL_SERVER_WAIT, Agents, AgentError, Library, validate
+from hubd.agents import IDLE_FILE, _NAME_RE, TOOL_SERVER_WAIT, Agents, AgentError, Library, _branch_of, validate
 from hubd import agents as agents_module, auth, usage
 from hubd.ghpolicy import Refused, check
 from hubd.server import Hubd
@@ -1087,10 +1088,80 @@ def test_manifest_and_preview_show_what_runs(tmp_path, remote):
     manifest = a.manifest(name)
     assert manifest["config"]["persona"] == "reviewer" and "look at x" in manifest["prompt"] and manifest["ceiling"]
     assert "search-the-docs" in manifest["skills"] and manifest["checkout"]
-    assert manifest["branch"] and "run.sh" in manifest["command"] and "SECRET" not in manifest["command"]
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=manifest["checkout"], check=True, capture_output=True, text=True).stdout.strip()
+    assert manifest["branch"] == f"detached at {head[:12]}"  # this one's worktree is detached at the pull request's head
+    assert "run.sh" in manifest["command"] and "SECRET" not in manifest["command"]
     for bad in ("../x", "nope", None):
         with pytest.raises(AgentError):
             a.manifest(bad)
+
+
+SHA = "0123456789abcdef0123456789abcdef01234567"
+
+
+def _worktree(tmp_path, head, gitdir=None, absolute=True):
+    """A checkout whose .git points at <repository>/worktrees/<id>, as `git worktree add` leaves it."""
+    checkout = tmp_path / "checkout"
+    checkout.mkdir(parents=True)
+    home = gitdir or tmp_path / "repos" / "boot" / "worktrees" / "id"
+    home.mkdir(parents=True)
+    (home / "HEAD").write_text(head)
+    (checkout / ".git").write_text(f"gitdir: {home if absolute else os.path.relpath(home, checkout)}\n")
+    return checkout, home
+
+
+@pytest.mark.parametrize("absolute", [True, False])
+def test_branch_of_a_worktree_on_a_branch(tmp_path, absolute):
+    checkout, _ = _worktree(tmp_path, "ref: refs/heads/agent/fix-it\n", absolute=absolute)
+    assert _branch_of(checkout) == "agent/fix-it"
+
+
+def test_branch_of_a_detached_worktree_and_a_checkout_with_its_own_git_folder(tmp_path):
+    checkout, _ = _worktree(tmp_path, SHA + "\n")
+    assert _branch_of(checkout) == "detached at 0123456789ab"
+    plain = tmp_path / "plain"
+    (plain / ".git").mkdir(parents=True)
+    (plain / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+    assert _branch_of(plain) == "main"
+
+
+def test_branch_of_gives_none_for_what_is_not_a_worktree(tmp_path):
+    assert _branch_of(tmp_path / "gone") is None
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    assert _branch_of(bare) is None  # no .git
+    for text in ("", "not a pointer\n", "gitdir:", "gitdir: /nowhere/worktrees/x\n", "gitdir: ../elsewhere\n"):
+        (bare / ".git").write_text(text)
+        assert _branch_of(bare) is None, text
+    # A pointer to a folder that isn't a worktree's, a HEAD that is junk, one that is empty, one that is too long to be one.
+    other, _ = _worktree(tmp_path / "a", "ref: refs/heads/x\n", gitdir=tmp_path / "a" / "somewhere")
+    assert _branch_of(other) is None
+    for n, head in enumerate(("junk\n", "", "0123 not hex\n", "../../etc/passwd\n")):
+        checkout, _ = _worktree(tmp_path / f"head{n}", head)
+        assert _branch_of(checkout) is None, head
+    checkout, _ = _worktree(tmp_path / "long", "ref: refs/heads/" + "x" * 5000)
+    assert len(_branch_of(checkout)) <= 512
+
+
+def test_branch_of_does_not_wait_for_or_follow_what_a_session_put_in_place_of_head(tmp_path):
+    """The checkout is the session's: a FIFO as HEAD (or as .git) must not stall hubd's loop, and a link must not make it read elsewhere."""
+    checkout, home = _worktree(tmp_path / "fifo", "")
+    (home / "HEAD").unlink()
+    os.mkfifo(home / "HEAD")
+    pointer = tmp_path / "pointer"
+    pointer.mkdir()
+    os.mkfifo(pointer / ".git")
+    secret = tmp_path / "secret"
+    secret.write_text(SHA)
+    linked, home = _worktree(tmp_path / "link", "")
+    (home / "HEAD").unlink()
+    (home / "HEAD").symlink_to(secret)
+    got = {}
+    worker = threading.Thread(target=lambda: got.update(fifo=_branch_of(checkout), pointer=_branch_of(pointer), link=_branch_of(linked)), daemon=True)
+    worker.start()
+    worker.join(5)
+    assert not worker.is_alive(), "reading the branch blocked on a FIFO"
+    assert got == {"fifo": None, "pointer": None, "link": None}
 
 
 @pytest.mark.parametrize("over", [

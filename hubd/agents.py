@@ -28,6 +28,7 @@ import re
 import secrets
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -413,19 +414,44 @@ def _mode(action: dict) -> str:
     return action["permission_mode"] if _full(action) else "dontAsk"
 
 
-def _branch_of(checkout: Path) -> str | None:
-    """The branch a worktree is on, read from its HEAD, or the commit it's detached at. No git run for a page's read."""
-    git = Path(checkout) / ".git"
+def _small_file(path: Path, limit: int = 512) -> str | None:
+    """A regular file's first `limit` bytes as text, or None. The checkout is the session's own to rewrite, so a FIFO
+    where a file should be mustn't block hubd's loop: open without waiting or following a link, and read only what fstat says is a file."""
     try:
-        gitdir = Path(git.read_text().split(":", 1)[1].strip()) if git.is_file() else git
-        if not gitdir.is_absolute():
-            gitdir = Path(checkout) / gitdir
-        head = (gitdir / "HEAD").read_text().strip()
-    except (OSError, IndexError, UnicodeError):
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY | os.O_NOFOLLOW)
+    except OSError:
         return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        return os.read(fd, limit).decode()
+    except (OSError, UnicodeError):
+        return None
+    finally:
+        os.close(fd)
+
+
+def _branch_of(checkout: Path) -> str | None:
+    """The branch a worktree is on, read from its HEAD, or the commit it's detached at. No git run for a page's read.
+    The checkout is the session's to change, so only plain small files are read, and only in the layout `git worktree add`
+    makes (<repository>/worktrees/<id>, with or without a .git folder in it), or the checkout's own .git folder."""
+    git = Path(checkout) / ".git"
+    if git.is_dir() and not git.is_symlink():
+        gitdir = git
+    else:
+        pointer = _small_file(git, 4096)
+        if pointer is None or not pointer.startswith("gitdir:"):
+            return None
+        gitdir = Path(os.path.normpath(Path(checkout) / pointer[len("gitdir:"):].strip()))  # an absolute path replaces the checkout's
+        if gitdir.parent.name != "worktrees":
+            return None
+    head = _small_file(gitdir / "HEAD")
+    if head is None:
+        return None
+    head = head.strip()
     if head.startswith("ref: "):
-        return head.removeprefix("ref: ").removeprefix("refs/heads/")
-    return f"detached at {head[:12]}"
+        return head.removeprefix("ref: ").removeprefix("refs/heads/").splitlines()[0]
+    return f"detached at {head[:12]}" if re.fullmatch(r"[0-9a-f]{40,64}", head) else None
 
 
 def _number_ok(n) -> bool:
