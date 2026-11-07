@@ -1244,6 +1244,16 @@ class Agents:
         return script
 
     @staticmethod
+    def _invocation(script: Path) -> str | None:
+        """What the launch script runs: its last line, `exec <claude and its arguments>`. The exports above it hold the
+        environment, and that line reads the token and the prompt from files, so none of them is in what this returns."""
+        try:
+            last = script.read_text().rstrip("\n").rsplit("\n", 1)[-1]
+        except OSError:
+            return None
+        return last.removeprefix("exec ") if last.startswith("exec ") else None
+
+    @staticmethod
     def _command(directory: Path, script: Path) -> str:
         """The shell stays when Claude ends, so the marker is how the hub knows it has."""
         return f"sh {shlex.quote(str(script))}; touch {shlex.quote(str(directory / ENDED_FILE))}"
@@ -1897,8 +1907,8 @@ class Agents:
                 "persona_text": (directory / "persona.md").read_text(), "skills": self.library.skills(),
                 "ceiling": self.library.action(record["config"]["action"])["ceiling"],
                 "checkout": str(checkouts[0]) if checkouts else None, "checkouts": [str(c) for c in checkouts],
-                # 004 FR-009: the branch it's on and what tmux runs, for the Session spec. The token is in its environment, not here.
-                "branch": _branch_of(checkouts[0]) if checkouts else None, "command": self._command(directory, script)}
+                # 004 FR-009: the branch it's on and the command that started Claude (the launch script's last line), for the Session spec. The token and the prompt are read from files by that line.
+                "branch": _branch_of(checkouts[0]) if checkouts else None, "command": self._invocation(script) or self._command(directory, script)}
 
     def _present(self, name: str) -> list[Path]:
         found = sorted(c for folder in (self.work / name, self.sessions / name / "checkout") if folder.is_dir()

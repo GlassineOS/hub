@@ -1078,7 +1078,7 @@ def test_every_kind_of_agent_gets_the_private_rule(tmp_path, remote):
 
 
 def test_manifest_and_preview_show_what_runs(tmp_path, remote):
-    a = agents(tmp_path, clone_base=remote)
+    a = agents(tmp_path, clone_base=remote, environment={"HUB_MARK": "ENVVALUE"})
     a.shells = FakeShells()
     config = good(docs=[{"link": "https://docs.glassine.org/x/", "why": "the design"}], docs_query="q")
     preview = a.preview(config)
@@ -1090,7 +1090,21 @@ def test_manifest_and_preview_show_what_runs(tmp_path, remote):
     assert "search-the-docs" in manifest["skills"] and manifest["checkout"]
     head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=manifest["checkout"], check=True, capture_output=True, text=True).stdout.strip()
     assert manifest["branch"] == f"detached at {head[:12]}"  # this one's worktree is detached at the pull request's head
-    assert "run.sh" in manifest["command"] and "SECRET" not in manifest["command"]
+    # The start command is Claude's own invocation, as run.sh execs it (the same as the preview's, bar the session id), not the tmux wrapper.
+    command = manifest["command"]
+    directory = tmp_path / "state" / "sessions" / name
+    assert shlex.split(command)[0] == a.claude and command.startswith(f"{a.claude} --session-id ")
+    assert f"--name {name} " in command and "--permission-mode dontAsk" in command and "--model " in command
+    assert command == (directory / "run.sh").read_text().splitlines()[-1].removeprefix("exec ")
+    assert "run.sh" not in command and "touch" not in command
+    # What it must not show is in run.sh and the token file, so this fails if it ever leaks: the environment's value, the token, the prompt.
+    script = (directory / "run.sh").read_text()
+    token = (directory / agents_module.TOKEN_FILE).read_text().strip()
+    assert "ENVVALUE" in script and len(token) > 20 and token not in script  # the script reads the token from its file
+    assert "look at x" in (directory / "prompt.md").read_text()
+    shown = json.dumps(manifest)
+    assert all(x not in shown for x in ("ENVVALUE", "SECRET", token)) and "look at x" not in command  # the config has the brief; the command does not
+    assert "$(cat " in command  # the prompt and the token are read from files, not written out
     for bad in ("../x", "nope", None):
         with pytest.raises(AgentError):
             a.manifest(bad)
