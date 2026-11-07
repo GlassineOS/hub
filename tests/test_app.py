@@ -1866,6 +1866,20 @@ def test_workflows_say_which_can_be_started_by_hand(client, hubd):
     assert ["api", "repos/GlassineOS/boot/contents/.github/workflows/release.yml?ref=feature%2Fx"] in [c for c, _ in hubd.commands]
 
 
+def test_one_odd_workflow_file_name_doesnt_fail_the_list(client, hubd):
+    signed_in(client)
+    hubd.answers["workflow list"] = json.dumps([
+        {"id": 1, "name": "CI", "path": ".github/workflows/ci.yml", "state": "active"},
+        {"id": 2, "name": "Release Build", "path": ".github/workflows/Release Build.yml", "state": "active"}])
+    hubd.answers["api repos/GlassineOS/boot/contents/.github/workflows/ci.yml"] = _contents(WORKFLOW)
+    reply = client.get("/api/workflows/boot")
+    assert reply.status_code == 200, reply.text
+    rows = {w["name"]: w for w in reply.json()}
+    assert rows["CI"]["dispatchable"] is True and "inputs_error" not in rows["CI"]
+    assert rows["Release Build"]["dispatchable"] is None and "couldn't read Release Build.yml" in rows["Release Build"]["inputs_error"]
+    assert not any("Release" in " ".join(c) for c, _ in hubd.commands if c[0] == "api")  # nothing was asked of GitHub for it
+
+
 @pytest.mark.parametrize("query", ["inputs=../x.yml", "inputs=a/b.yml", "inputs=x.sh", "inputs=x.yml&ref=a..b", "inputs=x.yml&ref=-x", "inputs=x.yml&ref={x}"])
 def test_a_workflows_inputs_are_read_only_by_a_plain_file_and_ref(client, hubd, query):
     signed_in(client)

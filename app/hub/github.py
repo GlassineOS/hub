@@ -1189,7 +1189,11 @@ class GitHub:
             file = str(row.get("path") or "")
             if row.get("state") != "active" or not file.startswith(".github/workflows/"):
                 return {**row, "dispatchable": False}
-            read = await self.workflow_inputs(repo, file.rsplit("/", 1)[-1])
+            name = file.rsplit("/", 1)[-1]
+            try:
+                read = await self.workflow_inputs(repo, name)
+            except BadRequest:  # a file name the form can't ask for: this one workflow is unread, the rest of the list stays
+                return {**row, "dispatchable": None, "inputs_error": f"couldn't read {name[:60]}: not a file name this can ask for"}
             return {**row, "dispatchable": read["dispatchable"], **({"inputs_error": read["error"]} if read["error"] else {})}
         rows = list(await asyncio.gather(*(one(r) for r in rows)))
         self._keep(key, stamp, rows)
