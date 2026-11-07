@@ -120,7 +120,7 @@ def test_every_persona_has_a_family_and_every_action_a_result():
                      "research": "knowledge-research"}
     assert verbs[("run", "fix")] == "run-fix"  # fix on a run, beside fix on a pull request
     # The rest stay in the library, under "More…". Those that post or open a PR say so.
-    handed = {"pr-security-audit": "comment", "issue-docs": "pr"}
+    handed = {"pr-security-audit": "comment", "issue-docs": "pr", "notes-compact": "notes", "notes-sweep": "drafts"}  # the last two open from Notes
     assert all(a["result"] == handed.get(a["id"], "none") for a in LIBRARY.actions.values() if not a.get("verb"))
     assert LIBRARY.action("pr-fix-checks")["personas"] == ["ci-fixer", "engineer"]
 
@@ -3055,3 +3055,25 @@ def test_research_starts_with_no_checkout_under_its_own_name(tmp_path):
 def test_a_session_cant_spawn_research():
     with pytest.raises(AgentError, match="plan_work"):
         Agents.check_spawn(type("A", (), {"library": LIBRARY})(), {"action": "knowledge-research"})
+
+
+# --- Notes' actions: about the notes, no repository (009) --------------------------------------------
+def test_notes_actions_have_no_repository_and_no_planner():
+    for action_id, result in (("notes-compact", "notes"), ("notes-sweep", "drafts")):
+        action = LIBRARY.action(action_id)
+        assert (action["object"], action["result"], action["plan"], action["checkout"]) == ("notes", result, False, False)
+        config = validate(LIBRARY, {"action": action_id, "repo": None, "number": None, "persona": action["personas"][0], "model": action["models"][0],
+                                    "effort": action["efforts"][0], "tools": action["tools"], "hub_tools": action["hub_tools"], "brief": ""})
+        assert config["repo"] is None
+        with pytest.raises(AgentError, match="isn't about one"):
+            validate(LIBRARY, {**config, "repo": "boot"})
+    assert LIBRARY.action("notes-compact")["result_tools"] == ["notes_apply"]
+
+
+def test_a_session_that_reads_notes_has_no_summary_for_others(tmp_path):
+    a = steward(tmp_path)
+    started = asyncio.run(a.start(a.defaults("notes-compact", None, None), started_by="steward"))
+    with pytest.raises(AgentError, match="reads the notes"):
+        asyncio.run(a.started_summary(started["name"]))
+    with pytest.raises(AgentError, match="plan_work"):  # and no session can start one: you do, from Notes
+        Agents.check_spawn(type("A", (), {"library": LIBRARY})(), {"action": "notes-compact"})

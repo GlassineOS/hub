@@ -349,7 +349,8 @@ isn't on GitHub at all. Notes and artifacts stay on this host. Captures can hold
 
 | Who | Artifacts | Notes, archive search | Tools (`workspace`) |
 |---|---|---|---|
-| Locked session or planner (can post) | Out of reach: file tools stop at its folder and checkout, given the settings check under Memory and the symlink check below | No tool | Like any private repository |
+| Other locked session or planner (can post) | Out of reach: file tools stop at its folder and checkout, given the settings check under Memory and the symlink check below | No tool | Like any private repository |
+| Notes session (`notes-compact`, `notes-sweep`: locked, no shell, no write or post tool) | Out of reach, as above | `notes_find`, read only; it gets out only in the result it hands in, which you read before applying or filing | Like any private repository |
 | Steward (no shell, each write asks first) | No tool | No tool (future scope, Decision 4) | Like any private repository |
 | Full session | Your rights: readable | Readable, as files | Readable, and it runs the tools |
 | App container | Not mounted | Nothing, except the Notes query, with a login | Through hubd, as today |

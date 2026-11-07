@@ -877,6 +877,11 @@ class GitHub:
         reply = await self.hubd.call(op="result.submit", agent_token=CALLER.get(), type=kind, payload=payload)
         return {"handed_in": reply["id"], "waits_for": "the person, who applies it"}
 
+    async def notes_find(self, words, limit=20) -> dict:
+        """Under the calling session's token: hubd answers only a session whose action is about the notes."""
+        reply = await self.hubd.call(op="notes_tool.find", agent_token=CALLER.get(), words=words, limit=limit)
+        return {k: reply[k] for k in ("says", "rows", "total", "warnings") if k in reply}
+
     async def new_work_drafts(self) -> list[dict]:
         return (await self.hubd.call(op="work.handed", agent_token=CALLER.get()))["work"]
 
