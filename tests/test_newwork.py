@@ -530,6 +530,25 @@ def test_children_file_after_their_parents_however_deep():
     assert g.made[2]["body"].startswith("Part of https://x/2")
 
 
+def test_editing_a_parents_title_keeps_its_children_after_it(tmp_path):
+    """A parent line is the parent's title: a new title is followed by its children, or they'd file first with plain text."""
+    store = NewWork(tmp_path)
+    work = store.new({"by": "you", "repo": "boot", "title": "t", "roadmap": False}, "done")
+    store.move(work, "done", drafts=clean_drafts([{"title": "Child", "parent": "Top"}, {"title": "Top"}, {"title": "Other"}], "boot"))
+    store.edit(work["id"], 1, "Top, reworded", "new words")
+    assert [d["parent"] for d in work["drafts"]] == ["Top, reworded", None, None]
+    g = Filing(work)
+    asyncio.run(g.file_drafts("login", "w", [0, 1]))
+    assert [m["title"] for m in g.made] == ["Top, reworded", "Child"]
+    assert g.made[1]["body"].startswith("Part of https://x/1")
+    # a title another draft has would make a parent line mean either; nothing changes then
+    work2 = store.new({"by": "you", "repo": "boot", "title": "t"}, "done")
+    store.move(work2, "done", drafts=clean_drafts([{"title": "Child", "parent": "Top"}, {"title": "Top"}, {"title": "Other"}], "boot"))
+    with pytest.raises(WorkError, match="another draft is called Other"):
+        store.edit(work2["id"], 1, "Other", "")
+    assert [d["title"] for d in work2["drafts"]] == ["Child", "Top", "Other"] and work2["drafts"][0]["parent"] == "Top"
+
+
 @pytest.mark.parametrize("chosen", [[0, 1], [0]])
 def test_a_child_waits_for_a_parent_that_isnt_filed(chosen):
     g = Filing(record([{"title": "Child", "parent": "Top"}, {"title": "Top"}]), fail={"Top": "repo"})

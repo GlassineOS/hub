@@ -171,13 +171,25 @@ class NewWork:
         return indexes
 
     def edit(self, work_id, index, title, body) -> dict:
-        """005 FR-015: you change a draft's title and body before filing it. Only a draft still waiting, within a draft's limits."""
+        """005 FR-015: you change a draft's title and body before filing it. Only a draft still waiting, within a draft's limits.
+
+        A draft's `parent` is another draft's title, so a new title is followed by the drafts that name the old one, and a
+        title another draft already has is refused: a parent line would mean either."""
         record = self.get(work_id)
         self._chosen(record, [index])
-        draft = record["drafts"][index]
+        drafts = record["drafts"]
+        draft = drafts[index]
         cleaned = clean_drafts([{"title": title, "body": body, "severity": draft["severity"], "target": draft["target"],
                                  "labels": draft["labels"], "parent": draft["parent"]}], draft["target"])[0]
-        draft.update(title=cleaned["title"], body=cleaned["body"], note=None)
+        old, new = draft["title"], cleaned["title"]
+        if new != old and any(d["title"] == new for d in drafts):
+            raise WorkError(f"another draft is called {new}: a title needs to be its own, as a parent is named by its title")
+        # file_drafts reads a parent line as the first draft with that title: if this is a second of the same name, nothing points here.
+        if new != old and next(i for i, d in enumerate(drafts) if d["title"] == old) == index:
+            for other in drafts:
+                if other["parent"] == old:
+                    other["parent"] = new
+        draft.update(title=new, body=cleaned["body"], note=None)
         self._save(record)
         return record
 
