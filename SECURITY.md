@@ -402,7 +402,7 @@ for the other actions it is carried so a later check needs no change in the app.
   repository's `labels`, and a run's `actions/runs/<id>/jobs` for its failed step. `compare` is the one path where three dots aren't refused as
   traversal: neither ref may hold two dots of its own or end in one.
 - **Merge is still hubd's merge path.** The menu's Merge… is the same `pr merge --match-head-commit` with your login as before. Why it is off
-  (checks running, not approved, threads open) is shown, not enforced: hubd doesn't refuse a merge over a review state, and GitHub's branch
+  (checks running or failed, not approved, threads open) is shown, not enforced: hubd doesn't refuse a merge over a review state, and GitHub's branch
   protection is what holds there.
 
 ## The queue view

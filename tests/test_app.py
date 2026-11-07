@@ -932,6 +932,9 @@ def test_a_page_from_before_the_change_is_refused_a_merge(client, hubd):
 @pytest.mark.parametrize("pr, threads, words", [
     ({"checks": "passing", "reviewDecision": "APPROVED"}, 0, []),
     ({"checks": "pending", "reviewDecision": "APPROVED"}, 0, ["checks are still running"]),
+    ({"checks": "failing", "reviewDecision": "APPROVED"}, 0, ["checks have failed"]),
+    ({"checks": "failing", "reviewDecision": None}, 1, ["checks have failed", "not approved yet", "1 review thread open"]),
+    ({"checks": "none", "reviewDecision": "APPROVED"}, 0, []),
     ({"checks": "passing", "reviewDecision": "REVIEW_REQUIRED"}, 0, ["not approved yet"]),
     ({"checks": "passing", "reviewDecision": ""}, None, ["not approved yet"]),
     ({"checks": "passing", "reviewDecision": "CHANGES_REQUESTED"}, 0, ["changes were requested"]),

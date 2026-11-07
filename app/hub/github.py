@@ -103,6 +103,9 @@ def merge_blockers(pr: dict, open_threads) -> list[dict]:
     out = []
     if pr.get("checks") == "pending":
         out.append({"why": "checks are still running"})
+    elif pr.get("checks") == "failing":
+        # `_rollup` says failing before pending, so a failed check hides one still running: both block, under this reason.
+        out.append({"why": "checks have failed"})
     decision = pr.get("reviewDecision") or ""
     if decision == "CHANGES_REQUESTED":
         out.append({"why": "changes were requested"})
