@@ -47,10 +47,32 @@ def _scalar(text: str | None):
 
 
 def _flow_list(text: str) -> list[str]:
-    inner = text.strip()[1:-1]
-    if "[" in inner or "{" in inner:
+    """The items of `[a, b]` on one line. A list that runs on to the next line, or has an unclosed quote, is Unreadable;
+    a comma inside quotes belongs to its item."""
+    text = text.strip()
+    if len(text) < 2 or text[0] != "[" or text[-1] != "]":
+        raise Unreadable("a list in brackets that doesn't close on its line")
+    inner = text[1:-1]
+    parts, current, quote = [], "", None
+    for ch in inner:
+        if quote:
+            if ch == quote:
+                quote = None
+            current += ch
+        elif ch in "'\"":
+            quote = ch
+            current += ch
+        elif ch == ",":
+            parts.append(current)
+            current = ""
+        else:
+            current += ch
+    if quote:
+        raise Unreadable("a quote in a list that doesn't close")
+    parts.append(current)
+    if any(("[" in p or "{" in p) and p.strip()[:1] not in "'\"" for p in parts):
         raise Unreadable("a nested list in brackets")
-    return [v for v in (_scalar(part) for part in inner.split(",")) if v is not None]
+    return [v for v in (_scalar(part) for part in parts) if v is not None]
 
 
 def _lines(text: str) -> list[tuple[int, str]]:

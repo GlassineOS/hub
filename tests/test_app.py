@@ -1810,6 +1810,12 @@ def test_the_workflow_reader_finds_dispatch_and_its_inputs(text, dispatchable, n
     assert found is dispatchable and [i["name"] for i in inputs] == names
 
 
+def test_the_workflow_reader_keeps_a_comma_inside_quotes():
+    from hub.workflowfile import dispatch_inputs
+    text = "on:\n  workflow_dispatch:\n    inputs:\n      w:\n        type: choice\n        options: ['a, b', c, \"d, e\", 'f[1]']"
+    assert dispatch_inputs(text)[1][0]["options"] == ["a, b", "c", "d, e", "f[1]"]
+
+
 def test_the_workflow_reader_types_each_input():
     from hub.workflowfile import dispatch_inputs
     inputs = {i["name"]: i for i in dispatch_inputs(WORKFLOW)[1]}
@@ -1824,6 +1830,11 @@ def test_the_workflow_reader_types_each_input():
     ("on:\n  workflow_dispatch:\n    inputs:\n      a:\n        type: secret", "type secret"),
     ("on:\n  workflow_dispatch:\n    inputs:\n      a:\n        type: choice", "no options"),
     ("on: {workflow_dispatch: {}}", "braces"),
+    ("on: [push,\n  workflow_dispatch]", "doesn't close on its line"),
+    ("on:\n  workflow_dispatch:\n    inputs:\n      w:\n        type: choice\n        options: [dev,\n          prod]", "doesn't close on its line"),
+    ("on: [push, 'workflow_dispatch]", "doesn't close"),
+    ("on:\n  workflow_dispatch:\n    inputs:\n      w:\n        type: choice\n        options: [a, 'b]", "doesn't close"),
+    ("on:\n  workflow_dispatch:\n    inputs:\n      w:\n        type: choice\n        options: [a, [b]]", "nested list"),
 ])
 def test_the_workflow_reader_says_what_it_cant_read(text, words):
     from hub.workflowfile import Unreadable, dispatch_inputs
