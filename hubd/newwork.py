@@ -189,7 +189,8 @@ class NewWork:
             for other in drafts:
                 if other["parent"] == old:
                     other["parent"] = new
-        draft.update(title=new, body=cleaned["body"], note=None)
+        # An edit doesn't make a second filing safe: the INTERRUPTED warning stays. A "Not filed" note was about the old text.
+        draft.update(title=new, body=cleaned["body"], note=INTERRUPTED if draft["note"] == INTERRUPTED else None)
         self._save(record)
         return record
 

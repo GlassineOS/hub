@@ -340,6 +340,20 @@ def test_a_restart_keeps_drafts_and_says_what_it_broke(tmp_path):
     assert draft["state"] == "draft" and "check GitHub" in draft["note"]
 
 
+def test_an_edit_keeps_the_warning_about_an_interrupted_filing_and_drops_a_failure_note(tmp_path):
+    store = NewWork(tmp_path)
+    work = store.new({"by": "you", "repo": "boot", "title": "t"}, "done")
+    store.move(work, "done", drafts=clean_drafts([DRAFT, {"title": "Second"}], "boot"))
+    store.claim(work["id"], [0])
+    store = NewWork(tmp_path)  # hubd restarted while it was filing
+    store.edit(work["id"], 0, "Clearer", "words")
+    assert store.get(work["id"])["drafts"][0]["note"] == newwork.INTERRUPTED
+    assert NewWork(tmp_path).get(work["id"])["drafts"][0]["note"] == newwork.INTERRUPTED
+    store.get(work["id"])["drafts"][1]["note"] = "Not filed: no such repository."
+    store.edit(work["id"], 1, "Second, fixed", "")
+    assert store.get(work["id"])["drafts"][1]["note"] is None
+
+
 def test_a_store_file_is_private(tmp_path):
     record = NewWork(tmp_path).new({"by": "you"}, "offered")
     assert (tmp_path / f"{record['id']}.json").stat().st_mode & 0o077 == 0
