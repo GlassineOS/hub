@@ -911,7 +911,7 @@ const STEER_CHIPS = {
   issue: ["only propose, don't apply", "look for duplicates", "keep the change small"],
   run: ["compare with earlier runs", "don't touch the runner image"],
 };
-const PIN_WORDS = { thread: "Review thread", ref: "Issue / PR", file: "Repo file", docs: "Docs page", url: "Link", text: "Text snippet" };
+const PIN_WORDS = { thread: "Review thread", ref: "Issue / PR", file: "Repo file", docs: "Docs page", url: "Link", text: "Text snippet", report: "Kept report" };
 const PIN_HINTS = { ref: "hub#44", file: "kernel:drivers/gpu/drm/epd/epd_lut.c", docs: "docs path", text: "Something the agent should know" };
 const pinKind = (v) => (/^https?:/.test(v) ? "url" : /#\d/.test(v) ? "ref" : v.indexOf(":") > 0 ? "file" : "docs");
 
@@ -1947,8 +1947,10 @@ function KnowledgeReports() {
   const more = useAct();
   const rows = [...((first.data && first.data.results) || []), ...pages];
   const last = rows[rows.length - 1];
-  const followUp = (r) => launch({ action: "knowledge-research", notes: `Follow-up on ${r.id}: ${(r.payload || {}).question || ""}`.slice(0, 4000),
-    pins: [{ kind: "text", label: `${r.id}: ${(r.payload || {}).question || ""}`.slice(0, 1000) }], from: { view: "Knowledge" } });
+  // 008 FR-008: the report goes by its id, which only a research session can read (read_report): its text, which can be
+  // private, never sits in Launch, where the action could be switched to one that posts.
+  const followUp = (r) => launch({ action: "knowledge-research", notes: `Follow-up on the kept report ${r.id}: ${(r.payload || {}).question || ""}`.slice(0, 4000),
+    pins: [{ kind: "report", label: r.id }], from: { view: "Knowledge" } });
   return html`<section class="stack" style="gap: 8px" aria-labelledby="kn-rep"><h3 id="kn-rep" class="eyebrow">Research reports</h3>
     <${Err} text=${first.error || more.error} />
     ${first.data && !rows.length && html`<p class="small soft">No reports kept yet. A research session's report is kept when you press "Save to Knowledge" on it.</p>`}

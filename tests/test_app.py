@@ -2442,6 +2442,7 @@ def test_knowledge_view_in_the_page():
     flyout = _component(script, "ResearchFlyout")
     assert 'action: "knowledge-research"' in flyout and "Plan a research session…" in flyout and "<${KnowledgeReports} />" in flyout
     assert 'kept: "1"' in _component(script, "KnowledgeReports") and "Follow up…" in _component(script, "KnowledgeReports")
+    assert 'pins: [{ kind: "report", label: r.id }]' in _component(script, "KnowledgeReports")  # by its id, never its text
     assert "Run docs CI now" in _component(script, "KnowledgeIndexes") and "Ingest now" in _component(script, "KnowledgeIndexes")
     assert 'NO_REPO = ["knowledge"]' in script and "noRepo" in _component(script, "LaunchBrief")
 
@@ -2515,3 +2516,23 @@ def test_docsearch_exact_finds_what_the_ranked_search_leaves_out(github):
     keep = lambda r: "lut" in r["text"].lower() and "version" in r["text"].lower()
     found = asyncio.run(docs.exact("LUT version", keep, 8))["results"]
     assert [(r["title"], r["meaning"]) for r in found] == [("A", 0.61), ("C", None)]  # ranked first, then the rest, once each
+
+
+def test_read_report_is_listed_only_for_a_research_session_and_goes_to_hubd_under_its_token(github, hubd):
+    from hubd.agents import Library
+    library = Library(Path(__file__).parents[1] / "agents")
+    assert "read_report" in listed_for({"session": "s", "tools": library.actions["knowledge-research"]["hub_tools"], "persona": "researcher"})
+    others = [a for a, spec in library.actions.items() if "read_report" in spec["hub_tools"]]
+    assert others == ["knowledge-research"]
+    listed = {t.name: t for t in asyncio.run(tools.build(GitHub(Hubd("/nonexistent"), CONFIG), FakeDocs()).list_tools())}
+    assert listed["read_report"].annotations.read_only_hint is True
+
+    async def call(**request):
+        assert request == {"op": "result.report", "agent_token": "session-token", "id": "r-0123456789ab"}
+        return {"ok": True, "report": {"id": "r-0123456789ab", "question": "q", "answer": "a"}}
+    hubd.call = call
+
+    async def go():
+        hubd_client.CALLER.set("session-token")
+        return await github.read_report("r-0123456789ab")
+    assert asyncio.run(go())["answer"] == "a"

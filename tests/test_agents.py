@@ -1344,7 +1344,7 @@ def test_a_session_token_is_its_own_and_ends_with_it(tmp_path, remote):
     assert token != "SECRET" and token not in (directory / "run.sh").read_text()
     assert f'cat {directory / "tool-token"}' in (directory / "run.sh").read_text()
     instance = a.session_id_of(name)
-    assert instance and a.scope(token) == {"session": name, "instance": instance, "tools": good()["hub_tools"], "persona": good()["persona"], "all_repos": False, "asks_first": []}
+    assert instance and a.scope(token) == {"session": name, "instance": instance, "tools": good()["hub_tools"], "persona": good()["persona"], "all_repos": False, "asks_first": [], "reports": []}
     assert a.scope("nope") is None and a.scope(None) is None
     # a restarted hubd knows it again
     again = agents(tmp_path, clone_base=remote)
@@ -1543,6 +1543,7 @@ PINS = [{"kind": "ref", "label": "hub#44"}, {"kind": "text", "label": "Panel ran
     {"pins": [{"kind": "secret", "label": "x"}]}, {"pins": [{"kind": "ref", "label": ""}]},
     {"pins": [{"kind": "ref", "label": "x" * 1001}]}, {"pins": [{"kind": "ref", "label": "x", "more": 1}]},
     {"pins": [{"kind": "ref", "label": str(i)} for i in range(13)]},
+    {"pins": [{"kind": "report", "label": "the whole report text"}]}, {"pins": [{"kind": "report", "label": "r-0123456789AB"}]},
 ])
 def test_notes_and_pins_are_checked(over):
     with pytest.raises(AgentError):
@@ -3184,3 +3185,13 @@ def test_research_starts_with_no_checkout_under_its_own_name(tmp_path):
 def test_a_session_cant_spawn_research():
     with pytest.raises(AgentError, match="plan_work"):
         Agents.check_spawn(type("A", (), {"library": LIBRARY})(), {"action": "knowledge-research"})
+
+
+def test_a_report_pin_is_an_id_and_its_session_alone_may_read_it():
+    """008 FR-008: Follow up pins a kept report by its id; the session's scope names it, so read_report gives it that one."""
+    from hubd.agents import _session_scope
+    pins = [{"kind": "report", "label": "r-0123456789ab"}, {"kind": "text", "label": "r-ffffffffffff"}]
+    validate(LIBRARY, good(pins=pins))
+    config = {**good(), "pins": pins}
+    assert _session_scope("s", config, False)["reports"] == ["r-0123456789ab"]  # a text pin that looks like an id isn't one
+    assert _session_scope("s", good(), False)["reports"] == []

@@ -60,7 +60,7 @@ COPIES_EVERY = 1800  # seconds between refreshes of the repository copies
 WORK_TOOL_OPS = {"work.offer": "plan_work", "work.suggest": "suggest_session", "work.submit": "submit_drafts", "work.handed": "new_work_drafts"}
 STEWARD = "steward"
 DIRECT_ORIGIN = {"launch": None, "from": None, "by": "you"}  # a session you started with the one click or the advanced form: no Launch record behind it
-RESULT_TOOL_OPS = {"result.submit": "submit_result"}  # By a session's own token, checked like WORK_TOOL_OPS
+RESULT_TOOL_OPS = {"result.submit": "submit_result", "result.report": "read_report"}  # By a session's own token, checked like WORK_TOOL_OPS
 ITEM_OBJECTS = ("issue", "pr", "run")  # what a Launch's covered items can be (005 FR-011)
 KIND_WORDS = {"issue": "an issue", "pr": "a pull request", "run": "a run", "repo": "a repository", "project": "the whole project",
               "knowledge": "a question"}
@@ -1152,6 +1152,8 @@ class Hubd:
         tool = RESULT_TOOL_OPS[op]
         if not self.results or not scope or not scope["session"] or tool not in (scope.get("tools") or ()):
             return {"ok": False, "refused": True, "error": f"this session can't use {tool}"}
+        if op == "result.report":
+            return self._read_report(scope, req.get("id"))
         name = scope["session"]
         agent = self.agents.describe(name)
         action = self.agents.library.actions.get(agent["action"]) if agent else None
@@ -1169,6 +1171,20 @@ class Hubd:
             self.work.move(launch, "done" if launch["state"] in ("running", "started", "failed") else launch["state"], result=record["id"], error=None)
             self._tell_steward(launch, f"the session handed in its {record['type']} result. It waits for the person.")
         return {"ok": True, "id": record["id"]}
+
+    def _read_report(self, scope: dict, result_id) -> dict:
+        """read_report (008 FR-008): a kept report, to a session the person started with it pinned, and no other report. A
+        report can hold private text from the whole project, so it goes only where the person sent it, and Launch carries
+        its id, never its text: an action switched to one that posts has nothing of it."""
+        if not isinstance(result_id, str) or result_id not in scope.get("reports", ()):
+            return {"ok": False, "refused": True, "error": "read_report reads only a report pinned when this session was started"}
+        try:
+            record = self.results.get(result_id)
+        except results.ResultError as e:
+            return {"ok": False, "error": str(e)}
+        if record["type"] != "report" or not record["kept"]:
+            return {"ok": False, "error": "that report isn't kept in Knowledge any more"}
+        return {"ok": True, "report": {"id": record["id"], "made": record["made"], **record["payload"]}}
 
     def _note_pr_results(self, sessions: list[dict]) -> None:
         """005 FR-016: a session that ends in a pull request has it as its result. On an issue, once its branch has one; on a

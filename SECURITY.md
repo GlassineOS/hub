@@ -82,7 +82,9 @@ A new restriction has to name the threat it stops, or be listed here as a guard.
   file tools a snapshot in its own folder, and `list_repo_files`, `read_repo_file` and `code_search` serve the Steward,
   Knowledge's research session (`knowledge-research`) and every planner, none of which have file tools. The research
   session reads the whole project like the Steward, but has nothing that writes or posts: its one way out is the report it
-  hands in, which only a login reads (and keeps), so private text it read reaches you and no one else. There's no question asked and no difference by repository, by your
+  hands in, which only a login reads (and keeps), so private text it read reaches you and no one else. A follow-up
+  pins a kept report by its id, and `read_report` gives a report only to a session started with it pinned, so its text
+  never sits in Launch, where the action could be switched to one that posts. There's no question asked and no difference by repository, by your
   decision, so what was said above about private text reaches all of them. Actions with neither those tools nor
   file tools, such as `issue-triage` and the `run-*` actions, have no direct way in, but their planners do, and a
   planner writes the session's brief, which you see before it starts.

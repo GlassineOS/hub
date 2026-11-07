@@ -130,7 +130,9 @@ A session hands in one result: a new hand-in replaces one still waiting, and is 
   (a line that isn't in the diff), the review goes out once more with the notes in its text, and the card's note says so.
 - **labels** (`issue-triage`): labels to add and remove, and a "Part of" line, per issue it was started on, set when you press Apply.
 - **findings** (`run-diagnose`): the cause and the smallest fix; you can start a fix session from it. Nothing to apply.
-- **report**: an answer with what couldn't be settled, its sources and follow-ups, kept for Knowledge (never committed anywhere).
+- **report** (`knowledge-research`): an answer with what couldn't be settled, its sources and follow-ups, kept for Knowledge (never
+  committed anywhere). Follow up pins a kept report by its id; the research session started with that pin reads it with
+  `read_report`, and no session reads a report it wasn't started with.
 - **pr** (`issue-implement`, `pr-address-review`, `pr-fix-checks`): the pull request the hub finds for the session, nothing to apply.
 - **drafts** stay as above, through `submit_drafts`.
 

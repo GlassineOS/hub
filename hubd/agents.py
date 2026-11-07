@@ -126,7 +126,7 @@ HUB_SENDER = "@hub"  # who a ping is from: not a valid session name, so it can't
 # asks first until someone has looked at it.
 READS_ONLY = {"overview", "rate_limit", "run_history", "roadmap", "list_issues", "get_issue", "list_prs", "get_pr", "get_pr_threads",
               "get_pr_diff", "get_pr_diff_summary", "list_runs", "get_run", "get_run_log", "list_workflows", "work_search", "work_status",
-              "docs_search", "docs_index_status", "plan_work", "submit_result", *REPO_TOOLS}  # submit_result: a result waits for you too
+              "docs_search", "docs_index_status", "plan_work", "submit_result", "read_report", *REPO_TOOLS}  # submit_result: a result waits for you too
 READING_TOOLS = {"Read", "Grep", "Glob", "Skill", "AskUserQuestion"}
 # Marks and fillers that draw nothing but aren't format characters: variation selectors can carry a hidden byte each.
 _BLANKS = {0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x2800, 0x3164, 0xFFA0}
@@ -156,7 +156,8 @@ MAX_SUMMARY = 6000  # characters of a started session's own words
 MAX_NOTES = 4000
 MAX_PINS = 12
 MAX_PIN = 1000
-PIN_KINDS = ("ref", "file", "docs", "url", "text", "thread")
+PIN_KINDS = ("ref", "file", "docs", "url", "text", "thread", "report")
+_REPORT_PIN_RE = re.compile(r"r-[0-9a-f]{12}")  # a report pin is a kept report's id, which read_report gives this session alone
 MAX_REPO_MAP = 40_000  # bytes of file names: a big repository is cut, and the planner is told
 MAX_REQUEST = 100_000  # bytes; the request is one argument, and Linux allows 131072
 
@@ -207,8 +208,10 @@ def _full(action: dict) -> bool:
 def _session_scope(name: str, config: dict, full: bool, all_repos: bool = False, asks_first=(), instance=None) -> dict:
     # A full session has your rights, so a tool list wouldn't hold it to anything.
     # instance: this session and no other that gets its name later (the Steward's is always steward). The Claude session id.
+    # reports: the kept reports the person pinned when starting it, the only ones read_report gives it (008 FR-008).
     return {"session": name, "instance": instance, "tools": None if full else [*config["hub_tools"], *asks_first],
-            "persona": config["persona"], "all_repos": all_repos, "asks_first": list(asks_first)}
+            "persona": config["persona"], "all_repos": all_repos, "asks_first": list(asks_first),
+            "reports": [p["label"] for p in config.get("pins", ()) if p["kind"] == "report"]}
 
 
 REMOVE_AFTER_DAYS = 7
@@ -370,6 +373,8 @@ def validate(library: Library, config) -> dict:
             isinstance(p, dict) and set(p) == {"kind", "label"} and p["kind"] in PIN_KINDS
             and isinstance(p["label"], str) and 0 < len(p["label"]) <= MAX_PIN for p in pins):
         raise AgentError(f"pins must be at most {MAX_PINS}, each a kind and a label of at most {MAX_PIN} characters")
+    if any(p["kind"] == "report" and not _REPORT_PIN_RE.fullmatch(p["label"]) for p in pins):
+        raise AgentError("a report pin is a report's id, r- and 12 hex digits")
     covers = _covers(action, config, repo, number)
     also = config.get("also_repos", [])
     if not isinstance(also, list):

@@ -1,7 +1,8 @@
 Research the question in the person's notes below for the GlassineOS project. You have no checkout: search
 the docs (`docs_search`), the issues and pull requests (`work_search`, `get_issue`, `get_pr`) and the code
 (`code_search`, the map tools, `read_repo_file`) through the hub's tools. The scope in the notes says where to
-look first; the pins are passages the person chose as context.
+look first; the pins are passages the person chose as context. A pin of kind `report` is an earlier report
+this question follows up: read it first with `read_report` and build on it rather than starting again.
 
 When you're done, hand in one report with `submit_result` (type `report`). That's the last thing you do,
 and nothing is posted anywhere: the person reads it, and keeps it if it's worth keeping. The report has:
