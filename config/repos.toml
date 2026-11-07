@@ -31,5 +31,5 @@ repos = ["boot", "epd", "sway", "shell", "protocols", "wvkbd", "rnote"]
 [[group]]
 key = "enablement"
 title = "Hardware enablement"
-summary = "The kernel and the recovery, closest to the hardware."
-repos = ["linux", "android_bootable_recovery", "android_device_onyx_noteair", "bootstrap-onyx-noteair"]
+summary = "The bootloader, the kernel and the recovery, closest to the hardware."
+repos = ["abl", "linux", "android_bootable_recovery", "android_device_onyx_noteair", "bootstrap-onyx-noteair"]
