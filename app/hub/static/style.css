@@ -579,3 +579,5 @@ table.diff tr.notes td { padding: 6px 8px; white-space: normal; background: var(
   font: 400 12.5px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .steplog li::marker { color: #888; }
 .steplog li.err { background: rgb(255 154 107 / .22); outline: 1px solid #ff9a6b; }
+/* Knowledge (008 FR-004): marked words keep the text's colour, so the mark is never the only signal of the words. */
+.kn-hit mark { background: var(--mark); color: inherit; padding: 0 1px; border-bottom: 1.5px solid var(--ink); }

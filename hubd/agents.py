@@ -69,7 +69,10 @@ REPO_TOOLS = {"request_repository", *_REPO_READERS}
 PLANNER_TOOLS = {"pr": ["get_pr", "get_pr_diff_summary", "docs_search", "work_search", *_REPO_READERS],
                  "issue": ["get_issue", "docs_search", "work_search", *_REPO_READERS],
                  "run": ["get_run", "get_run_log", "docs_search", "work_search", *_REPO_READERS],
-                 "repo": ["get_issue", "list_issues", "list_prs", "get_pr", "docs_search", "work_search", *_REPO_READERS]}
+                 "repo": ["get_issue", "list_issues", "list_prs", "get_pr", "docs_search", "work_search", *_REPO_READERS],
+                 "knowledge": ["get_issue", "get_pr", "docs_search", "work_search", *_REPO_READERS]}
+# What an action can be about with no repository: the whole project (the Steward), or a question (008 FR-007).
+NO_REPO_OBJECTS = ("project", "knowledge")
 # Read-only checkouts that live with the session: a pull request's head, or a repository's default branch.
 _DETACHED = ("pr", "default")
 MAX_BRIEF = 8000
@@ -333,7 +336,7 @@ def validate(library: Library, config) -> dict:
         raise AgentError(f"not part of an invocation: {', '.join(sorted(unknown))}")
     action = library.action(config.get("action"))
     repo, number = config.get("repo"), config.get("number")
-    if action["object"] == "project":  # about the whole project, not one item in it
+    if action["object"] in NO_REPO_OBJECTS:  # about the whole project, or a question about it (008 FR-007), not one item in it
         if repo is not None or number is not None:
             raise AgentError(f"{action['title']} isn't about one repository or item")
     elif action["object"] == "repo":  # about a repository, not one item in it
@@ -456,7 +459,7 @@ def _covers(action: dict, config: dict, repo, number) -> list[dict]:
         raise AgentError("also_numbers must be a list")
     if given is not None and not isinstance(given, list):
         raise AgentError("covers must be a list of items")
-    if action["object"] in ("project", "repo"):
+    if action["object"] in (*NO_REPO_OBJECTS, "repo"):
         if given or numbers:
             raise AgentError(f"{action['title']} isn't about items")
         return []
@@ -698,7 +701,7 @@ class Agents:
         if action["object"] not in PLANNER_TOOLS:
             raise AgentError(f"{action_id} has no planning step")
         tools = [t for t in PLANNER_TOOLS[action["object"]] if not (_full(action) and t == "work_search")]
-        fields = {"action": action["title"], "what_it_does": action["summary"], "repository": f"{ORG}/{repo}",
+        fields = {"action": action["title"], "what_it_does": action["summary"], "repository": f"{ORG}/{repo}" if repo else "none: the question is about the whole project",
                   "object": action["object"], "number": number,
                   "notes_from_the_person": base["notes"], "pinned_by_the_person": base["pins"],
                   "personas": {p: self.library.text("personas", p) for p in action["personas"]}}
@@ -999,7 +1002,7 @@ class Agents:
         else:
             # The number stays, or two pull requests of a long-named repository would look alike.
             tail = f"-{config['number']}" if config["number"] else ""
-            head = re.sub(r"[^A-Za-z0-9_-]", "-", f"{action['id']}-{config['repo']}".lstrip("."))
+            head = re.sub(r"[^A-Za-z0-9_-]", "-", (f"{action['id']}-{config['repo']}" if config["repo"] else action["id"]).lstrip("."))
             stem = head[:MAX_NAME - len(tail)] + tail
         name, n = stem, 2
         while name in taken:
@@ -1410,7 +1413,7 @@ class Agents:
         action = self.library.action(arguments.get("action") if isinstance(arguments, dict) else None)
         if action["object"] == "project":
             raise AgentError(f"{action['id']} can't be started by a session")
-        if action["object"] == "repo":
+        if action["object"] in ("repo", "knowledge"):
             raise AgentError(f"{action['id']} is new work: suggest it with plan_work, and the person starts it")
         validate(self.library, self.defaults(action["id"], arguments.get("repo"), arguments.get("number")))
         return action

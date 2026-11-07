@@ -463,11 +463,13 @@ def build(github: GitHub, docs: DocSearch) -> MCPServer:
 
     @mcp.tool(annotations=WRITE)
     @_says_why
-    async def plan_work(action: str, repo: str, why: str, notes: str = "", describe: str = "", paths: str = "") -> dict:
+    async def plan_work(action: str, repo: str = "", why: str = "", notes: str = "", describe: str = "", paths: str = "") -> dict:
         """Suggest planned work to the person: nothing runs until they open it and press Start, and they can change
         everything first. action is one of new-issue, new-security-audit, new-architecture-audit, new-roadmap-item,
-        new-docs-sweep or new-dependency-review. why is one sentence on why it's worth doing now."""
-        return await github.plan_work(action, repo, why, notes, describe, paths)
+        new-docs-sweep, new-dependency-review or knowledge-research. repo is the repository; leave it out for
+        knowledge-research, which is about a question, and put the question in notes. why is one sentence on why
+        it's worth doing now."""
+        return await github.plan_work(action, repo or None, why, notes, describe, paths)
 
     @mcp.tool(annotations=WRITE)
     @_says_why
