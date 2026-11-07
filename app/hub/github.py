@@ -1279,8 +1279,9 @@ class GitHub:
         if "columns" not in board:
             return board
         issues = (self.store.with_bodies("issue", "OPEN") + self.store.with_bodies("issue", "CLOSED")) if self.store else []
+        index = part_index(issues)  # once per read: each issue's body is searched once, not once per item
         return {**board, "from_store": bool(self.store), "columns": [
-            {**c, "items": [{**i, "progress": progress(i, issues) if i.get("kind") == "Issue" else []} for i in c["items"]]} for c in board["columns"]]}
+            {**c, "items": [{**i, "progress": progress(i, index) if i.get("kind") == "Issue" else []} for i in c["items"]]} for c in board["columns"]]}
 
     async def _board(self) -> dict:
         stamp = str(int(time.time() // BOARD_TTL))
@@ -1397,15 +1398,27 @@ def _board(project: dict, stages: dict[str, str] | None = None) -> dict:
             "status_field": status["id"] if status else None, "columns": list(columns.values()), "unmapped": unmapped}
 
 
-def progress(item: dict, issues: list[dict]) -> list[dict]:
-    """007 FR-010: a roadmap item's progress per repository: its sub-issues and the issues whose body says "Part of" it
-    (store rows, open and closed), each issue counted once. The store's state wins over the board's, which can be older."""
-    ref = f"{item.get('repo')}#{item.get('number')}"
-    closed: dict[tuple, bool] = {(s["repo"], int(s["number"])): s["closed"] for s in item.get("subs") or [] if s.get("repo") and s.get("number")}
+def part_index(issues: list[dict]) -> dict:
+    """Store issues (open and closed) indexed once for `progress`: each one's state by (repository, number), and the issues
+    whose body says "Part of" an item, by that item as repo#N."""
+    state: dict[tuple, bool] = {}
+    parts: dict[str, list[tuple]] = {}
     for row in issues:
         key = (row["repo"], int(row["number"]))
-        if key in closed or part_of(row.get("body"), row["repo"]) == ref:
-            closed[key] = row.get("state") == "CLOSED"
+        state[key] = row.get("state") == "CLOSED"
+        if ref := part_of(row.get("body"), row["repo"]):
+            parts.setdefault(ref, []).append(key)
+    return {"state": state, "parts": parts}
+
+
+def progress(item: dict, index: dict) -> list[dict]:
+    """007 FR-010: a roadmap item's progress per repository: its sub-issues and the issues whose body says "Part of" it
+    (the index of store rows), each issue counted once. The store's state wins over the board's, which can be older."""
+    ref = f"{item.get('repo')}#{item.get('number')}"
+    closed: dict[tuple, bool] = {(s["repo"], int(s["number"])): s["closed"] for s in item.get("subs") or [] if s.get("repo") and s.get("number")}
+    for key in [*closed, *index["parts"].get(ref, ())]:
+        if key in index["state"]:
+            closed[key] = index["state"][key]
     repos: dict[str, dict] = {}
     for (repo, _number), done in closed.items():
         r = repos.setdefault(repo, {"repo": repo, "done": 0, "total": 0})

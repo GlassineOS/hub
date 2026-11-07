@@ -2222,15 +2222,29 @@ def _issue(repo, number, body="", state="OPEN"):
 def test_progress_is_sub_issues_and_part_of_each_counted_once():
     """007 FR-010, R2: the union of sub-issues and "Part of hub#40" issues, per repository, each issue once; the store's
     state wins; another item's ref, a quoted line and a mention in a sentence don't count."""
-    from hub.github import progress
+    from hub.github import part_index, progress
     item = {"repo": "hub", "number": 40, "subs": [{"repo": "kernel", "number": 1, "closed": False}, {"repo": "boot", "number": 9, "closed": True}]}
     issues = [_issue("kernel", 1, "Part of hub#40", state="CLOSED"),  # a sub-issue that also says Part of, closed since the board was read
               _issue("kernel", 2, "Part of GlassineOS/hub#40\n\nWhy"), _issue("kernel", 3, "Text first.\n\nPart of hub#40"),
               _issue("kernel", 4, "Part of hub#41"), _issue("kernel", 5, "> Part of hub#40"), _issue("kernel", 6, "This is part of hub#40"),
               _issue("hub", 7, "Part of #40", state="CLOSED"), _issue("boot", 8, "Part of https://github.com/GlassineOS/hub/issues/40")]
-    assert progress(item, issues) == [{"repo": "boot", "done": 1, "total": 2}, {"repo": "hub", "done": 1, "total": 1},
+    assert progress(item, part_index(issues)) == [{"repo": "boot", "done": 1, "total": 2}, {"repo": "hub", "done": 1, "total": 1},
                                       {"repo": "kernel", "done": 1, "total": 3}]
-    assert progress({"repo": "hub", "number": 40, "subs": []}, []) == []
+    assert progress({"repo": "hub", "number": 40, "subs": []}, part_index([])) == []
+
+
+def test_progress_parses_each_issue_once_however_many_items_there_are(monkeypatch):
+    """The Part of line of an issue is searched once per read, not once per board item."""
+    import hub.github as gh
+    calls = []
+    real = gh.part_of
+    monkeypatch.setattr(gh, "part_of", lambda body, repo=None: calls.append(body) or real(body, repo))
+    issues = [_issue("kernel", n, f"Part of hub#{40 + n % 5}") for n in range(1, 31)]
+    index = gh.part_index(issues)
+    items = [{"repo": "hub", "number": 40 + n, "subs": []} for n in range(5)]
+    assert [sum(p["total"] for p in gh.progress(i, index)) for i in items] == [6] * 5
+    assert len(calls) == 30
+    assert gh.progress({"repo": "hub", "number": 99, "subs": []}, index) == []
 
 
 def test_the_roadmap_reads_progress_from_the_store(github, hubd):
