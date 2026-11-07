@@ -1802,11 +1802,12 @@ function SessionSpec({ session, manifest: m, error }) {
 // One session, three places (004 FR-001): full under Sessions, embedded in a Work item, compact in the Steward panel.
 // here: the Work item it's embedded in. seen: what the Steward sees, for its preset buttons.
 // onView(mode): it was moved between embedded and background. onEnded(reply): Stop ended it. onResume: Claude ended, resume it.
-function SessionView({ session, mode = "full", asks, here, seen, buttons, queued = 0, onView, onEnded, onResume, onGone, onClose, children }) {
+// after: run once a button, Esc or a move has gone through (the Steward panel reloads its state, so the queued count follows).
+function SessionView({ session, mode = "full", asks, here, seen, buttons, queued = 0, after, onView, onEnded, onResume, onGone, onClose, children }) {
   const a = session.agent;
   const name = session.name;
   const full = mode === "full", compact = mode === "compact";
-  const act = useAct();
+  const act = useAct(after);
   const [confirm, dialog] = useConfirm();
   const [note, setNote] = useState("");
   const focus = useRef(null);
@@ -3254,7 +3255,7 @@ function StewardSession({ state, seen, buttons, reload, asks }) {
   const offers = asks.work.items.filter((i) => i.by === STEWARD && nwWaits(i));
   // The panel's head has the Steward's name, model and state: below it is the compact SessionView (004 FR-001).
   const session = { name: STEWARD, attached: 0, agent: { persona: STEWARD, persona_name: "Steward", waiting: words === "Waiting for you", idle: words === "Idle", ended: false } };
-  return html`<${SessionView} session=${session} mode="compact" asks=${asks} seen=${seen} buttons=${buttons} queued=${state.queued} onGone=${reload}>
+  return html`<${SessionView} session=${session} mode="compact" asks=${asks} seen=${seen} buttons=${buttons} queued=${state.queued} after=${reload} onGone=${reload}>
     ${offers.length > 0 && html`<div class="dock-asks stack" style="gap: 8px"><span class="eyebrow">Waiting for you</span>${offers.map((i) => html`<${WorkWaiting} key=${i.id} item=${i} compact reload=${asks.reload} />`)}</div>`}
     <${Err} text=${state.lost} /><//>`;
 }

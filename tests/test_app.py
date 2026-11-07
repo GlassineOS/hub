@@ -1413,6 +1413,13 @@ def test_work_says_when_stop_kept_the_checkout():
     assert "keptCheckout.ref === here" in lists and "<code>${keptCheckout.path}</code>" in lists
 
 
+def test_the_steward_panel_reloads_its_state_after_a_press():
+    """A static check only (the JS isn't run): the compact SessionView gets the panel's reload as `after` (#34 review 6)."""
+    script = _app_js()
+    assert "const act = useAct(after);" in _component(script, "SessionView")
+    assert "after=${reload}" in _component(script, "StewardSession")
+
+
 def test_the_terminal_keeps_your_place():
     """A static check (004 FR-005): new output follows the end only while you're at it."""
     term = _component(_app_js(), "TerminalView")
