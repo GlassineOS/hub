@@ -1458,7 +1458,12 @@ class Agents:
         return {"sent": not queue, "queued": len(queue)}
 
     async def say(self, name, text: str) -> dict:
-        """The hub's own words as a turn, for what you just did at a login: at its prompt now, or after this turn."""
+        """The hub's own words as a turn, for what you just did at a login: at its prompt now, or after this turn.
+        What you type can be text you pasted from elsewhere, and a person can't read what draws nothing: it would carry
+        words you never saw, so it's refused as a card's is. Here and not in _send, whose other callers' text is fixed or checked."""
+        hidden = next(((at, c) for at, c in enumerate(text) if _draws_nothing(c)), None)
+        if hidden:
+            raise AgentError(f"a message can't hold control characters or invisible ones (U+{ord(hidden[1]):04X} at character {hidden[0] + 1})")
         return await self._send(name, text)
 
     async def press(self, name, button, kind=None, selection=None) -> dict:

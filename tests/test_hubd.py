@@ -460,12 +460,12 @@ def test_saying_something_to_a_session_needs_a_login(tmp_path, fake_gh):
 
 
 def test_typed_words_reach_a_session_as_the_persons_and_only_through_a_login(tmp_path, fake_gh):
-    """004 FR-008: say is a login op; the words go to _send with no sender, so they're the person's turn."""
+    """004 FR-008: say is a login op; the words go to Agents.say, which sends them with no sender, so they're the person's turn."""
     sent = []
 
     class Agents:
-        async def _send(self, name, text, by=None):
-            sent.append((name, text, by))
+        async def say(self, name, text):
+            sent.append((name, text))
             return {"sent": True, "queued": 0}
 
         def scope(self, token):
@@ -482,7 +482,7 @@ def test_typed_words_reach_a_session_as_the_persons_and_only_through_a_login(tmp
             assert not sent
             reply = await h.call(op="agent.say", token=token, name="steward", text="look at boot#5", where="Work")
             assert reply == {"ok": True, "sent": True, "queued": 0}
-            assert sent == [("steward", "look at boot#5", None)]
+            assert sent == [("steward", "look at boot#5")]  # say takes no sender: it can't be sent as another session's
             assert not (await h.call(op="agent.say", token=token, name="steward", text="x", where="Device"))["ok"]
             assert not (await h.call(op="agent.say", token=token, name="steward", text=["x"], where="Work"))["ok"]
             assert (await h.call(op="agent.say", token=token, name="s1", text="x", where="SessionView"))["ok"]

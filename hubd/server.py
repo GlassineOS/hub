@@ -1073,7 +1073,7 @@ class Hubd:
                 return {"ok": False, "error": str(e)}
             if not isinstance(req.get("text"), str):
                 return {"ok": False, "error": "a message is text"}
-            return {"ok": True, **await self.agents._send(req.get("name"), req["text"])}
+            return {"ok": True, **await self.agents.say(req.get("name"), req["text"])}
         if op == "agent.view":
             return {"ok": True, **self.agents.set_view(req.get("name"), req.get("mode"), req.get("where"), req.get("ref"))}
         if op == "agent.context":
