@@ -1304,7 +1304,7 @@ class Agents:
         try:
             checkouts = self._checkouts(name, config, action)
             beside = None
-            # A fix of a run starts from the branch it ran on (006 T018), looked up before anything is fetched.
+            # A fix of a run starts from the branch it ran on, looked up before anything is fetched.
             from_run = await self._run_branch(config["repo"], config["number"]) if checkouts and action["object"] == "run" and action["checkout"] == "new-branch" else None
             for index, (repo, into) in enumerate(checkouts):
                 # What else a session works on starts from that repository's default branch.

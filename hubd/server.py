@@ -804,7 +804,7 @@ class Hubd:
 
     def _work_fields(self, req: dict, offered: dict | None = None) -> dict:
         """The form, from you or from an agent's suggestion. The planner's request and the session's prompt come from these.
-        Every Launch is one of these records (005 R1): new work on a repository, or work on items."""
+        Every Launch is one of these records: new work on a repository, or work on items."""
         action = self.agents.library.action(req.get("action"))
         if action["object"] == "project":
             raise AgentError(f"{action['title']} isn't a kind of new work")

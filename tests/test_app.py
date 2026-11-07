@@ -2182,7 +2182,7 @@ def test_overview_page_static_parts():
 
 
 def test_the_column_map_defaults_and_config():
-    """007 FR-009, R2: Status option names to the four columns, case-blind; config/repos.toml says the same as the default."""
+    """007 FR-009: Status option names to the four columns, case-blind; config/repos.toml says the same as the default."""
     from hub.github import stage_map
     default = stage_map(None)
     assert {default[n] for n in ("todo", "planned", "backlog")} == {"planned"}
@@ -2220,7 +2220,7 @@ def _issue(repo, number, body="", state="OPEN"):
 
 
 def test_progress_is_sub_issues_and_part_of_each_counted_once():
-    """007 FR-010, R2: the union of sub-issues and "Part of hub#40" issues, per repository, each issue once; the store's
+    """007 FR-010: the union of sub-issues and "Part of hub#40" issues, per repository, each issue once; the store's
     state wins; another item's ref, a quoted line and a mention in a sentence don't count."""
     from hub.github import part_index, progress
     item = {"repo": "hub", "number": 40, "subs": [{"repo": "kernel", "number": 1, "closed": False}, {"repo": "boot", "number": 9, "closed": True}]}

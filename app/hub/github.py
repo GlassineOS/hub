@@ -1355,7 +1355,7 @@ def _rollup_subs(nodes: list[dict]) -> list[dict]:
     return [{"repo": name, **row} for name, row in repos.items()]
 
 
-# 007 FR-009: the Roadmap's columns, in order, and the Status option names each takes by default (R2).
+# 007 FR-009: the Roadmap's columns, in order, and the Status option names each takes by default.
 STAGES = (("planned", "Planned", ("Todo", "Planned", "Backlog")), ("in_progress", "In progress", ("In progress",)),
           ("in_review", "In review", ("In review",)), ("done", "Done", ("Done",)))
 
