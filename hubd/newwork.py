@@ -171,11 +171,14 @@ class NewWork:
         return indexes
 
     def edit(self, work_id, index, title, body) -> dict:
-        """005 FR-015: you change a draft's title and body before filing it. Only a draft still waiting, within a draft's limits.
+        """005 FR-015: you change a draft's title and body before filing it. Only a draft still waiting, in work that is done and not set aside,
+        within a draft's limits.
 
         A draft's `parent` is another draft's title, so a new title is followed by the drafts that name the old one, and a
         title another draft already has is refused: a parent line would mean either."""
         record = self.get(work_id)
+        if record["state"] != "done":  # as the page offers Edit: set aside or discarded drafts come back first, or are gone
+            raise WorkError("only drafts waiting in finished work can be edited" + (": bring it back first" if record["state"] == "dismissed" else ""))
         self._chosen(record, [index])
         drafts = record["drafts"]
         draft = drafts[index]

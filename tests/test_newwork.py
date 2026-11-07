@@ -990,3 +990,9 @@ def test_a_waiting_draft_can_be_edited_before_filing_and_nothing_else(hub):
     assert "already" in call(hub, "work.edit", token="login", id=work, index=1, title="t", body="")["error"]
     assert "choose" in call(hub, "work.edit", token="login", id=work, index=7, title="t", body="")["error"]
     assert not call(hub, "work.edit", token="nope", id=work, index=0, title="t", body="")["ok"]
+    # set aside, a draft isn't offered for editing; brought back, it is
+    assert call(hub, "work.dismiss", token="login", id=work)["ok"]
+    assert "bring it back" in call(hub, "work.edit", token="login", id=work, index=0, title="t", body="")["error"]
+    assert hub.work.get(work)["drafts"][0]["title"] == "Clearer title"
+    assert call(hub, "work.bring_back", token="login", id=work)["ok"]
+    assert call(hub, "work.edit", token="login", id=work, index=0, title="Back again", body="")["ok"]
