@@ -808,7 +808,7 @@ class Hubd:
 
     def _work_fields(self, req: dict, offered: dict | None = None) -> dict:
         """The form, from you or from an agent's suggestion. The planner's request and the session's prompt come from these.
-        Every Launch is one of these records (005 R1): new work on a repository, or work on items."""
+        Every Launch is one of these records: new work on a repository, or work on items."""
         action = self.agents.library.action(req.get("action"))
         if action["object"] == "project":
             raise AgentError(f"{action['title']} isn't a kind of new work")
@@ -1457,7 +1457,7 @@ class Hubd:
         if op == "agent.view":
             return {"ok": True, **self.agents.set_view(req.get("name"), req.get("mode"), req.get("where"), req.get("ref"))}
         if op == "agent.context":
-            return {"ok": True, **self.agents.set_context(req.get("name"), req.get("screen"), req.get("kind"), req.get("selection"))}
+            return {"ok": True, **self.agents.set_context(req.get("name"), req.get("screen"), req.get("kind"), req.get("selection"), req.get("repos"))}
         if op == "agent.buttons":
             return {"ok": True, "buttons": self.agents.library.buttons()}
         if op == "agent.draft":

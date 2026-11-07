@@ -3646,19 +3646,101 @@ function movedRoute(route) {
   return { path: route.path, query: q, moved: false };
 }
 
+// The repositories chosen on the page, from the address: Work's one (or a list), Knowledge's list. hubd checks them again.
+const SEEN_REPOS_MOST = 10;
+function seenRepos(value) {
+  const names = String(value || "").split(",").filter((r) => /^\.?[A-Za-z0-9_][A-Za-z0-9._-]*$/.test(r));
+  return [...new Set(names)].slice(0, SEEN_REPOS_MOST);
+}
+
 function seenFrom(route) {
   const q = route.query;
   const moved = movedRoute(route);
   const path = moved.path, tab = path === "work" ? moved.query.tab || "prs" : path;
   // From the address, which a link can fill with anything. Same pattern as hubd's.
   const item = (repo, n) => (/^[A-Za-z0-9._-]+$/.test(repo || "") && /^[0-9]+$/.test(n || "") ? `${repo}#${n}` : null);
-  if (path === "work" && item(q.at || q.repo, q.item)) return { screen: "Work", kind: SEEN_KIND[tab] || null, selection: item(q.at || q.repo, q.item) };
-  if (path === "work" && tab === "queue") return { screen: "Queue", kind: null, selection: null };
-  return { screen: SEEN_SCREEN[path] || "Overview", kind: null, selection: null };
+  const repos = path === "work" ? seenRepos(moved.query.repo) : path === "knowledge" ? seenRepos(moved.query.repos) : [];
+  if (path === "work" && item(q.at || q.repo, q.item)) return { screen: "Work", kind: SEEN_KIND[tab] || null, selection: item(q.at || q.repo, q.item), repos };
+  if (path === "work" && tab === "queue") return { screen: "Queue", kind: null, selection: null, repos };
+  return { screen: SEEN_SCREEN[path] || "Overview", kind: null, selection: null, repos };
 }
 
-function keptRail() {
-  try { return localStorage.getItem("steward-rail") !== "open"; } catch { return true; }
+// 010 FR-002: open beside Overview, Roadmap, Work and a work item; a rail beside Sessions, Knowledge and Notes. What you
+// choose on a view is kept for that view, in this browser.
+const STEWARD_OPEN = ["Overview", "Roadmap", "Work", "Work item", "Queue"];
+const stewardView = (seen) => (seen.screen === "Work" && seen.selection ? "Work item" : seen.screen);
+function readPanels() {
+  try { const v = JSON.parse(localStorage.getItem("steward-panel") || "{}"); return v && typeof v === "object" ? v : {}; } catch { return {}; }
+}
+function panelOpen(view) {
+  const kept = readPanels()[view];
+  return kept === "open" ? true : kept === "rail" ? false : STEWARD_OPEN.includes(view);
+}
+function keepPanel(view, open) {
+  try { localStorage.setItem("steward-panel", JSON.stringify({ ...readPanels(), [view]: open ? "open" : "rail" })); } catch { /* it only helps */ }
+}
+// 010 FR-001: the panel's width, 320 to 760 px, kept per viewer in this browser.
+const STEWARD_WIDTH = { min: 320, max: 760, start: 440, step: 16 };
+const clampWidth = (w) => Math.min(STEWARD_WIDTH.max, Math.max(STEWARD_WIDTH.min, Math.round(Number(w) || STEWARD_WIDTH.start)));
+function readWidth() {
+  try { return clampWidth(localStorage.getItem("steward-width")); } catch { return STEWARD_WIDTH.start; }
+}
+
+function WidthHandle({ width, onWidth }) {
+  const drag = useRef(null);
+  const set = (w) => onWidth(clampWidth(w));
+  const key = (e) => {
+    const step = e.shiftKey ? STEWARD_WIDTH.step * 4 : STEWARD_WIDTH.step;
+    // The panel is on the right: Left widens it, Right narrows it.
+    const next = { ArrowLeft: width + step, ArrowRight: width - step, Home: STEWARD_WIDTH.max, End: STEWARD_WIDTH.min }[e.key];
+    if (next === undefined) return;
+    e.preventDefault();
+    set(next);
+  };
+  const down = (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    drag.current = { x: e.clientX, w: width };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const move = (e) => { if (drag.current) set(drag.current.w + (drag.current.x - e.clientX)); };
+  const up = () => { drag.current = null; };
+  return html`<div class="dock-handle" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Steward panel width"
+    aria-valuemin=${STEWARD_WIDTH.min} aria-valuemax=${STEWARD_WIDTH.max} aria-valuenow=${width} aria-valuetext=${`${width} pixels`}
+    title="Drag, or use the arrow keys, to resize" onKeyDown=${key} onPointerDown=${down} onPointerMove=${move} onPointerUp=${up} onPointerCancel=${up}></div>`;
+}
+
+// 010 FR-006: what the Steward is asked, in the words of the chips, and your own after it.
+const planWords = (chips, own) => {
+  const seen = chips.map((c) => c.label).join(" · ");
+  const ask = `Plan new work from what I'm looking at in the hub (${seen}). Suggest it with plan_work or suggest_session, so it opens Launch for me.`;
+  return own.trim() ? `${ask}\n\n${own.trim()}` : ask;
+};
+
+function PlanWithSteward({ chips, running, where, onClose }) {
+  const [own, setOwn] = useState("");
+  const [note, setNote] = useState("");
+  const act = useAct();
+  const text = planWords(chips, own);
+  const room = MAX_MESSAGE - planWords(chips, "x").length + 1;
+  const off = running ? "" : "Start the Steward first: it plans only while it runs.";
+  const send = () => act.run(async () => {
+    const r = await post("agents/say", { name: STEWARD, text, where });
+    setOwn("");
+    setNote(r.sent ? "Sent to the Steward as your turn." : `Queued (${r.queued} waiting). It goes when the Steward's turn ends.`);
+  });
+  return html`<div class="dock-plan stack tight" role="group" aria-labelledby="dock-plan-h">
+    <span id="dock-plan-h" class="eyebrow">Plan new work with the Steward</span>
+    <span class="small soft">It gets what the chips above show, and your words.</span>
+    <label class="small" for="dock-plan-own">Your words (optional)</label>
+    <textarea id="dock-plan-own" rows="2" maxlength=${Math.max(0, room)} disabled=${!!off} value=${own} placeholder="Start with the failing runs."
+      onInput=${(e) => setOwn(e.target.value)}
+      onKeyDown=${(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !off && !act.busy) { e.preventDefault(); send(); } }}></textarea>
+    <div class="row" style="gap: 8px; justify-content: space-between">
+      <span role="status" class="small soft">${off || (act.busy ? "Sending…" : note)}</span>
+      <span class="row" style="gap: 8px"><button class="plain" onClick=${onClose}>Close</button>
+        <button class="primary" disabled=${!!off || act.busy || text.length > MAX_MESSAGE} onClick=${send}>Send to the Steward</button></span></div>
+    <${Err} text=${act.error} /></div>`;
 }
 
 function StewardSession({ state, seen, buttons, reload, asks }) {
@@ -3692,36 +3774,57 @@ function StewardModel({ running, current, open }) {
 }
 
 function Steward({ route, asks }) {
-  const [rail, setRailState] = useState(keptRail);
+  const seen = seenFrom(route);
+  const view = stewardView(seen);
+  const [panels, setPanels] = useState(() => ({ [view]: panelOpen(view) }));
+  const open = view in panels ? panels[view] : panelOpen(view);
+  const rail = !open;
+  const setRail = (next) => { keepPanel(view, !next); setPanels({ ...panels, [view]: !next }); };
+  const [width, setWidthState] = useState(readWidth);
+  const setWidth = (w) => { setWidthState(w); try { localStorage.setItem("steward-width", String(w)); } catch { /* it only helps */ } };
   const [modelOpen, setModelOpen] = useState(false);
-  const setRail = (next) => { setRailState(next); try { localStorage.setItem("steward-rail", next ? "rail" : "open"); } catch { /* it only helps */ } };
+  const [planning, setPlanning] = useState(false);
   const { data: loaded, reload } = useLoad(() => post("agents/state", { name: STEWARD }), [], rail ? 15000 : 3000);
   // A failed read keeps what we knew, or a brief hubd error would close the terminal and offer Start.
   const known = useRef(null);
   if (loaded) known.current = loaded;
   const state = known.current;
   const { data: buttons } = useLoad(() => post("agents/buttons").then((r) => r.buttons).catch(() => []), []);
-  const seen = seenFrom(route);
   const words = state ? state.state : "Not started";
   const running = words !== "Not started" && words !== "Stopped";
-  useEffect(() => { if (running) post("agents/context", { name: STEWARD, ...seen }).catch(() => {}); }, [running, seen.screen, seen.kind, seen.selection]);
-  const asking = asks.open.filter((a) => a.session === STEWARD).length + asks.work.items.filter((i) => i.by === STEWARD && nwWaits(i)).length;
-  const planFromSteward = () => launch({ steward: true, repos: seen.selection ? [seen.selection.split("#")[0]] : undefined, context: seen.selection || undefined,
-    pins: seen.selection ? [{ kind: "ref", label: seen.selection }] : undefined, from: { view: seen.screen, ref: seen.selection || null } });
+  // 010 FR-004: hubd checks what the page sees, writes the line the Steward gets, and answers with the chips made from
+  // the same values; the panel shows those chips, so it shows all the Steward is told.
+  const seenKey = JSON.stringify([seen.screen, seen.kind, seen.selection, seen.repos]);
+  const [told, setTold] = useState(null);
+  useEffect(() => {
+    let live = true;
+    post("agents/context", { name: STEWARD, screen: seen.screen, kind: seen.kind, selection: seen.selection, repos: seen.repos })
+      .then((r) => { if (live) setTold({ key: seenKey, chips: r.sees || [] }); })
+      .catch(() => { if (live) setTold({ key: seenKey, chips: null }); });
+    return () => { live = false; };
+  }, [running, seenKey]);
+  const chips = told && told.key === seenKey ? told.chips : null;
+  // 010 FR-005: what from the Steward waits for you, as Needs you counts it.
+  const waiting = asks.interactions.items.filter((r) => r.status === "pending" && r.session === STEWARD).length;
+  const plan = () => { setRail(false); setPlanning(true); };
   if (rail) {
     return html`<nav class="dock-rail" aria-label="Steward">
-      <button class="dock-s" aria-label=${`Open the Steward, ${words}${asking ? `, ${count(asking, "question")} for you` : ""}`} title=${`Steward: ${words}`} onClick=${() => setRail(false)}>S${asking > 0 && html`<span class="dock-count">${asking}</span>`}</button>
-      <button class="dock-item" aria-label="Plan new work with the Steward" title="Plan new work with the Steward" onClick=${planFromSteward}>＋</button></nav>`;
+      <button class="dock-s" aria-label=${`Open the Steward, ${words}${waiting ? `, ${waiting} waiting for you` : ""}`} title=${`Steward: ${words}`} onClick=${() => setRail(false)}>S${waiting > 0 && html`<span class="dock-count">${waiting}</span>`}</button>
+      <button class="dock-item" aria-label="Plan new work with the Steward" title="Plan new work with the Steward" onClick=${plan}>＋</button></nav>`;
   }
-  return html`<aside class="dock" aria-labelledby="dock-h">
+  return html`<aside class="dock" aria-labelledby="dock-h" style=${`--dock-w: ${width}px`}>
+    <${WidthHandle} width=${width} onWidth=${setWidth} />
     <div class="dock-head"><span class="dock-s small" aria-hidden="true">S</span>
       <span class="stack" style="gap: 0; flex: 1; min-width: 0"><h2 id="dock-h" style="font-size: 17px; font-weight: 600">Steward</h2>
         <button class="link dock-modelname mono" aria-expanded=${modelOpen ? "true" : "false"} aria-label=${`Steward model${state && state.model ? `: ${state.model}` : ""}. Change`} onClick=${() => setModelOpen(!modelOpen)}>${(state && state.model) || "model"}</button></span>
       <span class="badge ${STATE_BADGE[words] || ""}">${words}</span>
-      <button class="square" aria-label="Plan new work with the Steward" title="Plan new work with the Steward" onClick=${planFromSteward}>＋</button>
       <button class="square" aria-label="Collapse the Steward to a rail" onClick=${() => setRail(true)}>›</button></div>
     <${StewardModel} running=${running} current=${state && state.model} open=${modelOpen} />
-    <div class="dock-sees"><${Eyebrow} soft>Sees<//><span class="label" style="padding-right: 8px">${seen.screen}</span>${seen.selection && html`<span class="label mono" style="padding-right: 8px">${seen.selection}</span>`}</div>
+    <div class="dock-sees"><${Eyebrow} soft>Sees<//>${chips ? chips.map((c) => html`<span class="label ${c.kind === "view" ? "" : "mono"}" style="padding-right: 8px">${c.label}</span>`)
+      : told ? html`<span class="small soft">hubd didn't answer: the Steward may not know where you are.</span>` : html`<span class="label" style="padding-right: 8px">${seen.screen}</span>`}</div>
+    ${waiting > 0 && html`<button class="dock-waiting row" onClick=${() => needsYou({ filter: "steward" })}><span>${count(waiting, "interaction")} from the Steward ${waiting === 1 ? "waits" : "wait"} for you</span><span aria-hidden="true">→</span></button>`}
+    ${planning ? html`<${PlanWithSteward} chips=${chips || [{ kind: "view", label: seen.screen }]} running=${running} where=${seen.screen} onClose=${() => setPlanning(false)} />`
+      : html`<button class="plain dock-planbtn" onClick=${() => setPlanning(true)}>＋ Plan new work with the Steward</button>`}
     <${StewardSession} state=${state || { state: "Not started", queued: 0 }} seen=${seen} buttons=${buttons} reload=${reload} asks=${asks} />
     <p class="small soft" style="margin: 0; padding: 0 12px 12px">A configured session like any other: no shell, reads everything, and every write asks you first.</p>
   </aside>`;
