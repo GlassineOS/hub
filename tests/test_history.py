@@ -37,10 +37,10 @@ class FakeGh:
 
 class FakeShells:
     def __init__(self):
-        self.live, self.made, self.killed = set(), [], []
+        self.live, self.made, self.killed, self.cwds = set(), [], [], {}
 
     async def list(self):
-        return [{"name": n} for n in self.live]
+        return [{"name": n, "cwd": self.cwds.get(n, "")} for n in self.live]
 
     async def new(self, name, cwd, command):
         self.live.add(name)
@@ -620,3 +620,21 @@ def test_running_again_is_by_the_conversation_not_the_name(world):
     # Once it runs, its row goes and the older conversation still offers its own buttons.
     run(a.resume_past(newer))
     assert {r["id"]: r["running_again"] for r in run(a.past())} == {old: False}
+
+
+def test_a_plain_shell_in_a_worktree_keeps_it(world):
+    """#36 review, 4: a plain shell started in a session's worktree (FR-015 offers that) is in use, so "Select safe" doesn't
+    take it and removal refuses it when you confirm; elsewhere, it doesn't count."""
+    a, gh, _tmp = world
+    name = full_session(a, "shellhere")
+    ended(a, name)
+    merged(a, gh, name, 1)
+    assert (row_of(a, name)["state"], row_of(a, name)["pr_settled"]) == ("safe", True)
+    a.shells.live.add("shell-1")
+    a.shells.cwds["shell-1"] = str(a.work / name / "boot" / "sub")
+    row = row_of(a, name)
+    assert (row["state"], row["what"], row["pr_settled"]) == ("inuse", "A shell is open in it: shell-1.", False)
+    removed = run(a.cleanup_remove([name]))
+    assert removed["removed"] == [] and (a.work / name / "boot").exists()
+    a.shells.cwds["shell-1"] = str(a.work / f"{name}-other")  # a neighbour whose name starts the same isn't inside
+    assert row_of(a, name)["state"] == "safe"

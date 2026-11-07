@@ -2395,13 +2395,19 @@ class Agents:
         """Remote refs here say what was pushed once. A branch deleted since then may be the only copy gone."""
         return bool((await self._git(*_OVER_HTTPS, "ls-remote", "origin", f"refs/heads/{scan['branch']}", cwd=scan["main"])).strip())
 
-    async def _cleanup_row(self, name: str, checkouts: list[Path], live: set[str]) -> dict:
+    async def _cleanup_row(self, name: str, checkouts: list[Path], live: set[str], open_in: dict[str, str] | None = None) -> dict:
+        """open_in: each other tmux session's name and its pane's folder, as tmux reports it."""
         directory = self.sessions / name
         running = name in self._starting or (name in live and not (directory / ENDED_FILE).exists())
         row = {"id": name, "path": str(checkouts[0].parent if checkouts else self.work / name), "size": 0, "commands": [], "merged_at": None, "pr_settled": False}
         row["size"] = sum([await asyncio.to_thread(self._size, c) for c in checkouts])
         if running:
             return {**row, "state": "inuse", "what": "A session is running here."}
+        # #36 review, 4: a plain shell started in a session's worktree is in use too, by the folder its pane is in now.
+        root = Path(os.path.realpath(row["path"]))
+        shells = sorted(n for n, cwd in (open_in or {}).items() if n != name and cwd and Path(os.path.realpath(cwd)).is_relative_to(root))
+        if shells:
+            return {**row, "state": "inuse", "what": f"A shell is open in it: {', '.join(shells)}."}
         try:
             scans = [await self._scan_checkout(c, name) for c in checkouts]
         except (AgentError, OSError):
@@ -2458,16 +2464,18 @@ class Agents:
     async def cleanup_scan(self) -> list[dict]:
         if self.gh is None:
             raise AgentError("no gh to check pull requests")
-        live = {s["name"] for s in await self.shells.list()}
-        rows = [await self._cleanup_row(n, c, live) for n, c in sorted(self._cleanup_folders().items())]
+        shells = await self.shells.list()
+        live, open_in = {s["name"] for s in shells}, {s["name"]: s.get("cwd") for s in shells}
+        rows = [await self._cleanup_row(n, c, live, open_in) for n, c in sorted(self._cleanup_folders().items())]
         return [{k: v for k, v in r.items() if not k.startswith("_")} for r in rows]
 
     async def _remove_if_safe(self, name: str) -> str | None:
         """What went wrong, or nothing. Holds off resumes: what it looks at has to stay true until it's done."""
         async with self._resuming:
-            live = {s["name"] for s in await self.shells.list()}
+            shells = await self.shells.list()
+            live, open_in = {s["name"] for s in shells}, {s["name"]: s.get("cwd") for s in shells}
             folders = self._cleanup_folders()
-            row = await self._cleanup_row(name, folders[name], live) if name in folders else {"state": "gone"}
+            row = await self._cleanup_row(name, folders[name], live, open_in) if name in folders else {"state": "gone"}
             if row["state"] != "safe":
                 return row.get("what") or "It's gone already."
             try:
