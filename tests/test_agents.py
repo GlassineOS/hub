@@ -317,6 +317,18 @@ def test_start_builds_a_locked_down_session(tmp_path, remote):
     assert str(checkout) not in subprocess.run(["git", "worktree", "list"], cwd=tmp_path / "state" / "repos" / "boot", capture_output=True, text=True).stdout
 
 
+def test_a_session_describes_its_persona_badge(tmp_path):
+    a = agents(tmp_path)
+    for name, persona in (("pr-review-boot-5", "reviewer"), ("old-one", "a-persona-since-removed")):
+        (a.sessions / name).mkdir(parents=True)
+        (a.sessions / name / "session.json").write_text(json.dumps({"title": "t", "object": "pr", "config": {
+            "repo": "boot", "number": 5, "model": "sonnet", "effort": "high", "persona": persona, "action": "pr-review"}}))
+    review = a.describe("pr-review-boot-5")
+    assert (review["persona_name"], review["initials"], review["family"]) == ("Code reviewer", "CR", "review")
+    old = a.describe("old-one")
+    assert (old["persona_name"], old["initials"], old["family"]) == ("a-persona-since-removed", None, None)
+
+
 def test_a_brief_cant_break_out_of_the_prompt_file(tmp_path, remote):
     a = agents(tmp_path, clone_base=remote)
     a.shells = FakeShells()
