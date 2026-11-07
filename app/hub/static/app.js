@@ -2856,7 +2856,13 @@ function ApiBudget() {
 
 // How much of the sessions' usage allowance is used (001 FR-006): words and a bar, "low" from 80 %. hubd reads it
 // from the sessions' status lines; with no rate limit and no allowance set it says it doesn't know.
-const resetWords = (r) => (typeof r === "number" ? new Date(r * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : String(r));
+// A reset on another day names the day, so a seven-day window days away doesn't read as later today.
+const resetWords = (r) => {
+  if (typeof r !== "number") return String(r);
+  const at = new Date(r * 1000);
+  const time = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return at.toDateString() === new Date().toDateString() ? time : `${at.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })} ${time}`;
+};
 function UsageMeter() {
   const { data, error } = useLoad(() => api("usage"), [], 60000);
   const u = data || { known: false, says: error ? "usage can't be read" : "usage not known" };

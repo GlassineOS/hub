@@ -3,7 +3,9 @@
 import asyncio
 import json
 import re
+import shutil
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -1336,6 +1338,18 @@ def test_a_page_that_cant_reach_hubd_is_told_so_not_signed_out():
     client.cookies.set("hub_session", "nope")
     assert client.get("/api/interactions").status_code == 401
     assert "hostPoll.error || listed.error" in _component(_app_js(), "Hub")
+
+
+def test_a_reset_on_another_day_names_the_day():
+    words = re.search(r"const resetWords = .*?\n};", _app_js(), re.S)[0]
+    assert "toDateString() === new Date().toDateString() ? time :" in words and "toLocaleDateString" in words
+    node = shutil.which("node")
+    if node:  # run it: today gives the time alone, a week on gives the date too
+        out = subprocess.run([node, "-e", words.replace("const resetWords", "var resetWords") + """
+const now = Math.floor(Date.now() / 1000);
+console.log(JSON.stringify([resetWords(now), resetWords(now + 7 * 86400), resetWords("Monday")]));"""], capture_output=True, text=True, check=True).stdout
+        today, later, text = json.loads(out)
+        assert len(later) > len(today) + 4 and text == "Monday"
 
 
 def test_a_failed_reload_keeps_what_the_views_showed():
