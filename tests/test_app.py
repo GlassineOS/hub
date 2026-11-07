@@ -1564,6 +1564,8 @@ def test_every_result_type_has_its_view_in_launch_and_in_needs_you():
     assert 'answer("apply")' in view and 'answer("keep")' in view and 'answer("dismiss")' in view
     assert "<${ResultView} " in _component(script, "InteractionCard") and "<${ResultView} " in _component(script, "LaunchResult")
     drafts = _component(script, "DraftsResult")
+    # an open edit isn't saved by File: both are off until it's saved or cancelled
+    assert "Boolean(editing) || !chosen.length || unknown.length > 0} onClick=${file}" in drafts and "Boolean(editing) || !chosen.length} onClick=${hand}" in drafts
     assert "`new-work/${item.id}/file`" in drafts and "`new-work/${item.id}/hand`" in drafts and "`new-work/${item.id}/edit`" in drafts
     assert "dangerouslySetInnerHTML" not in view, "a session's text is shown, never rendered"
     # the findings are a session's words: the fix session's brief says whose they are, and shows them in full

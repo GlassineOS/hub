@@ -1953,9 +1953,10 @@ function DraftsResult({ item, reload, onNote }) {
     })}
     ${unknown.length > 0 && html`<p class="small" role="status">Filing waits: can't tell whether ${unknown.join(", ")} is public${overviewError ? ` (${overviewError})` : ""}. Trying again.</p>`}
     <${Err} text=${act.error} />
+    ${editing && html`<p class="small" role="status">Save the draft or cancel first: filing sends the saved text, not what is typed above.</p>`}
     ${item.state === "done" && left > 0 && html`<div class="row">
-      <button class=${steward ? "plain" : "primary"} disabled=${act.busy || !chosen.length || unknown.length > 0} onClick=${file}>${chosen.length ? fileLabel : "Choose drafts to file"}</button>
-      <button class=${steward ? "primary" : "plain"} disabled=${act.busy || !chosen.length} onClick=${hand}>${steward ? `Send ${chosen.length} to the Steward` : "Send to the Steward instead"}</button>
+      <button class=${steward ? "plain" : "primary"} disabled=${act.busy || Boolean(editing) || !chosen.length || unknown.length > 0} onClick=${file}>${chosen.length ? fileLabel : "Choose drafts to file"}</button>
+      <button class=${steward ? "primary" : "plain"} disabled=${act.busy || Boolean(editing) || !chosen.length} onClick=${hand}>${steward ? `Send ${chosen.length} to the Steward` : "Send to the Steward instead"}</button>
 </div>`}
   </div>`;
 }
