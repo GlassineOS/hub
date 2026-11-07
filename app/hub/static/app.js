@@ -3705,7 +3705,7 @@ function movedRoute(route) {
 // The repositories chosen on the page, from the address: Work's one (or a list), Knowledge's list. hubd checks them again.
 const SEEN_REPOS_MOST = 10;
 function seenRepos(value) {
-  const names = String(value || "").split(",").filter((r) => /^\.?[A-Za-z0-9_][A-Za-z0-9._-]*$/.test(r));
+  const names = String(value || "").split(",").filter((r) => /^\.?[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$/.test(r));
   return [...new Set(names)].slice(0, SEEN_REPOS_MOST);
 }
 
@@ -3714,7 +3714,7 @@ function seenFrom(route) {
   const moved = movedRoute(route);
   const path = moved.path, tab = path === "work" ? moved.query.tab || "prs" : path;
   // From the address, which a link can fill with anything. Same pattern as hubd's.
-  const item = (repo, n) => (/^[A-Za-z0-9._-]+$/.test(repo || "") && /^[0-9]+$/.test(n || "") ? `${repo}#${n}` : null);
+  const item = (repo, n) => (/^[A-Za-z0-9._-]{1,100}$/.test(repo || "") && /^[0-9]{1,20}$/.test(n || "") ? `${repo}#${n}` : null);
   const repos = path === "work" ? seenRepos(moved.query.repo) : path === "knowledge" ? seenRepos(moved.query.repos) : [];
   if (path === "work" && item(q.at || q.repo, q.item)) return { screen: "Work", kind: SEEN_KIND[tab] || null, selection: item(q.at || q.repo, q.item), repos };
   if (path === "work" && tab === "queue") return { screen: "Queue", kind: null, selection: null, repos };

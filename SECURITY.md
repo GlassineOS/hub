@@ -496,7 +496,7 @@ worded to match a likely query can reach a run about something else. So:
   outsider's text there unread.
 - Where you are in the hub joins each of your turns in a session (`agent.context`, a login op): the screen, the open item,
   and the repositories chosen on the page. hubd checks each against the same patterns as elsewhere (a repository name is a
-  name, each once, at most 10), writes the line from the checked values only, and answers with the chips the Steward panel
+  name of at most 100 characters, as on GitHub, each once, at most 10), writes the line from the checked values only, and answers with the chips the Steward panel
   shows, made from the same values (010 FR-004): more than three repositories are told, and shown, only as a count. No tool
   call or session token sets it. A name in the address is only a name: the line says what you chose, not what it holds.
   The line is one per session and the last page to write it wins, so the panel shows the chips `agent.state` gives for the

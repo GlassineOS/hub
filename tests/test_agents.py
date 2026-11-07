@@ -1990,6 +1990,20 @@ def test_the_chosen_repositories_join_the_context_and_the_chips_show_all_of_it(t
     assert "Work screen, with .github chosen." in fire("UserPromptSubmit")
 
 
+def test_the_names_in_the_context_are_as_long_as_github_allows_and_no_longer(tmp_path):
+    """A link fills them and they join every turn as the hub's own words, so a sentence-length name is refused."""
+    a, name, directory, fire = bridged(tmp_path)
+    longest = "r" * 100
+    assert a.set_context(name, "Work", "run", f"{longest}#42414481439", [longest])["sees"][1:] == [
+        {"kind": "repo", "label": longest}, {"kind": "item", "label": f"run {longest}#42414481439"}]  # a run's id is 11 digits
+    for repos, selection in (([longest + "r"], None), (None, f"{longest}r#1"), (None, "hub#" + "1" * 21)):
+        with pytest.raises(AgentError):
+            a.set_context(name, "Work", "run", selection, repos)
+    with pytest.raises(AgentError):
+        asyncio.run(a.press(name, "should-merge", "pull request", f"{longest}r#1"))  # the buttons check the same
+    assert f"{longest}#42414481439." in fire("UserPromptSubmit")
+
+
 def test_the_state_shows_the_chips_of_the_line_on_disk_whichever_page_wrote_it(tmp_path):
     """010 FR-004: the line is one per session and the last write wins, so the panel shows hubd's chips for what's on disk."""
     a, name, directory, fire = bridged(tmp_path)

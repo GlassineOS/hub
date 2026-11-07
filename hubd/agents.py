@@ -151,7 +151,11 @@ OLD_SCREENS = {"Docs": "Knowledge"}
 def screen_of(screen):
     return OLD_SCREENS.get(screen, screen) if isinstance(screen, str) else screen
 SEEN_KINDS = ("issue", "pull request", "run")
-_SELECTION_RE = re.compile(r"[A-Za-z0-9._-]+#[0-9]+")
+# Names as long as GitHub allows (100), and ids as long as an int64 (a run's are already 11 digits): a link fills these, and
+# they join every turn as the hub's own words, so a crafted sentence-length name doesn't fit.
+MAX_REPO_NAME = 100
+_SELECTION_RE = re.compile(rf"[A-Za-z0-9._-]{{1,{MAX_REPO_NAME}}}#[0-9]{{1,20}}")
+_SEEN_REPO_RE = re.compile(rf"\.?[A-Za-z0-9_][A-Za-z0-9._-]{{0,{MAX_REPO_NAME - 1}}}")  # .github is a repository
 MAX_SEEN_REPOS = 10  # as many as Knowledge lets you choose
 SEES_NAMED = 3  # more than this are told, and shown, only as a count (010 FR-004)
 SEND_POLL = 1  # seconds, while something waits to be sent
@@ -240,7 +244,7 @@ def _check_repos(repos) -> list[str]:
         return []
     if not isinstance(repos, list) or len(repos) > MAX_SEEN_REPOS:
         raise AgentError(f"repos is a list of at most {MAX_SEEN_REPOS} names")
-    if not all(isinstance(r, str) and _REPO_RE.fullmatch(r) for r in repos) or len(set(repos)) != len(repos):
+    if not all(isinstance(r, str) and _SEEN_REPO_RE.fullmatch(r) for r in repos) or len(set(repos)) != len(repos):
         raise AgentError("not a repository name, or one named twice")
     return repos
 

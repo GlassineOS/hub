@@ -2645,3 +2645,12 @@ def test_the_steward_chips_follow_the_line_on_disk_not_this_tabs_last_answer():
     # Back on a tab it tells the Steward its place again; a hidden tab writes nothing.
     assert 'window.addEventListener("focus", again)' in panel and 'document.addEventListener("visibilitychange", again)' in panel
     assert "if (document.hidden) return undefined;" in panel and "}, [running, seenKey, back]);" in panel
+
+
+def test_the_page_drops_what_hubd_would_refuse_in_the_context():
+    script = _app_js()
+    # The same caps as hubd's: a name as long as GitHub allows, an id as long as an int64.
+    assert "/^\\.?[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$/" in _component(script, "seenRepos")
+    assert "/^[A-Za-z0-9._-]{1,100}$/.test(repo" in _component(script, "seenFrom") and "/^[0-9]{1,20}$/.test(n" in _component(script, "seenFrom")
+    from hubd import agents
+    assert agents._SEEN_REPO_RE.pattern == r"\.?[A-Za-z0-9_][A-Za-z0-9._-]{0,99}" and agents._SELECTION_RE.pattern == r"[A-Za-z0-9._-]{1,100}#[0-9]{1,20}"
