@@ -45,7 +45,7 @@ from .codemap import UNREADABLE, CodeMaps, MapError
 from .codesearch import CodeSearch, SearchError
 from .ghpolicy import ORG, Refused
 from .history import History
-from .results import APPLY_TOOLS
+from .results import APPLY_TOOLS, HANDED_IN
 from .seeds import SeedError, Seeds, remove_tree
 from .shells import ShellError, Shells
 
@@ -73,7 +73,10 @@ PLANNER_TOOLS = {"pr": ["get_pr", "get_pr_diff_summary", "docs_search", "work_se
                  "repo": ["get_issue", "list_issues", "list_prs", "get_pr", "docs_search", "work_search", *_REPO_READERS],
                  "knowledge": ["get_issue", "get_pr", "docs_search", "work_search", *_REPO_READERS]}
 # What an action can be about with no repository: the whole project (the Steward), or a question (008 FR-007).
-NO_REPO_OBJECTS = ("project", "knowledge")
+NO_REPO_OBJECTS = ("project", "knowledge", "notes")
+# 009: the one tool that reads the notes for a session. Only an action about the notes may list it, and only one that reads
+# and hands in: notes never passed the safety scan (SECURITY.md, Notes).
+NOTES_TOOL = "notes_find"
 # Read-only checkouts that live with the session: a pull request's head, or a repository's default branch.
 _DETACHED = ("pr", "default")
 MAX_BRIEF = 8000
@@ -278,6 +281,18 @@ class Library:
             if not isinstance(result_tools, list) or set(result_tools) - set(APPLY_TOOLS.get(action["result"], ())):
                 raise LibraryError(f"actions/{action['id']}.toml: result_tools for a {action['result']} result are among "
                                    f"{', '.join(APPLY_TOOLS.get(action['result'], ())) or 'none'}")
+            if NOTES_TOOL in action["hub_tools"]:
+                # What it reads leaves only in what it hands in, which a login reads first. So it hands in, through the tool for
+                # its result, and has no other way out: no shell, write or post tool, and not plan_work, which is read-only but
+                # whose notes reach a planner as yours once you press Start (SECURITY.md, Notes).
+                beyond = set(action["hub_tools"]) - (READS_ONLY - {"plan_work"}) - {NOTES_TOOL, "submit_drafts"}
+                hand_in = "submit_drafts" if action["result"] == "drafts" else "submit_result"
+                hands_in = action["result"] in (*HANDED_IN, "drafts") and hand_in in action["hub_tools"]
+                if action["object"] != "notes" or _full(action) or beyond or action.get("asks_first") or action.get("all_repos") \
+                        or set(action["tools"]) - READING_TOOLS or not hands_in:
+                    raise LibraryError(f"actions/{action['id']}.toml: {NOTES_TOOL} is for a locked action about the notes that only reads "
+                                       f"and hands in{': not ' + ', '.join(sorted(beyond)) if beyond else ''}"
+                                       f"{'' if hands_in else f': its result is handed in with {hand_in}, and it lists it'}")
             verb = action.get("verb")
             if verb is None:
                 continue
@@ -1452,7 +1467,7 @@ class Agents:
         action = self.library.action(arguments.get("action") if isinstance(arguments, dict) else None)
         if action["object"] == "project":
             raise AgentError(f"{action['id']} can't be started by a session")
-        if action["object"] in ("repo", "knowledge"):
+        if action["object"] in ("repo", "knowledge", "notes"):
             raise AgentError(f"{action['id']} is new work: suggest it with plan_work, and the person starts it")
         validate(self.library, self.defaults(action["id"], arguments.get("repo"), arguments.get("number")))
         return action
@@ -1805,6 +1820,8 @@ class Agents:
         record = self._started_record(name) if isinstance(name, str) and _NAME_RE.fullmatch(name) else None
         if record is None:
             raise AgentError(f"no started session named {name}")
+        if NOTES_TOOL in record["config"].get("hub_tools", ()):  # its words carry notes, which only a login reads
+            raise AgentError(f"{name} reads the notes: what it says is for the person, in the hub")
         state = next(s["state"] for s in await self.started() if s["name"] == name)
         path = self._transcript(record["session_id"])
         said: list[str] = []

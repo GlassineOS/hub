@@ -201,7 +201,11 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
 
     async def notes_status(_r, _b, token):
         reply = await hubd.call(op="notes.status", token=token)
-        return {"here": reply["here"], "says": reply["says"]}
+        return {"here": reply["here"], "says": reply["says"], "indexing": reply.get("indexing", False)}
+
+    async def notes_totals(_r, _b, token):  # 009 FR-005
+        reply = await hubd.call(op="notes.totals", token=token)
+        return {k: reply.get(k) for k in ("here", "says", "by_label", "by_topic", "source", "rows")}
 
     async def notes_find(_r, b, token):  # a POST, so what you look for stays out of addresses and logs
         reply = await hubd.call(op="notes.find", token=token, words=b.get("words"), limit=b.get("limit"))
@@ -396,9 +400,10 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
 
     async def result_move(r, b, token):
         move = p(r, "move")
-        if move not in ("apply", "keep", "dismiss"):
+        if move not in ("apply", "keep", "dismiss", "resolve"):
             raise BadRequest(f"can't {move} a result")
-        extra = {"indexes": b.get("indexes")} if move == "apply" else {"kept": b.get("kept", True)} if move == "keep" else {}
+        extra = {"indexes": b.get("indexes")} if move == "apply" else {"kept": b.get("kept", True)} if move == "keep" else \
+            {"index": b.get("index"), "found": b.get("found")} if move == "resolve" else {}
         return {"result": (await hubd.call(op=f"result.{move}", token=token, id=p(r, "id"), **extra))["result"]}
 
     # --- what sessions ask ------------------------------------------------------------
@@ -417,7 +422,7 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         return reply
 
     async def interaction_answer(r, b, token):
-        fields = {k: b.get(k) for k in ("verdict", "reason", "answers", "words", "scope", "ends", "why", "where")}
+        fields = {k: b.get(k) for k in ("verdict", "reason", "answers", "words", "scope", "ends", "why", "where", "indexes", "index", "found")}
         return {"item": (await hubd.call(op="interaction.answer", token=token, id=p(r, "id"), **fields))["item"]}
 
     async def agent_actions(r, _b, token):
@@ -526,6 +531,7 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         Route("/api/usage", api(usage_status)),
         Route("/api/notes", api(notes_status)),
         Route("/api/notes/find", api(notes_find), methods=["POST"]),
+        Route("/api/notes/totals", api(notes_totals)),
         Route("/api/repo-copies", api(repo_copies)),
         Route("/api/changes", api(changes)),
         Route("/api/work/status", api(work_status)),

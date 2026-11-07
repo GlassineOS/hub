@@ -15,6 +15,7 @@ from hubd.devices import Devices
 from hubd.agents import Agents, Library
 from hubd.ghrun import Gh
 from hubd.newwork import NewWork
+from hubd.notes import Notes
 from hubd.results import Results
 from hubd.server import Hubd, serve
 from hubd.shells import Shells
@@ -39,7 +40,9 @@ def build(socket, env=os.environ):
                 work=NewWork(Path(env["DEV_STATE"]) / "newwork") if agents else None,
                 result_store=Results(Path(env["DEV_STATE"]) / "results") if agents else None,
                 device_reports=Devices(Path(env["DEV_STATE"]) / "devices") if agents else None,
-                decision_store=Decisions(Path(env["DEV_STATE"]) / "decisions") if agents else None)
+                decision_store=Decisions(Path(env["DEV_STATE"]) / "decisions") if agents else None,
+                # The dev workspace has no notes tool, so Notes shows that state (009 FR-004).
+                notes_search=Notes(Path(env["DEV_WORKSPACE"])) if "DEV_WORKSPACE" in env else None)
 
 
 async def main():

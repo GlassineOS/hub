@@ -5,9 +5,11 @@ A session's own token hands in one result of its action's type (submit_result), 
 reads it on a card and applies it: a review posted, labels set, a report kept. Applying writes only through the tools the
 producing action names for it (`result_tools` in its file), as that persona's App when there is one, so a result can't
 do more than its session's action allows. Every move is on disk, so a restart keeps what was handed in; one that died
-while applying goes back to pending with a note to check GitHub first.
+while applying goes back to pending with a note to check GitHub first. A notes result keeps each operation's state on disk
+as it starts and ends, so after a restart what finished is marked, and the one that was running is unknown until you look.
 
-Drafts stay in the NewWork record (`clean_drafts`), and notes operations come with 009/PR 1.
+Drafts stay in the NewWork record (`clean_drafts`). A notes result is note operations (009 FR-006): each carries the command
+hubd built for it and its own state, and applying one runs the notes tool for a login, never for a token.
 """
 from __future__ import annotations
 
@@ -18,15 +20,23 @@ import secrets
 import time
 from pathlib import Path
 
+from . import notes as notes_ops
+
 # What a session hands in, per type. pr results are made by the hub when it finds the session's pull request.
-HANDED_IN = ("comment", "labels", "findings", "report")
+HANDED_IN = ("comment", "labels", "findings", "report", "notes")
 TYPES = (*HANDED_IN, "pr")
 # The tools a person's press writes through, per type. An action lists the ones it may use as result_tools.
-APPLY_TOOLS = {"comment": ("review_pr",), "labels": ("label_issue", "edit_issue")}
+APPLY_TOOLS = {"comment": ("review_pr",), "labels": ("label_issue", "edit_issue"), "notes": ("notes_apply",)}
+# A note operation's own state. running is on disk only while it runs; unknown is one that may or may not have gone in (hubd
+# stopped, or the tool gave no answer in time), which doesn't run again until a login has looked and said which.
+OP_STATES = ("pending", "running", "applied", "failed", "unknown")
 STATES = ("pending", "applying", "applied", "dismissed")
 KEEP = 200  # results kept; settled ones go first, oldest first
 PAGE = 20
 INTERRUPTED = "hubd restarted while this was being applied: check GitHub before applying it again."
+NOTES_INTERRUPTED = ("hubd restarted while these were being applied. What finished is marked; the one that was running is "
+                     "unknown: look at its topic, then say whether it's in the notes. It doesn't run again until you do.")
+OP_INTERRUPTED = "hubd restarted while this ran, so it may or may not be in the notes."
 REVIEW_EVENTS = ("comment", "request-changes", "approve")
 SIDES = ("LEFT", "RIGHT")
 _ID_RE = re.compile(r"r-[0-9a-f]{12}")
@@ -137,6 +147,20 @@ def clean_payload(kind: str, payload, items: list[dict]) -> dict:
         followups = [_text(f, "a follow-up", 500) for f in _list(p.get("followups"), "followups", 10)]
         return {"question": _text(p["question"], "the question", 2000), "answer": _text(p["answer"], "the answer", 20000),
                 "unsettled": unsettled, "sources": sources, "followups": followups}
+    if kind == "notes":  # 009 FR-006: proposed, never applied by the session; no op deletes (005 FR-021)
+        p = _closed(payload, {"ops"}, {"summary"}, "a notes result")
+        ops = _list(p["ops"], "ops", notes_ops.MAX_OPS)
+        if not ops:
+            raise ResultError("propose at least one operation")
+        cleaned = []
+        for op in ops:
+            try:
+                clean = notes_ops.clean_op(op)
+            except notes_ops.OpError as e:
+                raise ResultError(str(e)) from None
+            cleaned.append({**clean, "command": notes_ops.command_of(clean), "state": "pending", "said": None})
+        summary = _text(p.get("summary") or "", "the summary", 2000, empty=True)
+        return {"ops": cleaned, "summary": summary}
     if kind == "pr":  # 005 FR-016: made by the hub, not handed in
         p = _closed(payload, {"repo", "number"}, set(), "a pr result")
         if not isinstance(p["repo"], str) or not _REPO_RE.fullmatch(p["repo"]) or ".." in p["repo"]:
@@ -162,7 +186,11 @@ class Results:
                 continue
             self.records[record["id"]] = record
             if record["state"] == "applying":  # it may or may not have gone out
-                record.update(state="pending", note=INTERRUPTED)
+                ops = record["payload"].get("ops") if record.get("type") == "notes" and isinstance(record.get("payload"), dict) else None
+                for op in ops if isinstance(ops, list) else ():
+                    if isinstance(op, dict) and op.get("state") == "running":
+                        op.update(state="unknown", said=OP_INTERRUPTED)
+                record.update(state="pending", note=NOTES_INTERRUPTED if record.get("type") == "notes" else INTERRUPTED)
                 self._save(record)
 
     def _save(self, record: dict) -> None:
@@ -257,6 +285,13 @@ class Results:
         self._save(record)
         return record
 
+    def save_op(self, result_id, index: int, **fields) -> dict:
+        """One note operation's state, on disk as soon as it changes, while its result is being applied."""
+        record = self.get(result_id)
+        record["payload"]["ops"][index].update(fields)
+        self._save(record)
+        return record
+
     def keep(self, result_id, kept) -> dict:
         record = self.get(result_id)
         if record["type"] != "report":
@@ -281,4 +316,4 @@ class Results:
         self._save(record)
 
 
-__all__ = ["Results", "ResultError", "clean_payload", "TYPES", "HANDED_IN", "APPLY_TOOLS", "INTERRUPTED"]
+__all__ = ["Results", "ResultError", "clean_payload", "TYPES", "HANDED_IN", "APPLY_TOOLS", "INTERRUPTED", "NOTES_INTERRUPTED"]

@@ -1,0 +1,15 @@
+order = 20
+ceiling = "Read-only. Proposes note operations; you apply them; nothing is deleted."
+object = "notes"
+result = "notes"
+result_tools = ["notes_apply"]
+title = "Compact notes"
+summary = "Reads a topic's notes and proposes merges, distillations, answers and supersedes, each with the exact notes command."
+plan = false
+personas = ["archivist"]
+prompt = "notes-compact"
+models = ["sonnet", "opus", "haiku"]
+efforts = ["high", "xhigh", "medium"]
+tools = ["AskUserQuestion"]
+hub_tools = ["notes_find", "docs_search", "work_search", "get_issue", "get_pr", "submit_result"]
+checkout = false
