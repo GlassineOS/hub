@@ -8,6 +8,7 @@ query($org: String!, $repo: String!, $number: Int!) {
           isOutdated
           path
           line
+          diffSide
           comments(first: 50) {
             nodes { author { login } body createdAt url diffHunk }
           }

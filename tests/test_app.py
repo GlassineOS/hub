@@ -657,7 +657,7 @@ def test_rollup_of_sub_issues():
 
 # --- review threads ------------------------------------------------------------------------------
 THREADS = {"repository": {"pullRequest": {"reviewThreads": {"nodes": [{
-    "id": "PRRT_1", "isResolved": False, "isOutdated": True, "path": "a.c", "line": 88,
+    "id": "PRRT_1", "isResolved": False, "isOutdated": True, "path": "a.c", "line": 88, "diffSide": "RIGHT",
     "comments": {"nodes": [{"author": None, "body": "Fix", "createdAt": "2026-01-01T00:00:00Z", "url": "u", "diffHunk": "@@"}]}}]}}}}
 
 
@@ -676,7 +676,7 @@ def test_threads_are_read_from_github_and_shaped():
     h, seen = thread_hubd()
     rows = asyncio.run(GitHub(h, CONFIG).pr_threads("hub", 5))
     assert seen == [("pr_threads", {"repo": "hub", "number": 5})]
-    assert rows == [{"id": "PRRT_1", "resolved": False, "outdated": True, "path": "a.c", "line": 88,
+    assert rows == [{"id": "PRRT_1", "resolved": False, "outdated": True, "path": "a.c", "line": 88, "side": "RIGHT",
                      "comments": [{"author": None, "body": "Fix", "createdAt": "2026-01-01T00:00:00Z", "url": "u", "hunk": "@@"}]}]
 
 
@@ -927,6 +927,106 @@ def test_a_page_from_before_the_change_is_refused_a_merge(client, hubd):
     r = client.post("/api/prs/boot/1/merge", json={"method": "squash"}, headers=ORIGIN)
     assert r.status_code == 400 and "reload the page" in r.json()["error"]
     assert not hubd.commands
+
+
+@pytest.mark.parametrize("pr, threads, words", [
+    ({"checks": "passing", "reviewDecision": "APPROVED"}, 0, []),
+    ({"checks": "pending", "reviewDecision": "APPROVED"}, 0, ["checks are still running"]),
+    ({"checks": "failing", "reviewDecision": "APPROVED"}, 0, ["checks have failed"]),
+    ({"checks": "failing", "reviewDecision": None}, 1, ["checks have failed", "not approved yet", "1 review thread open"]),
+    ({"checks": "none", "reviewDecision": "APPROVED"}, 0, []),
+    ({"checks": "passing", "reviewDecision": "REVIEW_REQUIRED"}, 0, ["not approved yet"]),
+    ({"checks": "passing", "reviewDecision": ""}, None, ["not approved yet"]),
+    ({"checks": "passing", "reviewDecision": "CHANGES_REQUESTED"}, 0, ["changes were requested"]),
+    ({"checks": "passing", "reviewDecision": "APPROVED"}, 1, ["1 review thread open"]),
+    ({"checks": "pending", "reviewDecision": None}, 3, ["checks are still running", "not approved yet", "3 review threads open"]),
+])
+def test_merge_blockers_name_each_reason(pr, threads, words):
+    from hub.github import merge_blockers
+    assert [b["why"] for b in merge_blockers(pr, threads)] == words
+
+
+def _open_pr(**extra):
+    return json.dumps({"number": 4, "title": "t", "state": "OPEN", "headRefOid": HEAD, "baseRefName": "main", "statusCheckRollup": [],
+                       "reviewDecision": "APPROVED", "files": [], "labels": [], **extra})
+
+
+def test_an_open_pr_says_how_far_behind_it_is_from_compare(github, hubd):
+    hubd.answers["pr view 4"] = _open_pr()
+    hubd.answers["api repos/GlassineOS/boot/compare/main..."] = json.dumps({"behind_by": 3, "ahead_by": 1})
+    row = asyncio.run(github.pr_page("boot", 4))
+    assert row["behind_by"] == 3 and row["open_threads"] == 0
+    assert ["api", f"repos/GlassineOS/boot/compare/main...{HEAD}"] in [c[0] for c in hubd.commands]
+    assert [b["why"] for b in row["merge_blockers"]] == [], "no checks, approved, no threads: nothing stops the merge"
+
+
+def test_a_failed_compare_leaves_behind_unknown(github, hubd):
+    hubd.answers["pr view 4"] = _open_pr()
+    hubd.answers["api repos/GlassineOS/boot/compare"] = GhError("Not Found")
+    assert asyncio.run(github.pr_page("boot", 4))["behind_by"] is None
+
+
+def test_a_closed_pr_asks_nothing_more(github, hubd):
+    hubd.answers["pr view 4"] = _open_pr(state="MERGED", mergedBy={"login": "moritz"})
+    row = asyncio.run(github.pr_page("boot", 4))
+    assert "behind_by" not in row and row["mergedBy"]["login"] == "moritz"
+    assert not any(c[0][0] == "api" for c in hubd.commands)
+
+
+def test_pr_files_marks_large_files_and_doesnt_guess_at_binary_ones(github, hubd):
+    hubd.answers["pr view 4"] = _open_pr(files=[{"path": "a.py", "additions": 10, "deletions": 2},
+                                                  {"path": "big.json", "additions": 390, "deletions": 11},
+                                                  {"path": "moved.py", "additions": 0, "deletions": 0}])
+    files = asyncio.run(github.pr_files("boot", 4))
+    # #37 review 5: a rename or a mode change has no counted lines either, so it is not "binary", and its diff can be shown
+    assert [(f["path"], f["large"]) for f in files] == [("a.py", False), ("big.json", True), ("moved.py", False)]
+
+
+def test_labels_reopen_and_assign_me_go_out_with_the_login(client, hubd):
+    signed_in(client)
+    hubd.answers["pr view 4"] = json.dumps({"labels": [{"name": "bug"}]})
+    hubd.answers["api repos/GlassineOS/boot/issues/7"] = json.dumps({"title": "t", "body": "", "assignees": [{"login": "moritz"}]})
+    r = client.post("/api/prs/boot/4/labels", json={"add": ["bug"], "remove": ["wip"]}, headers=ORIGIN)
+    assert r.status_code == 200 and r.json() == {"labels": ["bug"]}
+    edit = next(c[0] for c in hubd.commands if c[0][:2] == ["pr", "edit"])
+    assert edit == ["pr", "edit", "4", "-R", "GlassineOS/boot", "--add-label", "bug", "--remove-label", "wip"]
+    assert client.post("/api/prs/boot/4/reopen", json={}, headers=ORIGIN).status_code == 200
+    assert client.post("/api/issues/boot/7/labels", json={"add": ["x"]}, headers=ORIGIN).status_code == 200
+    r = client.post("/api/issues/boot/7/assign-me", json={}, headers=ORIGIN)
+    assert r.status_code == 200 and r.json() == {"assignees": ["moritz"]}
+    assert ["issue", "edit", "7", "-R", "GlassineOS/boot", "--add-assignee", "@me"] in [c[0] for c in hubd.commands]
+    writes = [login for (argv, _), login in zip(hubd.commands, hubd.logins) if argv[:2] in (["pr", "edit"], ["pr", "reopen"], ["issue", "edit"])]
+    assert writes == ["good"] * 4, "every write the work item makes carries the page's login"
+
+
+def test_the_repository_labels_are_read_from_the_api(client, hubd):
+    signed_in(client)
+    # gh --paginate prints one array per page, run together
+    page = lambda *names: json.dumps([{"name": n, "color": "d73a4a", "description": None, "id": 1} for n in names])
+    hubd.answers["api --paginate repos/GlassineOS/boot/labels?per_page=100"] = page("bug") + page("later") + "\n"
+    assert client.get("/api/labels/boot").json() == [{"name": n, "color": "d73a4a", "description": ""} for n in ("bug", "later")]
+
+
+def test_the_failed_step_marks_its_error_lines(client, hubd):
+    signed_in(client)
+    hubd.answers["api repos/GlassineOS/boot/actions/runs/9/jobs"] = json.dumps({"jobs": [
+        {"name": "lint", "conclusion": "success", "steps": []},
+        {"name": "test", "conclusion": "failure", "html_url": "https://github.com/GlassineOS/boot/actions/runs/9/job/1",
+         "steps": [{"name": "Set up", "conclusion": "success"}, {"name": "Run tests", "conclusion": "failure"}]}]})
+    hubd.answers["run view 9"] = ("test\tSet up\t2026-11-06T10:00:00.0000000Z ok\n"
+                                  "test\tRun tests\t\ufeff2026-11-06T10:00:01.0000000Z ^[[36;1mcollected 3 items^[[0m\n"
+                                  "test\tRun tests\t2026-11-06T10:00:02.0000000Z FAILED tests/test_a.py::test_x\n"
+                                  "test\tRun tests\t2026-11-06T10:00:03.0000000Z ##[error]Process completed with exit code 1.\n")
+    r = client.get("/api/runs/boot/9/failed-step").json()
+    assert r["job"] == "test" and r["step"] == "Run tests" and r["log_url"].endswith("/job/1")
+    assert [(l["n"], l["text"], l["error"]) for l in r["lines"]] == [
+        (1, "collected 3 items", False), (2, "FAILED tests/test_a.py::test_x", True), (3, "##[error]Process completed with exit code 1.", True)]
+
+
+def test_a_run_with_no_failed_job_has_no_step(client, hubd):
+    signed_in(client)
+    hubd.answers["api repos/GlassineOS/boot/actions/runs/9/jobs"] = json.dumps({"jobs": [{"name": "lint", "conclusion": "success"}]})
+    assert client.get("/api/runs/boot/9/failed-step").json() == {"job": None, "step": None, "lines": [], "log_url": None}
 
 
 def test_the_merge_button_sends_the_head_it_showed():
@@ -1367,7 +1467,7 @@ def test_a_failed_reload_keeps_what_the_views_showed():
     for view in ("IssueDetail", "PrDetail", "RunDetail"):
         source = _component(script, view)
         assert "if (error && !data) return" in source and "if (error) return" not in source, f"{view} keeps the item it showed"
-        assert "<${Err} text=${act.error || error} />" in source, f"{view} shows the error beside the item"
+        assert re.search(r"<\$\{Err\} text=\$\{[\w. |]*\berror\} />", source), f"{view} shows the error beside the item"
 
 
 def test_every_claude_session_is_a_chat():
@@ -1382,12 +1482,56 @@ def test_every_claude_session_is_a_chat():
     assert '<${SessionView} key=${current.name} session=${current} mode="full"' in _component(script, "Shells")
 
 
+def test_the_work_item_has_its_black_github_button_and_its_sections():
+    """A static check (006 FR-011–FR-033): the black split button acts as you, every entry in its menu has a branch for
+    why it's off, Merge goes through hubd's merge path with the head, and the item's sections are where the spec puts them."""
+    script, css = _app_js(), _style_css()
+    entries = _component(script, "ghEntries")
+    ids = re.findall(r'\{ id: "([a-z-]+)"', entries) + re.findall(r'id: `close-\$\{reason\}`', entries)
+    assert len(ids) >= 13
+    assert entries.count("disabled:") >= len(ids) + 1, "every entry, Open on GitHub too, says whether it's off"
+    assert "blockers.join" in entries and "merged pull requests can't reopen" in entries
+    assert "HOST_USER" not in entries and "assigned to you" not in entries, "the host's Unix user is not a GitHub login"
+    gh = _component(script, "GhActions")
+    assert 'class="gh"' in gh and "On GitHub, as" in gh and 'aria-haspopup="menu"' in gh and 'role="menuitem"' in gh
+    assert "/merge`, { method, head: data.headRefOid })" in gh and "confirm({ ...e.confirm, danger: true }, doIt)" in gh
+    assert 'class="primary"' not in gh and 'class="pen"' not in gh, "the GitHub button is never blue"
+    assert "background: var(--ink)" in re.search(r"\nbutton\.gh, \.button\.gh \{[^}]*\}", css).group(0)
+    frame = _component(script, "ItemFrame")
+    assert 'aria-label="Breadcrumb"' in frame and "Details" in frame and "<${DetailsFlyout}" in frame
+    assert "Large file — load the diff" in _component(script, "FileDiff") and "diffRows(diff.data)" in _component(script, "FileDiff")
+    assert '<li class=${l.error ? "err" : ""}' in _component(script, "FailedStep")
+    assert "Sessions on ${here} · ${sessions.length}" in _component(script, "SessionsOn") and "sent to background" in _component(script, "SessionsOn")
+    assert "<${SuggestBest} " in _component(script, "SessionsOn")
+    assert 'launch({ verb: "address", covers: [{ kind: "pr", repo, number }], pins: address.map(threadPin)' in _component(script, "Threads")
+    assert 'launch({ verb: "review", covers: [{ kind: "pr", repo, number }]' in _component(script, "PrDetail")
+    assert "＋ New work from this…" in _component(script, "LaunchRow") and "bestAction(kind, facts, offered)" in _component(script, "LaunchRow")
+
+
+@pytest.mark.parametrize("facts, kind, verb", [
+    ({"failing": True}, "pr", "fix"), ({"failing": True}, "run", "investigate"), ({"changesRequested": True, "openThreads": 0}, "pr", "address"),
+    ({"openThreads": 2}, "pr", "address"), ({"untriaged": True}, "issue", "triage"), ({}, "pr", "review"), ({}, "issue", "implement"),
+])
+def test_best_action_picks_by_the_items_state(facts, kind, verb):
+    """bestAction runs in node, on the function as it is in app.js."""
+    import shutil
+    import subprocess
+    if not shutil.which("node"):
+        pytest.skip("node isn't installed")
+    script = _app_js()
+    src = script[script.index("const BEST_VERB"):script.index("const useKindActions")]
+    actions = [{"id": v, "verb": v} for v in ("review", "fix", "address", "triage", "implement", "investigate")]
+    code = src + f"\nconsole.log(bestAction({json.dumps(kind)}, {{openThreads: 0, ...{json.dumps(facts)}}}, {json.dumps(actions)}).verb);"
+    assert subprocess.run(["node", "-e", code], capture_output=True, text=True, check=True).stdout.strip() == verb
+
+
 def test_one_session_view_everywhere():
     """A static check (004 FR-001, FR-005, FR-009, FR-011): one SessionView in Sessions, Work and the Steward panel;
     its terminal on night paper; Stop only after a confirmation; the old manifest column gone."""
     script, css = _app_js(), _style_css()
     view = _component(script, "SessionView")
-    assert '<${SessionView} key=${session.name} session=${session} mode="embedded"' in _component(script, "WorkLists")
+    assert "<${SessionsOn} " in _component(script, "WorkLists")
+    assert '<${SessionView} key=${current.name} session=${current} mode="embedded"' in _component(script, "SessionsOn")
     assert "function Manifest(" not in script and "<${Manifest}" not in script and ".manifest" not in css
     assert "background: var(--night)" in re.search(r"\n\.term \{[^}]*\}", css).group(0)
     assert "background: var(--night)" in re.search(r"\n\.svterm \{[^}]*\}", css).group(0)

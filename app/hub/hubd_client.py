@@ -58,7 +58,7 @@ class Hubd:
         return reply
 
     async def gh(self, *argv: str, stdin: str | None = None, timeout: int | None = None, login: str | None = None) -> str:
-        # login: a page's own token, for what hubd holds to a login. Only merges so far.
+        # login: a page's own token. hubd holds merges to it; the page's other GitHub actions pass it too.
         reply = await self.call(op="gh", argv=list(argv), stdin=stdin, timeout=timeout, agent_token=CALLER.get(), token=login)
         if reply["code"] != 0:
             raise GhError((reply["stderr"] or reply["stdout"]).strip() or f"gh exited with {reply['code']}")

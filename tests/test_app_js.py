@@ -101,3 +101,20 @@ def test_the_origin_is_told_in_words():
     out = subprocess.run([NODE, "-e", script % body], capture_output=True, text=True, timeout=30, check=True).stdout
     assert json.loads(out) == ["started directly, by you", "from Work item hub#4, by you", "from Needs you, by the Steward",
                                "from Launch, by you", "started by the Steward", "started before origins were kept"]
+
+
+def test_a_note_on_a_removed_line_sits_under_that_line():
+    """#37 review 1: a LEFT note counts old-file lines, so it goes under the `del` row with that old number and never
+    under the unrelated new-side row that happens to share it."""
+    diff = "\n".join(["@@ -10,3 +10,3 @@", " keep", "-gone", "+new", " tail"])
+    got = run(["diffRows", "noteBelongsTo"], f"""
+        const rows = diffRows({json.dumps(diff)});
+        const under = (thread) => rows.filter((r) => noteBelongsTo(thread, r)).map((r) => [r.kind, r.a || null, r.b || null]);
+        return [
+          under({{ line: 11, side: "LEFT" }}),    // the removed line: old number 11
+          under({{ line: 11, side: "RIGHT" }}),   // new number 11 is the added line, not the removed one
+          under({{ line: 12, side: "LEFT" }}),    // old number 12 is the unchanged tail
+          under({{ line: 13, side: "LEFT" }}),    // no old line 13 in the hunk: nowhere, as for any line outside it
+          under({{ line: null, side: "LEFT" }}),
+        ];""")
+    assert got == [[["del", 11, None]], [["add", None, 11]], [["ctx", 12, 12]], [], []]
