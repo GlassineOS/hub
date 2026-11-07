@@ -1401,7 +1401,7 @@ def test_one_session_view_everywhere():
     spec = _component(script, "SessionSpec")
     for row in ("Persona", "Action", "Model", "Permission mode", "Ceiling", "Covered items", "Worktree", "Branch", "Start command"):
         assert f"<dt>{row}</dt>" in spec, row
-    assert "started before origins were kept" in _component(script, "originWords") and "a.origin_kept ?" in _component(script, "originWords")
+    assert "started before origins were kept" in _component(script, "originWords")
     assert 'post("agents/view"' in view and 'aria-label="Also on these items"' in view and "Ask} key=${x.id}" in view
     assert "Waiting for you" in _component(script, "sessionWords")
 

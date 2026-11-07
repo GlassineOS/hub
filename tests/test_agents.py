@@ -296,9 +296,6 @@ def test_start_builds_a_locked_down_session(tmp_path, remote):
     # the pull request's head is checked out, in the session's own worktree
     checkout = directory / "checkout" / "boot"
     assert (checkout / "a").read_text() == "changed by the pr"
-    # Started without a Launch: its origin is recorded as none, so it isn't taken for one from before origins were kept.
-    assert json.loads((directory / "session.json").read_text())["origin"] is None
-    assert (a.describe(name)["origin"], a.describe(name)["origin_kept"]) == (None, True)
     assert not checkout.is_relative_to(a.workspace)  # the folder you trust holds no outsider's tree
     script = (directory / "run.sh").read_text()
     # It runs from the fixed directory, so the checkout's CLAUDE.md is not its project.
@@ -2390,7 +2387,6 @@ def test_an_old_record_describes_what_it_covers(tmp_path):
     seen = a.describe("old-one")
     assert seen["covers"] == [{"repo": "boot", "number": 9}, {"repo": "boot", "number": 11}] and seen["also_numbers"] == [11]
     assert (seen["view"], seen["origin"], seen["prs"]) == ({"mode": "background", "where": None, "ref": None}, None, [])
-    assert seen["origin_kept"] is False  # from before origins were kept
     assert seen["permission_mode"] is None  # #29 review: not kept then, so not made up now
     _session_file(a, "locked", {**good(), "action": "pr-review"}, object="pr", permission_mode="dontAsk")
     assert a.describe("locked")["permission_mode"] == "dontAsk"

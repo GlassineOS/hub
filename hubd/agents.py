@@ -1301,11 +1301,11 @@ class Agents:
             # A full session starts where you would: the workspace's rules and memory are there.
             cwd = self.workspace if _full(action) else self.home
             # Before the terminal: from when it's open, this is a session, not a shell in the way.
-            # 005 FR-010: the Launch record it came from, shown as its origin. Always written, null without a Launch, so a
-            # session started directly (the API, a session's tool) can be told from one started before origins were kept.
             record = {"name": name, "session_id": session_id, "config": config, "title": action["title"],
                       "object": action["object"], "full": _full(action), "permission_mode": _mode(action), "created": time.time(),
-                      "started_by": started_by, "origin": origin}
+                      "started_by": started_by}
+            if origin is not None:  # 005 FR-010: the Launch record it came from, shown as its origin
+                record["origin"] = origin
             (directory / "session.json").write_text(json.dumps(record))
             await self.shells.new(name, str(cwd), self._command(directory, script))
         except Exception:  # whatever it was, a folder left behind would keep the name taken
@@ -1886,7 +1886,7 @@ class Agents:
         badge = self.library.family(config["persona"]) or {"name": config["persona"], "initials": None, "family": None}
         return {"title": record["title"], "object": record["object"], "repo": config["repo"], "number": config["number"], "also_numbers": config.get("also_numbers", []),
                 "covers": covers_of(config), "prs": self._prs_seen(name, record), "view": self._view(name), "origin": record.get("origin"),
-                "origin_kept": "origin" in record, "created": record.get("created"),
+                "created": record.get("created"),
                 "permission_mode": record.get("permission_mode"),  # as it ran; None for a record from before it was kept
                 "model": config["model"], "effort": config["effort"], "persona": config["persona"], "action": config["action"],
                 "persona_name": badge["name"], "initials": badge["initials"], "family": badge["family"],
