@@ -2211,21 +2211,21 @@ function SetAside({ item, reload }) {
         <${Discard} item=${item} reload=${reload} /></div></div></div>`;
 }
 
-function SuggestedSession({ item, compact, reload }) {
+function SuggestedSession({ item, compact, reload, where = "Needs you" }) {
   const act = useAct(reload);
   const refs = [`${item.repo}#${item.number}`, ...(item.also_numbers || []).map((n) => `${item.repo}#${n}`)];
-  return html`<article class="ask ${item.by === STEWARD ? "steward" : ""} ${compact ? "compact" : ""}">
+  return html`<article class="ask calm ${item.by === STEWARD ? "steward" : ""} ${compact ? "compact" : ""}">
     <div class="ask-head">${item.by === STEWARD && html`<span class="ask-avatar steward-mark" aria-hidden="true">S</span>`}<span class="small mono">${item.by}</span>${item.by === STEWARD && html`<span class="small">Steward</span>`}<span class="ask-kind">${item.state === "planned" ? (compact ? "SESSION · PLAN READY" : "PLAN READY") : item.state === "failed" ? "STOPPED" : compact ? "SESSION · SUGGESTED" : "SUGGESTED SESSION"}</span></div>
     <div class="ask-body"><h3 class="ask-title">${item.title} ${refs[0]}${refs.length > 1 ? `, also covering ${refs.slice(1).join(", ")}` : ""}</h3>
       <p class="small"><span class="nw-why-word" style="font-size: 17px">why </span>${item.why}</p>
       <p class="small soft">${item.notes ? `Proposed notes: “${item.notes}” ` : ""}${item.state === "planned" ? "The planner wrote a plan. Nothing has run: read it, and start the session if it's right." : "A planner reads this first. Nothing runs until you've read its plan."}</p>
       ${item.error && html`<p class="small" role="alert">${item.error}</p>`}<${Err} text=${act.error} />
       <div class="row"><button class="primary" onClick=${() => startForm(item)}>${item.state === "planned" ? "Read the plan" : "Open"}</button>
-        <button class="plain" disabled=${act.busy} onClick=${() => act.run(() => post(`new-work/${item.id}/dismiss`))}>Not now</button></div></div></article>`;
+        <button class="plain" disabled=${act.busy} onClick=${() => act.run(() => answerAt(`w:${item.id}`, { verdict: "dismiss" }, where))}>Not now</button></div></div></article>`;
 }
 
-function WorkWaiting({ item, compact, reload }) {
-  if (item.number) return html`<${SuggestedSession} item=${item} compact=${compact} reload=${reload} />`;
+function WorkWaiting({ item, compact, reload, where = "Needs you" }) {
+  if (item.number) return html`<${SuggestedSession} item=${item} compact=${compact} reload=${reload} where=${where} />`;
   const act = useAct(reload);
   const steward = item.by === STEWARD;
   const undrafted = item.drafts.filter((d) => d.state === "draft").length;
@@ -2235,15 +2235,18 @@ function WorkWaiting({ item, compact, reload }) {
     : item.state === "planned" ? "The planner wrote a spec. Nothing has run: read it, and start the session if it's right."
     : `${count(undrafted, "draft")} waiting for you.`;
   const kind = `${compact ? "NEW WORK · " : ""}${item.state === "offered" ? "SUGGESTED" : item.state === "failed" ? "STOPPED" : item.state === "planned" ? "PLAN READY" : "DRAFTS READY"}`;
-  return html`<div class="ask ${steward ? "steward" : ""} ${compact ? "compact" : ""}">
+  return html`<div class="ask calm ${steward ? "steward" : ""} ${compact ? "compact" : ""}">
     <div class="ask-head"><span class="ask-kind">${kind}</span><span class="small mono">${item.by === "you" ? "you" : item.by}</span><span class="small mono soft">${item.repo}</span></div>
     <div class="ask-body"><div class="ask-title">${item.title}</div><p class="small">${line}</p><${Err} text=${act.error} />
       <div class="row"><button class="primary" onClick=${() => planWork({ id: item.id })}>Open in the planner</button>
-        <button class="plain" disabled=${act.busy} onClick=${() => act.run(() => post(`new-work/${item.id}/dismiss`))}>${item.state === "offered" ? "Not now" : "Set aside"}</button>
+        <button class="plain" disabled=${act.busy} onClick=${() => act.run(() => answerAt(`w:${item.id}`, { verdict: "dismiss" }, where))}>${item.state === "offered" ? "Not now" : "Set aside"}</button>
         ${item.state === "done" && html`<${Discard} item=${item} reload=${reload} />`}</div></div></div>`;
 }
 
-function Ask({ ask, compact, onDone, onShow }) {
+// where: the view the card is in, which hubd records with your answer (003 FR-011). Answers go through interaction.answer.
+const answerAt = (id, body, where) => post(`interactions/${encodeURIComponent(id)}/answer`, { ...body, where });
+
+function Ask({ ask, compact, onDone, onShow, where = "SessionView" }) {
   const steward = ask.session === STEWARD;
   const pending = ask.state === "pending";
   const permission = ask.kind === "permission";
@@ -2252,7 +2255,7 @@ function Ask({ ask, compact, onDone, onShow }) {
   const [denying, setDenying] = useState(false);
   const [reason, setReason] = useState("");
   const [values, setValues] = useState({});
-  const answer = (body) => act.run(() => post(`asks/${ask.id}/answer`, body));
+  const answer = (body) => act.run(() => answerAt(`a:${ask.id}`, body, where));
   const valueOf = (q) => values[q.question] || { picked: [], other: false, text: "" };
   const answerOf = (q) => {
     const v = valueOf(q);
@@ -2304,67 +2307,165 @@ function Ask({ ask, compact, onDone, onShow }) {
     </div></article>`;
 }
 
-// What each filter shows: its cards, whether suggested work belongs, and which decision requests do.
-const ASK_FILTERS = [
-  ["all", "All", () => true, () => true, () => true],
-  ["perm", "Permissions", (a) => a.kind === "permission", () => false, () => false],
-  ["ask", "Questions", (a) => a.kind === "question" && a.session !== STEWARD, () => false, () => false],
-  ["suggest", "Suggestions", () => false, () => true, () => false],
-  ["go", "Goes", () => false, () => false, (d) => d.kind === "go"],
-  ["merge", "Merges", () => false, () => false, (d) => d.kind === "merge"],
-  ["steward", "Steward", (a) => a.session === STEWARD, (i) => i.by === STEWARD, () => false],
-];
-const decisionsAsked = (asks) => asks.decisions.items.filter((d) => d.state === "requested");
-const decisionsActive = (asks) => asks.decisions.items.filter((d) => d.state === "current" || d.state === "using");
+// --- Needs you: one Feed of interactions, in a modal over any view (003 FR-001–003 FR-017, 003 FR-018–003 FR-022) ------------
+// The list is hubd's interaction.list: asks, decisions and new work in one shape. An answer goes to
+// interaction.answer, which sends it on to the source's own op; nothing here decides what an answer may do.
+const BLOCKING = (r) => r.blocking;
+const KIND_LABEL = { permission: "Permission", question: "Question", decision: "Decision", suggestion: "Suggestion", result: "Result" };
+const STATUS_WORD = { pending: "waiting for you", allowed: "allowed", always: "always allowed", denied: "denied", answered: "answered", started: "started",
+  dismissed: "dismissed", terminal: "answered in the terminal", timeout: "timed out", ended: "ended" };
+const needsYou = (detail = {}) => window.dispatchEvent(new CustomEvent("hub-needs-you", { detail }));
+// Only a session hubd still knows gets a chip with a state; a name it doesn't know is just the name, never "running".
+const sessionOfRow = (r) => (r.session && r.persona ? { name: r.session, attached: 0, agent: { persona: r.persona.id, persona_name: r.persona.name, initials: r.persona.initials,
+  family: r.persona.family, ended: r.persona.ended, waiting: r.blocking } } : null);
+const handledWords = (r) => {
+  const h = r.handled;
+  const who = !h ? "" : h.by === "terminal" ? " in the terminal" : ` by ${h.by}${h.where ? `, in ${h.where}` : ""}`;
+  return `${STATUS_WORD[r.status] || r.status}${who}${r.settled ? `, ${ago(r.settled * 1000)}` : ""}`;
+};
+const leftWords = (left) => [left.runs !== undefined && count(left.runs, "run"), left.hours !== undefined && `${left.hours} h`].filter(Boolean).join(" and ") || "until you end it";
+// A Go's or merge's card. Approving through the login is your word (003 FR-005); a session's own words are marked as theirs.
+const DECISION_STATE = { requested: "Waiting for you", current: "Allowed", using: "Merging now", ended: "Ended" };
 
-function SessionTabs({ tab, asks }) {
-  const active = decisionsActive(asks).length;
-  return html`<div role="tablist" aria-label="Sessions" class="tabs" style="margin-bottom: 18px">
-    <a role="tab" aria-selected=${tab === "needs" ? "true" : "false"} href=${hash("shells", { tab: "needs" })}>Needs you <span class="ask-tally ${asks.waiting ? "on" : ""}">${asks.waiting}</span></a>
-    <a role="tab" aria-selected=${tab === "active" ? "true" : "false"} href=${hash("shells", { tab: "active" })}>Active${active > 0 ? ` (${active})` : ""}</a>
-    <a role="tab" aria-selected=${tab === "all" ? "true" : "false"} href=${hash("shells", { tab: "all" })}>All sessions</a>
-    <a role="tab" aria-selected=${tab === "history" ? "true" : "false"} href=${hash("shells", { tab: "history" })}>History & cleanup</a></div>`;
+function DecisionRow({ d, onChanged, where = "Needs you" }) {
+  const act = useAct(onChanged);
+  const [words, setWords] = useState("");
+  const [narrow, setNarrow] = useState(null);
+  const [reason, setReason] = useState("");
+  const [unit, setUnit] = useState(d.for_hours ? "hours" : "runs");
+  const [amount, setAmount] = useState(d.for_hours || (d.ends && d.ends.runs) || 1);
+  const go = d.kind === "go";
+  const asked = d.state === "requested";
+  const eye = go && d.scope.actions.includes("eye-test");
+  const actions = narrow || (go ? d.scope.actions : []);
+  const toggle = (a) => setNarrow(actions.includes(a) ? actions.filter((x) => x !== a) : [...actions, a]);
+  const asWas = unit === (d.for_hours ? "hours" : "runs") && Number(amount) === Number(d.for_hours || (d.ends && d.ends.runs) || 1);
+  const send = (verdict, body = {}) => act.run(() => answerAt(d.id, { verdict, ...body }, where));
+  const approve = () => send("approve", { words: words || null, scope: narrow ? { actions: narrow } : null, ends: go && !asWas ? { [unit]: Number(amount) } : null });
+  const left = d.left || {};
+  return html`<article class="stack" style="gap: 6px" aria-label=${`${DECISION_STATE[d.state]}: ${d.says}`}>
+    <div class="row" style="gap: 8px"><span class="badge ${asked ? "" : d.state === "ended" ? "dim" : ""}">${DECISION_STATE[d.state]}</span><span class="mono small">${d.id}</span>
+      <span class="small soft">made ${ago(d.made * 1000)}${d.ended ? `, ended ${ago(d.ended * 1000)}` : ""}</span></div>
+    <p style="overflow-wrap: anywhere">${d.says}.</p>
+    ${d.kind === "merge" && html`<p class="small">Applies to head <span class="mono">${d.scope.head.slice(0, 12)}</span> only. If the pull request's head moves, it ends (003 FR-008).</p>`}
+    ${eye && html`<p class="small"><b>Eye test:</b> you look at the device yourself. It ends with its runs or hours, and is never granted for good.</p>`}
+    ${d.words && html`<p class="small" style="overflow-wrap: anywhere"><span class="soft">Your words: </span>${d.words}</p>`}
+    ${d.asked_by && html`<p class="small soft">Asked for by ${d.asked_by}, in its own words, which aren't yours: <span style="overflow-wrap: anywhere">${d.why}</span></p>`}
+    ${!d.asked_by && d.why && html`<p class="small soft" style="overflow-wrap: anywhere">Asked for by a hub shell, in its own words: ${d.why}</p>`}
+    ${d.why_ended && html`<p class="small">Ended: ${d.why_ended}</p>`}
+    ${(d.state === "current" || d.state === "using") && html`<p class="small">Left: ${leftWords(left)}.</p>`}
+    ${asked && html`<div class="stack" style="gap: 8px">
+      ${go && html`<fieldset class="row" style="gap: 6px 14px; border: 0; padding: 0"><legend class="small soft">Untick what you don't want to allow</legend>
+        ${d.scope.actions.map((a) => html`<label class="row small" style="gap: 6px"><input type="checkbox" checked=${actions.includes(a)} onChange=${() => toggle(a)} /> ${a}</label>`)}</fieldset>`}
+      ${go && html`<div class="row" style="gap: 8px 14px"><span class="small">Device: <span class="mono">${d.scope.device}</span>, session: <span class="mono">${d.scope.session}</span></span>
+        <label class="row small" style="gap: 6px">Ends after <input type="number" min="1" style="width: 5em" value=${amount} onInput=${(e) => setAmount(e.target.value)} />
+          <select aria-label="Runs or hours" value=${unit} onChange=${(e) => setUnit(e.target.value)}><option value="runs">runs</option><option value="hours">hours</option></select></label></div>`}
+      <label class="stack small" style="gap: 4px">Your words, if you want them on the record<input value=${words} onInput=${(e) => setWords(e.target.value)} /></label>
+      <div class="row" style="gap: 8px"><button class="primary" disabled=${act.busy || (go && !actions.length) || Number(amount) <= 0} onClick=${approve}>Approve</button>
+        <input aria-label="Why not" value=${reason} placeholder="Why not, if you like" onInput=${(e) => setReason(e.target.value)} />
+        <button disabled=${act.busy} onClick=${() => send("deny", { why: reason || null })}>Say no</button></div></div>`}
+    ${d.state === "current" && html`<div class="row"><button disabled=${act.busy} onClick=${() => send("end")}>End now</button></div>`}
+    <${Err} text=${act.error} /></article>`;
 }
 
-function Inbox({ asks }) {
-  const [filter, setFilter] = useState("all");
-  const [chosen, setChosen] = useState(null);
-  const open = asks.open;
-  const aside = asks.work.items.filter((i) => i.state === "dismissed" && i.drafts.length > 0);
-  const [, , test, showsWork, showsDecision] = ASK_FILTERS.find(([id]) => id === filter);
-  const planned = asks.work.items.filter(nwWaits).filter(showsWork);
-  const decisions = decisionsAsked(asks).filter(showsDecision);
-  const shown = open.filter(test);
-  const fromSteward = shown.filter((a) => a.session === STEWARD);
-  const fromSessions = shown.filter((a) => a.session !== STEWARD);
-  const done = asks.answered.filter(test);
-  // The one you pointed at, while it has something open; else the oldest.
-  const live = open.some((a) => a.session === chosen) ? chosen : open.length ? open[0].session : null;
-  const card = (a) => html`<${Ask} key=${a.id} ask=${a} onDone=${asks.reload} onShow=${setChosen} />`;
-  return html`<main class="page wide"><${SessionTabs} tab="needs" asks=${asks} />
-    <div class="inbox">
-      <section class="stack" style="gap: 18px; flex: 999 1 560px; min-width: 0" aria-label="Needs you">
-        <div role="group" aria-label="Show" class="row" style="gap: 6px">${ASK_FILTERS.map(([id, label]) => html`<button class="ask-filter" aria-pressed=${filter === id ? "true" : "false"} onClick=${() => setFilter(id)}>${label}</button>`)}</div>
-        ${(filter === "all" || filter === "go") && html`<${GoPanel} asks=${asks} />`}
-        ${planned.length > 0 && html`<div class="stack" style="gap: 10px"><h2 class="eyebrow">Suggested sessions and new work</h2>${planned.map((item) => html`<${WorkWaiting} key=${item.id} item=${item} reload=${asks.reload} />`)}</div>`}
-        ${asks.waiting === 0 && html`<div role="status" class="ask-clear"><span class="ask-clear-word">all clear</span><span>Nothing is waiting on you. Sessions keep working, and anything new shows up here and on the Sessions badge.</span></div>`}
-        ${decisions.length > 0 && html`<div class="stack" style="gap: 10px"><div class="row" style="gap: 10px"><h2 class="eyebrow">Decisions asked for</h2><span class="small soft">Nothing happens until you approve. Only a login records one, and what a session says in its own words isn't yours.</span></div>${decisions.map((d) => html`<${DecisionRow} key=${`${d.id}-${d.state}`} d=${d} onChanged=${asks.decisions.reload} />`)}</div>`}
-        ${fromSteward.length > 0 && html`<div class="stack" style="gap: 10px"><div class="row" style="gap: 10px"><h2 class="eyebrow">From the Steward</h2><span class="small soft">The same question is pinned in the Steward sidebar. Answer either one.</span></div>${fromSteward.map(card)}</div>`}
-        ${fromSessions.length > 0 && html`<div class="stack" style="gap: 10px"><h2 class="eyebrow">From sessions · oldest first</h2>${fromSessions.map(card)}</div>`}
-        ${aside.length > 0 && html`<details class="ask-answered"><summary class="eyebrow">Set aside · ${aside.length}</summary>
-          <div class="stack" style="gap: 10px; margin-top: 10px">${aside.map((item) => html`<${SetAside} key=${item.id} item=${item} reload=${asks.reload} />`)}</div>
-          <p class="small soft" style="margin-top: 8px">The oldest finished work goes once more than 50 are kept.</p></details>`}
-        ${filter !== "all" && asks.waiting > 0 && !shown.length && !planned.length && !decisions.length && html`<p class="small soft">Nothing of this kind is waiting. ${asks.waiting} ${asks.waiting === 1 ? "thing is" : "things are"} waiting under All.</p>`}
-        ${done.length > 0 && html`<details class="ask-answered"><summary class="eyebrow">Answered today · ${done.length}</summary>
-          <div class="stack" style="gap: 10px; margin-top: 10px">${done.map((a) => html`<${Ask} key=${a.id} ask=${a} compact />`)}</div>
-          <p class="small soft" style="margin-top: 8px">Kept until hubd restarts.</p></details>`}
-      </section>
-      ${live && html`<aside class="termbox inbox-term" aria-labelledby="h-live">
-        <div class="termhead"><h2 id="h-live">${live}</h2><span class="small soft" style="flex: 1 1 160px">live terminal · the same prompt</span>
-          <a class="button" href=${hash("shells", { tab: "all", name: live })}>Attach</a></div>
-        <${TerminalView} key=${live} name=${live} quiet onGone=${asks.reload} />
-        <p class="small soft" style="padding: 10px 16px; border-top: 1.5px solid var(--ink)">A hook asks hub and waits. The terminal keeps its own prompt. Whichever answer comes first wins, and the other side closes.</p></aside>`}
-    </div></main>`;
+// One card per kind (003 FR-003–003 FR-009). The links say whose it is and what it's about (003 FR-017).
+function InteractionCard({ item, dense, where, reload }) {
+  const [open, setOpen] = useState(false);
+  const chip = sessionOfRow(item);
+  const links = html`<div class="icard-links row" style="gap: 6px">
+    ${chip ? html`<${SessionChip} session=${chip} pending=${item.blocking ? 1 : 0} />` : item.session ? html`<span class="small soft">Session <span class="mono">${item.session}</span>, no longer listed</span>`
+      : html`<span class="small soft">${item.kind === "decision" ? "Recorded by you" : "From you"}</span>`}
+    ${item.items.map((i) => html`<${ItemPill} key=${ref(i)} kind=${i.kind} repo=${i.repo} number=${i.number} />`)}</div>`;
+  const d = item.detail;
+  const settled = item.status !== "pending" && !(item.kind === "decision" && item.status === "allowed");
+  const body = () => {
+    if (item.kind === "permission" || item.kind === "question") return html`<${Ask} ask=${d} compact=${settled} onDone=${reload} where=${where} />`;
+    if (item.kind === "decision") return html`<div class="ask calm ${settled ? "done" : ""}"><div class="ask-head"><span class="ask-kind">${d.kind === "go" ? (d.scope.actions.includes("eye-test") ? "GO · EYE TEST" : "GO") : "MERGE"}</span>
+      <span class="small mono">${d.asked_by || "you"}</span></div><div class="ask-body"><${DecisionRow} key=${`${d.id}-${d.state}`} d=${d} onChanged=${reload} where=${where} /></div></div>`;
+    if (settled && d.state === "dismissed" && (d.drafts || []).length) return html`<${SetAside} item=${d} reload=${reload} />`;
+    if (settled) return html`<div class="ask calm done"><div class="ask-head"><span class="ask-kind">${KIND_LABEL[item.kind].toUpperCase()}</span><span class="small mono">${d.by}</span></div>
+      <div class="ask-body"><p class="ask-title">${d.title}</p></div></div>`;
+    return html`<${WorkWaiting} item=${d} reload=${reload} where=${where} />`;
+  };
+  const summary = item.kind === "permission" ? toolTitle(d.tool) : item.kind === "question" ? ((d.input && d.input.questions) || [{}])[0].question || "Question"
+    : item.kind === "decision" ? d.says : d.title;
+  if (dense && !open) {
+    return html`<div class="icard dense ${item.blocking ? "waits" : ""}" data-waits=${item.blocking ? "" : undefined}>
+      <button class="icard-line" aria-expanded="false" onClick=${() => setOpen(true)}>
+        <span class="ask-kind">${KIND_LABEL[item.kind].toUpperCase()}</span><span class="t">${summary}</span>
+        <span class="small soft">${item.session || "you"} · ${item.status === "pending" ? `waiting ${waitedWords(item.waited)}` : handledWords(item)}</span></button></div>`;
+  }
+  return html`<div class="icard stack" style="gap: 8px">
+    ${dense && html`<button class="plain small" style="align-self: flex-start" aria-expanded="true" onClick=${() => setOpen(false)}>Fold to one line</button>`}
+    ${links}${body()}
+    ${settled && html`<p class="small soft" role="status">${KIND_LABEL[item.kind]}: ${handledWords(item)}.</p>`}</div>`;
+}
+
+// 003 FR-014–003 FR-016: Blocking (oldest first), Suggested (decisions asked for first), Results ready.
+const FEED_FILTERS = [["all", "All"], ["steward", "The Steward"], ["others", "Other sessions"]];
+const feedFilter = (filter) => (filter === "steward" ? (r) => r.session === STEWARD : filter === "others" ? (r) => r.session && r.session !== STEWARD : () => true);
+
+function Feed({ items, filter = "all", dense, session, where = "Needs you", reload }) {
+  const shown = items.filter((r) => r.status === "pending").filter(feedFilter(filter)).filter((r) => !session || r.session === session);
+  const blocking = shown.filter(BLOCKING).sort((a, b) => a.made - b.made);
+  const asked = shown.filter((r) => r.kind === "decision");
+  const suggested = shown.filter((r) => r.kind === "suggestion");
+  const results = shown.filter((r) => r.kind === "result");
+  const cards = (rows) => rows.map((r) => html`<${InteractionCard} key=${r.id} item=${r} dense=${dense} where=${where} reload=${reload} />`);
+  if (!shown.length) return html`<div role="status" class="ask-clear"><span class="ask-clear-word">all clear</span><span>Nothing ${filter === "all" && !session ? "" : "of this kind "}is waiting on you. Sessions keep working, and anything new shows up here.</span></div>`;
+  return html`<div class="stack feed ${dense ? "dense" : ""}" style="gap: 22px">
+    ${blocking.length > 0 && html`<section class="stack" style="gap: 10px" aria-label=${`Blocking, ${blocking.length}`}><h3 class="eyebrow">Blocking · ${blocking.length} · oldest first</h3>
+      <p class="small soft">A session's turn waits on each of these.</p>${cards(blocking)}</section>`}
+    ${(asked.length > 0 || suggested.length > 0) && html`<section class="stack" style="gap: 10px" aria-label=${`Suggested, ${asked.length + suggested.length}`}><h3 class="eyebrow">Suggested · ${asked.length + suggested.length}</h3>
+      ${asked.length > 0 && html`<h4 class="small" style="font-weight: 600">Decisions asked for</h4><p class="small soft">Nothing happens until you approve. Only a login records one, and what a session says in its own words isn't yours.</p>${cards(asked)}`}
+      ${cards(suggested)}</section>`}
+    ${results.length > 0 && html`<section class="stack" style="gap: 10px" aria-label=${`Results ready, ${results.length}`}><h3 class="eyebrow">Results ready · ${results.length}</h3>${cards(results)}</section>`}
+  </div>`;
+}
+
+// The modal's own filters beside the Feed's: what you've allowed that stands (003 FR-020), every decision, and what's settled.
+const NEEDS_VIEWS = [...FEED_FILTERS, ["grants", "Active grants"], ["decisions", "Decisions"], ["settled", "Settled"]];
+
+function NeedsYouModal({ initial, data, asks, onClose }) {
+  const ref = useRef();
+  const [filter, setFilter] = useState(NEEDS_VIEWS.some(([id]) => id === initial.filter) ? initial.filter : "all");
+  const [session, setSession] = useState(initial.session || "");
+  const [dense, setDense] = useState(false);
+  const seen = useRef(new Map()); // id → how it was when this view first showed it
+  useEffect(() => { ref.current.showModal(); }, []);
+  const rows = [...data.items, ...data.grants];
+  for (const r of rows) if (!seen.current.has(r.id)) seen.current.set(r.id, r.status);
+  // 003 FR-011: what was waiting or standing when you looked, and has settled since; until you close this.
+  const handled = rows.filter((r) => ["pending", "allowed"].includes(seen.current.get(r.id)) && r.status !== seen.current.get(r.id));
+  const names = [...new Set(rows.map((r) => r.session).filter(Boolean))].sort();
+  const bySession = (r) => !session || r.session === session;
+  const grants = data.grants.filter(bySession);
+  const cards = (list) => list.map((r) => html`<${InteractionCard} key=${r.id} item=${r} dense=${dense} where="Needs you" reload=${asks.reload} />`);
+  const settledRows = data.items.filter((r) => r.status !== "pending").filter(bySession);
+  const pending = data.counts.pending;
+  return html`<dialog ref=${ref} class="needs sheet" aria-labelledby="needs-h" onClose=${onClose}>
+    <div class="needs-head"><h2 id="needs-h">Needs you</h2>
+      <span class="small" role="status">${pending ? `${count(pending, "thing")} waiting${data.counts.blocking ? `, ${data.counts.blocking} blocking` : ""}` : "Nothing waiting"}${asks.stale ? " · hubd can't be reached: showing what was last read" : ""}</span>
+      <button class="square" aria-label="Close Needs you" onClick=${() => ref.current.close()}>×</button></div>
+    <div class="needs-body stack" style="gap: 18px">
+      <div class="row" style="gap: 6px 12px">
+        <div role="group" aria-label="Show" class="row" style="gap: 6px">${NEEDS_VIEWS.map(([id, label]) => html`<button class="ask-filter" aria-pressed=${filter === id ? "true" : "false"} onClick=${() => setFilter(id)}>${label}${id === "grants" && data.grants.length ? ` (${data.grants.length})` : ""}</button>`)}</div>
+        <label class="row small" style="gap: 6px">Session <select value=${session} onChange=${(e) => setSession(e.target.value)}><option value="">every session</option>${names.map((n) => html`<option value=${n}>${n}</option>`)}</select></label>
+        <label class="row small" style="gap: 6px"><input type="checkbox" checked=${dense} onChange=${(e) => setDense(e.target.checked)} /> One line each</label></div>
+      ${handled.length > 0 && html`<details class="ask-answered"><summary class="small">${count(handled.length, "thing")} handled in this view</summary>
+        <ul class="stack" style="gap: 4px; margin-top: 8px">${handled.map((r) => html`<li class="small" key=${r.id}>${KIND_LABEL[r.kind]}${r.session ? ` from ${r.session}` : ""}: ${handledWords(r)}</li>`)}</ul></details>`}
+      ${["all", "steward", "others"].includes(filter) && html`<${Feed} items=${data.items} filter=${filter} dense=${dense} session=${session} reload=${asks.reload} />`}
+      ${filter === "grants" && html`<section class="stack" style="gap: 10px" aria-label="Active grants">
+        <p class="small soft">Goes and merge decisions you've approved that still stand, with what's left. A go ends when its runs or hours are used up; End now stops it sooner. A session can end a go too, and nothing it says makes one current.</p>
+        ${cards(grants)}${!grants.length && html`<p class="small soft">Nothing you've allowed is standing.</p>`}</section>`}
+      ${filter === "decisions" && html`<section class="stack" style="gap: 10px" aria-label="Decisions">
+        <p class="small soft">Your word, kept: waiting, standing and ended. Approved here means your decision, never a GitHub review.</p>
+        ${cards(rows.filter((r) => r.kind === "decision").filter(bySession))}</section>`}
+      ${filter === "settled" && html`<section class="stack" style="gap: 10px" aria-label="Settled">
+        <p class="small soft">Answered, ended or set aside. Asks are kept until hubd restarts, new work for a day, decisions as long as hubd keeps them.</p>
+        ${cards(settledRows)}${!settledRows.length && html`<p class="small soft">Nothing settled yet.</p>`}</section>`}
+      <${GoPanel} asks=${asks} />
+    </div></dialog>`;
 }
 
 // --- what's left after a session -----------------------------------------------------------------
@@ -2478,28 +2579,26 @@ function Cleanup() {
   </section>`;
 }
 
+const needsLabel = (asks) => {
+  const c = asks.interactions.counts;
+  return `Needs you: ${c.pending ? `${count(c.pending, "thing")} waiting${c.blocking ? `, ${c.blocking} blocking a session` : ""}` : "nothing waiting"}. Open`;
+};
+
 function SessionHistory({ asks }) {
   return html`<main class="page wide"><${SessionTabs} tab="history" asks=${asks} /><div class="stack" style="gap: 32px"><${PastSessions} /><${Cleanup} /></div></main>`;
 }
 
-// What you've allowed that still stands, so a go can be ended early. Ended ones stay on the Decisions page.
-function ActiveDecisions({ asks }) {
-  const active = decisionsActive(asks);
-  return html`<main class="page wide"><${SessionTabs} tab="active" asks=${asks} />
-    <section class="stack" style="gap: 14px; max-width: 760px" aria-labelledby="h-active">
-      <div class="stack tight"><h1 id="h-active">Active</h1>
-        <span class="small soft">Goes and merge decisions you've approved that still stand. A go ends when its runs or hours are used up; end it here to stop it sooner. A session can end a go too, and nothing it says makes one current.</span></div>
-      ${asks.decisions.error && html`<${Err} text=${asks.decisions.error} />`}
-      ${active.map((d) => html`<${DecisionRow} key=${`${d.id}-${d.state}`} d=${d} onChanged=${asks.decisions.reload} />`)}
-      ${!active.length && html`<p class="small soft">Nothing you've allowed is standing.</p>`}
-      <p class="small"><a href=${hash("decisions")}>All decisions, including ended ones →</a> <a href=${hash("shells", { tab: "needs" })}>Record a go, under Needs you →</a></p>
-    </section></main>`;
+// Until the header has its Needs you button (PR 5), it opens from here too. tab=needs and tab=active open it (Hub).
+function SessionTabs({ tab, asks }) {
+  const blocking = asks.interactions.counts.blocking;
+  return html`<div class="row" style="gap: 8px 16px; margin-bottom: 18px"><div role="tablist" aria-label="Sessions" class="tabs">
+    <a role="tab" aria-selected=${tab === "all" ? "true" : "false"} href=${hash("shells", { tab: "all" })}>All sessions</a>
+    <a role="tab" aria-selected=${tab === "history" ? "true" : "false"} href=${hash("shells", { tab: "history" })}>History & cleanup</a></div>
+    <button class="needs-open ${blocking ? "" : "calm"}" data-waits=${blocking ? "" : undefined} aria-label=${needsLabel(asks)} onClick=${() => needsYou()}>Needs you <span class="ask-tally">${asks.waiting}</span></button></div>`;
 }
 
 function Sessions({ query, asks }) {
-  const tab = query.tab || (query.name || query.new ? "all" : "needs");
-  if (tab === "needs") return html`<${Inbox} asks=${asks} />`;
-  if (tab === "active") return html`<${ActiveDecisions} asks=${asks} />`;
+  const tab = query.tab || "all";
   if (tab === "history") return html`<${SessionHistory} asks=${asks} />`;
   return html`<${Shells} query=${query} asks=${asks} />`;
 }
@@ -2763,7 +2862,7 @@ function DeviceView() {
       ${d.device && html`<h3 class="mono" style="font-size: 15px">${d.device}</h3>`}
       ${d.lines.map((line) => html`<p style="overflow-wrap: anywhere">${line}.</p>`)}</article>`)}
     ${data && html`<p class="small soft">${data.only}</p>`}
-    <p class="small">Recording a go, and “I've got the device”, are under <a href=${hash("shells", { tab: "needs" })}>Sessions › Needs you</a>. What stands is under <a href=${hash("shells", { tab: "active" })}>Active</a>.</p>
+    <p class="small">Recording a go, and “I've got the device”, are in <button class="link" onClick=${() => needsYou()}>Needs you</button>. What stands is under its <button class="link" onClick=${() => needsYou({ filter: "grants" })}>Active grants</button>.</p>
   </main>`;
 }
 
@@ -2811,66 +2910,13 @@ function GoPanel({ asks }) {
     <${Err} text=${act.error} />
     ${holding && html`<p role="status">${holding.words}${note ? ` ${note}` : ""}</p>`}
     <div class="row" style="gap: 8px">
-      ${!form && html`<button class="primary" onClick=${() => setForm(true)}>Go…</button>`}
+      ${!form && html`<button onClick=${() => setForm(true)}>Record a go…</button>`}
       ${holding && (holding.holding
         ? html`<button disabled=${act.busy} onClick=${() => hold(false)}>Done</button>`
         : html`<button disabled=${act.busy} onClick=${() => hold(true)}>I've got the device</button>`)}
       <span class="small soft">Ends every device go but an eye test, and refuses a take that names actions until you press Done. It can't stop a running command.</span></div>
     ${form && html`<${GoForm} devices=${(device.data ? device.data.devices : []).map((d) => d.device).filter(Boolean)} onDone=${() => { setForm(false); return asks.decisions.reload(); }} onCancel=${() => setForm(false)} />`}
   </section>`;
-}
-
-// --- the Decisions page ---------------------------------------------------------------------------
-const DECISION_STATE = { requested: "Waiting for you", current: "Current", using: "Merging now", ended: "Ended" };
-const DECISION_BADGE = { requested: "mark", current: "", using: "mark", ended: "dim" };
-
-function DecisionRow({ d, onChanged }) {
-  const act = useAct(onChanged);
-  const [words, setWords] = useState("");
-  const [narrow, setNarrow] = useState(null);
-  const [reason, setReason] = useState("");
-  const go = d.kind === "go";
-  const asked = d.state === "requested";
-  const actions = narrow || (go ? d.scope.actions : []);
-  const toggle = (a) => setNarrow(actions.includes(a) ? actions.filter((x) => x !== a) : [...actions, a]);
-  const approve = () => act.run(() => post(`decisions/${d.id}/approve`, { words: words || null, scope: narrow ? { actions: narrow } : null }));
-  return html`<article class="stack" style="gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--rule)" aria-label=${`${DECISION_STATE[d.state]}: ${d.says}`}>
-    <div class="row" style="gap: 8px"><span class="badge ${DECISION_BADGE[d.state]}">${DECISION_STATE[d.state]}</span><span class="mono small">${d.id}</span>
-      <span class="small soft">made ${ago(d.made * 1000)}${d.ended ? `, ended ${ago(d.ended * 1000)}` : ""}</span></div>
-    <p style="overflow-wrap: anywhere">${d.says}.</p>
-    ${d.words && html`<p class="small" style="overflow-wrap: anywhere"><span class="soft">Your words: </span>${d.words}</p>`}
-    ${d.asked_by && html`<p class="small soft">Asked for by ${d.asked_by}, in its own words, which aren't yours: <span style="overflow-wrap: anywhere">${d.why}</span></p>`}
-    ${!d.asked_by && d.why && html`<p class="small soft" style="overflow-wrap: anywhere">Asked for by a hub shell, in its own words: ${d.why}</p>`}
-    ${d.why_ended && html`<p class="small">Ended: ${d.why_ended}</p>`}
-    ${asked && html`<div class="stack" style="gap: 8px">
-      ${go && html`<fieldset class="row" style="gap: 6px 14px; border: 0; padding: 0"><legend class="small soft">Untick what you don't want to allow</legend>
-        ${d.scope.actions.map((a) => html`<label class="row small" style="gap: 6px"><input type="checkbox" checked=${actions.includes(a)} onChange=${() => toggle(a)} /> ${a}</label>`)}</fieldset>`}
-      <label class="stack small" style="gap: 4px">Your words, if you want them on the record<input value=${words} onInput=${(e) => setWords(e.target.value)} /></label>
-      <div class="row" style="gap: 8px"><button class="primary" disabled=${act.busy || (go && !actions.length)} onClick=${approve}>Approve</button>
-        <input aria-label="Why not" value=${reason} placeholder="Why not, if you like" onInput=${(e) => setReason(e.target.value)} />
-        <button disabled=${act.busy} onClick=${() => act.run(() => post(`decisions/${d.id}/deny`, { why: reason || null }))}>Say no</button></div></div>`}
-    ${d.state === "current" && html`<div class="row"><button disabled=${act.busy} onClick=${() => act.run(() => post(`decisions/${d.id}/end`, {}))}>End this</button></div>`}
-    <${Err} text=${act.error} /></article>`;
-}
-
-function DecisionsPage() {
-  const { data, error, reload } = useLoad(() => api("decisions"), [], 5000);
-  const rows = data ? data.decisions : [];
-  const part = (state, title, none) => { const here = rows.filter((d) => d.state === state);
-    return html`<section class="stack" style="gap: 4px"><h3 style="font-size: 15px">${title} (${here.length})</h3>
-      ${here.map((d) => html`<${DecisionRow} key=${`${d.id}-${d.state}`} d=${d} onChanged=${reload} />`)}
-      ${!here.length && html`<p class="small soft">${none}</p>`}</section>`; };
-  return html`<main class="page close" aria-labelledby="h-decisions">
-    <div class="stack tight"><h1 id="h-decisions">Decisions</h1>
-      <span class="small soft">Your word, kept. Only a login records one: a session can ask for one and can end a go, and nothing it says makes one current. Approved here means your decision, never a GitHub review.</span></div>
-    <${Err} text=${error} />
-    ${data && html`<p role="status" class="small">${data.holding.words} <a href=${hash("device")}>Device →</a></p>`}
-    <div class="row" style="gap: 8px"><a class="button" href=${hash("device")}>Go, on the Device page</a></div>
-    ${part("requested", "Waiting for you", "Nothing is waiting for you.")}
-    ${rows.some((d) => d.state === "using") && part("using", "Merging now", "")}
-    ${part("current", "Current", "No decision is current.")}
-    ${part("ended", "Ended", "Nothing has ended yet.")}
-  </main>`;
 }
 
 // --- the queue view: it reads, and approving records your decision. It merges nothing ------------
@@ -3090,44 +3136,66 @@ function App() {
 }
 
 function Hub({ host, route, onOut }) {
-  const loaded = useLoad(() => api("asks"), [], 3000);
+  // One list of what waits for you: asks, decisions and new work (interaction.list), every 3 s (003 SC-002).
+  const listed = useLoad(() => api("interactions"), [], 3000);
   // A failed read keeps what we knew, or a brief hubd error would close the cards you're filling in.
-  const known = useRef({ open: [], answered: [] });
-  if (loaded.data) known.current = loaded.data;
+  const known = useRef({ items: [], grants: [], counts: { pending: 0, blocking: 0, by_kind: {}, longest_wait: 0 }, holding: null });
+  if (listed.data) known.current = listed.data;
+  // NewWork, StartForm and SetAside still read the records themselves, until Launch replaces them (PR 9).
   const planned = useLoad(() => api("new-work"), [], 3000);
   const knownWork = useRef({ templates: [], items: [] });
   if (planned.data) knownWork.current = planned.data;
-  const decided = useLoad(() => api("decisions"), [], 5000);
-  const knownDecisions = useRef({ decisions: [], holding: null });
-  if (decided.data) knownDecisions.current = decided.data;
-  const reloadAll = () => { loaded.reload(); decided.reload(); return planned.reload(); };
-  const asks = { ...known.current, work: knownWork.current, reload: reloadAll,
-    decisions: { items: knownDecisions.current.decisions, holding: knownDecisions.current.holding, reload: decided.reload, error: decided.error } };
-  asks.waiting = asks.open.length + asks.work.items.filter(nwWaits).length + decisionsAsked(asks).length;
+  const reloadAll = () => { listed.reload(); return planned.reload(); };
+  const inter = known.current;
+  const isAsk = (r) => r.kind === "permission" || r.kind === "question";
+  // The shape the Steward panel and Sessions read: the asks themselves, and the decisions as hubd describes them.
+  const asks = { open: inter.items.filter((r) => isAsk(r) && r.status === "pending").map((r) => r.detail),
+    answered: inter.items.filter((r) => isAsk(r) && r.status !== "pending").map((r) => r.detail),
+    work: knownWork.current, reload: reloadAll, interactions: inter, stale: Boolean(listed.error),
+    decisions: { items: [...inter.items, ...inter.grants].filter((r) => r.kind === "decision").map((r) => r.detail), holding: inter.holding, reload: listed.reload, error: listed.error } };
+  asks.waiting = inter.counts.pending;
   const waiting = asks.waiting;
+  const [needs, setNeeds] = useState(null); // the Needs you modal, and what had focus when it opened
+
   const [planner, setPlanner] = useState(null);
   const [starting, setStarting] = useState(null);
   const [behind, setBehind] = useState(null); // planned work you closed while it runs
   useEffect(() => {
     const show = (e) => { setBehind(null); setPlanner({ ...e.detail, key: Date.now() }); };
     const form = (e) => setStarting({ ...e.detail, key: Date.now() });
+    const openNeeds = (e) => setNeeds({ ...e.detail, key: Date.now(), opener: document.activeElement });
     window.addEventListener("hub-new-work", show);
     window.addEventListener("hub-start-form", form);
-    return () => { window.removeEventListener("hub-new-work", show); window.removeEventListener("hub-start-form", form); };
+    window.addEventListener("hub-needs-you", openNeeds);
+    return () => { window.removeEventListener("hub-new-work", show); window.removeEventListener("hub-start-form", form); window.removeEventListener("hub-needs-you", openNeeds); };
   }, []);
+  // The old addresses of Needs you, Active and the Decisions page open the modal with the matching filter.
+  const oldNeeds = route.path === "decisions" ? "decisions" : route.path === "shells" && route.query.tab === "needs" ? "all" : route.path === "shells" && route.query.tab === "active" ? "grants" : null;
+  useEffect(() => {
+    if (!oldNeeds) return;
+    needsYou({ filter: oldNeeds });
+    history.replaceState(null, "", route.path === "decisions" ? hash("overview") : hash("shells", { tab: "all" }));
+  }, [oldNeeds]);
+  // Focus goes back where it was; if that button is gone (its count fell to 0), to the Sessions link it sat beside.
+  const closeNeeds = () => {
+    const back = needs && needs.opener;
+    setNeeds(null);
+    const to = back && back.isConnected && back !== document.body ? back : document.querySelector('header.top a[href^="#/shells"]');
+    if (to) to.focus();
+  };
   // Links from before Work was one page, and the items a card points to.
   // The queue is a tab of Work and the notes search is a tab of Docs; their old addresses go there.
   const legacy = { issues: "issues", prs: "prs", actions: "actions", queue: "queue" }[route.path];
   const notes = route.path === "notes";
   const path = legacy ? "work" : notes ? "docs" : route.path;
   const query = legacy ? { ...route.query, tab: legacy } : notes ? { ...route.query, tab: "notes" } : route.query;
-  const views = { overview: Overview, roadmap: Roadmap, work: Work, docs: Docs, shells: Sessions, launch: Launch, device: DeviceView, decisions: DecisionsPage };
+  const views = { overview: Overview, roadmap: Roadmap, work: Work, docs: Docs, shells: Sessions, launch: Launch, device: DeviceView };
   const View = views[path] || Overview;
   const here = path === "launch" ? "shells" : path;
   return html`<div class="with-dock"><div class="dock-main">
     <header class="top"><${Logo} />
       <nav aria-label="Primary">${NAV.map(([key, label]) => (key === "shells"
-        ? html`<a href=${hash("shells", { tab: "needs" })} aria-current=${here === key ? "page" : null} aria-label=${waiting ? `Sessions, ${waiting} waiting for you` : null}>${label}${waiting > 0 && html`<span class="nav-count" aria-hidden="true">${waiting}</span>`}</a>`
+        ? html`<span class="row" style="gap: 0; flex-wrap: nowrap"><a href=${hash("shells", { tab: "all" })} aria-current=${here === key ? "page" : null}>${label}</a>${waiting > 0 && html`<button class="nav-count" aria-label=${needsLabel(asks)} title="Needs you" onClick=${() => needsYou()}>${waiting}</button>`}</span>`
         : html`<a href="#/${key}" aria-current=${here === key ? "page" : null}>${label}</a>`))}</nav>
       <div class="end">
         ${!host.gh && html`<span class="badge bad">no gh on the host</span>`}
@@ -3140,7 +3208,8 @@ function Hub({ host, route, onOut }) {
     <${Steward} route=${route} asks=${asks} />
     ${planner && html`<${NewWork} key=${planner.key} open=${planner} work=${asks.work} asks=${asks} reload=${reloadAll} onClose=${(left) => { setPlanner(null); setBehind(left || null); }} />`}
     ${starting && html`<${StartForm} key=${starting.key} item=${starting} work=${asks.work} reload=${reloadAll} onClose=${() => setStarting(null)} />`}
-    ${behind && html`<div role="status" class="nw-toast"><span style="flex: 1"><span class="mono" style="font-weight: 600">${behind.name}</span> runs in the background. Its drafts show up in <a href=${hash("shells", { tab: "needs" })}>Sessions › Needs you</a>.</span>
+    ${needs && html`<${NeedsYouModal} key=${needs.key} initial=${needs} data=${inter} asks=${asks} onClose=${closeNeeds} />`}
+    ${behind && html`<div role="status" class="nw-toast"><span style="flex: 1"><span class="mono" style="font-weight: 600">${behind.name}</span> runs in the background. Its drafts show up in <button class="link" onClick=${() => needsYou()}>Needs you</button>.</span>
       <button class="plain" onClick=${() => planWork({ id: behind.id })}>Reopen</button><button class="square" aria-label="Dismiss" onClick=${() => setBehind(null)}>×</button></div>`}</div>`;
 }
 

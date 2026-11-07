@@ -128,7 +128,7 @@ class NewWork:
         return self.new({**fields, "by": session}, "offered")
 
     def move(self, record: dict, state: str, **changes) -> dict:
-        record.update(state=state, **changes)
+        record.update(state=state, moved=time.time(), **changes)
         self._save(record)
         self._prune()
         return record

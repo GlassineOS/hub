@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 import asyncio
 import json
+import time
 import shutil
 import stat
 import uuid
@@ -795,3 +796,177 @@ def test_the_dev_hubd_takes_the_tool_server_url_from_the_environment(tmp_path):
     assert dev.build(tmp_path / "hubd.sock", env).agents.mcp_url == "http://127.0.0.1:29095/mcp"
     del env["DEV_MCP_URL"]
     assert dev.build(tmp_path / "hubd.sock", env).agents.mcp_url == dev.DEFAULT_MCP_URL == "http://127.0.0.1:19095/mcp"
+
+
+# --- Needs you: one list over asks, decisions and new work ------------------------------------
+from pathlib import Path  # noqa: E402
+
+from hubd import decisions as decisions_module, interactions  # noqa: E402
+from hubd.agents import Library  # noqa: E402
+from hubd.newwork import NewWork  # noqa: E402
+
+LIBRARY = Library(Path(__file__).parents[1] / "agents")
+
+
+class Clock:
+    def __init__(self):
+        self.now = time.time()  # the list keeps a day of settled rows, by the time now
+
+    def __call__(self):
+        return self.now
+
+
+class InteractionAgents:
+    """Two sessions, as describe() gives them, with the tokens a session would hold."""
+    library = LIBRARY
+    SESSIONS = {"impl": {"persona": "engineer", "persona_name": "Engineer", "initials": "EN", "family": "build", "object": "issue",
+                         "covers": [{"repo": "boot", "number": 9}, {"repo": "kernel", "number": 2}], "action": "issue-implement"},
+                "steward": {"persona": "steward", "persona_name": "Steward", "initials": "S", "family": "organise", "object": "project",
+                            "covers": [], "action": "project-steward"}}
+
+    def scope(self, token):
+        return {"full-token": {"session": "impl", "tools": None, "persona": "engineer"}}.get(token)
+
+    def session_id_of(self, name):
+        return f"conversation-{name}" if name in self.SESSIONS else None
+
+    def describe(self, name):
+        return dict(self.SESSIONS[name]) if name in self.SESSIONS else None
+
+    def is_session(self, name):
+        return name in self.SESSIONS
+
+    def asker(self, name, tool=None):
+        return self.describe(name), 600
+
+    def tell(self, *_a):
+        pass
+
+
+@pytest.fixture
+def needs(tmp_path):
+    clock = Clock()
+    store = decisions_module.Decisions(tmp_path / "decisions", clock=clock)
+    sessions = auth.Sessions()
+    hub = Hubd(None, None, sessions, "general-token", agents=InteractionAgents(), decision_store=store, work=NewWork(tmp_path / "work"))
+    return hub, store, clock, sessions.create()
+
+
+async def _ask(hub, session="impl", tool="Bash", tool_input=None):
+    tool_input = tool_input or {"command": "git push"}
+    return hub.asks.add(session, "PermissionRequest", tool, tool_input, None, hub.agents.describe(session), 600)
+
+
+QUESTION = {"questions": [{"question": "Which board?", "header": "Board", "options": [{"label": "na1"}, {"label": "na2"}]}]}
+
+
+def test_needs_you_takes_a_login_and_no_token(needs):
+    hub, _store, _clock, _login = needs
+
+    async def go():
+        for op in ("interaction.list", "interaction.answer"):
+            for field, token in (("agent_token", "full-token"), ("agent_token", "general-token"), ("token", "wrong"), ("token", None)):
+                reply = await hub.request({"op": op, field: token, "id": "d-000000000000", "verdict": "approve"})
+                assert reply["ok"] is False and reply["denied"], (op, field, token)
+    run(go())
+
+
+def test_every_status_comes_from_its_source(needs):
+    hub, store, clock, login = needs
+
+    async def go():
+        statuses = {}
+        asks = [await _ask(hub) for _ in range(6)]
+        question = hub.asks.add("impl", "PreToolUse", "AskUserQuestion", QUESTION, None, hub.agents.describe("impl"), None)
+        hub.asks.answer(asks[0].id, "allow")
+        hub.asks.answer(asks[1].id, "deny", "not now")
+        hub.asks.close(asks[2], "terminal")
+        hub.asks.close(asks[3], "timeout")
+        hub.asks.close(asks[4], "stopped")
+        hub.asks.answer(question.id, "answer", answers={"Which board?": ["na1"]})
+        asks[5].updates, asks[5].always = [{"type": "addRules"}], "git push"
+        hub.asks.answer(asks[5].id, "always")
+        waiting = await _ask(hub, "steward", tool_input={"command": "ls"})
+        requested = store.request("go", {"actions": ["reboot"]}, "to test it", "impl")
+        current = store.add("go", "mine", {"actions": ["suspend"]}, {"runs": 2})
+        said_no = store.request("go", {"actions": ["reboot"]}, "again", "impl")
+        store.deny(said_no["id"])
+        ran_out = store.request("go", {"actions": ["load-test"]}, "later", "impl")
+        ended = store.add("go", "mine too", {"actions": ["reboot"]}, {"runs": 1})
+        store.end(ended["id"], None)
+        clock.now += decisions_module.REQUEST_LIFE + 1
+        store.current_state(store._get(ran_out["id"]))
+        requested = store.request("go", {"actions": ["reboot"]}, "to test it", "impl")
+        offered = hub.work.offer("steward", {"action": "new-issue", "title": "New issues", "repo": "boot", "why": "now"})
+        running = hub.work.offer("steward", {"action": "new-issue", "title": "Running", "repo": "boot", "why": "now"})
+        hub.work.move(running, "running")
+        set_aside = hub.work.offer("steward", {"action": "new-issue", "title": "Set aside", "repo": "boot", "why": "now"})
+        hub.work.move(set_aside, "dismissed")
+        filed = hub.work.new({"action": "new-issue", "title": "Filed", "repo": "boot", "by": "you"}, "done")
+        hub.work.move(filed, "filed", drafts=[{"title": "x", "state": "filed"}])
+        listed = (await hub.request({"op": "interaction.list", "token": login}))
+        assert listed["ok"]
+        for row in [*listed["items"], *listed["grants"]]:
+            statuses.setdefault(row["kind"], set()).add(row["status"])
+        assert statuses["permission"] == {"pending", "allowed", "always", "denied", "terminal", "timeout", "ended"}
+        assert statuses["question"] == {"answered"}
+        assert statuses["decision"] >= {"pending", "allowed", "denied", "timeout", "ended"}
+        assert statuses["suggestion"] >= {"pending", "started", "dismissed"} and statuses["result"] == {"answered"}
+        assert set().union(*statuses.values()) == set(interactions.STATUSES)
+        rows = {r["id"]: r for r in [*listed["items"], *listed["grants"]]}
+        assert rows[f"a:{waiting.id}"]["blocking"] and rows[f"a:{waiting.id}"]["session"] == "steward"
+        assert not rows[requested["id"]]["blocking"], "a decision waits for you but holds no turn"
+        assert rows[f"a:{asks[2].id}"]["handled"]["by"] == "terminal"
+        assert rows[f"a:{asks[0].id}"]["items"] == [{"kind": "issue", "repo": "boot", "number": 9}, {"kind": "issue", "repo": "kernel", "number": 2}]
+        assert rows[f"a:{asks[0].id}"]["persona"] == {"id": "engineer", "name": "Engineer", "initials": "EN", "family": "build", "ended": False}
+        assert [g["id"] for g in listed["grants"]] == [current["id"]] and listed["grants"][0]["detail"]["left"] == {"runs": 2}
+        assert listed["counts"]["blocking"] == 1 and listed["counts"]["by_kind"]["decision"] == 1 and listed["counts"]["by_kind"]["suggestion"] == 1
+        assert listed["counts"]["pending"] == 3 and listed["counts"]["longest_wait"] >= 0
+        assert rows[f"w:{offered['id']}"]["status"] == "pending" and listed["holding"]["holding"] is False
+        only = await hub.request({"op": "interaction.list", "token": login, "session": "steward"})
+        assert {r["session"] for r in only["items"]} == {"steward"}
+    run(go())
+
+
+def test_an_answer_goes_to_its_source_and_says_who(needs):
+    hub, store, _clock, login = needs
+
+    async def go():
+        user = hub.sessions.own_user()
+        ask = await _ask(hub)
+        reply = await hub.request({"op": "interaction.answer", "token": login, "id": f"a:{ask.id}", "verdict": "allow", "where": "Needs you"})
+        assert reply["ok"] and reply["item"]["status"] == "allowed"
+        assert reply["item"]["handled"]["by"] == user and reply["item"]["handled"]["where"] == "Needs you"
+        assert ask.future.done() and ask.state == "allowed"
+        asked = store.request("go", {"actions": ["reboot"]}, "to test it", "impl")
+        reply = await hub.request({"op": "interaction.answer", "token": login, "id": asked["id"], "verdict": "approve", "where": "Work"})
+        assert reply["ok"] and reply["item"]["status"] == "allowed" and store._get(asked["id"])["state"] == "current"
+        assert store._get(asked["id"])["handled"]["by"] == user
+        reply = await hub.request({"op": "interaction.answer", "token": login, "id": asked["id"], "verdict": "end", "where": "Needs you"})
+        assert reply["ok"] and reply["item"]["status"] == "ended"
+        offer = hub.work.offer("steward", {"action": "new-issue", "title": "New issues", "repo": "boot", "why": "now"})
+        reply = await hub.request({"op": "interaction.answer", "token": login, "id": f"w:{offer['id']}", "verdict": "dismiss", "where": "SessionView"})
+        assert reply["ok"] and reply["item"]["status"] == "dismissed" and hub.work.get(offer["id"])["handled"]["where"] == "SessionView"
+        for bad in ({"id": f"a:{ask.id}", "verdict": "allow"}, {"id": "x:1", "verdict": "allow"}, {"id": asked["id"], "verdict": "maybe"},
+                    {"id": "d-000000000000", "verdict": "approve"}, {"id": f"w:{offer['id']}", "verdict": "apply"}):
+            assert not (await hub.request({"op": "interaction.answer", "token": login, "where": "Needs you", **bad}))["ok"], bad
+        assert "where is one of" in (await hub.request({"op": "interaction.answer", "token": login, "id": "d-1", "verdict": "deny", "where": "Elsewhere"}))["error"]
+    run(go())
+
+
+def test_an_eye_test_go_is_never_always_and_a_go_counts_down(needs):
+    hub, store, _clock, login = needs
+
+    async def go():
+        eye = store.request("go", {"actions": ["eye-test"]}, "look at the panel", "impl")
+        reply = await hub.request({"op": "interaction.answer", "token": login, "id": eye["id"], "verdict": "always", "where": "Needs you"})
+        assert not reply["ok"] and store._get(eye["id"])["state"] == "requested"
+        listed = await hub.request({"op": "interaction.list", "token": login})
+        assert next(r for r in listed["items"] if r["id"] == eye["id"])["detail"]["eye_test"] is True
+        made = store.add("go", "for the tests", {"actions": ["reboot"]}, {"runs": 2})
+        grant = lambda listed: next(g for g in listed["grants"] if g["id"] == made["id"])
+        assert grant(await hub.request({"op": "interaction.list", "token": login}))["detail"]["left"] == {"runs": 2}
+        used = await hub.request({"op": "decision.use", "agent_token": "full-token", "kind": "go", "actions": "reboot", "id": made["id"]})
+        assert used["answer"] == "yes"
+        assert grant(await hub.request({"op": "interaction.list", "token": login}))["detail"]["left"] == {"runs": 1}
+    run(go())

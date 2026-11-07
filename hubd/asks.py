@@ -101,12 +101,14 @@ class Ask:
         self.state = "pending"
         self.said = None  # what Claude was told
         self.answered_at = None
+        self.handled = None  # {by, where, at}: who answered it from a card, and where the page said it was
         self.future: asyncio.Future = asyncio.get_running_loop().create_future()
 
     def view(self) -> dict:
         now = time.time()
         return {"id": self.id, "session": self.session, "kind": self.kind, "tool": self.tool, "input": self.input, "too_long": self.too_long,
                 "always": self.always, "agent": self.agent, "state": self.state, "said": self.said, "answered_at": self.answered_at,
+                "made": self.made, "handled": self.handled,
                 # When a PreToolUse hook holds the question, the terminal shows no prompt of its own.
                 "terminal": self.how == "PermissionRequest", "waited": round(now - self.made), "wait": self.wait,
                 "left": None if self.wait is None else max(0, round(self.made + self.wait - now))}

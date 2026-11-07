@@ -23,7 +23,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import auth, decisions, devices, newwork, notes
+from . import auth, decisions, devices, interactions, newwork, notes
 from . import feed as feedlib
 from .agents import MAX_NOTES, PLANNER_MODELS, AgentError, Agents, Library, load_environment, validate, with_also
 from .apps import AppError, Apps, is_write
@@ -197,9 +197,11 @@ class Hubd:
             return await self.started_request(op, req)
         if op in REPO_OPS:
             return await self.repo_request(op, req)
-        if op in ("shell.list", "shell.new", "shell.kill") or op.startswith(("agent.", "ask.", "work.", "decision.", "notes.")):
+        if op in ("shell.list", "shell.new", "shell.kill") or op.startswith(("agent.", "ask.", "work.", "decision.", "notes.", "interaction.")):
             if not self.sessions.check(req.get("token")):
                 return {"ok": False, "error": "login required", "denied": True}
+            if op.startswith("interaction."):
+                return await self.interaction_request(op, req)
             if op == "ask.list":
                 return {"ok": True, **self.asks.list()}
             if op == "ask.answer":
@@ -629,9 +631,69 @@ class Hubd:
             except decisions.DecisionError as e:  # the card stays up, to say no to
                 return {"ok": False, "error": str(e)}
         answered = self.asks.answer(req.get("id"), req.get("verdict"), req.get("reason"), req.get("answers"))
+        ask.handled = {"by": self.sessions.own_user(), "where": req.get("where"), "at": time.time()}
+        answered["handled"] = ask.handled
         if scope:  # with nothing awaited since the answer, so this is on disk before the session hears
             self.decisions.add("merge", f"Allowed on {ask.session}'s card.", scope, {"hours": GRANT_LIFE / 3600})
         return {"ok": True, "ask": answered}
+
+    # --- Needs you: one list over asks, decisions and new work ------------------------------
+    def _interactions(self, session=None) -> dict:
+        names = {a["session"] for a in self.asks.list()["open"]}
+        records = self.decisions.list() if self.decisions else []
+        work = self.work.list() if self.work else []
+        names |= {d.get("asked_by") for d in records} | {r.get("by") for r in work}
+        agents = {n: self.agents.describe(n) for n in names if self.agents and isinstance(n, str) and self.agents.is_session(n)}
+        objects = {a["id"]: a["object"] for a in self.agents.library.actions.values()} if self.agents else {}
+        return interactions.project(self.asks.list(), records, work, agents, objects, session)
+
+    def _interaction(self, item_id) -> dict | None:
+        return next((r for r in [*self._interactions()["items"], *self._interactions()["grants"]] if r["id"] == item_id), None)
+
+    async def interaction_request(self, op: str, req: dict) -> dict:
+        """Behind the login check. A list, and answers that go to each source's own op: this adds no rule of its own."""
+        if op == "interaction.list":
+            session = req.get("session")
+            if session is not None and not isinstance(session, str):
+                return {"ok": False, "error": "a session is named by its name"}
+            listed = self._interactions(session)
+            return {"ok": True, **listed, "holding": self.decisions.holding_view() if self.decisions else None}
+        if op != "interaction.answer":
+            return {"ok": False, "error": f"unknown request: {op}"}
+        item_id, verdict = req.get("id"), req.get("verdict")
+        try:
+            where = interactions.check_where(req.get("where"))
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        if not isinstance(item_id, str):
+            return {"ok": False, "error": "no such interaction"}
+        handled = {"by": self.sessions.own_user(), "where": where, "at": time.time()}
+        if item_id.startswith("a:"):
+            if verdict not in ("allow", "always", "deny", "answer"):
+                return {"ok": False, "error": "a permission is allowed, always allowed or denied; a question is answered"}
+            try:
+                reply = await self.ask_answer({**req, "id": item_id[2:], "where": where})
+            except AskError as e:
+                return {"ok": False, "error": str(e)}
+        elif item_id.startswith("d-"):
+            if self.decisions is None:
+                return {"ok": False, "error": "decisions aren't set up"}
+            if verdict not in ("approve", "deny", "end"):  # no "always": a decision has its own end, and an eye test never stands for good
+                return {"ok": False, "error": "a decision is approved, denied or ended"}
+            reply = await self.decision_request(f"decision.{verdict}", {**req, "id": item_id, "why": req.get("why") or req.get("reason")})
+            if reply["ok"]:
+                self.decisions.mark_handled(item_id, handled)
+        elif item_id.startswith("w:"):
+            if verdict != "dismiss":
+                return {"ok": False, "error": "a suggestion is dismissed here; Launch… opens it"}
+            reply = await self.work_request("work.dismiss", {"id": item_id[2:]})
+            if reply["ok"]:
+                self.work.move(reply["work"], reply["work"]["state"], handled=handled)
+        else:
+            return {"ok": False, "error": "no such interaction"}
+        if not reply["ok"]:
+            return reply
+        return {"ok": True, "item": self._interaction(item_id)}
 
     # --- new work ----------------------------------------------------------------------
     async def repo_request(self, op: str, req: dict) -> dict:

@@ -346,6 +346,16 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
     async def ask_answer(r, b, token):
         return (await hubd.call(op="ask.answer", token=token, id=p(r, "id"), verdict=b.get("verdict"), reason=b.get("reason"), answers=b.get("answers")))["ask"]
 
+    # --- Needs you: asks, decisions and new work, in one list ----------------------------
+    async def interactions(r, _b, token):
+        reply = await hubd.call(op="interaction.list", token=token, session=r.query_params.get("session") or None)
+        reply.pop("ok", None)
+        return reply
+
+    async def interaction_answer(r, b, token):
+        fields = {k: b.get(k) for k in ("verdict", "reason", "answers", "words", "scope", "ends", "why", "where")}
+        return {"item": (await hubd.call(op="interaction.answer", token=token, id=p(r, "id"), **fields))["item"]}
+
     async def agent_actions(r, _b, token):
         return (await hubd.call(op="agent.actions", token=token, object=r.query_params.get("object")))["actions"]
 
@@ -457,6 +467,8 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         Route("/api/new-work", api(new_work)),
         Route("/api/new-work", api(new_work_start), methods=["POST"]),
         Route("/api/new-work/{id}/{move}", api(new_work_move), methods=["POST"]),
+        Route("/api/interactions", api(interactions)),
+        Route("/api/interactions/{id}/answer", api(interaction_answer), methods=["POST"]),
         Route("/api/asks", api(asks)),
         Route("/api/asks/{id}/answer", api(ask_answer), methods=["POST"]),
         Route("/api/agents/{step}", api(agent_step), methods=["POST"]),
