@@ -1809,7 +1809,7 @@ def test_usage_says_not_known_without_a_status_and_low_from_eighty_percent(tmp_p
     (sessions / "a" / "status.json").write_text(json.dumps({"cost": {"total_cost_usd": 4.0}}))
     assert usage.status(sessions)["known"] is False, "a cost with no allowance says nothing"
     today = usage.status(sessions, allowance=5.0)
-    assert today["known"] and today["low"] and today["used"] == 0.8 and today["says"] == "$4.00 of $5.00 used today (80%), low"
+    assert today["known"] and today["low"] and today["used"] == 0.8 and today["says"] == "$4.00 of $5.00 spent by sessions active today (80%), low"
     assert not usage.status(sessions, allowance=10.0)["low"]
     (sessions / "b").mkdir()
     (sessions / "b" / "status.json").write_text(json.dumps({"rate_limits": {"five_hour": {"used_percentage": 30, "resets_at": 99},
@@ -1824,8 +1824,23 @@ def test_usage_says_not_known_without_a_status_and_low_from_eighty_percent(tmp_p
         assert fullest["used"] == shown and fullest["low"] and fullest["says"] == f"{round(shown * 100)}% of the rate limit used, low", \
             "the fullest window shows, whichever comes first"
     (sessions / "b" / "status.json").write_text("{" * 20000)  # too big or broken: not read
-    assert usage.status(sessions, allowance=10.0)["source"] == "today's cost"
+    assert usage.status(sessions, allowance=10.0)["source"] == "cost of today's sessions"
     assert usage.allowance_of("5") == 5.0 and usage.allowance_of("0") is None and usage.allowance_of("x") is None
+
+
+def test_the_allowance_counts_whole_sessions_active_today_not_a_days_spend(tmp_path):
+    """A session's total_cost_usd is a running total: one that began earlier and ran today counts whole, one idle today not at all."""
+    sessions = tmp_path / "sessions"
+    now = 1_800_000_000.0
+    for name, cost, age in (("began-yesterday", 15.0, 60), ("today", 1.0, 120), ("idle-since-monday", 50.0, 3 * 86400)):
+        (sessions / name).mkdir(parents=True)
+        path = sessions / name / "status.json"
+        path.write_text(json.dumps({"cost": {"total_cost_usd": cost}}))
+        os.utime(path, (now - age, now - age))
+    meter = usage.status(sessions, allowance=20.0, now=now)
+    assert meter["source"] == "cost of today's sessions" and meter["low"] and meter["used"] == 0.8
+    assert meter["says"] == "$16.00 of $20.00 spent by sessions active today (80%), low", "the 15 carried over counts, the idle 50 does not"
+    assert "used today" not in meter["says"], "it is not the day's own spend, and must not read as that"
 
 
 def test_a_resumed_session_is_at_its_prompt(tmp_path):

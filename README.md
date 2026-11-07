@@ -165,14 +165,16 @@ CLAUDE_CONFIG_DIR=~/.claude-something
 HUBD_CLAUDE=/path/to/claude
 # seconds between pings to a Steward about changes: 60 to 86400, 300 if unset or not a number
 HUBD_PING_SECONDS=300
-# dollars a day for the header's usage meter, when Claude Code's status line gives no rate limit
+# dollars for the header's usage meter to compare the cost of today's sessions with, when the status line gives no rate limit
 HUBD_DAILY_USAGE_USD=20
 ```
 
 The header's usage meter reads `status.json` in each session's folder: every session's settings run a status-line
 command that copies Claude Code's status-line JSON there (at most 16 KiB, whole or not at all). If the newest has rate
-limits, the meter shows the fullest; otherwise today's cost against `HUBD_DAILY_USAGE_USD`; with neither it says
-"usage not known". It says "low" from 80 %. Which fields your Claude Code version sends hasn't been tried yet.
+limits, the meter shows the fullest; otherwise the total cost of the sessions active today against
+`HUBD_DAILY_USAGE_USD`. That cost is Claude Code's running total for each session, so a session that began on an
+earlier day counts whole, not just today's part; the meter says "spent by sessions active today", not a day's spend.
+With neither it says "usage not known". It says "low" from 80 %. Which fields your Claude Code version sends hasn't been tried yet.
 
 The work sync records what changed (an issue, a pull request or a run: its state, head commit, who, when and a link,
 never a title or text) in hubd's change feed, `feed.sqlite` in its state folder. Each running Steward reads it from its

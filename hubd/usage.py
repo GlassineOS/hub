@@ -5,8 +5,10 @@ Each session's settings carry a status-line command (agents._hooks) that copies 
 that session's own folder as status.json, at most MAX_BYTES. Nothing here asks Claude Code or the network.
 
 The status-line input is Claude Code's, not ours, and not pinned. If the newest file carries rate limits (a used
-percentage and a reset time) those are shown; otherwise today's cost across sessions is compared with an allowance
-you set (HUBD_DAILY_USAGE_USD in agents.env). With neither, the meter says it doesn't know.
+percentage and a reset time) those are shown; otherwise the total cost of the sessions active today is compared with
+an allowance you set (HUBD_DAILY_USAGE_USD in agents.env). Claude Code's cost is a running total for a session (it
+resets on /clear), so a session that began on an earlier day counts whole: this is not the day's own spend, and the
+words say so. With neither, the meter says it doesn't know.
 UNTESTED against a real claude: which rate-limit fields the installed version sends. The reader takes only numbers
 it can check, so a field it doesn't know changes nothing but the words "not known".
 """
@@ -79,7 +81,7 @@ def status(sessions: Path | None, allowance: float | None = None, now: float | N
     if allowance:
         today = [_cost(s) for mtime, path in files if time.localtime(mtime)[:3] == day for s in [_read(path)] if s]
         spent = sum(c for c in today if c is not None)
-        return _words(spent / allowance, "today's cost", spent=round(spent, 2), allowance=allowance)
+        return _words(spent / allowance, "cost of today's sessions", spent=round(spent, 2), allowance=allowance)
     return {"known": False, "used": None, "low": False, "says": NOT_KNOWN, "resets": None, "source": None}
 
 
@@ -89,7 +91,7 @@ def _words(used: float, source: str, resets=None, spent=None, allowance=None) ->
     if source == "rate limit":
         says = f"{pct}% of the rate limit used"
     else:
-        says = f"${spent:.2f} of ${allowance:.2f} used today ({pct}%)"
+        says = f"${spent:.2f} of ${allowance:.2f} spent by sessions active today ({pct}%)"
     return {"known": True, "used": round(min(used, 1.0), 3), "low": low, "says": f"{says}{', low' if low else ''}",
             "resets": resets, "source": source}
 
