@@ -1400,19 +1400,21 @@ class Agents:
         second send that passed the same check meanwhile would paste into the same buffer, and into the turn the first began."""
         async with self._send_locks.setdefault(name, asyncio.Lock()):
             directory = self.sessions / name
-            queue = self._sends.get(name)
-            if not queue or self._state_word(directory, False) != "Idle" or not await self.shells.prompt_empty(name):
+            if not self._sends.get(name) or self._state_word(directory, False) != "Idle" or not await self.shells.prompt_empty(name):
                 return  # with a draft in the prompt, Enter would send it along
-            if self._state_word(directory, False) != "Idle":
-                return  # a turn began while tmux was asked: the person typed in the terminal
-            text, sender = queue.pop(0), self._from[name].pop(0)
+            # Read again: Esc or the session's end can have taken the queue while tmux was asked, and a turn can have begun.
+            queue, senders = self._sends.get(name), self._from.get(name)
+            if not queue or not senders or self._state_word(directory, False) != "Idle":
+                return
+            text, sender = queue.pop(0), senders.pop(0)
             (directory / IDLE_FILE).unlink(missing_ok=True)  # at once, so the next one waits for this turn
             try:
                 await self.shells.paste(name, text)
             except (ShellError, OSError):
                 (directory / IDLE_FILE).touch()
-                queue.insert(0, text)
-                self._from[name].insert(0, sender)
+                if self._sends.get(name) is queue and self._from.get(name) is senders:  # not if Esc took them meanwhile: this went with them
+                    queue.insert(0, text)
+                    senders.insert(0, sender)
                 raise
 
     def _drop_sends(self, name, why: str) -> None:
@@ -1458,7 +1460,8 @@ class Agents:
         # Here, after the wait above, or calls at once could all pass.
         elif len(self._sends.get(name, ())) >= MAX_WAITING_MESSAGES:
             raise AgentError(f"{name} hasn't read what's waiting for it yet: list_running_sessions shows what's queued, try later")
-        self._sends.setdefault(name, []).append(text)
+        queue = self._sends.setdefault(name, [])
+        queue.append(text)
         self._from.setdefault(name, []).append(by)
         try:
             await self._send_next(name)
@@ -1466,6 +1469,10 @@ class Agents:
             self._withdraw(name, text, by)  # with no keeper, and a retry would then send it twice
             raise
         waiting = self._sends.get(name, [])  # read again: other sends came and went while this one waited its turn
+        if waiting is not queue and text in queue:
+            # The queue was cleared while this waited (Esc, the session's end, tmux refusing the keeper's paste) with this still in it:
+            # not queued, and it didn't go.
+            raise AgentError(f"that message to {name} wasn't sent: the queue it was waiting in was cleared first, by Esc, the session ending or tmux")
         if waiting and name not in self._senders:
             self._senders[name] = asyncio.create_task(self._keep_sending(name))
         return {"sent": self._position(name, text, by) is None, "queued": len(waiting)}

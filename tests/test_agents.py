@@ -2756,6 +2756,8 @@ class _SlowTmux(FakeShells):
         self.log = []
         self.gate = None  # a test sets this to act in the middle of the look at the prompt
         self.looking = asyncio.Event()
+        self.paste_gate = None  # and this, to act in the middle of a paste
+        self.pasting = asyncio.Event()
 
     async def list(self):
         return [{"name": s[0]} for s in self.started]
@@ -2769,6 +2771,9 @@ class _SlowTmux(FakeShells):
 
     async def paste(self, name, text):
         self.log.append(f"start {text}")
+        self.pasting.set()
+        if self.paste_gate:
+            await self.paste_gate.wait()
         await asyncio.sleep(0)
         await super().paste(name, text)
         await asyncio.sleep(0)
@@ -2867,4 +2872,50 @@ def test_a_login_cant_queue_without_limit(tmp_path, monkeypatch):
         await a.interrupt(name)  # Esc drops them, and the field works again
         assert await a.say(name, "again") == {"sent": True, "queued": 0}
         _cancel_senders(a)
+    asyncio.run(go())
+
+
+def test_esc_while_the_prompt_is_looked_at_drops_the_message_without_an_error(tmp_path, monkeypatch):
+    """interrupt() takes the queue away; the send that was waiting on tmux held the old list, and popped from a dict entry that was gone."""
+    monkeypatch.setattr(agents_module, "SEND_POLL", 60)
+    monkeypatch.setattr(agents_module, "INTERRUPT_SETTLE", 0)
+    a, name, directory, fire = bridged(tmp_path)
+    a.shells = _SlowTmux(a.shells.started)
+    fire("Stop")
+
+    async def go():
+        a.shells.gate = asyncio.Event()
+        sending = asyncio.ensure_future(a._send(name, "typed"))
+        await a.shells.looking.wait()
+        await a.interrupt(name)
+        a.shells.gate.set()
+        with pytest.raises(AgentError, match="wasn't sent"):  # said out loud: it isn't "queued", and it isn't a 500
+            await sending
+        assert not getattr(a.shells, "pasted", []) and not a._senders
+        state = await a.session_state(name)
+        assert state["queued"] == 0 and state["state"] == "Idle"
+        assert await a._send(name, "next") == {"sent": True, "queued": 0}  # nothing stale is left to trip the next one
+    asyncio.run(go())
+
+
+def test_esc_while_tmux_pastes_and_refuses_isnt_put_back_or_a_crash(tmp_path, monkeypatch):
+    """The refused message goes back to the head of the queue it came from, but Esc has taken that queue: it went with it."""
+    monkeypatch.setattr(agents_module, "SEND_POLL", 60)
+    monkeypatch.setattr(agents_module, "INTERRUPT_SETTLE", 0)
+    a, name, directory, fire = bridged(tmp_path)
+    a.shells = _SlowTmux(a.shells.started)
+    fire("Stop")
+
+    async def go():
+        a.shells.paste_gate = asyncio.Event()
+        sending = asyncio.ensure_future(a._send(name, "typed"))
+        await a.shells.pasting.wait()
+        a.shells.refuse_paste = True
+        await a.interrupt(name)
+        a.shells.paste_gate.set()
+        with pytest.raises(ShellError):  # tmux's own error, not a KeyError from a queue that's gone
+            await sending
+        state = await a.session_state(name)
+        assert state["queued"] == 0 and not a._senders and not getattr(a.shells, "pasted", [])
+        assert a._sends.get(name, []) == [] and a._from.get(name, []) == []
     asyncio.run(go())
