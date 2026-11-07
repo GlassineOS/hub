@@ -1666,7 +1666,8 @@ function TerminalView({ name, onGone, focusRef, quiet }) {
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ rows: term.rows, cols: term.cols }));
     };
     ws.onopen = () => { setNote(""); sendSize(); toBody(); };
-    // 004 FR-005: it opens at the end, and follows new output only while you're there. Scrolled up, you stay where you read.
+    // 004 FR-005: it opens at the end, and follows new output only while you're there. This is for xterm's own scrollback.
+    // Inside tmux (everything here) the wheel is tmux's, and its copy mode is what holds your place and lets go at the end.
     let first = true;
     ws.onmessage = (e) => {
       const b = term.buffer.active;

@@ -1421,7 +1421,8 @@ def test_the_steward_panel_reloads_its_state_after_a_press():
 
 
 def test_the_terminal_keeps_your_place():
-    """A static check (004 FR-005): new output follows the end only while you're at it."""
+    """A static check (004 FR-005) of the page's own scrollback only: new output follows the end while you're at it. In tmux the
+    place is kept by tmux's copy mode, which test_hubd.py tests against a real tmux."""
     term = _component(_app_js(), "TerminalView")
     assert "b.viewportY >= b.baseY" in term and "if (atEnd) term.scrollToBottom()" in term
 
