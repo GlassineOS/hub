@@ -2633,3 +2633,15 @@ def test_the_steward_panel_is_a_button_at_phone_width():
     assert "const open = phone ? sheet === view : view in panels ? panels[view] : panelOpen(view);" in panel
     assert panel.index("if (phone) return setSheet(next ? null : view);") < panel.index("keepPanel(view, !next);")
     assert "useEffect(() => setSheet(null), [view]);" in panel and 'm.addEventListener("change", changed)' in _component(script, "usePhone")
+
+
+def test_the_steward_chips_follow_the_line_on_disk_not_this_tabs_last_answer():
+    panel = _component(_app_js(), "Steward")
+    # 010 FR-004: another tab, or a phone, can write the line after this one; the chips are hubd's for what's on disk,
+    # read again after each write, and this page's own answer only until then (or while the Steward has no folder).
+    assert "const onDisk = state && state.sees && state !== toldWith.current ? state.sees : null;" in panel
+    assert "const chips = onDisk || (told && told.key === seenKey ? told.chips : null);" in panel
+    assert "toldWith.current = known.current; setTold({ key: seenKey, chips: r.sees || [] }); reload();" in panel
+    # Back on a tab it tells the Steward its place again; a hidden tab writes nothing.
+    assert 'window.addEventListener("focus", again)' in panel and 'document.addEventListener("visibilitychange", again)' in panel
+    assert "if (document.hidden) return undefined;" in panel and "}, [running, seenKey, back]);" in panel

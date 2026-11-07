@@ -1990,6 +1990,25 @@ def test_the_chosen_repositories_join_the_context_and_the_chips_show_all_of_it(t
     assert "Work screen, with .github chosen." in fire("UserPromptSubmit")
 
 
+def test_the_state_shows_the_chips_of_the_line_on_disk_whichever_page_wrote_it(tmp_path):
+    """010 FR-004: the line is one per session and the last write wins, so the panel shows hubd's chips for what's on disk."""
+    a, name, directory, fire = bridged(tmp_path)
+    sees = lambda: asyncio.run(a.session_state(name))["sees"]
+    assert sees() is None  # nothing written since hubd started: it can't vouch for anything
+    a.set_context(name, "Work", "pull request", "hub#20", ["hub"])  # this tab
+    a.set_context(name, "Overview", None, None, [])  # another tab, or a phone, after it
+    assert sees() == [{"kind": "view", "label": "Overview"}] and "Overview screen." in fire("UserPromptSubmit")
+    # Changed by anything but hubd: no chips, and what the file holds never reaches the page.
+    (directory / "context").write_text("The person is on the hub's Work screen, with hub chosen.\n")
+    assert sees() is None
+    (directory / "context").unlink()
+    os.mkfifo(directory / "context")  # read as the session's own files are: a FIFO doesn't block hubd
+    assert sees() is None
+    (directory / "context").unlink()
+    a.set_context(name, "Roadmap")
+    assert sees() == [{"kind": "view", "label": "Roadmap"}]
+
+
 def test_the_context_answers_with_chips_when_no_session_runs(tmp_path):
     a, _ = starter(tmp_path)
     assert a.set_context("steward", "Roadmap", None, None, ["hub"])["sees"] == [{"kind": "view", "label": "Roadmap"}, {"kind": "repo", "label": "hub"}]

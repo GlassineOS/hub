@@ -3872,17 +3872,29 @@ function Steward({ route, asks }) {
   const words = state ? state.state : "Not started";
   const running = words !== "Not started" && words !== "Stopped";
   // 010 FR-004: hubd checks what the page sees, writes the line the Steward gets, and answers with the chips made from
-  // the same values; the panel shows those chips, so it shows all the Steward is told.
+  // the same values. The line is one per session and the last page to write it wins (another tab, a phone), so once
+  // the Steward has a folder the chips are hubd's own for the line on disk (state.sees), read again after each write.
   const seenKey = JSON.stringify([seen.screen, seen.kind, seen.selection, seen.repos]);
   const [told, setTold] = useState(null);
+  const toldWith = useRef(null);  // the state read before this page's last write: its sees are older than the answer
+  const [back, setBack] = useState(0);
   useEffect(() => {
+    // Back on this tab or window: it tells the Steward its own place again. A hidden tab writes nothing.
+    const again = () => { if (!document.hidden) setBack((n) => n + 1); };
+    window.addEventListener("focus", again);
+    document.addEventListener("visibilitychange", again);
+    return () => { window.removeEventListener("focus", again); document.removeEventListener("visibilitychange", again); };
+  }, []);
+  useEffect(() => {
+    if (document.hidden) return undefined;
     let live = true;
     post("agents/context", { name: STEWARD, screen: seen.screen, kind: seen.kind, selection: seen.selection, repos: seen.repos })
-      .then((r) => { if (live) setTold({ key: seenKey, chips: r.sees || [] }); })
+      .then((r) => { if (live) { toldWith.current = known.current; setTold({ key: seenKey, chips: r.sees || [] }); reload(); } })
       .catch(() => { if (live) setTold({ key: seenKey, chips: null }); });
     return () => { live = false; };
-  }, [running, seenKey]);
-  const chips = told && told.key === seenKey ? told.chips : null;
+  }, [running, seenKey, back]);
+  const onDisk = state && state.sees && state !== toldWith.current ? state.sees : null;
+  const chips = onDisk || (told && told.key === seenKey ? told.chips : null);
   // 010 FR-005: what from the Steward waits for you, as Needs you counts it.
   const waiting = asks.interactions.items.filter((r) => r.status === "pending" && r.session === STEWARD).length;
   const stopping = useAct(reload);

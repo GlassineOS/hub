@@ -627,6 +627,7 @@ class Agents:
         self._sends: dict[str, list[str]] = {}
         self._senders: dict[str, asyncio.Task] = {}
         self._lost: dict[str, str] = {}
+        self._told: dict[str, tuple[str, list[dict]]] = {}  # session -> the context line hubd last wrote, and its chips
         self._from: dict[str, list[str | None]] = {}  # who each queued message is from, in step with _sends: None is the person
         self.home = state_dir / "home"       # the one directory agents run from
         self.sessions = state_dir / "sessions"
@@ -1559,7 +1560,18 @@ class Agents:
         ended = not live or (directory / ENDED_FILE).exists()
         return {"name": name, "state": self._state_word(directory, ended), "queued": len(self._sends.get(name, ())),
                 "lost": self._lost.get(name),
-                "model": self.describe(name)["model"]}
+                "model": self.describe(name)["model"], "sees": self._sees_now(name)}
+
+    def _sees_now(self, name) -> list[dict] | None:
+        """The chips for the line the session's turns get now (010 FR-004). It's one file per session and the last page
+        to write it wins, so a page shows these rather than its own last answer. None when hubd can't vouch for the file:
+        nothing written since hubd started, or it changed since. The folder is the session's own, so it's read as
+        _small_file reads, and only compared: what it holds never reaches the page."""
+        told = self._told.get(name)
+        if told is None:
+            return None
+        line, chips = told
+        return chips if _small_file(self.sessions / name / CONTEXT_FILE, len(line.encode()) + 1) == line else None
 
     async def _send_next(self, name) -> None:
         """One at a time per session, from the look at its state to the paste. Asking tmux about the prompt takes a while, and a
@@ -1699,7 +1711,9 @@ class Agents:
         _check_seen(kind, selection)
         chips = sees(screen, kind, selection, _check_repos(repos))
         if self.is_session(name):
-            (self.sessions / name / CONTEXT_FILE).write_text(sees_line(chips))
+            line = sees_line(chips)
+            (self.sessions / name / CONTEXT_FILE).write_text(line)
+            self._told[name] = (line, chips)
         return {"sees": chips}
 
     def check_message(self, by, name, text) -> None:
