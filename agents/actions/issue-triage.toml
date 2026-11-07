@@ -1,14 +1,16 @@
 order = 1
-ceiling = "Labels and comments. Never closes, merges or writes code."
+ceiling = "Comments, and proposes labels you apply. Never closes, merges or writes code."
 object = "issue"
 verb = "triage"
 result = "labels"
 title = "Triage"
-summary = "Looks for duplicates and answers, labels the issue and comments on it."
+summary = "Looks for duplicates and answers, comments on the issue and hands in labels and a Part of line, which you apply."
 personas = ["triager"]
 prompt = "issue-triage"
 models = ["sonnet", "opus"]
 efforts = ["low", "medium", "high"]
 tools = ["Skill", "AskUserQuestion"]
-hub_tools = ["plan_work", "get_issue", "list_issues", "label_issue", "comment_issue", "docs_search", "work_search"]
+hub_tools = ["plan_work", "get_issue", "list_issues", "submit_result", "comment_issue", "docs_search", "work_search"]
 checkout = false
+# 005 R2/R3: labels and the Part of line are set when you press Apply on its card, never from the session itself.
+result_tools = ["label_issue", "edit_issue"]

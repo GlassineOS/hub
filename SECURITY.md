@@ -177,6 +177,15 @@ A new restriction has to name the threat it stops, or be listed here as a guard.
   can't get a token the write fails rather than going out as you. Private keys stay on this
   computer, 0600. Full sessions and personas without an App post as you. The reviewer's App can
   approve, so if an approval ever counts toward merging, a misled reviewer could give one.
+- **Results are handed in, then applied by you.** A session's own token can hand in one result of its action's type
+  (`submit_result`), in a closed shape with every string capped; a labels result names only the items the session was started on.
+  It changes nothing outside the hub. Only a login applies it, and hubd writes it only through the tools the producing action
+  names for its result (`result_tools`, read from the action as it is now): the same `gh` command `label_issue` sends, `edit_issue`'s
+  "Part of" line on an issue the organization wrote, or one review by the `pr_review_add` document, whose pull request must be the
+  organization's and whose notes are a closed list. It goes out as that persona's App, as the session's own writes would. So
+  `pr-review` no longer posts a review by itself and `issue-triage` no longer labels: you read what they hand in and press Post or
+  Apply. A session started before this keeps its own tool list, so it may still post directly; its text is still an outsider's
+  where it read one, so read a result's text before applying it.
 - **Trusted folders.** Trusting a folder covers everything below it. `~/GlassineOS` holds no
   fork's tree: a pull request under a locked review is checked out in
   `~/.local/state/glassine-hub/sessions`. Sessions start in the `home` folder beside it, and only

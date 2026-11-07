@@ -3,6 +3,11 @@
 A record goes offered (an agent suggested it, nothing has run) or straight to planning, then
 running, then done with its drafts, or failed. Each draft stays unfiled until you file it or hand
 it to the Steward. Every move is on disk, so a restart keeps what a planner handed in.
+
+Every Launch is one of these records (005 R1). A record from before Launch has no `v` and is read
+as it was; one made since has `v: 2` with its covered items, repositories, where it was opened
+from, the plan's steps, whether it runs in the background and the result it ended in. Its stage
+(005 FR-002) is derived from its state and never stored as a decision.
 """
 import json
 import os
@@ -26,6 +31,14 @@ OPEN_STATES = ("offered", "planning", "planned", "starting", "running", "done", 
 _ID_RE = re.compile(r"[0-9a-f]{12}")
 _REPO_RE = re.compile(r"[A-Za-z0-9._-]+")
 _DRAFT_FIELDS = {"severity", "title", "body", "target", "labels", "parent"}
+VERSION = 2
+# The stage a page shows for a state (005 data model § Launch record). brief lives only in the page, until offered.
+STAGES = {"offered": "brief", "planning": "planning", "planned": "plan", "starting": "run", "running": "run", "started": "run",
+          "done": "result", "filed": "result", "failed": "failed", "dismissed": "dismissed", "discarded": "dismissed"}
+
+
+def stage_of(record: dict) -> str:
+    return STAGES.get(record.get("state"), "failed")
 
 
 INTERRUPTED = "Filing was interrupted: check GitHub before filing this again."
@@ -95,6 +108,7 @@ class NewWork:
             self._save(record)
 
     def _save(self, record: dict) -> None:
+        record["stage"] = stage_of(record)  # derived, kept beside the state it comes from for whoever reads the reply
         path = self.folder / f"{record['id']}.json"
         scratch = path.with_suffix(".tmp")
         fd = os.open(scratch, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -115,7 +129,8 @@ class NewWork:
         return record
 
     def new(self, fields: dict, state: str) -> dict:
-        record = {"id": secrets.token_hex(6), "state": state, "session": None, "drafts": [], "error": None, "made": time.time(), **fields}
+        record = {"id": secrets.token_hex(6), "v": VERSION, "state": state, "session": None, "drafts": [], "error": None, "made": time.time(),
+                  "covers": [], "repos": [], "from": None, "plan": None, "background": False, "result": None, **fields}
         self.records[record["id"]] = record
         self._save(record)
         self._prune()
@@ -233,4 +248,5 @@ class NewWork:
     def list(self) -> list[dict]:
         for record in self.records.values():
             self._release_stuck(record)
+            record["stage"] = stage_of(record)  # derived each time: set here, as callers move these very records
         return sorted(self.records.values(), key=lambda r: r["made"], reverse=True)

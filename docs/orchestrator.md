@@ -111,6 +111,34 @@ Records are in `state/newwork`. A restart fails a start that was under way, and 
 goes back with a note to check GitHub first. Not built: a milestone choice, private advisories for HIGH
 findings, and the Monday briefing's use of these.
 
+## Launch records and results
+
+Every Launch is a record in `state/newwork` (spec 005), for new work on a repository and for work on items: issues, pull
+requests or runs (`covers`, up to six, which may cross repositories; the worktree is the first item's). A record says who
+started it, when, from which view, the action, the items, the model and the plan's steps, and whether it runs in the
+background. Records made before Launch have no `v` and read as they were. Its stage (brief, planning, plan, run, result) comes
+from its state. hubd refuses an item whose kind isn't the action's object, naming it: "implement" on a run doesn't start. The
+session it starts has the record as its origin, and is embedded in the view Launch was opened from, unless it was sent to the
+background (`work.background`), or opened from Needs you, which has no place to embed it.
+
+A session hands in a typed result with `submit_result`, as the last thing it does, and nothing outside the hub changes until you
+apply it on its card (Needs you, or the Launch that started it). Results are in `state/results`, at most 200, and a restart
+during an apply puts it back with a note to check GitHub first.
+A session hands in one result: a new hand-in replaces one still waiting, and is refused once the result was applied.
+
+- **comment** (`pr-review`): the summary and inline notes, posted as one review when you press Post. If GitHub refuses the notes
+  (a line that isn't in the diff), the review goes out once more with the notes in its text, and the card's note says so.
+- **labels** (`issue-triage`): labels to add and remove, and a "Part of" line, per issue it was started on, set when you press Apply.
+- **findings** (`run-diagnose`): the cause and the smallest fix; you can start a fix session from it. Nothing to apply.
+- **report**: an answer with what couldn't be settled, its sources and follow-ups, kept for Knowledge (never committed anywhere).
+- **pr** (`issue-implement`, `pr-address-review`, `pr-fix-checks`): the pull request the hub finds for the session, nothing to apply.
+- **drafts** stay as above, through `submit_drafts`.
+
+Applying writes only through the tools the producing action names for its result (`result_tools` in its file: `review_pr`
+for a review, `label_issue` and `edit_issue` for labels), in the same commands those tools send, as that persona's App when it
+has one, else as you. A session doesn't get those tools itself. Sessions started before this keep the tools they started with,
+so an old `pr-review` session may still post its review itself; resumed, it has neither `review_pr` nor `submit_result`.
+
 ## Starting agents
 
 - `spawn_session(action, repo, number)` asks first like any write, then goes through the same planner and
@@ -120,7 +148,7 @@ findings, and the Monday briefing's use of these.
 - **Full actions** are refused before they reach you, and the Steward tells you which to start. This includes
   `issue-docs`.
 - **What Allow covers:** a started agent's writes don't ask again, because it is held to its
-  own action's limits. Allowing a review allows what that review posts.
+  own action's limits. Allowing a review allows what that review hands in; posting it is still yours, on its card.
 - Started agents have no ability to start others. At most 4 run at once.
 - `list_running_sessions` names every session running, whoever started it, with its state and what it works on, but
   not what it has said. That's how the Steward finds who to write to with `message_session`.

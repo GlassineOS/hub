@@ -23,9 +23,9 @@ import sys
 import time
 from pathlib import Path
 
-from . import auth, decisions, devices, interactions, newwork, notes, usage
+from . import auth, decisions, devices, interactions, newwork, notes, results, usage
 from . import feed as feedlib
-from .agents import MAX_NOTES, PLANNER_MODELS, AgentError, Agents, Library, load_environment, validate, with_also
+from .agents import MAX_ALSO, MAX_NOTES, PLANNER_MODELS, RESULTS as RESULTS_WORDS, SCREENS, AgentError, Agents, Library, load_environment, screen_of, validate, with_also
 from .apps import AppError, Apps, is_write
 from .asks import GRANT_LIFE, MAX_INPUT, TOOL_PREFIX, AskError, Asks
 from .ghpolicy import ORG, Refused, check, is_merge, merge_request
@@ -59,7 +59,12 @@ PUBLIC_KNOWN, PUBLIC_UNSURE = 600, 60  # seconds a repository's visibility is ke
 COPIES_EVERY = 1800  # seconds between refreshes of the repository copies
 WORK_TOOL_OPS = {"work.offer": "plan_work", "work.suggest": "suggest_session", "work.submit": "submit_drafts", "work.handed": "new_work_drafts"}
 STEWARD = "steward"
-PLANNER_CHOOSES = ("effort", "brief", "docs_query", "docs")  # the model it suggests is planner_pick: you choose on its plan
+RESULT_TOOL_OPS = {"result.submit": "submit_result"}  # 005 R2: by a session's own token, checked like WORK_TOOL_OPS
+ITEM_OBJECTS = ("issue", "pr", "run")  # what a Launch's covered items can be (005 FR-011)
+KIND_WORDS = {"issue": "an issue", "pr": "a pull request", "run": "a run", "repo": "a repository", "project": "the whole project"}
+_ITEM_REF_RE = re.compile(r"\.?[A-Za-z0-9_][A-Za-z0-9._-]{0,99}#[1-9][0-9]{0,9}")
+REVIEW_EVENT = {"comment": "COMMENT", "request-changes": "REQUEST_CHANGES", "approve": "APPROVE"}
+PLANNER_CHOOSES = ("effort", "brief", "docs_query", "docs", "steps")  # the model it suggests is planner_pick: you choose on its plan
 PLANNER_GRACE = 10  # seconds, for its last tool call to get an answer
 DECISION_TOOL_OPS = {"decision.check": "decision_check", "decision.use": "decision_check", "decision.request": "decision_request", "decision.end_go": "decision_end"}
 # GitHub answered, and said no: the decision stands. Anything else that fails might have merged, so it's spent.
@@ -68,6 +73,22 @@ _GITHUB_UNSURE = re.compile(r"something went wrong|timed? ?out|timeout", re.I)
 _HEAD_MOVED = re.compile(r"head branch was modified", re.I)
 _HEAD_RE = re.compile(r"[0-9a-f]{40}")
 _VERSION_RE = re.compile(r"[0-9a-f]{16}")
+
+
+REVIEW_BODY_MAX = 60000  # GitHub's limit on a review's text is 65536
+
+
+def _fold_notes(summary: str, notes: list[dict]) -> str:
+    """A review's inline notes as text under its summary, for when GitHub won't take them where they are. As many as fit."""
+    out, left = [summary.rstrip(), "", "Notes GitHub would not place on the diff:"], len(summary) + 60
+    for n, note in enumerate(notes):
+        entry = f"\n**{note['path']}:{note['line']}** ({'old code' if note['side'] == 'LEFT' else 'new code'})\n\n{note['body']}\n"
+        if left + len(entry) > REVIEW_BODY_MAX:
+            out.append(f"\n({len(notes) - n} more notes left out: the text is full.)")
+            break
+        out.append(entry)
+        left += len(entry)
+    return "\n".join(out).strip()
 
 
 def _edit_problem(name: str, tool_input) -> str | None:
@@ -109,7 +130,8 @@ class Hubd:
                  apps: Apps | None = None, work: newwork.NewWork | None = None, device_reports: devices.Devices | None = None,
                  decision_store: decisions.Decisions | None = None, notes_search: notes.Notes | None = None,
                  change_feed: feedlib.Feed | None = None, ping_seconds: float = feedlib.DEFAULT_PING,
-                 usage_allowance: float | None = None):
+                 usage_allowance: float | None = None, result_store: results.Results | None = None):
+        self.results = result_store
         self.feed = change_feed
         self.socket_path: Path | None = None  # set by serve, for the header's "connected to" (001 FR-005)
         self.usage_allowance = usage_allowance  # HUBD_DAILY_USAGE_USD, for the usage meter when no rate limit is known
@@ -196,11 +218,13 @@ class Hubd:
             return self.grant_use(req)
         if op in WORK_TOOL_OPS:
             return await self.work_tool(op, req)
+        if op in RESULT_TOOL_OPS:
+            return self.result_tool(op, req)
         if op in STARTED_OPS:
             return await self.started_request(op, req)
         if op in REPO_OPS:
             return await self.repo_request(op, req)
-        if op in ("shell.list", "shell.new", "shell.kill") or op.startswith(("agent.", "ask.", "work.", "decision.", "notes.", "interaction.", "usage.")):
+        if op in ("shell.list", "shell.new", "shell.kill") or op.startswith(("agent.", "ask.", "work.", "decision.", "notes.", "interaction.", "usage.", "result.")):
             if not self.sessions.check(req.get("token")):
                 return {"ok": False, "error": "login required", "denied": True}
             if op.startswith("interaction."):
@@ -217,6 +241,8 @@ class Hubd:
                 return {"ok": False, "error": f"unknown request: {op}"}
             if op.startswith("work."):
                 return await self.work_request(op, req)
+            if op.startswith("result."):
+                return await self.result_request(op, req)
             if op.startswith("decision."):
                 return await self.decision_request(op, req)
             if op.startswith("notes."):
@@ -229,6 +255,7 @@ class Hubd:
                     await self.agents.refresh_prs([s["name"] for s in sessions])
                     for session in sessions:
                         session["agent"] = self.agents.describe(session["name"])
+                    self._note_pr_results(sessions)
                 return {"ok": True, "sessions": sessions}
             if op == "shell.new":
                 # A stopped session keeps its name, or a plain shell could pass for it.
@@ -649,10 +676,11 @@ class Hubd:
         names = {a["session"] for a in self.asks.list()["open"]}
         records = self.decisions.list() if self.decisions else []
         work = self.work.list() if self.work else []
-        names |= {d.get("asked_by") for d in records} | {r.get("by") for r in work}
+        handed = self.results.all() if self.results else []
+        names |= {d.get("asked_by") for d in records} | {r.get("by") for r in work} | {r["session"] for r in handed}
         agents = {n: self.agents.describe(n) for n in names if self.agents and isinstance(n, str) and self.agents.is_session(n)}
         objects = {a["id"]: a["object"] for a in self.agents.library.actions.values()} if self.agents else {}
-        return interactions.project(self.asks.list(), records, work, agents, objects, session)
+        return interactions.project(self.asks.list(), records, work, agents, objects, session, results=handed)
 
     def _interaction(self, item_id) -> dict | None:
         return next((r for r in [*self._interactions()["items"], *self._interactions()["grants"]] if r["id"] == item_id), None)
@@ -690,6 +718,12 @@ class Hubd:
             reply = await self.decision_request(f"decision.{verdict}", {**req, "id": item_id, "why": req.get("why") or req.get("reason")})
             if reply["ok"]:
                 self.decisions.mark_handled(item_id, handled)
+        elif item_id.startswith("r-"):
+            if verdict not in ("apply", "keep", "dismiss"):
+                return {"ok": False, "error": "a result is applied, kept or set aside"}
+            reply = await self.result_request(f"result.{verdict}", {**req, "id": item_id})
+            if reply["ok"]:
+                self.results.mark_handled(item_id, handled)
         elif item_id.startswith("w:"):
             if verdict != "dismiss":
                 return {"ok": False, "error": "a suggestion is dismissed here; Launch… opens it"}
@@ -722,13 +756,67 @@ class Hubd:
                                                                  context=req.get("context", 1), everything=scope.get("all_repos") is True)}
         return {"ok": True, **await self.agents.repo_read(req.get("repo"), req.get("path"), req.get("start_line", 1), req.get("max_lines"))}
 
-    def _work_fields(self, req: dict) -> dict:
-        """The form, from you or from an agent's suggestion. The planner's request and the session's prompt come from these."""
+    def _launch_covers(self, action: dict, given, offered: dict | None) -> list[dict]:
+        """A Launch's items, each with its kind (005 FR-009, FR-011): the action's object, or it says why it can't start there."""
+        if given is None and offered and offered.get("number"):  # a suggested session: its own items
+            given = [{"kind": action["object"], "repo": offered["repo"], "number": n} for n in [offered["number"], *offered.get("also_numbers", ())]]
+        if given is None:
+            given = []
+        if not isinstance(given, list) or len(given) > 1 + MAX_ALSO:
+            raise AgentError(f"a Launch covers at most {1 + MAX_ALSO} items")
+        covers = []
+        for item in given:
+            if not isinstance(item, dict) or set(item) != {"kind", "repo", "number"}:
+                raise AgentError("each covered item is a kind, a repo and a number")
+            ref = f"{item['repo']}#{item['number']}"
+            if not isinstance(item["repo"], str) or not isinstance(item["number"], int) or isinstance(item["number"], bool) or not _ITEM_REF_RE.fullmatch(ref):
+                raise AgentError(f"not an item: {ref}")
+            if action["object"] not in ITEM_OBJECTS:
+                raise AgentError(f"{action['title']} works on {KIND_WORDS[action['object']]}, not on an item like {ref}")
+            if item["kind"] not in ITEM_OBJECTS:
+                raise AgentError(f"{ref}: an item is an issue, a pull request or a run")
+            if item["kind"] != action["object"]:  # 005 FR-011: implement on a run, triage on a pull request
+                raise AgentError(f"{action['title']} works on {KIND_WORDS[action['object']]}, and {ref} is {KIND_WORDS[item['kind']]}, "
+                                 "so it can't start there")
+            covers.append({"kind": item["kind"], "repo": item["repo"], "number": item["number"]})
+        if action["object"] in ITEM_OBJECTS and not covers:
+            raise AgentError(f"{action['title']} works on {KIND_WORDS[action['object']]}: name it")
+        return covers
+
+    @staticmethod
+    def _launch_from(given, offered: dict | None) -> dict | None:
+        """Where Launch was opened (005 FR-001, FR-010): a claim of the page's, checked like an answer's where, shown as the origin."""
+        if given is None:
+            return (offered or {}).get("from") or ({"view": "Needs you", "ref": None} if offered else None)
+        if not isinstance(given, dict) or set(given) - {"view", "ref"}:
+            raise AgentError("from is a view and, if it was on one, an item")
+        try:
+            view = interactions.check_where(given.get("view"))
+        except ValueError as e:
+            raise AgentError(str(e)) from None
+        ref = given.get("ref")
+        if view is None or (ref is not None and not (isinstance(ref, str) and _ITEM_REF_RE.fullmatch(ref))):
+            raise AgentError("from names the view, and an item as repo#number if any")
+        return {"view": view, "ref": ref}
+
+    def _work_fields(self, req: dict, offered: dict | None = None) -> dict:
+        """The form, from you or from an agent's suggestion. The planner's request and the session's prompt come from these.
+        Every Launch is one of these records (005 R1): new work on a repository, or work on items."""
         action = self.agents.library.action(req.get("action"))
-        if action["object"] != "repo":
+        if action["object"] == "project":
             raise AgentError(f"{action['title']} isn't a kind of new work")
-        fields = {"action": action["id"], "title": action["title"], "repo": req.get("repo") or action.get("repo"),
-                  "roadmap": action.get("roadmap") is True}
+        covers = self._launch_covers(action, req.get("covers"), offered)
+        fields = {"action": action["id"], "title": action["title"], "roadmap": action.get("roadmap") is True}
+        if covers:
+            first = covers[0]
+            fields.update(repo=first["repo"], number=first["number"], covers=covers, repos=[],
+                          also_numbers=[c["number"] for c in covers[1:] if c["repo"] == first["repo"]])
+        else:
+            repos = req.get("repos") or []
+            if not isinstance(repos, list) or len(repos) > 1 + MAX_ALSO or len(set(map(str, repos))) != len(repos) or not all(
+                    isinstance(r, str) and newwork._REPO_RE.fullmatch(r) and ".." not in r for r in repos):
+                raise AgentError(f"repos is a list of at most {1 + MAX_ALSO} different repositories")
+            fields.update(repo=req.get("repo") or (repos[0] if repos else None) or action.get("repo"), covers=[], repos=repos)
         for key, limit in (("notes", MAX_NOTES), ("describe", MAX_NOTES), ("paths", 500), ("why", newwork.MAX_WHY), ("context", 200)):
             value = req.get(key) or ""
             if not isinstance(value, str) or len(value) > limit:
@@ -739,6 +827,8 @@ class Hubd:
             fields["describe"] = ""
         if action.get("asks_paths") is not True:
             fields["paths"] = ""
+        if offered and not req.get("why"):
+            fields["why"] = offered.get("why") or ""
         if len(self._work_notes(fields)) > MAX_NOTES:
             raise AgentError(f"what to plan, the scope and the notes must fit in {MAX_NOTES} characters together")
         fields["pins"] = req.get("pins") or []
@@ -747,7 +837,9 @@ class Hubd:
         fields["planner_model"] = req.get("planner_model") or None
         if fields["planner_model"] not in (None, *PLANNER_MODELS):
             raise AgentError(f"the planner runs on one of {', '.join(PLANNER_MODELS)}")
-        self.agents.defaults(action["id"], fields["repo"], None)  # says now if the repository is no good
+        fields["from"] = self._launch_from(req.get("from"), offered)
+        fields["background"] = req.get("background") is True
+        self._work_config(fields)  # says now if the repository or the items are no good
         return fields
 
     def _suggestion(self, req: dict) -> dict:
@@ -774,8 +866,13 @@ class Hubd:
         return notes
 
     def _work_config(self, fields: dict) -> dict:
-        config = self.agents.defaults(fields["action"], fields["repo"], None)
-        return {**config, "model": fields["model"], "notes": self._work_notes(fields), "pins": fields["pins"]}
+        covers = fields.get("covers") or []
+        config = self.agents.defaults(fields["action"], fields["repo"], fields.get("number") if covers else None)
+        config = {**config, "model": fields["model"], "notes": self._work_notes(fields), "pins": fields["pins"]}
+        if covers:
+            config.pop("also_numbers", None)
+            config["covers"] = [{"repo": c["repo"], "number": c["number"]} for c in covers]
+        return validate(self.agents.library, config)
 
     def _tell_steward(self, record: dict, text: str) -> None:
         if record["by"] == STEWARD or record["driver"] == "steward":
@@ -832,7 +929,7 @@ class Hubd:
         """The planner writes the spec. Nothing runs until you've read it and pressed Start."""
         try:
             planned = await self.agents.plan(config["action"], config["repo"], config.get("number"), config["notes"], config["pins"], planner_model=planner_model,
-                                             also_numbers=config.get("also_numbers"))
+                                             also_numbers=config.get("also_numbers"), covers=config.get("covers") if record.get("v") == 2 else None)
         except (AgentError, ShellError, OSError) as e:
             if record["state"] == "planning":  # or you cancelled, and it stays set aside
                 self.work.move(record, "failed", error=f"It didn't start: {e}")
@@ -841,12 +938,13 @@ class Hubd:
             return
         chosen = {k: planned["config"][k] for k in PLANNER_CHOOSES if k in planned["config"]}
         self.work.move(record, "planned", spec={**config, **chosen}, planner_pick=planned["config"].get("model"),
-                       planner_cost_usd=planned.get("planner_cost_usd"))
+                       planner_cost_usd=planned.get("planner_cost_usd"), plan={"steps": chosen.get("steps") or []})
 
     async def _start_planned(self, record: dict, config: dict) -> None:
         """You pressed Start on the plan, whoever suggested the work."""
+        origin = {"launch": record["id"], "from": record.get("from"), "by": record.get("by")} if record.get("v") == 2 else None
         try:
-            started = await self.agents.start(config)
+            started = await self.agents.start(config, origin=origin)
         except Exception as e:  # whatever it was, the plan and your edits stay, to press Start again
             if not isinstance(e, (AgentError, ShellError, OSError)):
                 log.exception("starting %s", record["id"])
@@ -857,7 +955,9 @@ class Hubd:
             await self._end_session(started["name"], 0)
             return
         self.work.forget_session(started["name"])  # an older run under that name, which it mustn't be taken for
-        if record.get("number"):  # a suggested session on an item: it opens a pull request and hands in no drafts
+        self._show(record, started["name"])
+        hands_in = self.agents.library.actions.get(record.get("action"), {}).get("result") in results.HANDED_IN
+        if record.get("number") and not hands_in:  # a session on an item that opens a pull request and hands in nothing
             self.work.move(record, "started", session=started["name"])
             self._tell_steward(record, f"the person started it as {started['name']}.")
             return
@@ -879,8 +979,9 @@ class Hubd:
             elif record["state"] == "running" and (record.get("action"), record["repo"]) not in starting:
                 gone = not same or record["session"] not in names or (await self.agents.session_state(record["session"]))["state"] in not_alive
                 if gone:
-                    self.work.move(record, "failed", error="The session stopped without handing in any drafts. Nothing was filed.")
-                    self._tell_steward(record, "the session stopped without drafts.")
+                    what = "its result. Nothing was posted" if record.get("number") else "any drafts. Nothing was filed"
+                    self.work.move(record, "failed", error=f"The session stopped without handing in {what}.")
+                    self._tell_steward(record, "the session stopped without handing in.")
         return self.work.list()
 
     async def work_request(self, op: str, req: dict) -> dict:
@@ -896,16 +997,16 @@ class Hubd:
                 offered = self.work.get(req["id"]) if req.get("id") else None
                 if offered and offered["state"] not in ("offered", "planned"):  # planned: you went back, or asked for another plan
                     raise newwork.WorkError("that suggestion was already started or dismissed")
-                if offered and offered.get("number"):
-                    raise newwork.WorkError("that suggestion is a session: plan it from its form")
-                fields = self._work_fields(req)
+                fields = self._work_fields(req, offered)  # 005 FR-011: an item of the wrong kind is refused here, by name
                 config = self._work_config(fields)
-                validate(self.agents.library, config)
                 if offered:
-                    record = self.work.move(offered, "planning", **fields, error=None)
+                    record = self.work.move(offered, "planning", **fields, v=2, error=None)
                 else:
                     record = self.work.new({**fields, "by": "you"}, "planning")
-                self._keep(self._plan_work(record, config, fields["planner_model"]))
+                if self.agents.library.action(fields["action"]).get("plan", True) is False:  # nothing to plan: its plan is the defaults
+                    self.work.move(record, "planned", spec=config, plan={"steps": []})
+                else:
+                    self._keep(self._plan_work(record, config, fields["planner_model"]))
                 return {"ok": True, "work": record}
             record = self.work.get(req.get("id"))
             if op == "work.plan":  # a suggested session: its words reach a session only through a plan you've read
@@ -929,6 +1030,13 @@ class Hubd:
                 config = validate(self.agents.library, {**record["spec"], "model": model, "brief": brief})
                 self.work.move(record, "starting", model=model, spec=config, error=None)
                 self._keep(self._start_planned(record, config))
+                return {"ok": True, "work": record}
+            if op == "work.background":  # 005 FR-008: the Launch leaves the page; its asks and result arrive in Needs you
+                if not isinstance(req.get("on"), bool):
+                    raise newwork.WorkError("on is true or false")
+                self.work.move(record, record["state"], background=req["on"])
+                if record.get("session"):
+                    self._show(record, record["session"])
                 return {"ok": True, "work": record}
             if op == "work.dismiss":
                 if record["state"] in ("planning", "starting", "running"):
@@ -979,6 +1087,217 @@ class Hubd:
         except (AgentError, newwork.WorkError) as e:
             return {"ok": False, "error": str(e)}
         return {"ok": False, "error": f"unknown request: {op}"}
+
+    def _show(self, record: dict, name: str) -> None:
+        """Where the session of a Launch is drawn (004 view.json): embedded in the view it was started from, or in the
+        background. A Launch from Needs you has no view to be embedded in, so it stays as it was until sent to the background."""
+        where = screen_of((record.get("from") or {}).get("view"))
+        try:
+            if record.get("background"):
+                self.agents.set_view(name, "background", where if where in SCREENS else "Sessions")
+            elif where in SCREENS:
+                self.agents.set_view(name, "embedded", where, (record.get("from") or {}).get("ref"))
+        except AgentError as e:
+            log.warning("where %s is shown wasn't kept: %s", name, e)
+
+    def _launch_of(self, name: str, session_id) -> dict | None:
+        if not self.work:
+            return None
+        return next((r for r in self.work.records.values() if r.get("session") == name and r.get("session_id") in (None, session_id)), None)
+
+    def _items_of(self, agent: dict) -> list[dict]:
+        kind = {"issue": "issue", "pr": "pr", "run": "run"}.get(agent.get("object"))
+        return [{"kind": kind, "repo": c["repo"], "number": c["number"]} for c in agent.get("covers") or ()] if kind else []
+
+    def result_tool(self, op: str, req: dict) -> dict:
+        """submit_result, by a session's own token: only a session whose list has the tool, only its action's result type (005 R2).
+        A full session has no list, and its result is the pull request the hub finds, so it can't hand one in."""
+        scope = self.agents.scope(req.get("agent_token")) if self.agents else None
+        tool = RESULT_TOOL_OPS[op]
+        if not self.results or not scope or not scope["session"] or tool not in (scope.get("tools") or ()):
+            return {"ok": False, "refused": True, "error": f"this session can't use {tool}"}
+        name = scope["session"]
+        agent = self.agents.describe(name)
+        action = self.agents.library.actions.get(agent["action"]) if agent else None
+        if action is None or action["result"] != req.get("type"):
+            what = RESULTS_WORDS.get(action["result"], action["result"]) if action else "nothing"
+            return {"ok": False, "refused": True, "error": f"this session {what}: hand in that type, not {req.get('type')!r}"}
+        session_id = self.agents.session_id_of(name)
+        launch = self._launch_of(name, session_id)
+        try:
+            record = self.results.submit(req["type"], req.get("payload"), session=name, session_id=session_id, launch=launch and launch["id"],
+                                         items=self._items_of(agent), action=action["id"], persona=scope.get("persona"))
+        except results.ResultError as e:
+            return {"ok": False, "error": str(e)}
+        if launch:
+            self.work.move(launch, "done" if launch["state"] in ("running", "started", "failed") else launch["state"], result=record["id"], error=None)
+            self._tell_steward(launch, f"the session handed in its {record['type']} result. It waits for the person.")
+        return {"ok": True, "id": record["id"]}
+
+    def _note_pr_results(self, sessions: list[dict]) -> None:
+        """005 FR-016: a session that ends in a pull request has it as its result. On an issue, once its branch has one; on a
+        pull request, which it covers from the start, once Claude has ended there."""
+        if not self.results:
+            return
+        for session in sessions:
+            agent = session.get("agent")
+            action = self.agents.library.actions.get(agent["action"]) if agent else None
+            if not action or action["result"] != "pr" or not agent.get("prs") or (agent.get("object") == "pr" and not agent.get("ended")):
+                continue
+            session_id = self.agents.session_id_of(session["name"])
+            launch = self._launch_of(session["name"], session_id)
+            for pr in agent["prs"]:
+                try:
+                    self.results.note_pr(session=session["name"], session_id=session_id, launch=launch and launch["id"], items=self._items_of(agent),
+                                         action=action["id"], persona=agent.get("persona"), repo=pr["repo"], number=pr["number"])
+                except results.ResultError as e:
+                    log.warning("no pr result for %s: %s", session["name"], e)
+
+    async def result_request(self, op: str, req: dict) -> dict:
+        """Behind the login check: the cards' results, and what a press does to them (005 R2)."""
+        if self.results is None or self.agents is None:
+            return {"ok": False, "error": "results aren't set up on this host"}
+        try:
+            if op == "result.list":
+                kind, kept, session, after = req.get("type"), req.get("kept"), req.get("session"), req.get("after")
+                if kind is not None and kind not in results.TYPES:
+                    raise results.ResultError(f"a result is one of {', '.join(results.TYPES)}")
+                if kept is not None and not isinstance(kept, bool):
+                    raise results.ResultError("kept is true or false")
+                if not all(v is None or isinstance(v, str) for v in (session, after)):
+                    raise results.ResultError("session and after are names")
+                return {"ok": True, "results": self.results.list(kind, kept, session, after)}
+            record = self.results.get(req.get("id"))
+            if op == "result.apply":
+                return {"ok": True, "result": await self.apply_result(record, req.get("indexes"))}
+            if op == "result.keep":
+                return {"ok": True, "result": self.results.keep(record["id"], req.get("kept", True))}
+            if op == "result.dismiss":
+                self.results.dismiss(record["id"])
+                self._settle_launch(record, "dismissed")
+                return {"ok": True, "result": record}
+        except (results.ResultError, AgentError, newwork.WorkError) as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": f"unknown request: {op}"}
+
+    def _settle_launch(self, record: dict, state: str) -> None:
+        launch = self.work.records.get(record.get("launch")) if self.work and record.get("launch") else None
+        if launch and launch["state"] == "done" and launch.get("result") == record["id"]:
+            self.work.move(launch, state)
+
+    async def apply_result(self, record: dict, indexes=None) -> dict:
+        """A login's press. It writes only through the tools the producing action names for its result, as it is now, and as
+        that persona's App when there is one, else as the person: so it can't do more than that session's action may."""
+        action = self.agents.library.actions.get(record["action"]) or {}
+        allowed = set(action.get("result_tools", ()))
+        chosen = None
+        if record["type"] == "labels":
+            issues = record["payload"]["issues"]
+            if indexes is None:
+                indexes = list(range(len(issues)))
+            if not isinstance(indexes, list) or not indexes or len(set(map(str, indexes))) != len(indexes) or not all(
+                    isinstance(i, int) and not isinstance(i, bool) and 0 <= i < len(issues) for i in indexes):
+                raise results.ResultError("choose at least one of its issues")
+            chosen = [issues[i] for i in indexes]
+            needed = {"label_issue"} if any(i["add"] or i["remove"] for i in chosen) else set()
+            needed |= {"edit_issue"} if any(i["part_of"] for i in chosen) else set()
+        else:
+            needed = set(results.APPLY_TOOLS.get(record["type"], ()))
+        if needed - allowed:
+            raise results.ResultError(f"{action.get('title') or record['action']} can't {'post a review' if record['type'] == 'comment' else 'write that'}: "
+                                      f"its action doesn't name {', '.join(sorted(needed - allowed))} for its result")
+        self.results.claim(record["id"])
+        by = self.sessions.own_user()
+        try:
+            token = await self.apps.token(record["persona"]) if self.apps and record.get("persona") else None
+            if record["type"] == "comment":
+                note = await self._post_review(record, token)
+            else:
+                note = await self._set_labels(record, chosen, token)
+        except (results.ResultError, AppError, Refused, OSError) as e:
+            self.results.settle(record["id"], False, by, f"It didn't go out: {e}")
+            raise results.ResultError(f"it didn't go out: {e}") from None
+        self.results.settle(record["id"], True, by, note)
+        self._settle_launch(record, "filed")
+        return record
+
+    async def _post_review(self, record: dict, token) -> str:
+        """005 FR-017: one review with its inline notes, by the named document, its text on stdin."""
+        item = next((i for i in record["items"] if i["kind"] == "pr"), None)
+        if item is None:
+            raise results.ResultError("this result names no pull request to review")
+        found = await self.gh.graphql("content_id", {"repo": item["repo"], "number": item["number"]})
+        try:
+            node = json.loads(found["stdout"])["data"]["repository"]["issueOrPullRequest"]["id"]
+        except (ValueError, KeyError, TypeError):
+            raise results.ResultError(f"GitHub didn't give {item['repo']}#{item['number']}: {found.get('stderr', '')[-300:]}") from None
+        payload = record["payload"]
+        variables = {"pullRequestId": node, "body": payload["summary"], "event": REVIEW_EVENT[payload["event"]],
+                     "threads": [dict(n) for n in payload["notes"]]}
+        reply, answer = await self._send_review(variables, token)
+        folded = False
+        if payload["notes"] and answer.get("errors"):
+            # GitHub refuses the whole review when one note's line isn't in the diff, and nothing lets the person drop a note.
+            # It answered with errors, so nothing went out: send it again with the notes in the text instead.
+            first = "; ".join(e.get("message", "") for e in answer["errors"])[:300]
+            reply, answer = await self._send_review({**variables, "body": _fold_notes(payload["summary"], payload["notes"]), "threads": []}, token)
+            folded = bool(answer.get("data")) and not reply.get("code") and not answer.get("errors")
+            if not folded:
+                raise results.ResultError(f"GitHub refused the review: {first}")
+        if reply.get("code") or answer.get("errors") or not answer.get("data"):
+            words = "; ".join(e.get("message", "") for e in answer.get("errors") or ()) or reply.get("stderr", "")[-300:]
+            raise results.ResultError(f"GitHub refused the review: {words}")
+        url = ((answer["data"].get("addPullRequestReview") or {}).get("pullRequestReview") or {}).get("url")
+        if folded:
+            return f"Posted {url or 'the review'} with its notes in the text: GitHub refused them as inline notes ({first})."
+        return f"Posted {url or 'the review'}."
+
+    async def _send_review(self, variables: dict, token) -> tuple[dict, dict]:
+        reply = await self.gh.graphql("pr_review_add", variables, token)
+        try:
+            answer = json.loads(reply["stdout"])
+        except ValueError:
+            answer = {}
+        return reply, answer if isinstance(answer, dict) else {}
+
+    async def _set_labels(self, record: dict, chosen: list[dict], token) -> str:
+        """005 FR-018: label_issue's own command per issue; a Part of line as edit_issue would add it, to an issue of the
+        organization's own. One after another, each said, so a failure halfway says what went out."""
+        done = []
+        for issue in chosen:
+            repo, number = issue["ref"].split("#")
+            if issue["add"] or issue["remove"]:
+                argv = ["issue", "edit", number, "-R", f"{ORG}/{repo}"]
+                for label in issue["add"]:
+                    argv += ["--add-label", label]
+                for label in issue["remove"]:
+                    argv += ["--remove-label", label]
+                reply = await self.gh.run(argv, None, None, token)
+                if reply["code"]:
+                    raise results.ResultError(f"{issue['ref']}: {reply['stderr'].strip()[-300:]}" + (f" (done: {', '.join(done)})" if done else ""))
+                done.append(f"labels on {issue['ref']}")
+            if issue["part_of"]:
+                done.append(await self._add_part_of(issue, repo, number, token))
+        return "Applied: " + "; ".join(done) + "."
+
+    async def _add_part_of(self, issue: dict, repo: str, number: str, token) -> str:
+        row = await self.gh.run(["api", f"repos/{ORG}/{repo}/issues/{number}"])
+        try:
+            data = json.loads(row["stdout"])
+        except ValueError:
+            data = None
+        if row["code"] or not isinstance(data, dict):
+            raise results.ResultError(f"{issue['ref']}: GitHub didn't give the issue: {row['stderr'].strip()[-300:]}")
+        if data.get("pull_request") or data.get("author_association") not in ("OWNER", "MEMBER"):
+            return f"no Part of line on {issue['ref']}: it isn't an issue the organization wrote"
+        line = f"Part of {ORG}/{issue['part_of']}"
+        body = data.get("body") or ""
+        if line in body.splitlines():
+            return f"Part of was already on {issue['ref']}"
+        reply = await self.gh.run(["issue", "edit", number, "-R", f"{ORG}/{repo}", "--body-file", "-"], f"{body.rstrip()}\n\n{line}\n".lstrip(), None, token)
+        if reply["code"]:
+            raise results.ResultError(f"{issue['ref']}: {reply['stderr'].strip()[-300:]}")
+        return f"{line} on {issue['ref']}"
 
     async def ask_wait(self, req: dict, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         """A session's hook, until the prompt is answered or goes. Its own token says which session it is.
@@ -1245,7 +1564,7 @@ def main(argv=None) -> int:
             change_feed = None
         hubd = Hubd(gh, shells, auth.Sessions(), agent_token, pam_service=a.pam_service, agents=agents, apps=apps,
                     change_feed=change_feed, ping_seconds=feedlib.ping_interval(ping_setting), usage_allowance=allowance,
-                    work=newwork.NewWork(state_dir() / "newwork"), device_reports=devices.Devices(state_dir() / "devices"),
+                    work=newwork.NewWork(state_dir() / "newwork"), result_store=results.Results(state_dir() / "results"), device_reports=devices.Devices(state_dir() / "devices"),
                     decision_store=decisions.Decisions(state_dir() / "decisions"), notes_search=notes.Notes(agents.workspace))
         await serve(hubd, a.socket)
 

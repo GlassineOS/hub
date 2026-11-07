@@ -746,6 +746,11 @@ class GitHub:
         reply = await self.hubd.call(op="work.submit", agent_token=CALLER.get(), drafts=drafts)
         return {"handed_in": reply["handed_in"]}
 
+    async def submit_result(self, kind, payload) -> dict:
+        """Under the calling session's token: hubd holds it to its action's result type (005 R2). Applying is the person's."""
+        reply = await self.hubd.call(op="result.submit", agent_token=CALLER.get(), type=kind, payload=payload)
+        return {"handed_in": reply["id"], "waits_for": "the person, who applies it"}
+
     async def new_work_drafts(self) -> list[dict]:
         return (await self.hubd.call(op="work.handed", agent_token=CALLER.get()))["work"]
 

@@ -1,10 +1,13 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
+import asyncio
+import json
 import re
 from pathlib import Path
 
 import pytest
 
 from hubd.ghpolicy import _COMMANDS, Refused, check
+from hubd.ghrun import Gh
 
 R = ["-R", "GlassineOS/boot"]
 
@@ -192,3 +195,58 @@ def test_changes_query_stays_in_the_org():
                          ("open-prs", "2026-11-01T10:00:00Z"), ("changed", 5)):
         with pytest.raises(Refused):
             changes_query(scope, since)
+
+
+# --- pr_review_add (005 FR-017): by name, its pull request checked, its notes closed --------------------
+def _recording_gh(tmp_path):
+    """A gh that logs what it's given and says only PR_ours belongs to the organization."""
+    log = tmp_path / "calls.jsonl"
+    program = tmp_path / "gh"
+    program.write_text("#!/usr/bin/env python3\nimport json, sys\n"
+                       "data = sys.stdin.read()\n"
+                       f"open({str(log)!r}, 'a').write(json.dumps({{'argv': sys.argv[1:], 'stdin': data}}) + '\\n')\n"
+                       "body = json.loads(data) if data else {}\n"
+                       "owner = 'GlassineOS' if body.get('variables', {}).get('id') == 'PR_ours' else 'someone'\n"
+                       "print(json.dumps({'data': {'node': {'repository': {'owner': {'login': owner}}}}}))\n")
+    program.chmod(0o755)
+    return Gh(str(program), workdir=str(tmp_path)), log
+
+
+def test_a_review_with_notes_goes_by_its_document_with_the_text_on_stdin(tmp_path):
+    gh, log = _recording_gh(tmp_path)
+    notes = [{"path": "epd/fifo.c", "line": 12, "side": "RIGHT", "body": "Read once here."}]
+    asyncio.run(gh.graphql("pr_review_add", {"pullRequestId": "PR_ours", "body": "--secret-looking text", "event": "COMMENT", "threads": notes}))
+    calls = [json.loads(line) for line in log.read_text().splitlines()]
+    sent = calls[-1]
+    assert sent["argv"] == ["api", "graphql", "--input", "-"]
+    body = json.loads(sent["stdin"])
+    assert body["query"] == gh.documents["pr_review_add"] and body["query"].lstrip().startswith("mutation")
+    assert body["variables"]["threads"] == notes and body["variables"]["body"] == "--secret-looking text"
+    assert all("secret" not in " ".join(c["argv"]) for c in calls)
+
+
+@pytest.mark.parametrize("variables,why", [
+    ({"pullRequestId": "PR_theirs", "body": "x", "event": "COMMENT", "threads": []}, "not in the organization"),
+    ({"pullRequestId": "PR_ours", "body": "x", "event": "COMMENT", "threads": [{"path": "a", "line": 1, "side": "RIGHT", "body": "x", "extra": 1}]}, "a thread is"),
+    ({"pullRequestId": "PR_ours", "body": "x", "event": "COMMENT", "threads": [{"path": "a", "line": "1", "side": "RIGHT", "body": "x"}]}, "a thread is"),
+    ({"pullRequestId": "PR_ours", "body": "x", "event": "COMMENT", "threads": [{"path": "a", "line": 1, "side": "UP", "body": "x"}]}, "a thread is"),
+    ({"pullRequestId": "PR_ours", "body": "x", "event": "COMMENT", "threads": "notes"}, "at most"),
+    ({"pullRequestId": "PR_ours", "body": "x", "event": "COMMENT", "threads": [{"path": "a", "line": 1, "side": "RIGHT", "body": "x"}] * 51}, "at most"),
+])
+def test_a_review_document_refuses_others_and_odd_notes(tmp_path, variables, why):
+    gh, log = _recording_gh(tmp_path)
+    with pytest.raises(Refused, match=why):
+        asyncio.run(gh.graphql("pr_review_add", variables))
+    assert not log.exists() or all(json.loads(line)["argv"] != ["api", "graphql", "--input", "-"] or "addPullRequestReview" not in line
+                                   for line in log.read_text().splitlines())
+
+
+def test_only_the_review_document_takes_a_list_and_a_raw_mutation_stays_refused(tmp_path):
+    gh, _log = _recording_gh(tmp_path)
+    with pytest.raises(Refused, match="bad GraphQL variable: threads"):
+        asyncio.run(gh.graphql("thread_reply", {"threadId": "PR_ours", "body": "x", "threads": []}))
+    with pytest.raises(Refused, match="unknown GraphQL document"):
+        asyncio.run(gh.graphql("mutation { addPullRequestReview(input: {}) { clientMutationId } }"))
+    with pytest.raises(Refused):
+        check(["api", "graphql", "-f", "query=mutation{addPullRequestReview(input:{pullRequestId:\"x\"}){clientMutationId}}"])
+    assert gh.is_mutation("pr_review_add")

@@ -48,20 +48,27 @@ class FakeAgents:
                                   "model": LIBRARY.action(action)["models"][0], "effort": "high", "tools": LIBRARY.action(action)["tools"],
                                   "hub_tools": LIBRARY.action(action)["hub_tools"], "brief": ""})
 
-    async def plan(self, action, repo, number, notes=None, pins=None, planner_model=None, also_numbers=None):
+    async def plan(self, action, repo, number, notes=None, pins=None, planner_model=None, also_numbers=None, covers=None):
         self.planned.append((action, repo, number, notes, pins))
         self.planned_also = also_numbers
+        self.planned_covers = covers
         self.planner_models.append(planner_model)
         if self.plan_fail:
             raise AgentError(self.plan_fail)
         return {"config": {**self.defaults(action, repo, number), "model": "opus", "effort": "medium", "brief": "from the planner",
-                           "docs_query": "q", "docs": []}, "planner_cost_usd": 0.01}
+                           "docs_query": "q", "docs": [], **({"steps": self.plan_steps} if getattr(self, "plan_steps", None) else {})},
+                "planner_cost_usd": 0.01}
 
-    async def start(self, config, started_by=None):
+    async def start(self, config, started_by=None, origin=None):
         if self.fail:
             raise AgentError(self.fail)
         self.started.append((config, started_by))
+        self.origins = [*getattr(self, "origins", []), origin]
         return {"name": "new-issue-boot"}
+
+    def set_view(self, name, mode, where, ref=None):
+        self.views = [*getattr(self, "views", []), (name, mode, where, ref)]
+        return {"view": {"mode": mode, "where": where, "ref": ref}}
 
     async def say(self, session, text):
         if self.say_fails:
@@ -144,8 +151,18 @@ def test_a_model_the_action_doesnt_list_is_refused(hub):
     assert not hub.agents.started
 
 
-def test_only_repo_actions_are_new_work(hub):
-    assert "isn't a kind" in call(hub, "work.start", token="login", action="pr-review", repo="boot")["error"]
+def test_an_item_of_the_wrong_kind_is_refused_by_name(hub):
+    """005 FR-011: the action's object decides; the refusal names the item and both kinds."""
+    assert "isn't a kind" in call(hub, "work.start", token="login", action="project-steward")["error"]
+    assert "name it" in call(hub, "work.start", token="login", action="pr-review", repo="boot")["error"]
+    error = call(hub, "work.start", token="login", action="issue-implement", covers=[{"kind": "run", "repo": "kernel", "number": 204}])["error"]
+    assert "works on an issue, and kernel#204 is a run, so it can't start there" in error
+    mixed = [{"kind": "issue", "repo": "kernel", "number": 204}, {"kind": "pr", "repo": "kernel", "number": 219}]
+    assert "kernel#219 is a pull request" in call(hub, "work.start", token="login", action="issue-implement", covers=mixed)["error"]
+    assert "not on an item like boot#5" in call(hub, "work.start", token="login", action="new-issue", repo="boot",
+                                                 covers=[{"kind": "issue", "repo": "boot", "number": 5}])["error"]
+    assert "kind, a repo and a number" in call(hub, "work.start", token="login", action="pr-review", covers=[{"repo": "boot", "number": 5}])["error"]
+    assert not hub.work.list() and not hub.agents.planned
 
 
 def test_a_failed_start_says_so_and_files_nothing(hub):
@@ -162,7 +179,7 @@ def test_a_failed_start_says_so_and_files_nothing(hub):
 
 def test_something_unexpected_while_starting_keeps_the_plan_too(hub):
     work = call(hub, "work.start", token="login", action="new-issue", repo="boot")["work"]["id"]
-    async def broken(_config, started_by=None):
+    async def broken(_config, started_by=None, origin=None):
         raise KeyError("x")
     hub.agents.start = broken
     approved(hub, work)
@@ -172,9 +189,9 @@ def test_something_unexpected_while_starting_keeps_the_plan_too(hub):
 def test_cancelling_while_a_session_starts_ends_it(hub):
     work = call(hub, "work.start", token="login", action="new-issue", repo="boot")["work"]["id"]
     real = hub.agents.start
-    async def start(config, started_by=None):
+    async def start(config, started_by=None, origin=None):
         hub.work.move(hub.work.get(work), "dismissed")  # you cancelled while its checkout was being made
-        return await real(config, started_by)
+        return await real(config, started_by, origin)
     hub.agents.start = start
     ended = []
     async def end(name, grace=0):
@@ -759,7 +776,7 @@ def test_only_a_session_with_the_tool_may_suggest(hub):
 
 def test_a_suggested_session_is_planned_before_it_can_start(hub):
     work = suggest(hub, also_numbers=[11], notes="theirs")["id"]
-    assert "from its form" in call(hub, "work.start", token="login", id=work, action="new-issue", repo="boot")["error"]
+    assert "not on an item like epd#9" in call(hub, "work.start", token="login", id=work, action="new-issue", repo="boot")["error"]
     assert "no plan" in call(hub, "work.approve", token="login", id=work)["error"]
     assert not call(hub, "work.plan", agent_token="steward-token", id=work).get("ok")
     assert call(hub, "work.plan", token="nope", id=work).get("denied")
@@ -836,3 +853,92 @@ def test_a_suggested_session_can_be_declined(hub):
     work = suggest(hub)["id"]
     assert call(hub, "work.dismiss", token="login", id=work)["ok"]
     assert hub.work.get(work)["state"] == "dismissed"
+
+
+# --- Launch records (005 R1) ---------------------------------------------------------------------
+TWO_ISSUES = [{"kind": "issue", "repo": "kernel", "number": 204}, {"kind": "issue", "repo": "kernel", "number": 219}]
+
+
+def test_a_record_from_before_launch_reads_as_it_was(tmp_path):
+    folder = tmp_path / "w"
+    folder.mkdir()
+    old = {"id": "0123456789ab", "state": "done", "session": None, "drafts": [], "error": None, "made": 1.0, "by": "you",
+           "action": "new-issue", "repo": "boot", "title": "New issue"}
+    (folder / "0123456789ab.json").write_text(json.dumps(old))
+    work = NewWork(folder)
+    record = work.list()[0]
+    assert "v" not in record and record["stage"] == "result" and record["repo"] == "boot"
+    assert work.get("0123456789ab")["state"] == "done"
+
+
+@pytest.mark.parametrize("state,stage", [("offered", "brief"), ("planning", "planning"), ("planned", "plan"), ("starting", "run"),
+                                         ("running", "run"), ("started", "run"), ("done", "result"), ("filed", "result"),
+                                         ("failed", "failed"), ("dismissed", "dismissed"), ("discarded", "dismissed")])
+def test_the_stage_comes_from_the_state(state, stage):
+    assert newwork.stage_of({"state": state}) == stage
+
+
+def test_a_launch_on_two_issues_is_recorded_with_where_it_came_from(hub):
+    """005 FR-009, FR-010: v 2, the items with their kinds, from, the plan's steps; the planner gets the items."""
+    steps = [{"what": "Read the FIFO code", "touches": ["epd/fifo.c"]}]
+    hub.agents.plan_steps = steps
+    reply = call(hub, "work.start", token="login", action="issue-implement", covers=TWO_ISSUES, model="opus",
+                 **{"from": {"view": "Work", "ref": "kernel#204"}})
+    assert reply["ok"], reply
+    record = hub.work.get(reply["work"]["id"])
+    assert record["v"] == 2 and record["covers"] == TWO_ISSUES and record["from"] == {"view": "Work", "ref": "kernel#204"}
+    assert (record["repo"], record["number"], record["also_numbers"]) == ("kernel", 204, [219]) and record["background"] is False
+    assert record["state"] == "planned" and record["stage"] == "plan" and record["plan"] == {"steps": steps}
+    assert hub.agents.planned_covers == [{"repo": "kernel", "number": 204}, {"repo": "kernel", "number": 219}]
+    assert record["spec"]["steps"] == steps
+    saved = json.loads((hub.work.folder / f"{record['id']}.json").read_text())
+    assert saved["covers"] == TWO_ISSUES and saved["from"]["view"] == "Work"
+
+
+def test_where_a_launch_came_from_is_checked(hub):
+    for bad in ({"view": "Device"}, {"view": "Work", "ref": "not a ref"}, {"view": "Work", "extra": 1}, "Work", {"ref": "boot#1"}):
+        reply = call(hub, "work.start", token="login", action="new-issue", repo="boot", **{"from": bad})
+        assert not reply["ok"], bad
+    assert not hub.work.list()
+
+
+def test_a_started_launch_records_its_origin_and_is_shown_where_it_started(hub):
+    """005 FR-010, 005/US1: the session's origin is the record; it's embedded in the view it was started from."""
+    reply = call(hub, "work.start", token="login", action="issue-implement", covers=TWO_ISSUES, **{"from": {"view": "Work", "ref": "kernel#204"}})
+    record = approved(hub, reply["work"]["id"])
+    assert hub.agents.origins == [{"launch": record["id"], "from": {"view": "Work", "ref": "kernel#204"}, "by": "you"}]
+    assert hub.agents.views == [("new-issue-boot", "embedded", "Work", "kernel#204")]
+    assert record["state"] == "started" and record["stage"] == "run"  # it ends in a pull request, so it hands in nothing
+
+
+def test_a_launch_goes_to_the_background_and_its_session_follows(hub):
+    """005 FR-008: work.background is a login op; the session's view.json follows, also from Needs you."""
+    reply = call(hub, "work.start", token="login", action="new-issue", repo="boot", **{"from": {"view": "Needs you"}})
+    work = reply["work"]["id"]
+    assert call(hub, "work.background", token="nope", id=work, on=True).get("denied")
+    assert "true or false" in call(hub, "work.background", token="login", id=work, on="yes")["error"]
+    assert call(hub, "work.background", token="login", id=work, on=True)["work"]["background"] is True
+    approved(hub, work)
+    assert hub.agents.views == [("new-issue-boot", "background", "Sessions", None)]  # Needs you is no view to be embedded in
+    call(hub, "work.background", token="login", id=work, on=False)
+    assert hub.agents.views[-1:] == [("new-issue-boot", "background", "Sessions", None)]  # not embedded anywhere: it stays
+    assert hub.work.get(work)["background"] is False
+
+
+def test_a_launch_that_was_starting_or_planning_items_fails_after_a_restart(tmp_path, hub):
+    """The restart rule holds for item launches too: a session that may be running isn't started twice."""
+    planning = hub.work.new({"by": "you", "action": "pr-review", "repo": "boot", "number": 5, "covers": [{"kind": "pr", "repo": "boot", "number": 5}]}, "planning")
+    starting = hub.work.new({"by": "you", "action": "issue-implement", "repo": "kernel", "number": 204, "covers": TWO_ISSUES}, "starting")
+    again = NewWork(hub.work.folder)
+    assert again.get(planning["id"])["state"] == "failed" and "planner" in again.get(planning["id"])["error"]
+    assert again.get(starting["id"])["state"] == "failed" and "Check Sessions" in again.get(starting["id"])["error"]
+    assert again.get(starting["id"])["covers"] == TWO_ISSUES and again.get(starting["id"])["v"] == 2
+
+
+def test_an_action_with_no_planning_step_goes_straight_to_its_plan(hub):
+    action = next(a for a in LIBRARY.actions.values() if a.get("plan") is False and a["object"] in ("pr", "run", "issue"))
+    item = {"kind": action["object"], "repo": "boot", "number": 5}
+    reply = call(hub, "work.start", token="login", action=action["id"], covers=[item])
+    assert reply["ok"], reply
+    record = hub.work.get(reply["work"]["id"])
+    assert record["state"] == "planned" and record["plan"] == {"steps": []} and not hub.agents.planned

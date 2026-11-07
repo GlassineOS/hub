@@ -1378,3 +1378,82 @@ def test_every_claude_session_is_a_chat():
     assert 'role="status"' in field and "<${Err} text=${act.error}" in field and "<label" in field
     assert "<${MessageField} name=${STEWARD}" in _component(script, "StewardSession")
     assert "<${MessageField} key=${current.name} name=${current.name}" in _component(script, "Shells")
+
+
+# --- results (005 R2): who sees submit_result, and sessions started before it ----------------------
+def test_submit_result_is_listed_only_for_a_token_whose_action_has_it():
+    from hubd.agents import Library
+    library = Library(Path(__file__).parents[1] / "agents")
+    review = library.actions["pr-review"]["hub_tools"]
+    assert "submit_result" in listed_for({"session": "s", "tools": review, "persona": "reviewer"})
+    assert "review_pr" not in listed_for({"session": "s", "tools": review, "persona": "reviewer"})
+    implement_less = library.actions["pr-explain"]["hub_tools"]
+    assert "submit_result" not in listed_for({"session": "s", "tools": implement_less, "persona": "x"})
+    listed = {t.name: t for t in asyncio.run(tools.build(GitHub(Hubd("/nonexistent"), CONFIG), FakeDocs()).list_tools())}
+    assert listed["submit_result"].annotations.read_only_hint is False and listed["submit_result"].annotations.destructive_hint is False
+
+
+def test_a_session_started_with_the_old_review_tools_still_reaches_review_pr():
+    """The running-session rule: its scope is its own frozen list, so it keeps review_pr and never sees submit_result."""
+    old = ["get_pr", "get_pr_diff", "review_pr", "docs_search"]
+    plain = Hubd("/nonexistent")
+
+    async def call(**request):
+        if request["op"] == "auth.check_agent":
+            return {"ok": True, "scope": {"session": "pr-review-boot-5", "tools": old, "persona": "reviewer"}}
+        if request["op"] == "gh":
+            return {"ok": True, "code": 0, "stdout": "", "stderr": ""}
+        return {"ok": True}
+    plain.call = call
+    assert "review_pr" in listed_for({"session": "s", "tools": old, "persona": "reviewer"})
+    with TestClient(main.agent_app(plain, GitHub(plain, CONFIG), FakeDocs(), 9095), base_url="http://127.0.0.1:9095") as client:
+        assert "doesn't have the tool" not in _tool_call(client, "review_pr", token="old").text
+        assert "doesn't have the tool submit_result" in _tool_call(client, "submit_result", token="old").json()["error"]["message"]
+
+
+def test_submit_result_goes_to_hubd_under_the_sessions_token(github, hubd):
+    async def go():
+        hubd_client.CALLER.set("session-token")
+        return await github.submit_result("comment", {"summary": "s", "event": "comment"})
+    original = hubd.call
+
+    async def call(**request):
+        assert request == {"op": "result.submit", "agent_token": "session-token", "type": "comment", "payload": {"summary": "s", "event": "comment"}}
+        return {"ok": True, "id": "r-0123456789ab"}
+    hubd.call = call
+    assert asyncio.run(go())["handed_in"] == "r-0123456789ab"
+    hubd.call = original
+
+
+def test_results_and_the_background_go_through_to_hubd_for_a_login():
+    seen = []
+
+    class Recording(FakeHubd):
+        async def call(self, **request):
+            if request["op"].startswith(("result.", "work.")):
+                seen.append(request)
+                return {"ok": True, "results": [], "result": {"id": request.get("id")}, "work": {"id": request.get("id")}}
+            return await super().call(**request)
+    client = TestClient(web.build(Recording(), None, FakeDocs(), secure_cookie=False, allowed_hosts={"testserver"}))
+    assert client.get("/api/results").status_code == 401
+    signed_in(client)
+    assert client.get("/api/results?type=comment&kept=1&session=s1").status_code == 200
+    assert seen[-1] == {"op": "result.list", "token": "good", "type": "comment", "kept": True, "session": "s1", "after": None}
+    assert client.post("/api/results/r-0123456789ab/apply", json={"indexes": [0]}, headers=ORIGIN).status_code == 200
+    assert seen[-1] == {"op": "result.apply", "token": "good", "id": "r-0123456789ab", "indexes": [0]}
+    assert client.post("/api/results/r-0123456789ab/post", json={}, headers=ORIGIN).status_code == 400
+    assert client.post("/api/results/r-0123456789ab/dismiss", json={}).status_code == 403  # same origin only
+    assert client.post("/api/new-work/0123456789ab/background", json={"on": True}, headers=ORIGIN).status_code == 200
+    assert seen[-1] == {"op": "work.background", "token": "good", "id": "0123456789ab", "on": True}
+    body = {"action": "issue-implement", "covers": [{"kind": "issue", "repo": "kernel", "number": 204}], "from": {"view": "Work"}, "background": False}
+    assert client.post("/api/new-work", json=body, headers=ORIGIN).status_code == 200
+    assert {k: seen[-1][k] for k in ("op", "covers", "from", "background")} == {"op": "work.start", **{k: body[k] for k in ("covers", "from", "background")}}
+
+
+def test_a_result_card_shows_its_words_as_text_and_applies_through_the_answer():
+    """A static check (005 R2, until 005/PR 2): Needs you can post a review or apply labels a session handed in."""
+    script = _app_js()
+    card = _component(script, "ResultWaiting")
+    assert 'answerAt(r.id, { verdict: press[0] }, where)' in card and 'verdict: "dismiss"' in card
+    assert "white-space: pre-wrap" in _component(script, "ResultLines") and "<${Md}" not in _component(script, "ResultLines")
+    assert 'item.kind === "result" && d.type && !settled' in _component(script, "InteractionCard")

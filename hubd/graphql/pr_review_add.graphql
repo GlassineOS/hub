@@ -1,0 +1,3 @@
+mutation($pullRequestId: ID!, $body: String, $event: PullRequestReviewEvent!, $threads: [DraftPullRequestReviewThread]) {
+  addPullRequestReview(input: {pullRequestId: $pullRequestId, body: $body, event: $event, threads: $threads}) { pullRequestReview { url } }
+}
