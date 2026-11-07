@@ -1757,6 +1757,7 @@ function originWords(a) {
   const o = a.origin;
   if (!o) return a.started_by ? `started by ${byWords(a.started_by)}` : "started before origins were kept";
   const f = o.from || {};
+  if (o.launch == null && !f.view) return `started directly${o.by ? `, by ${byWords(o.by)}` : ""}`; // the one click or the advanced form: no Launch behind it
   const where = !f.view ? "Launch" : f.ref ? `${f.view}${f.view === "Work" ? " item" : ","} ${f.ref}` : f.view;
   return `from ${where}${o.by ? `, by ${byWords(o.by)}` : ""}`;
 }

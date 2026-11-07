@@ -82,3 +82,22 @@ def test_a_session_is_embedded_only_in_the_item_it_was_placed_on():
           embeddedPhase(view({ mode: "background" }), B, { "s@hub#2": "embedded" }),
         ];""")
     assert got == [None, "embedded", "background", "embedded", "background", "background", "background", "background", "background", "embedded"]
+
+
+def test_the_origin_is_told_in_words():
+    """#34 follow-up: a session started with the one click says so, and only one with no origin at all is called old."""
+    constants = "\n".join(re.search(rf"^const {n} = .*;$", APP.read_text(), re.M).group(0) for n in ("STEWARD", "byWords"))
+    script = f"{constants}\n{function('originWords')}\nconsole.log(JSON.stringify((() => {{ %s }})()));"
+    body = """
+        const words = (a) => originWords(a);
+        return [
+          words({ origin: { launch: null, from: null, by: "you" } }),
+          words({ origin: { launch: "w1", from: { view: "Work", ref: "hub#4" }, by: "you" } }),
+          words({ origin: { launch: "w2", from: { view: "Needs you", ref: null }, by: "steward" } }),
+          words({ origin: { launch: "w3", from: null, by: "you" } }),
+          words({ origin: null, started_by: "steward" }),
+          words({ origin: null, started_by: null }),
+        ];"""
+    out = subprocess.run([NODE, "-e", script % body], capture_output=True, text=True, timeout=30, check=True).stdout
+    assert json.loads(out) == ["started directly, by you", "from Work item hub#4, by you", "from Needs you, by the Steward",
+                               "from Launch, by you", "started by the Steward", "started before origins were kept"]

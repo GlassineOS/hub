@@ -1407,12 +1407,12 @@ class Agents:
         log.info("agent session %s resumed", name)
         return {"name": name, "title": record["title"], "config": config}
 
-    async def run(self, action_id, repo, number, notes=None, pins=None) -> dict:
+    async def run(self, action_id, repo, number, notes=None, pins=None, origin: dict | None = None) -> dict:
         """The one click: plan, then start."""
         if not self.library.action(action_id).get("plan", True):
-            return await self.start({**self.defaults(action_id, repo, number), "notes": notes or "", "pins": pins or []})
+            return await self.start({**self.defaults(action_id, repo, number), "notes": notes or "", "pins": pins or []}, origin=origin)
         planned = await self.plan(action_id, repo, number, notes, pins)
-        return {**await self.start(planned["config"]), "planner_cost_usd": planned["planner_cost_usd"]}
+        return {**await self.start(planned["config"], origin=origin), "planner_cost_usd": planned["planner_cost_usd"]}
 
     # --- started by a session, after you approved ----------------------------------
     def check_spawn(self, arguments) -> dict:

@@ -1110,6 +1110,24 @@ def test_manifest_and_preview_show_what_runs(tmp_path, remote):
             a.manifest(bad)
 
 
+def test_run_gives_its_origin_to_start(tmp_path):
+    """#34 follow-up: the one click records where it came from, planned or not, and a record keeps it."""
+    a = agents(tmp_path)
+    started = []
+
+    async def start(config, started_by=None, origin=None):
+        started.append((config, origin))
+        return {"name": "n"}
+
+    async def plan(*args, **kw):
+        return {"config": {"planned": True}, "planner_cost_usd": 0.0}
+
+    a.start, a.plan = start, plan
+    origin = {"launch": None, "from": None, "by": "you"}
+    assert asyncio.run(a.run("pr-review", "boot", 5, origin=origin))["name"] == "n"
+    assert started == [({"planned": True}, origin)]
+
+
 SHA = "0123456789abcdef0123456789abcdef01234567"
 
 

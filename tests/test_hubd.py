@@ -243,6 +243,33 @@ def test_plan_and_run_are_given_the_notes_and_pins(tmp_path, fake_gh):
     assert Agents.given == [("pr-review", "boot", 5, "n", ["p"])] * 2
 
 
+def test_a_session_you_start_directly_says_so_in_its_origin(tmp_path, fake_gh):
+    """#34 follow-up: the one click and the advanced form have no Launch record, so their sessions would read as old without this."""
+    class Agents:
+        seen = []
+
+        def scope(self, token):
+            return None
+
+        async def start(self, config, **kw):
+            self.seen.append(("start", kw))
+            return {"name": "n"}
+
+        async def run(self, *args, **kw):
+            self.seen.append(("run", kw))
+            return {"name": "n"}
+
+    async def go():
+        async with Harness(tmp_path, fake_gh) as h:
+            h.hubd.agents = Agents()
+            token = await h.login()
+            await h.call(op="agent.start", token=token, config={})
+            await h.call(op="agent.run", token=token, action="pr-review", repo="boot", number=5)
+    run(go())
+    direct = {"launch": None, "from": None, "by": "you"}
+    assert Agents.seen == [("start", {"origin": direct}), ("run", {"origin": direct})]
+
+
 def test_a_session_token_cant_start_anything_and_reads_only_with_the_tool(tmp_path, fake_gh):
     class Agents:
         def scope(self, token):
