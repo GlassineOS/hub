@@ -2008,6 +2008,36 @@ def test_the_page_sorts_like_the_server_and_shows_five_then_the_rest():
     assert out["boot"] == ["never"], "the filter reads the description too"
 
 
+def test_the_page_and_the_server_agree_on_every_tie():
+    """#41 review: attention_key and byAttention are two copies of one order. Every mix of failing, waiting, open PRs and
+    activity (none, older, newer), shuffled so ties come from both sides, sorts the same in both; ties keep their order."""
+    import itertools
+    import random
+    from hub.github import attention_key
+    combos = itertools.product((0, 1, 2), (0, 1), (0, 3), (None, "2026-01-01T00:00:00Z", "2026-11-01T00:00:00Z"))
+    rows = [{**_overview_row(f"r{i}", failing=f, prs=p, last=t), "waiting": w} for i, (f, w, p, t) in enumerate(combos)]
+    rows += [{**r, "name": r["name"] + "-twin"} for r in rows]
+    random.Random(41).shuffle(rows)
+    out = json.loads(_overview_js(f"console.log(JSON.stringify(layerRows({json.dumps(rows)}, {{ all: true }}).rows.map((r) => r.name)));"))
+    assert out == [r["name"] for r in sorted(rows, key=lambda r: attention_key(r, r["waiting"]))]
+
+
+def test_what_needs_attention_and_what_the_filter_finds():
+    """007 FR-006: failing workflows or a session waiting for you; open PRs alone don't. The filter is typed lowercased by the
+    page, reads name and description, and shows every match."""
+    rows = [{**_overview_row("fails", failing=1), "waiting": 0}, {**_overview_row("waits"), "waiting": 2},
+            {**_overview_row("prs", prs=4), "waiting": 0}, {**_overview_row("quiet"), "description": "The Boot loader"},
+            *({**_overview_row(f"boot{i}"), "waiting": 0} for i in range(7))]
+    out = json.loads(_overview_js(f"""const rows = {json.dumps(rows)};
+      console.log(JSON.stringify({{ needs: rows.filter(needsAttention).map((r) => r.name),
+        boot: layerRows(rows, {{ needle: "boot" }}), only: layerRows(rows, {{ attentionOnly: true, needle: "wait" }}).rows.map((r) => r.name),
+        none: layerRows([]) }}));"""))
+    assert out["needs"] == ["fails", "waits"], "a row with no waiting count isn't waiting"
+    assert len(out["boot"]["shown"]) == 8 and out["boot"]["more"] == 0, "a typed filter shows every match, past five"
+    assert out["only"] == ["waits"]
+    assert out["none"] == {"rows": [], "shown": [], "more": 0}
+
+
 def _store_with(repos, items):
     store = WorkStore(":memory:")
     author = {"login": "a"}
