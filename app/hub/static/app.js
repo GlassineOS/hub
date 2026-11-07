@@ -1357,6 +1357,7 @@ function WorkLists({ query, asks }) {
   const [panel, setPanel] = useState(query.new === "1" ? "new" : null);
   const [notice, setNotice] = useState(null);
   const [phases, setPhases] = useState({}); // session name → embedded or background, as moved on this page; else its stored view
+  const [keptCheckout, setKeptCheckout] = useState(null); // { ref, path }: Stop ended a session whose checkout holds work that isn't on GitHub
   useEffect(() => { if (query.new === "1") setPanel("new"); }, [query.new]);
   const groups = overview.data ? overview.data.groups : [];
   const filter = parseFilter(applied);
@@ -1438,7 +1439,8 @@ function WorkLists({ query, asks }) {
         onStarted=${async (r) => { place(r.name, "embedded"); await sessions.reload(); }}
         onPhase=${(ph) => session && place(session.name, ph)} />
       ${embedded && html`<${SessionView} key=${session.name} session=${session} mode="embedded" asks=${asks} here=${here}
-        onView=${(m) => setPhases((p) => ({ ...p, [session.name]: m }))} onEnded=${() => sessions.reload()} onGone=${() => sessions.reload()} />`}`;
+        onView=${(m) => setPhases((p) => ({ ...p, [session.name]: m }))} onEnded=${(r) => { setKeptCheckout(r && r.kept ? { ref: here, path: r.kept } : null); sessions.reload(); }} onGone=${() => sessions.reload()} />`}
+      ${keptCheckout && keptCheckout.ref === here && html`<div role="status" class="notice quiet"><span>That session had work that isn't on GitHub, so its checkout stays at <code>${keptCheckout.path}</code>.</span></div>`}`;
     const props = { key: current.key, repo: current.repo, spawn, onChanged: reload };
     return html`<main class="page close">
       <div class="crumbs"><a href=${hash("work", { tab, repo: scope })} style="font-weight: 600">← ${TABS.find((t) => t[0] === tab)[1]}</a>

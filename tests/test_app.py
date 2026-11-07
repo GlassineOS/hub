@@ -1406,6 +1406,13 @@ def test_one_session_view_everywhere():
     assert "Waiting for you" in _component(script, "sessionWords")
 
 
+def test_work_says_when_stop_kept_the_checkout():
+    """A static check only (the JS isn't run): Stop from a Work item uses shell.kill's reply, as Sessions does (#34 review 4)."""
+    lists = _component(_app_js(), "WorkLists")
+    assert "onEnded=${(r) => { setKeptCheckout(r && r.kept ? { ref: here, path: r.kept } : null)" in lists
+    assert "keptCheckout.ref === here" in lists and "<code>${keptCheckout.path}</code>" in lists
+
+
 def test_the_terminal_keeps_your_place():
     """A static check (004 FR-005): new output follows the end only while you're at it."""
     term = _component(_app_js(), "TerminalView")
