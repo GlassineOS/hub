@@ -160,6 +160,16 @@ def test_run_fix_starts_on_a_run_and_is_refused_on_an_issue(hub):
     assert reply["work"]["covers"] == [{"kind": "run", "repo": "kernel", "number": 4242}]
 
 
+def test_run_fix_starts_on_a_real_run_id(hub):
+    """A run's number is its databaseId, 11 digits today: the item reference takes up to 15, like the feed."""
+    run = 42401463461
+    reply = call(hub, "work.start", token="login", action="run-fix", covers=[{"kind": "run", "repo": "kernel", "number": run}])
+    assert reply["ok"], reply
+    assert reply["work"]["covers"] == [{"kind": "run", "repo": "kernel", "number": run}]
+    too_long = call(hub, "work.start", token="login", action="run-fix", covers=[{"kind": "run", "repo": "kernel", "number": 10 ** 15}])
+    assert "not an item" in too_long["error"]
+
+
 def test_an_item_of_the_wrong_kind_is_refused_by_name(hub):
     """005 FR-011: the action's object decides; the refusal names the item and both kinds."""
     assert "isn't a kind" in call(hub, "work.start", token="login", action="project-steward")["error"]
@@ -831,10 +841,16 @@ def test_a_suggestion_covers_items_across_repositories(hub):
     (["../x#1"], "not an item"),
     ("kernel#1", "list of items"),
     ([204], "list of items"),
+    (["kernel#1000000000000000"], "not an item"),
 ])
 def test_a_suggestions_covers_are_checked(hub, covers, word):
     reply = suggest(hub, covers=covers)
     assert not reply["ok"] and word in reply["error"], reply
+
+
+def test_a_suggestion_can_cover_a_run_with_an_11_digit_id(hub):
+    reply = suggest(hub, covers=["kernel#42401463461"])
+    assert "not an item" not in str(reply.get("error")), reply
 
 
 def test_a_suggestion_on_one_item_cant_cover_more(hub):
