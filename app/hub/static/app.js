@@ -79,17 +79,21 @@ function useRoute() {
 }
 
 // --- loading ---------------------------------------------------------------------
+// A failed reload keeps what the last good one read, with the error beside it: when hubd goes away the views stay as
+// they were and the header's banner says so. Data read for other deps (another issue, say) is not kept.
 function useLoad(loader, deps, every) {
   const [state, set] = useState({ loading: true });
   const seq = useRef(0);
+  const loadedFor = useRef(null);
+  const sig = deps.map(String).join("\u0000");
   const reload = useCallback(async () => {
     const mine = ++seq.current;
     set((s) => ({ ...s, loading: true }));
     try {
       const data = await loader();
-      if (mine === seq.current) set({ data, loading: false });
+      if (mine === seq.current) { loadedFor.current = sig; set({ data, loading: false }); }
     } catch (error) {
-      if (mine === seq.current) set({ error: error.message, loading: false });
+      if (mine === seq.current) set((s) => ({ ...(loadedFor.current === sig ? s : {}), error: error.message, loading: false }));
     }
   }, deps);
   useEffect(() => {
@@ -1097,7 +1101,7 @@ function IssueDetail({ repo, number, spawn, onChanged }) {
   const { data, error, reload } = useLoad(() => api(`issues/${repo}/${number}`), [repo, number]);
   const [confirm, dialog] = useConfirm();
   const act = useAct(async () => { await reload(); onChanged(); });
-  if (error) return html`<${Err} text=${error} />`;
+  if (error && !data) return html`<${Err} text=${error} />`;
   if (!data) return html`<p class="soft">Loading…</p>`;
   const open = data.state === "OPEN";
   const conversation = html`<div class="body"><${Md} text=${data.body} /></div>
@@ -1106,7 +1110,7 @@ function IssueDetail({ repo, number, spawn, onChanged }) {
   return html`${dialog}<${ItemFrame} kindLabel="Issue" where=${`${repo}#${number}`} title=${data.title}
     state=${data.state} stateCls=${open ? "" : "dim"}
     meta=${[`opened by ${data.author && data.author.login} ${ago(data.createdAt)}`, (data.assignees || []).length ? "" : "no assignee", count(data.comments.length, "comment")]}
-    actions=${html`<${Err} text=${act.error} /><div class="row">
+    actions=${html`<${Err} text=${act.error || error} /><div class="row">
       <button disabled=${act.busy} onClick=${() => act.run(() => post("project/add", { repo, number }))}>Add to roadmap</button>
       ${open ? html`<button disabled=${act.busy} onClick=${() => confirm(
         { title: "Close this issue?", text: `${repo}#${number}: ${data.title}`, label: "Close issue", danger: true },
@@ -1134,7 +1138,7 @@ function PrDetail({ repo, number, spawn, onChanged }) {
   const [picked, setPicked] = useState(new Set());
   const [confirm, dialog] = useConfirm();
   const act = useAct(async () => { await reload(); onChanged(); });
-  if (error) return html`<${Err} text=${error} />`;
+  if (error && !data) return html`<${Err} text=${error} />`;
   if (!data) return html`<p class="soft">Loading…</p>`;
   const open = data.state === "OPEN";
   const base = `prs/${repo}/${number}`;
@@ -1164,7 +1168,7 @@ function PrDetail({ repo, number, spawn, onChanged }) {
   return html`${dialog}<${ItemFrame} kindLabel="Pull request" where=${`${repo}#${number}`} title=${data.title}
     state=${data.isDraft && open ? "DRAFT" : data.state} stateCls=${open ? (data.checks === "failing" ? "bad" : "") : "dim"}
     meta=${[`${data.headRefName} → ${data.baseRefName}`, `opened by ${data.author && data.author.login} ${ago(data.createdAt)}`, `+${data.additions} −${data.deletions}`]}
-    actions=${html`<${Err} text=${act.error} />${open && html`<div class="row">
+    actions=${html`<${Err} text=${act.error || error} />${open && html`<div class="row">
       ${!data.isDraft && html`<button class="primary" disabled=${act.busy} onClick=${merge}>Merge…</button>
         <select aria-label="Merge method" value=${method} onChange=${(e) => setMethod(e.target.value)}>
           <option value="squash">Squash</option><option value="merge">Merge commit</option><option value="rebase">Rebase</option></select>`}
@@ -1193,7 +1197,7 @@ function RunDetail({ repo, id, spawn, onChanged }) {
   const [log, setLog] = useState(null);
   const act = useAct(async () => { await reload(); onChanged(); });
   const logs = useAct();
-  if (error) return html`<${Err} text=${error} />`;
+  if (error && !data) return html`<${Err} text=${error} />`;
   if (!data) return html`<p class="soft">Loading…</p>`;
   const running = data.status !== "completed";
   const failed = data.conclusion === "failure";
@@ -1209,7 +1213,7 @@ function RunDetail({ repo, id, spawn, onChanged }) {
   return html`<${ItemFrame} kindLabel="Workflow run" where=${`${repo} run ${id}`} title=${`${data.workflowName} · ${data.displayTitle}`}
     state=${String(data.conclusion || data.status).toUpperCase()} stateCls=${failed ? "bad" : running ? "dim" : ""}
     meta=${[`${data.event} on ${data.headBranch}`, (data.headSha || "").slice(0, 7), ago(data.createdAt)]}
-    actions=${html`<${Err} text=${act.error} /><div class="row">
+    actions=${html`<${Err} text=${act.error || error} /><div class="row">
       ${running ? html`<button class="primary" disabled=${act.busy} onClick=${() => act.run(() => post(`runs/${repo}/${id}/cancel`))}>Cancel</button>`
         : html`<button class="primary" disabled=${act.busy} onClick=${() => act.run(() => post(`runs/${repo}/${id}/rerun`, { failed_only: true }))}>Re-run failed jobs</button>
           <button disabled=${act.busy} onClick=${() => act.run(() => post(`runs/${repo}/${id}/rerun`, { failed_only: false }))}>Re-run all</button>`}</div>`}

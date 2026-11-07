@@ -1336,3 +1336,16 @@ def test_a_page_that_cant_reach_hubd_is_told_so_not_signed_out():
     client.cookies.set("hub_session", "nope")
     assert client.get("/api/interactions").status_code == 401
     assert "hostPoll.error || listed.error" in _component(_app_js(), "Hub")
+
+
+def test_a_failed_reload_keeps_what_the_views_showed():
+    """001 FR-005: the banner says "showing what was last read", so useLoad keeps its data on an error (not for other deps)."""
+    script = _app_js()
+    load = _component(script, "useLoad")
+    assert "set({ error: error.message" not in load, "an error alone would drop the data the banner promises"
+    assert "...(loadedFor.current === sig ? s : {}), error: error.message, loading: false" in load
+    assert "loadedFor.current = sig; set({ data, loading: false })" in load, "a good read clears the error and notes what it was for"
+    for view in ("IssueDetail", "PrDetail", "RunDetail"):
+        source = _component(script, view)
+        assert "if (error && !data) return" in source and "if (error) return" not in source, f"{view} keeps the item it showed"
+        assert "<${Err} text=${act.error || error} />" in source, f"{view} shows the error beside the item"
