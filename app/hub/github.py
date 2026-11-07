@@ -90,6 +90,44 @@ def _rollup(pr: dict) -> str:
     return "passing"
 
 
+LARGE_FILE = 400  # changed lines past which Files changed asks before showing a file's diff
+_ERROR_LINE_RE = re.compile(r"##\[error\]|\berror\b|\bfatal:|\bFAILED\b|\bFAIL\b|Traceback|exit code [1-9]", re.I)
+# Colour codes, as the escape byte or as gh writes it out (a caret and a bracket), and the BOM a log starts with.
+_LOG_NOISE_RE = re.compile(r"(?:\x1b|\^\[)\[[0-9;]*m|\ufeff")
+_LOG_TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z ?")
+MAX_STEP_LINES = 2000
+
+
+def merge_blockers(pr: dict, open_threads) -> list[dict]:
+    """Why Merge… is off for an open pull request, in words (006 FR-031). Empty: nothing stops it."""
+    out = []
+    if pr.get("checks") == "pending":
+        out.append({"why": "checks are still running"})
+    decision = pr.get("reviewDecision") or ""
+    if decision == "CHANGES_REQUESTED":
+        out.append({"why": "changes were requested"})
+    elif decision != "APPROVED":
+        out.append({"why": "not approved yet"})
+    if open_threads:
+        out.append({"why": f"{open_threads} review thread{'s' if open_threads != 1 else ''} open"})
+    return out
+
+
+def failed_step_lines(log_text: str, job: str | None, step: str | None) -> list[dict]:
+    """The failed step's lines from `gh run view --log-failed` (job, step, time and text, tab-separated), numbered,
+    each marked when it reads like an error. Lines of other steps are dropped when the step can be told apart."""
+    rows = []
+    for line in log_text.splitlines():
+        parts = line.split("\t", 2)
+        if len(parts) == 3:
+            rows.append((parts[0], parts[1], _LOG_TIME_RE.sub("", _LOG_NOISE_RE.sub("", parts[2]))))
+        else:
+            rows.append((None, None, _LOG_NOISE_RE.sub("", line)))
+    picked = [r for r in rows if r[0] == job and r[1] == step] if job and step else []
+    texts = [r[2] for r in (picked or rows)][-MAX_STEP_LINES:]
+    return [{"n": i + 1, "text": t, "error": bool(_ERROR_LINE_RE.search(t))} for i, t in enumerate(texts)]
+
+
 def _same_lines(text) -> str:
     """GitHub keeps the line endings a page wrote, so a body read two ways can differ by them alone."""
     return (text or "").replace("\r\n", "\n")
@@ -488,7 +526,7 @@ class GitHub:
         await self._wrote(repo, number)
         return {"state": "open"}
 
-    async def label_issue(self, repo, number, add=None, remove=None) -> dict:
+    async def label_issue(self, repo, number, add=None, remove=None, login=None) -> dict:
         argv = ["issue", "edit", _num(number), "-R", _full(repo)]
         for label in add or []:
             argv += ["--add-label", str(label)]
@@ -496,9 +534,16 @@ class GitHub:
             argv += ["--remove-label", str(label)]
         if len(argv) == 5:
             raise BadRequest("no labels given")
-        await self.hubd.gh(*argv)
+        await self.hubd.gh(*argv, login=login)
         await self._wrote(repo, number)
         return {"ok": True}
+
+    async def assign_me(self, repo, number, login=None) -> dict:
+        """The person takes the issue: ghpolicy lets `issue edit` add only @me."""
+        await self.hubd.gh("issue", "edit", _num(number), "-R", _full(repo), "--add-assignee", "@me", login=login)
+        await self._wrote(repo, number)
+        row = await self._issue_now(repo, number)
+        return {"assignees": [a.get("login") for a in row.get("assignees") or []]}
 
     # --- editing: the title and body, one checkbox, and the comments this hub posted ----------------
     def _know(self, repo, number, version, title, body) -> None:
@@ -659,6 +704,40 @@ class GitHub:
         row = self.store.item("pr", repo, int(number)) if self._serving() else None
         return f"{row['updatedAt']}/{self.store.get(f'ci/{repo}')}" if row else None
 
+    async def pr_page(self, repo, number) -> dict:
+        """The pull request for its page: `pr`, and for an open one the facts its merge button needs. Tools keep `pr`,
+        which the work store serves without asking GitHub."""
+        row = await self.pr(repo, number)
+        if row.get("state") != "OPEN":
+            return row
+        return {**row, **await self._open_facts(repo, row)}
+
+    async def _open_facts(self, repo, row) -> dict:
+        """How far behind its base an open pull request is, and what stops a merge. Asked each time: the base moves,
+        and threads aren't in a sync. A read that fails leaves its fact unknown (None), never a guess."""
+        behind = threads = None
+        if row.get("headRefOid") and row.get("baseRefName"):
+            try:
+                compared = await self.hubd.gh_json("api", f"repos/{_full(repo)}/compare/{row['baseRefName']}...{row['headRefOid']}")
+                behind = int(compared["behind_by"]) if isinstance(compared, dict) and "behind_by" in compared else None
+            except (HubdError, GhError, ValueError, TypeError) as e:
+                log.warning("no behind count for %s#%s: %s", repo, row.get("number"), e)
+        try:
+            threads = sum(1 for t in await self.pr_threads(repo, row["number"]) if not t["resolved"])
+        except (HubdError, GhError, KeyError, TypeError) as e:
+            log.warning("no thread count for %s#%s: %s", repo, row.get("number"), e)
+        return {"behind_by": behind, "open_threads": threads, "merge_blockers": merge_blockers(row, threads)}
+
+    async def pr_files(self, repo, number) -> list[dict]:
+        """The changed files with their counts. `large`: over LARGE_FILE changed lines, or binary (no lines at all)."""
+        row = await self.pr(repo, number)
+        out = []
+        for f in row.get("files") or []:
+            added, removed = int(f.get("additions") or 0), int(f.get("deletions") or 0)
+            out.append({"path": f.get("path"), "additions": added, "deletions": removed,
+                        "large": added + removed > LARGE_FILE or added + removed == 0, "binary": added + removed == 0})
+        return out
+
     async def pr(self, repo, number) -> dict:
         _full(repo)
         key, stamp = f"pr/{repo}/{_num(number)}", self._pr_stamp(repo, _num(number))
@@ -670,7 +749,7 @@ class GitHub:
                                                       "mergeable,mergeStateStatus,headRefOid")}
         row = await self.hubd.gh_json(
             "pr", "view", _num(number), "-R", _full(repo), "--json",
-            _PR_FIELDS + ",headRefOid,body,comments,reviews,files,additions,deletions,mergeStateStatus,mergedAt")
+            _PR_FIELDS + ",headRefOid,body,comments,reviews,files,additions,deletions,mergeStateStatus,mergedAt,mergedBy,assignees")
         checks = [{"name": c.get("name") or c.get("context"), "workflow": c.get("workflowName"),
                    "state": (c.get("conclusion") or c.get("state") or c.get("status") or "").lower(),
                    "url": c.get("detailsUrl") or c.get("targetUrl")}
@@ -921,6 +1000,30 @@ class GitHub:
         await self._wrote(repo, number)
         return {"state": "closed"}
 
+    async def reopen_pr(self, repo, number, login=None) -> dict:
+        await self.hubd.gh("pr", "reopen", _num(number), "-R", _full(repo), login=login)
+        await self._wrote(repo, number)
+        return {"state": "open"}
+
+    async def label_pr(self, repo, number, add=None, remove=None, login=None) -> dict:
+        """Labels only: ghpolicy refuses `pr edit` with anything else."""
+        argv = ["pr", "edit", _num(number), "-R", _full(repo)]
+        for label in add or []:
+            argv += ["--add-label", str(label)]
+        for label in remove or []:
+            argv += ["--remove-label", str(label)]
+        if len(argv) == 5:
+            raise BadRequest("no labels given")
+        await self.hubd.gh(*argv, login=login)
+        await self._wrote(repo, number)
+        row = await self.hubd.gh_json("pr", "view", _num(number), "-R", _full(repo), "--json", "labels") or {}
+        return {"labels": [label["name"] for label in row.get("labels") or []]}
+
+    async def labels(self, repo) -> list[dict]:
+        """The repository's labels, for Labels… and New issue…"""
+        rows = await self.hubd.gh_json("api", f"repos/{_full(repo)}/labels?per_page=100") or []
+        return [{"name": r.get("name"), "color": r.get("color"), "description": r.get("description") or ""} for r in rows]
+
     async def ready_pr(self, repo, number) -> dict:
         await self.hubd.gh("pr", "ready", _num(number), "-R", _full(repo))
         await self._wrote(repo, number)
@@ -1010,6 +1113,18 @@ class GitHub:
         if finished and len(log_text) <= MAX_KEPT:
             self.store.keep(key, finished, log_text)
         return log_text
+
+    async def failed_step(self, repo, run_id) -> dict:
+        """The first failed step of the first failed job, its log lines with the errors marked (006 FR-022)."""
+        data = await self.hubd.gh_json("api", f"repos/{_full(repo)}/actions/runs/{_num(run_id)}/jobs") or {}
+        jobs = data.get("jobs") or []
+        job = next((j for j in jobs if j.get("conclusion") == "failure"), None)
+        if job is None:
+            return {"job": None, "step": None, "lines": [], "log_url": None}
+        step = next((s for s in job.get("steps") or [] if s.get("conclusion") == "failure"), None)
+        text = await self.run_log(repo, run_id, True)
+        return {"job": job.get("name"), "step": step and step.get("name"),
+                "lines": failed_step_lines(text, job.get("name"), step and step.get("name")), "log_url": job.get("html_url")}
 
     async def rerun(self, repo, run_id, failed_only=True) -> dict:
         argv = ["run", "rerun", _num(run_id), "-R", _full(repo)]

@@ -28,7 +28,7 @@ class Refused(Exception):
 
 _COMMANDS = {
     "issue": {"list", "view", "create", "comment", "close", "reopen", "edit"},
-    "pr": {"list", "view", "diff", "comment", "review", "merge", "close", "ready", "update-branch"},
+    "pr": {"list", "view", "diff", "comment", "review", "merge", "close", "reopen", "ready", "update-branch", "edit"},
     "run": {"list", "view", "rerun", "cancel"},
     "workflow": {"list", "run"},
 }
@@ -39,6 +39,13 @@ _FILE_FLAGS = {"--body-file", "-F", "--field", "--notes-file"}
 _FORBIDDEN_FLAGS = {"--web", "-w", "--hostname", "--recover", "--editor", "-e", "--admin",
                     "--delete-last", "--edit-last"}
 
+# Commands that take only the flags listed here, besides -R. `pr edit` changes labels and nothing else: its title,
+# body, base and reviewers stay the author's. `pr reopen` takes no comment, so it reads no file.
+_ONLY_FLAGS = {
+    ("pr", "edit"): {"--add-label", "--remove-label"},
+    ("pr", "reopen"): set(),
+}
+
 _REPO_NAME = r"[A-Za-z0-9._-]+"
 _REPO_RE = re.compile(rf"{ORG}/{_REPO_NAME}", re.I)
 _URL_RE = re.compile(r"https?://", re.I)
@@ -47,6 +54,9 @@ _SEARCH_SCOPE_RE = re.compile(r"\b(repo|org|user|owner)\s*:", re.I)
 
 _ETAG_RE = re.compile(r'If-None-Match: (?:W/)?"[0-9a-f]{16,128}"')
 _TIME_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+
+# compare/<base>...<head>: the one path where three dots aren't traversal. Neither ref may hold two dots of its own.
+_COMPARE_RE = re.compile(rf"repos/{ORG}/{_REPO_NAME}/compare/([A-Za-z0-9_][A-Za-z0-9_./-]*)\.\.\.([A-Za-z0-9_][A-Za-z0-9_./-]*)", re.I)
 
 _API_PATHS = [
     rf"orgs/{ORG}(/.*)?",
@@ -88,6 +98,11 @@ def _check_api(args: list[str]) -> None:
         raise Refused("gh api: full URLs are not allowed, use a path")
     clean = path.lstrip("/")
     bare = clean.split("?", 1)[0]
+    compare = _COMPARE_RE.fullmatch(bare)
+    if compare and not any(".." in ref or ref.endswith(".") for ref in compare.groups()):
+        # The query stays in what's checked below: bare is a prefix of clean, so the first "..." is the compare's own.
+        clean = clean.replace("...", "/", 1)
+        bare = clean.split("?", 1)[0]
     if ".." in clean or "%" in bare or "{" in clean or "}" in clean or "\\" in clean or "//" in bare:
         raise Refused("gh api: traversal, escapes and placeholders are not allowed in the path")
     if not any(re.fullmatch(p, bare, re.I) for p in _API_PATHS):
@@ -147,6 +162,37 @@ def _value_of(args: list[str], *names: str) -> str | None:
     return found
 
 
+def _check_shape(group: str, command: str, args: list[str]) -> None:
+    """The commands whose flags are listed, and the assignee an issue edit may name: only you, added."""
+    if group == "issue" and command == "edit":
+        for i, a in enumerate(args):
+            name, eq, inline = a.partition("=")
+            if name == "--remove-assignee":
+                raise Refused("gh issue edit: assignees are only added, by the person, as @me")
+            if name == "--add-assignee" and (inline if eq else (args[i + 1] if i + 1 < len(args) else "")) != "@me":
+                raise Refused("gh issue edit: --add-assignee takes only @me")
+    allowed = _ONLY_FLAGS.get((group, command))
+    if allowed is None:
+        return
+    numbers, flags, i = [], 0, 0
+    while i < len(args):
+        name, eq, _ = args[i].partition("=")
+        if name in ("-R", "--repo"):
+            i += 1 if eq else 2
+        elif name in allowed:
+            flags += 1
+            i += 1 if eq else 2
+        elif args[i].startswith("-"):
+            raise Refused(f"gh {group} {command}: {name} is not allowed")
+        else:
+            numbers.append(args[i])
+            i += 1
+    if len(numbers) != 1 or not re.fullmatch(r"[1-9][0-9]{0,9}", numbers[0]):
+        raise Refused(f"gh {group} {command}: name the pull request by its number")
+    if allowed and not flags:
+        raise Refused(f"gh {group} {command}: nothing to change")
+
+
 def is_merge(argv) -> bool:
     return isinstance(argv, list) and argv[:2] == ["pr", "merge"]
 
@@ -200,5 +246,6 @@ def check(argv: list[str]) -> None:
     if argv[1] == "list" and any(_SEARCH_SCOPE_RE.search(a) for a in argv[2:]):
         raise Refused(f"gh {group} list: searches stay inside the repository given with -R")
     _check_flags(group, argv[2:])
+    _check_shape(group, argv[1], argv[2:])
     if is_merge(argv) and not _value_of(argv[2:], "--match-head-commit"):
         raise Refused("gh pr merge: --match-head-commit is required, so a decision for one head can't merge another")

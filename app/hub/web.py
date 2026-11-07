@@ -225,8 +225,10 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
     async def issue_create(r, b, _t):
         return await github.create_issue(p(r, "repo"), b.get("title"), b.get("body"), b.get("labels"), bool(b.get("roadmap")))
 
-    async def issue_action(r, b, _t):
+    async def issue_action(r, b, token):
         repo, n, action = p(r, "repo"), p(r, "n"), p(r, "action")
+        if action == "assign-me":  # 006 FR-032: as the person on the page
+            return await github.assign_me(repo, n, login=token)
         if action == "comment":
             return await github.comment_issue(repo, n, b.get("body"))
         if action == "close":
@@ -234,7 +236,7 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         if action == "reopen":
             return await github.reopen_issue(repo, n)
         if action == "labels":
-            return await github.label_issue(repo, n, b.get("add"), b.get("remove"))
+            return await github.label_issue(repo, n, b.get("add"), b.get("remove"), login=token)
         if action == "edit":
             return await github.edit_issue(repo, n, b.get("expected"), b.get("title"), b.get("body"), b.get("reason"))
         if action == "tick":
@@ -248,13 +250,19 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         return await github.prs(r.query_params.get("repo") or None, r.query_params.get("state", "open"))
 
     async def pr(r, _b, _t):
-        return await github.pr(p(r, "repo"), p(r, "n"))
+        return await github.pr_page(p(r, "repo"), p(r, "n"))
 
     async def pr_diff(r, _b, _t):
         return PlainTextResponse(await github.pr_diff(p(r, "repo"), p(r, "n"), r.query_params.get("path")))
 
     async def pr_diff_summary(r, _b, _t):
         return PlainTextResponse(await github.pr_diff_summary(p(r, "repo"), p(r, "n"), r.query_params.get("path")))
+
+    async def pr_files(r, _b, _t):
+        return await github.pr_files(p(r, "repo"), p(r, "n"))
+
+    async def labels(r, _b, _t):
+        return await github.labels(p(r, "repo"))
 
     async def pr_threads(r, _b, _t):
         return await github.pr_threads(p(r, "repo"), p(r, "n"))
@@ -269,6 +277,10 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
             return await github.merge_pr(repo, n, b.get("method", "squash"), bool(b.get("delete_branch")), b.get("head"), login=token)
         if action == "close":
             return await github.close_pr(repo, n, b.get("comment"))
+        if action == "reopen":
+            return await github.reopen_pr(repo, n, login=token)
+        if action == "labels":
+            return await github.label_pr(repo, n, b.get("add"), b.get("remove"), login=token)
         if action == "ready":
             return await github.ready_pr(repo, n)
         if action == "update-branch":
@@ -290,6 +302,9 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
     async def run_log(r, _b, _t):
         failed = r.query_params.get("all") != "1"
         return PlainTextResponse(await github.run_log(p(r, "repo"), p(r, "id"), failed))
+
+    async def run_failed_step(r, _b, _t):
+        return await github.failed_step(p(r, "repo"), p(r, "id"))
 
     async def run_action(r, b, _t):
         repo, run_id, action = p(r, "repo"), p(r, "id"), p(r, "action")
@@ -470,10 +485,13 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         Route("/api/prs/{repo}/{n:int}/diff", api(pr_diff)),
         Route("/api/prs/{repo}/{n:int}/diff-summary", api(pr_diff_summary)),
         Route("/api/prs/{repo}/{n:int}/threads", api(pr_threads)),
+        Route("/api/prs/{repo}/{n:int}/files", api(pr_files)),
         Route("/api/prs/{repo}/{n:int}/{action}", api(pr_action), methods=["POST"]),
         Route("/api/runs", api(runs)),
         Route("/api/runs/{repo}/{id:int}", api(run)),
         Route("/api/runs/{repo}/{id:int}/log", api(run_log)),
+        Route("/api/runs/{repo}/{id:int}/failed-step", api(run_failed_step)),
+        Route("/api/labels/{repo}", api(labels)),
         Route("/api/runs/{repo}/{id:int}/{action}", api(run_action), methods=["POST"]),
         Route("/api/workflows/{repo}", api(workflows)),
         Route("/api/workflows/{repo}/{file}/dispatch", api(dispatch), methods=["POST"]),
