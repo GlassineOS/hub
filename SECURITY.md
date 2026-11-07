@@ -410,8 +410,10 @@ A tab under Work, over the work store and your decisions. It merges, reviews and
 - A resume reads the session's rights from its action as they are now. A restored checkout comes from GitHub:
   uncommitted files from a removed worktree don't come back, so the hub doesn't remove one that has them. Ignored files
   count too: a full session holding more than 1 MiB of them stays when it ends, and discarding it has to name them on a second card.
+- `agent.worktrees` (a login op) lists the folders a plain shell can start in for a repository: its workspace checkout and
+  the session worktrees of it. Paths only; a login could already start a shell in any folder the user can.
 - Cleanup looks at each row again when you confirm, whatever the page sent. It removes only what the hub started,
-  with no uncommitted, ignored or unpushed files, no open pull request and no running session. It doesn't use
+  with no uncommitted, ignored or unpushed files, no open pull request, no running session and no tmux shell whose pane is in it. It doesn't use
   `--force`, so git has the last word. If GitHub can't say, the row stays. Worktrees the hub didn't start are listed
   and never removed. This check can't see files added between it and git's own, which git's refusal covers for
   anything but ignored files.

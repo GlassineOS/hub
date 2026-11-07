@@ -209,6 +209,7 @@ def _session_scope(name: str, config: dict, full: bool, all_repos: bool = False,
 
 
 REMOVE_AFTER_DAYS = 7
+PAST_OUTCOMES = ("interrupted", "ended", "finished")
 
 
 def _start_ref(name: str) -> str:
@@ -1885,6 +1886,7 @@ class Agents:
         badge = self.library.family(config["persona"]) or {"name": config["persona"], "initials": None, "family": None}
         return {"title": record["title"], "object": record["object"], "repo": config["repo"], "number": config["number"], "also_numbers": config.get("also_numbers", []),
                 "covers": covers_of(config), "prs": self._prs_seen(name, record), "view": self._view(name), "origin": record.get("origin"),
+                "created": record.get("created"),
                 "permission_mode": record.get("permission_mode"),  # as it ran; None for a record from before it was kept
                 "model": config["model"], "effort": config["effort"], "persona": config["persona"], "action": config["action"],
                 "persona_name": badge["name"], "initials": badge["initials"], "family": badge["family"],
@@ -2188,16 +2190,43 @@ class Agents:
             return "none"
         return "kept" if len(self._present(name)) >= len(self._checkouts(name, config, action)) else "removed"
 
-    async def past(self) -> list[dict]:
-        """Every session that isn't running, newest first. The Steward has its own place."""
+    async def past(self, persona=None, repo=None, outcome=None) -> list[dict]:
+        """Every session that isn't running, newest first. The Steward has its own place.
+        004 FR-016: narrowed to a persona, a repository and an outcome (interrupted, ended, finished) when given."""
+        if persona is not None and not (isinstance(persona, str) and _NAME_RE.fullmatch(persona)):
+            raise AgentError("persona is a name")
+        if repo is not None and not (isinstance(repo, str) and _REPO_RE.fullmatch(repo) and ".." not in repo):
+            raise AgentError("not a repository name")
+        if outcome not in (None, *PAST_OUTCOMES):
+            raise AgentError(f"outcome is one of {', '.join(PAST_OUTCOMES)}")
         live = {s["name"] for s in await self.shells.list()}
-        return await asyncio.to_thread(self._past_rows, live)  # reads transcripts, which can be long
+        rows = await asyncio.to_thread(self._past_rows, live)  # reads transcripts, which can be long
+        return [r for r in rows if (persona is None or r["persona"] == persona) and (repo is None or r["repo"] == repo) and (outcome is None or r["kind"] == outcome)]
+
+    def worktrees(self, repo) -> list[dict]:
+        """004 FR-015: where a plain shell can start for a repository: its checkout in the workspace and the session
+        worktrees of it there. Paths only; a login can start a shell anywhere the user can."""
+        if not (isinstance(repo, str) and _REPO_RE.fullmatch(repo) and ".." not in repo):
+            raise AgentError("not a repository name")
+        found = []
+        main = self.main_checkout(repo)
+        if (main / ".git").exists():
+            found.append({"path": str(main), "label": "the workspace's checkout"})
+        for folder in sorted(self.work.iterdir() if self.work.is_dir() else ()):
+            into = folder / repo.lstrip(".")
+            if (into / ".git").exists():
+                found.append({"path": str(into), "label": f"session {folder.name}"})
+        return found
 
     def _past_rows(self, live: set[str]) -> list[dict]:
-        rows = []
+        rows, running = [], set()
         for directory in (self.sessions.iterdir() if self.sessions.is_dir() else ()):
             ended = directory / ENDED_FILE
             if directory.name in self._starting or (directory.name in live and not ended.exists()):
+                try:  # 004 FR-018: the conversation running now, by its own id; a name can come back for another one
+                    running.add(json.loads((directory / "session.json").read_text()).get("session_id"))
+                except (OSError, ValueError, AttributeError):
+                    pass
                 continue
             try:
                 record = json.loads((directory / "session.json").read_text())
@@ -2214,6 +2243,8 @@ class Agents:
             if record["session_id"] not in seen and record["config"].get("action") in self.library.actions:
                 checkout = self.library.actions[record["config"]["action"]].get("checkout")
                 rows.append(self._past_row(record, {"you": "ended", "interrupted": "interrupted"}.get(record.get("how"), "finished"), record["ended"], "removed" if checkout else "none"))
+        for r in rows:
+            r["running_again"] = r["id"] in running
         return sorted(rows, key=lambda r: r["ended"], reverse=True)
 
     def _known_transcript(self, session_id) -> Path:
@@ -2364,13 +2395,19 @@ class Agents:
         """Remote refs here say what was pushed once. A branch deleted since then may be the only copy gone."""
         return bool((await self._git(*_OVER_HTTPS, "ls-remote", "origin", f"refs/heads/{scan['branch']}", cwd=scan["main"])).strip())
 
-    async def _cleanup_row(self, name: str, checkouts: list[Path], live: set[str]) -> dict:
+    async def _cleanup_row(self, name: str, checkouts: list[Path], live: set[str], open_in: dict[str, str] | None = None) -> dict:
+        """open_in: each other tmux session's name and its pane's folder, as tmux reports it."""
         directory = self.sessions / name
         running = name in self._starting or (name in live and not (directory / ENDED_FILE).exists())
-        row = {"id": name, "path": str(checkouts[0].parent if checkouts else self.work / name), "size": 0, "commands": [], "merged_at": None}
+        row = {"id": name, "path": str(checkouts[0].parent if checkouts else self.work / name), "size": 0, "commands": [], "merged_at": None, "pr_settled": False}
         row["size"] = sum([await asyncio.to_thread(self._size, c) for c in checkouts])
         if running:
             return {**row, "state": "inuse", "what": "A session is running here."}
+        # #36 review, 4: a plain shell started in a session's worktree is in use too, by the folder its pane is in now.
+        root = Path(os.path.realpath(row["path"]))
+        shells = sorted(n for n, cwd in (open_in or {}).items() if n != name and cwd and Path(os.path.realpath(cwd)).is_relative_to(root))
+        if shells:
+            return {**row, "state": "inuse", "what": f"A shell is open in it: {', '.join(shells)}."}
         try:
             scans = [await self._scan_checkout(c, name) for c in checkouts]
         except (AgentError, OSError):
@@ -2384,7 +2421,7 @@ class Agents:
                     (s["inside"], "changes or unpushed commits inside a submodule")) if count]
         if worries:
             return {**row, "state": "review", "what": ", ".join(worries) + "."}
-        merged, what, more_work = [], [], False
+        merged, what, more_work, settled = [], [], False, True
         for s in scans:
             if s["branch"] == "HEAD":  # a detached read-only checkout: nothing of its own
                 what.append(f"{s['repo']}: read-only checkout")
@@ -2399,6 +2436,8 @@ class Agents:
                     return {**row, "state": "review", "what": f"{s['repo']}: its branch isn't on GitHub any more."}
             except (AgentError, Refused, ValueError, TypeError, KeyError) as e:
                 return {**row, "state": "review", "what": f"Couldn't check its pull request: {e}"}
+            # Its latest commits, not only its name: a branch pushed to after its pull request is in none (#36 review, 2).
+            settled = settled and bool(pr) and pr["state"] in ("MERGED", "CLOSED") and pr["sha"] == s["tip"]
             if done:
                 merged.append(pr["mergedAt"])
                 what.append(f"{s['repo']}: pull request #{pr['number']} merged")
@@ -2416,23 +2455,27 @@ class Agents:
         for s in scans:
             if s["branch"] == f"agent/{name}":  # the scan found every commit on GitHub
                 shown.append(["git", "-C", str(s["main"]), "branch", "-D", s["branch"]])
-        return {**row, "state": "safe", "what": "; ".join(what) + "." if what else "Nothing in it.",
+        # 004 FR-022: "Select safe" takes only these, where every branch's pull request is merged or closed. A safe row with
+        # no pull request can still be ticked by hand.
+        return {**row, "state": "safe", "what": "; ".join(what) + "." if what else "Nothing in it.", "pr_settled": settled,
                 "commands": [shlex.join(c) for c in shown] + ([f"tmux kill-session -t {shlex.quote(name)}"] if name in live else []),
                 "_argv": commands, "_mains": [s["main"] for s in scans], "merged_at": max(merged) if merged and not more_work else None}
 
     async def cleanup_scan(self) -> list[dict]:
         if self.gh is None:
             raise AgentError("no gh to check pull requests")
-        live = {s["name"] for s in await self.shells.list()}
-        rows = [await self._cleanup_row(n, c, live) for n, c in sorted(self._cleanup_folders().items())]
+        shells = await self.shells.list()
+        live, open_in = {s["name"] for s in shells}, {s["name"]: s.get("cwd") for s in shells}
+        rows = [await self._cleanup_row(n, c, live, open_in) for n, c in sorted(self._cleanup_folders().items())]
         return [{k: v for k, v in r.items() if not k.startswith("_")} for r in rows]
 
     async def _remove_if_safe(self, name: str) -> str | None:
         """What went wrong, or nothing. Holds off resumes: what it looks at has to stay true until it's done."""
         async with self._resuming:
-            live = {s["name"] for s in await self.shells.list()}
+            shells = await self.shells.list()
+            live, open_in = {s["name"] for s in shells}, {s["name"]: s.get("cwd") for s in shells}
             folders = self._cleanup_folders()
-            row = await self._cleanup_row(name, folders[name], live) if name in folders else {"state": "gone"}
+            row = await self._cleanup_row(name, folders[name], live, open_in) if name in folders else {"state": "gone"}
             if row["state"] != "safe":
                 return row.get("what") or "It's gone already."
             try:

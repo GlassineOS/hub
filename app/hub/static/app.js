@@ -1552,15 +1552,11 @@ function TerminalView({ name, onGone, focusRef, quiet }) {
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ rows: term.rows, cols: term.cols }));
     };
     ws.onopen = () => { setNote(""); sendSize(); toBody(); };
-    // 004 FR-005: it opens at the end, and follows new output only while you're there. This is for xterm's own scrollback.
-    // Inside tmux (everything here) the wheel is tmux's, and its copy mode is what holds your place and lets go at the end.
-    let first = true;
-    ws.onmessage = (e) => {
-      const b = term.buffer.active;
-      const atEnd = first || b.viewportY >= b.baseY;
-      first = false;
-      term.write(new Uint8Array(e.data), () => { if (atEnd) term.scrollToBottom(); });
-    };
+    // 004 FR-005 is tmux's work, not this page's. tmux attach draws on the terminal's alternate screen, which has no
+    // scrollback here, so the view is always tmux's current screen: it opens at the end. With the mouse on (shells.py),
+    // the wheel puts the pane in tmux copy mode, and copy mode keeps your place while output arrives; scrolling back
+    // down to the end, or q, leaves it. So nothing here scrolls, and nothing should fight tmux for the wheel.
+    ws.onmessage = (e) => term.write(new Uint8Array(e.data));
     ws.onclose = (e) => {
       setNote(e.code === 1000 || e.code === 1006 ? "Disconnected. The session keeps running; open it again to reattach." : `Closed: ${e.reason || e.code}`);
       if (e.code === 4404) onGone();
@@ -1611,17 +1607,29 @@ function MessageField({ name, where, off }) {
     <${Err} text=${act.error} /></div>`;
 }
 
-function NewShell({ initial, onDone, onCancel }) {
+// 004 FR-015: a plain shell, in a chosen repository's checkout or one of its session worktrees (or home).
+function NewShell({ initial, groups, onDone, onCancel }) {
   const [name, setName] = useState(initial || "");
+  const [repo, setRepo] = useState(null);
   const [cwd, setCwd] = useState("");
   const [command, setCommand] = useState("");
   const act = useAct();
+  const places = useLoad(() => (repo ? post("agents/worktrees", { repo }).then((r) => r.worktrees) : Promise.resolve([])), [repo]);
+  useEffect(() => { const first = (places.data || [])[0]; setCwd(first ? first.path : ""); }, [places.data]);
+  // #36 review, 4: the list keeps the last repository's folders while the next one loads, so a switch clears the folder
+  // and Start waits for the new list: a shell never starts in the repository you just left.
+  const loadingPlaces = Boolean(repo) && places.loading;
   return html`<div class="panel" style="padding: 14px; gap: 10px">
-    <${Err} text=${act.error} />
+    <${Err} text=${act.error || places.error} />
     <label class="field"><span>Name</span><input value=${name} onInput=${(e) => setName(e.target.value)} /></label>
-    <label class="field"><span>Directory</span><input placeholder="home" value=${cwd} onInput=${(e) => setCwd(e.target.value)} /></label>
+    <${RepoPicker} value=${repo} onChange=${(r) => { setRepo(r); setCwd(""); if (!name.trim() && r) setName(`shell-${r.replace(/^\./, "")}`); }} groups=${groups} label="Repository" />
+    ${repo && html`<label class="field"><span>Worktree</span><select value=${cwd} onChange=${(e) => setCwd(e.target.value)}>
+      ${(places.data || []).map((w) => html`<option value=${w.path}>${w.label} · ${w.path}</option>`)}
+      <option value="">home</option></select></label>
+      ${places.data && !places.data.length && html`<span class="small soft">No checkout of ${repo} in the workspace yet: the shell starts in your home.</span>`}`}
     <label class="field"><span>Command</span><input placeholder="your shell" value=${command} onInput=${(e) => setCommand(e.target.value)} /></label>
-    <div class="row"><button class="primary" disabled=${act.busy || !name.trim()} onClick=${async () => {
+    ${loadingPlaces && html`<span role="status" class="small soft">Finding ${repo}'s worktrees…</span>`}
+    <div class="row"><button class="primary" disabled=${act.busy || !name.trim() || loadingPlaces} onClick=${async () => {
       const r = await act.run(() => post("shells", { name, cwd: cwd || null, command: command || null }));
       if (r) onDone(name);
     }}>Start</button><button onClick=${onCancel}>Cancel</button></div></div>`;
@@ -1642,7 +1650,8 @@ const byWords = (by) => (by === "you" ? "you" : by === STEWARD ? "the Steward" :
 // 004 FR-002: where and why it was started, from its Launch record (005 FR-010).
 function originWords(a) {
   const o = a.origin;
-  if (!o) return a.started_by ? `started by ${byWords(a.started_by)}` : "started before origins were kept";
+  if (!o && a.started_by) return `started by ${byWords(a.started_by)}`;
+  if (!o) return "started before origins were kept";
   const f = o.from || {};
   if (o.launch == null && !f.view) return `started directly${o.by ? `, by ${byWords(o.by)}` : ""}`; // the one click or the advanced form: no Launch behind it
   const where = !f.view ? "Launch" : f.ref ? `${f.view}${f.view === "Work" ? " item" : ","} ${f.ref}` : f.view;
@@ -2530,8 +2539,16 @@ function Transcript({ id, name, onClose }) {
 }
 
 function PastSessions() {
-  const { data, error, reload } = useLoad(() => post("agents/past"), []);
   const [filter, setFilter] = useState("all");
+  const [persona, setPersona] = useState("");
+  const [repo, setRepo] = useState("");
+  const live = useSessions();
+  // Asked again when a session starts or ends anywhere: a conversation running again leaves this list (hubd decides which).
+  const running = (live.data || []).filter((s) => s.agent && !s.agent.ended).map((s) => s.name).sort().join(" ");
+  // 004 FR-016: hubd narrows by persona, repository and outcome.
+  const { data, error, reload } = useLoad(() => post("agents/past", { persona: persona || undefined, repo: repo || undefined, outcome: filter === "all" ? undefined : filter }), [persona, repo, filter, running]);
+  const everything = useLoad(() => post("agents/past"), []);
+  const [resuming, setResuming] = useState(null);
   const [words, setWords] = useState("");
   const [found, setFound] = useState(null);
   const [reading, setReading] = useState(null);
@@ -2543,8 +2560,14 @@ function PastSessions() {
     const timer = setTimeout(() => { post("agents/past_search", { words: typed }).then(setFound).catch((e) => setFound({ matches: {}, error: e.message })); }, 400);
     return () => clearTimeout(timer);
   }, [words]);
-  const rows = (data ? data.sessions : []).filter((r) => (filter === "all" || r.kind === filter) && (!found || found.matches[r.id]));
-  const resume = (r) => act.run(async () => { await post("agents/resume_past", { id: r.id }); setBack(r.name); });
+  const rows = (data ? data.sessions : []).filter((r) => !found || found.matches[r.id]);
+  const all = everything.data ? everything.data.sessions : [];
+  const personas = [...new Set(all.map((r) => r.persona).filter(Boolean))].sort();
+  const repos = [...new Set(all.map((r) => r.repo).filter(Boolean))].sort();
+  // 004 FR-018: one already running again says so, instead of offering to resume it twice. hubd says which, by the
+  // conversation's own id: a later session can reuse the name, and that one is a different conversation.
+  const runningAgain = (r) => r.running_again;
+  const resume = (r) => { setResuming(r.id); act.run(async () => { try { await post("agents/resume_past", { id: r.id }); setBack(r.name); live.reload(); } finally { setResuming(null); } }); };
   return html`<section class="stack" style="gap: 14px" aria-labelledby="h-hist">
     ${reading && html`<${Transcript} id=${reading.id} name=${reading.name} onClose=${() => setReading(null)} />`}
     <div class="row" style="justify-content: space-between; align-items: flex-end; gap: 12px 20px">
@@ -2552,6 +2575,8 @@ function PastSessions() {
         <span class="small soft">Every session that has ended, with its transcript. Resuming reopens it in tmux with <span class="mono">claude --resume</span>, right where it stopped.</span></div>
       <input type="search" aria-label="Search transcripts" placeholder="Search transcripts" style="flex: 0 1 320px" value=${words} onInput=${(e) => setWords(e.target.value)} /></div>
     <div role="group" aria-label="Filter" class="row" style="gap: 6px">${PAST_FILTERS.map(([id, label]) => html`<button class="ask-filter" aria-pressed=${filter === id ? "true" : "false"} onClick=${() => setFilter(id)}>${label}</button>`)}
+      <label class="field"><span>Persona</span><select value=${persona} onChange=${(e) => setPersona(e.target.value)}><option value="">Any</option>${personas.map((p) => html`<option value=${p}>${p}</option>`)}</select></label>
+      <label class="field"><span>Repository</span><select value=${repo} onChange=${(e) => setRepo(e.target.value)}><option value="">Any</option>${repos.map((p) => html`<option value=${p}>${p}</option>`)}</select></label>
       ${found && html`<span role="status" class="small soft">${found.error || `${count(rows.length, "transcript")} with these words${found.cut ? ", from the newest only" : ""}`}</span>`}</div>
     <${Err} text=${error || act.error} />
     ${back && html`<p role="status"><span class="mono">${back}</span> is running again. <a href=${hash("shells", { tab: "all", name: back })}>Open it →</a></p>`}
@@ -2565,9 +2590,10 @@ function PastSessions() {
         <span class="small soft">${PAST_ENDED[r.kind]} ${whenAgo(r.ended)} · ${count(r.turns, "turn")} · transcript <span class="mono">${r.id.slice(0, 8)}</span></span></div>
       <span class="past-tag">${PAST_TAG[r.worktree]}</span>
       <div class="row" style="gap: 6px; flex: none">
-        ${r.transcript ? html`<button class="primary" disabled=${act.busy} onClick=${() => resume(r)}>${r.worktree === "removed" ? "Restore & resume" : "Resume"}</button>
-            <button disabled=${act.busy} onClick=${() => setReading(r)}>Transcript</button>`
-          : html`<span class="small soft">Its transcript is gone.</span>`}</div></div>`)}</div>
+        ${runningAgain(r) ? html`<span class="small">Running again · <a href=${hash("shells", { tab: "all", name: r.name })}>Open it</a></span>`
+          : r.transcript ? html`<button class="primary" disabled=${act.busy} onClick=${() => resume(r)}>${resuming === r.id ? (r.worktree === "removed" ? "Restoring…" : "Resuming…") : r.worktree === "removed" ? "Restore & resume" : "Resume"}</button>`
+          : html`<span class="small soft">Its transcript is gone.</span>`}
+        ${r.transcript && html`<button disabled=${act.busy} onClick=${() => setReading(r)}>Transcript</button>`}</div></div>`)}</div>
     <p class="small soft">Claude Code keys transcripts by folder, and a session runs from the same folder when it comes back. When a worktree was removed, the hub recreates it at the same path first: from its branch, or from the pull request. Uncommitted files in a removed worktree don't come back, which is why the hub won't remove one that has them. The Steward isn't listed: it has its own place in the sidebar.</p>
   </section>`;
 }
@@ -2580,6 +2606,8 @@ function Cleanup() {
   const act = useAct(reload);
   const rows = data ? data.rows : [];
   const safe = rows.filter((r) => r.state === "safe");
+  // 004 FR-022: no uncommitted changes, no running session and a merged or closed pull request.
+  const settled = safe.filter((r) => r.pr_settled);
   const chosen = safe.filter((r) => picked[r.id]);
   const total = rows.reduce((a, r) => a + r.size, 0);
   const safeSize = safe.reduce((a, r) => a + r.size, 0);
@@ -2599,7 +2627,7 @@ function Cleanup() {
       ${data && html`<div class="stack" style="gap: 4px; flex: 0 1 320px"><div class="row small" style="justify-content: space-between"><span>${bytes(total)} used</span><span>${bytes(safeSize)} safe to remove</span></div>
         <div class="clean-bar" role="img" aria-label=${`${bytes(total)} used, ${bytes(safeSize)} safe to remove`}><span style=${`width: ${percent}%`}></span></div></div>`}</div>
     <div class="row" style="gap: 8px">
-      <button disabled=${!safe.length} onClick=${() => setPicked(Object.fromEntries(safe.map((r) => [r.id, true])))}>Select everything safe</button>
+      <button disabled=${!settled.length} title="Rows whose pull request is merged or closed, with nothing uncommitted and no session running" onClick=${() => setPicked(Object.fromEntries(settled.map((r) => [r.id, true])))}>Select safe</button>
       <button class="primary" disabled=${!chosen.length || act.busy} onClick=${() => setAsking(true)}>${chosen.length ? `Remove ${chosen.length} · ${bytes(size)}` : "Remove"}</button>
       <span role="status" class="small" style="flex: 1 1 200px">${note}</span></div>
     ${asking && html`<div role="alertdialog" aria-labelledby="h-conf" class="clean-confirm"><h3 id="h-conf">hubd will run exactly this</h3>
@@ -2611,10 +2639,11 @@ function Cleanup() {
     ${data && rows.length === 0 && html`<p class="small soft">No worktrees.</p>`}
     <div class="stack" style="gap: 6px">${rows.map((r) => html`<div class="clean-row" key=${r.id}>
       <input type="checkbox" aria-label=${`Select ${r.id}`} disabled=${r.state !== "safe"} checked=${!!picked[r.id] && r.state === "safe"} onChange=${() => setPicked({ ...picked, [r.id]: !picked[r.id] })} />
-      <div class="stack" style="gap: 2px; flex: 999 1 280px; min-width: 0"><span class="mono small clean-path">${r.path}</span><span class="small soft">${r.what}</span></div>
+      <div class="stack" style="gap: 2px; flex: 999 1 280px; min-width: 0"><span class="mono small clean-path">${r.path}</span><span class="small soft">${r.what}</span>
+        ${r.commands.length > 0 && html`<pre class="mono small clean-cmd" aria-label="What removing it runs">${r.commands.join("\n")}</pre>`}</div>
       <span class="past-tag ${r.state}">${CLEAN_TAG[r.state]}</span><span class="mono small" style="flex: none; min-width: 64px; text-align: right">${bytes(r.size)}</span></div>`)}</div>
     ${data && html`<div class="stack" style="gap: 6px; padding-top: 12px; border-top: 1px dotted var(--ink)"><span class="eyebrow">Clean up by itself</span>
-      <label class="row small" style="gap: 8px"><input type="checkbox" checked=${data.settings.after_merge} disabled=${act.busy} onChange=${(e) => setAfterMerge(e.target.checked)} /> Remove a session's worktree ${data.settings.days} days after its pull request merges</label>
+      <label class="row small" style="gap: 8px"><input type="checkbox" role="switch" checked=${data.settings.after_merge} disabled=${act.busy} onChange=${(e) => setAfterMerge(e.target.checked)} /> Remove automatically ${data.settings.days} days after the PR merges</label>
       <span class="small soft">Only rows that are safe to remove. Anything with uncommitted files, unpushed commits or a running session is never removed by itself, and neither is anything the hub didn't start. Transcripts are never deleted.</span></div>`}
   </section>`;
 }
@@ -2651,16 +2680,24 @@ function Sessions({ query, asks }) {
 
 const SESSIONS_EVERY = 4000; // ms
 
+// 004 FR-012: Running, in four groups by where a session is drawn and whether Claude still runs in it.
+const RUN_GROUPS = [["embedded", "Embedded in a view"], ["background", "In the background"], ["finished", "Finished, tmux still open"], ["plain", "Plain shells"]];
+const runGroup = (s) => (!s.agent ? "plain" : s.agent.ended ? "finished" : s.agent.view && s.agent.view.mode === "embedded" ? "embedded" : "background");
+const readBadgesOnly = () => { try { return localStorage.getItem("sessions-badges") === "1"; } catch { return false; } };
+
 function Shells({ query, asks }) {
   const [kept, setKept] = useState(null);
   // Sessions are started from other pages and by the Steward, so this list is the one that polls quickly.
   const { data, error, reload } = useLoad(() => api("shells"), [], SESSIONS_EVERY);
   const stopped = useLoad(() => api("agents/stopped").catch(() => []), [], SESSIONS_EVERY);
+  const overview = useLoad(() => api("overview"), []);
   const reloadAll = () => Promise.all([reload(), stopped.reload()]);
   const [discarding, setDiscarding] = useState(null);
   const [ignoring, setIgnoring] = useState(null);
   const [open, setOpen] = useState(query.name || null);
   const [creating, setCreating] = useState(query.new === "1");
+  const [badgesOnly, setBadgesOnlyState] = useState(readBadgesOnly);
+  const setBadgesOnly = (on) => { setBadgesOnlyState(on); try { localStorage.setItem("sessions-badges", on ? "1" : "0"); } catch { /* it only helps */ } };
   const [confirm, dialog] = useConfirm();
   const act = useAct(reloadAll);
   const list = data || [];
@@ -2672,40 +2709,53 @@ function Shells({ query, asks }) {
     await reloadAll();
     setOpen(name);
   });
+  const waitingOn = (name) => asks.open.filter((x) => x.session === name).length;
+  // 004 FR-013: badge, state, what waits, where it came from, model and age, and the items it covers.
   const item = (s) => {
     const a = s.agent;
-    const state = a ? (a.ended ? "ended" : a.waiting ? "waiting" : "running") : s.attached > 0 ? "attached" : "idle";
+    const words = sessionWords(s);
+    const waiting = waitingOn(s.name);
+    const covers = coversOf(a);
+    const label = `${s.name}: ${a ? `${a.persona_name || a.persona}, ` : ""}${words}${waiting ? `, ${waiting} waiting` : ""}`;
+    if (badgesOnly) {
+      return html`<button class="sess-badge" aria-pressed=${open === s.name ? "true" : "false"} aria-label=${label} title=${label} onClick=${() => setOpen(s.name)}>
+        <${PersonaBadge} persona=${personaOf(a)} hidden />${waiting > 0 && html`<span class="dock-count">${waiting}</span>`}</button>`;
+    }
     return html`<button class="sess-item" aria-pressed=${open === s.name ? "true" : "false"} onClick=${() => setOpen(s.name)}>
-      <span class="h"><span class="row" style="gap: 8px; flex-wrap: nowrap; min-width: 0"><${PersonaBadge} persona=${personaOf(a)} /><b>${s.name}</b></span><span class="badge ${state === "waiting" ? "mark" : state === "attached" ? "dim" : ""}">${state}</span></span>
-      ${a && html`<span class="row" style="gap: 4px 8px; font-size: 13px"><b style="font-weight: 600">${a.persona_name || a.persona}</b><span class="mono soft" style="font-size: 12px">${shortModel(a.model)}</span></span>`}
-      <span class="soft" style="font-size: 13px; line-height: 1.4">${a ? `${a.title} · ${whereFrom(a)}` : s.cwd}</span></button>`;
+      <span class="h"><span class="row" style="gap: 8px; flex-wrap: nowrap; min-width: 0"><${PersonaBadge} persona=${personaOf(a)} /><b>${s.name}</b></span>
+        <span class="badge ${words === "Waiting for you" ? "mark" : a && a.ended ? "dim" : ""}">${words}</span></span>
+      ${waiting > 0 && html`<span class="small" style="font-weight: 600">${waiting} waiting</span>`}
+      ${a ? html`<span class="soft" style="font-size: 13px; line-height: 1.4">${originWords(a)} · ${shortModel(a.model)}${a.created ? ` · ${whenAgo(a.created)}` : ""}</span>`
+        : html`<span class="soft mono" style="font-size: 12.5px; overflow-wrap: anywhere">${s.cwd}</span>`}
+      ${covers.length > 0 && html`<span class="row" style="gap: 6px"><${ItemPill} ...${covers[0]} plain />${covers.length > 1 && html`<span class="small soft">⇄ also on ${covers.slice(1).map(ref).join(", ")}</span>`}</span>`}</button>`;
   };
-  const managed = list.filter((s) => s.agent && !s.agent.started_by);
-  const started = list.filter((s) => s.agent && s.agent.started_by);
-  const startedWorking = started.filter((s) => !s.agent.ended && !s.agent.idle).length;
-  const plain = list.filter((s) => !s.agent);
+  const steward = list.filter((s) => s.agent && s.agent.started_by);
+  const stewardWorking = steward.filter((s) => !s.agent.ended && !s.agent.idle).length;
   return html`${dialog}<main class="page wide"><${SessionTabs} tab="all" asks=${asks} /><div class="columns near">
     <nav class="sesslist" aria-labelledby="h-sessions">
-      <h1 id="h-sessions">Sessions</h1>
+      <h1 id="h-sessions">Running</h1>
       <span class="mono soft dotted" style="font-size: 12.5px">tmux -L glassine-hub</span>
-      <button onClick=${() => setCreating(true)}>Plain shell</button>
-      ${creating && html`<${NewShell} initial=${query.name && query.new ? query.name : ""} onCancel=${() => setCreating(false)} onDone=${async (n) => { setCreating(false); await reload(); setOpen(n); }} />`}
+      <div class="row" style="gap: 6px"><button onClick=${() => setCreating(true)}>＋ Plain shell</button>
+        <a class="button plain" href=${hash("shells", { tab: "history" })}>Resume a past session</a></div>
+      ${creating && html`<${NewShell} initial=${query.name && query.new ? query.name : ""} groups=${overview.data ? overview.data.groups : []} onCancel=${() => setCreating(false)} onDone=${async (n) => { setCreating(false); await reload(); setOpen(n); }} />`}
       <${Err} text=${error || act.error} />
       ${kept && html`<div class="notice quiet"><span>That session had work that isn't on GitHub, so its checkout stays at <code>${kept}</code>.</span></div>`}
       <${FamilyLegend} />
-      <h2 class="eyebrow" style="margin-top: 8px">Managed Claude sessions</h2>
-      ${managed.map(item)}
-      ${!managed.length && !started.length && html`<p class="small soft">Start one from an issue, pull request or run under Work.</p>`}
-      ${started.length > 0 && html`<h2 class="eyebrow" style="margin-top: 8px">Started by the Steward · ${startedWorking} of 4 working</h2>${started.map(item)}`}
+      <label class="row small" style="gap: 8px"><input type="checkbox" checked=${badgesOnly} onChange=${(e) => setBadgesOnly(e.target.checked)} /> Badges only</label>
+      ${steward.length > 0 && html`<span class="small soft">Started by the Steward: ${stewardWorking} of 4 working.</span>`}
+      ${RUN_GROUPS.map(([id, title]) => {
+        const rows = list.filter((s) => runGroup(s) === id);
+        return html`<section class="stack" style="gap: 8px" aria-label=${title}><h2 class="eyebrow" style="margin-top: 8px">${title} · ${rows.length}</h2>
+          ${rows.length ? html`<div class=${badgesOnly ? "row" : "stack"} style="gap: ${badgesOnly ? 6 : 10}px">${rows.map(item)}</div>`
+            : html`<p class="small soft">${id === "plain" ? "None open." : "None."}</p>`}</section>`;
+      })}
+      ${!list.some((s) => s.agent) && html`<p class="small soft">Start one from an issue, pull request or run under Work, or with "＋ New work".</p>`}
       ${(stopped.data || []).length > 0 && html`<h2 class="eyebrow" style="margin-top: 8px">Stopped</h2>
         ${stopped.data.map((s) => html`<div class="stack" style="gap: 4px; padding: 8px 0; border-top: 1px dotted var(--ink)">
           <span class="row" style="justify-content: space-between"><b class="mono" style="font-size: 13.5px; overflow-wrap: anywhere">${s.name}</b><span class="badge dim">stopped</span></span>
           <span class="soft" style="font-size: 13px">${s.agent.title} · ${whereFrom(s.agent)}${s.agent.started_by ? ` · started by ${s.agent.started_by}` : ""}</span>
           <span class="row" style="gap: 8px"><button disabled=${act.busy} onClick=${() => resume(s.name)}>Resume</button>
             <button class="plain" disabled=${act.busy} onClick=${() => setDiscarding(s.name)}>Discard…</button></span></div>`)}`}
-      <h2 class="eyebrow" style="margin-top: 8px">Plain shells</h2>
-      ${plain.map(item)}
-      ${!plain.length && html`<p class="small soft">None open.</p>`}
     </nav>
     ${current ? html`<${SessionView} key=${current.name} session=${current} mode="full" asks=${asks} onClose=${() => setOpen(null)}
         onEnded=${(r) => { setKept(r && r.kept ? r.kept : null); setOpen(null); reloadAll(); }}
