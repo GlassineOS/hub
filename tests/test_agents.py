@@ -1798,8 +1798,9 @@ def test_the_status_line_writes_only_status_json_in_its_own_folder(tmp_path):
     assert run(json.dumps(status)).stdout == ""
     assert json.loads((directory / "status.json").read_text()) == status
     assert {p for p in tmp_path.rglob("*")} - before == {directory / "status.json"}
+    assert "status.json.part.$$" in line["command"], "each invocation has its own half-written file"
     run("x" * (usage.MAX_BYTES + 1))  # too big: dropped, the last good one stays
-    assert json.loads((directory / "status.json").read_text()) == status and not (directory / "status.json.part").exists()
+    assert json.loads((directory / "status.json").read_text()) == status and not list(directory.glob("status.json.part*"))
 
 
 FAR = 4_000_000_000  # a reset in the future (the year 2096)

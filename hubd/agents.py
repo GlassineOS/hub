@@ -1039,7 +1039,7 @@ class Agents:
         """Claude Code's status-line JSON, copied to status.json in this session's own folder for the usage meter (001 FR-006).
         Whole or not at all: over usage.MAX_BYTES it is dropped, and the line it shows in the terminal stays empty."""
         status = shlex.quote(str(directory / usage.STATUS_FILE))
-        part = shlex.quote(str(directory / (usage.STATUS_FILE + ".part")))
+        part = shlex.quote(str(directory / (usage.STATUS_FILE + ".part."))) + "$$"  # one per invocation: two at once don't share it
         command = (f"head -c {usage.MAX_BYTES + 1} > {part} && [ \"$(wc -c < {part})\" -le {usage.MAX_BYTES} ] && mv -f {part} {status}; "
                    f"rm -f {part}; true")
         return {"type": "command", "command": command, "padding": 0}
