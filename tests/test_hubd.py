@@ -1149,6 +1149,13 @@ def test_the_launch_stays_on_the_applied_result(result_hub):
     assert launch["state"] == "filed" and launch["result"] == first
 
 
+def test_a_result_file_without_a_state_doesnt_stop_hubd_starting(tmp_path):
+    folder = tmp_path / "results"
+    folder.mkdir()
+    (folder / "r-0123456789ab.json").write_text('{"id": "r-0123456789ab"}')
+    assert Results(folder).all() == []
+
+
 def test_a_labels_result_names_only_the_items_its_session_covers(result_hub):
     other = {"issues": [{**LABELS["issues"][0], "ref": "boot#8"}]}
     assert "isn't an item this session covers" in _submit(result_hub, "triage-token", "labels", other)["error"]

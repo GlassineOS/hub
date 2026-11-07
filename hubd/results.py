@@ -158,7 +158,7 @@ class Results:
                 record = json.loads(path.read_text())
             except (OSError, ValueError):
                 continue
-            if not isinstance(record, dict) or not _ID_RE.fullmatch(str(record.get("id"))):
+            if not isinstance(record, dict) or not _ID_RE.fullmatch(str(record.get("id"))) or record.get("state") not in STATES:
                 continue
             self.records[record["id"]] = record
             if record["state"] == "applying":  # it may or may not have gone out
