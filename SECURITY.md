@@ -331,6 +331,13 @@ host only, and much of what they hold never passed the safety scan. The app's co
   rule, not a control. Draft issues from a notes sweep are filed by you, in public, so read them for private details first.
   "Send to the Steward" works on them as on any drafts: only by your press, and then the Steward reads what they carry of
   the notes, and each issue it files still asks you. So read them before sending them too.
+- **Not held by the line the other searches keep, so kept off instead.** `code_search`, the map and `work_search` don't give a
+  session that can post private text by asking about a topic: with no repository named they search public repositories only
+  (`hubd/reach.py`). `notes_find` has no such line. It searches every note by a word, so a session that can post and had it
+  could find any note it liked, which is why it isn't on one, and why the shell is no way round it: `pr-review` and
+  `pr-security-audit` can send what they can see to the internet with no visible post, and neither has the tool. Accepted, as
+  for every file of yours: a full session and a hub shell can read all of the notes and the archive, and can also post and
+  send.
 - **Applying note operations is a login's alone.** A notes result is a closed list of operations (supersede, merge,
   distil, retract, answer, add), each checked against the tool's own shapes (topic `AREA/TOPIC`, ids `cN`, one-line words
   with nothing invisible). hubd builds each command from those fields and never takes one from the payload; the card shows

@@ -344,8 +344,8 @@ pull request gets a worktree of the hub's bare review clone: no notes and no art
 
 `SECURITY.md` keeps agents from finding private text by accident, but a named private repository stays reachable: the sync
 pulls every repository, and `work_search`, `get_issue`, the lists and kept answers serve it. So what must not reach a post
-isn't on GitHub at all. Notes and artifacts stay on this host. Captures can hold paired device addresses, so they stay in
-`artifacts/`.
+isn't on GitHub at all. Notes and artifacts stay on this host, and the notes search is kept off every locked session that can
+post or send (table below). Captures can hold paired device addresses, so they stay in `artifacts/`.
 
 | Who | Artifacts | Notes, archive search | Tools (`workspace`) |
 |---|---|---|---|
