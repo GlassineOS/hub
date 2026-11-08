@@ -1217,8 +1217,8 @@ function GhActions({ kind, data, repo, number, base, behind, onDone, onPanel }) 
   // The view reloads at once and again after a few seconds, as GitHub can take a moment to show the change (FR-038).
   const finish = async (words) => { setSaid(`${words}.`); await onDone(); setTimeout(onDone, 4000); };
   const go = (e) => {
-    if (menu) shut();
     if (e.disabled) return;
+    if (menu) shut();
     if (e.href) { window.open(e.href, "_blank", "noopener,noreferrer"); return; }
     if (e.panel) { onPanel(e.panel); return; }
     if (e.merge) { setModal("merge"); return; }

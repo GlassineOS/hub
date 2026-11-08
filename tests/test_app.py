@@ -2710,6 +2710,15 @@ def test_every_dialog_has_a_name_a_screen_reader_can_read():
     for dialog in ("Confirm", "LabelsDialog", "MergeDialog"):
         assert "aria-label" in re.search(r"<dialog\b[^>]*>", _component(script, dialog)).group(0), dialog
 
+
+def test_a_disabled_menu_item_leaves_the_menu_open():
+    """001 FR-016: Enter on a disabled item in the GitHub actions menu does nothing, so it doesn't close the menu and move
+    focus with nothing said. A source-order check: the disabled test comes before the menu is shut."""
+    go = _component(_app_js(), "GhActions")
+    body = go[go.index("const go = (e) => {"):]
+    assert body.index("if (e.disabled) return;") < body.index("if (menu) shut();")
+
+
 # The GitHub writes the page makes, by component: the GitHub actions button and its forms, plus the Conversation's
 # comment box and review-thread replies (006 FR-018, FR-019). A write anywhere else fails here (006 SC-001).
 GH_WRITERS = {"LabelsDialog", "ghEntries", "GhActions", "NewIssue", "Dispatch", "Thread", "IssueDetail", "PrDetail"}
