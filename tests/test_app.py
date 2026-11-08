@@ -2664,11 +2664,39 @@ def test_every_button_and_link_has_a_name_and_every_dialog_the_shared_trap():
         body = _component(script, name)
         if "<dialog" in body:
             assert "useModal(" in body, f"{name} opens a dialog without the shared trap"
-    trap = _component(script, "trapTab")
-    assert 'e.key !== "Tab"' in trap and "first.focus()" in trap and "last.focus()" in trap
+    assert 'e.key !== "Tab"' in _component(script, "trapTab") and "trapWrap(" in _component(script, "trapTab")
     # The terminal keeps Tab for itself, so F6 leaves it.
     assert 'e.key === "F6"' in _component(script, "TerminalView") and "focusPast(" in _component(script, "TerminalView")
 
+
+def _node_json(script, names, body):
+    """Runs `body` in node after the named top-level functions of app.js, as they are there; returns what it printed as JSON."""
+    import shutil
+    import subprocess
+    if not shutil.which("node"):
+        pytest.skip("node isn't installed")
+    src = "\n".join(_component(script, name) for name in names)
+    out = subprocess.run(["node", "-e", src + "\n" + body], capture_output=True, text=True, check=True).stdout
+    return json.loads(out)
+
+
+def test_the_trap_wraps_tab_and_shift_tab_from_every_place_focus_can_be():
+    """001 FR-016, run in node on trapWrap as it is in app.js. When a control goes away focus lands on the dialog itself,
+    and Shift+Tab from there has to go to the last control, not out of the dialog."""
+    got = _node_json(_app_js(), ["trapWrap"], """
+const first = {n: "first"}, mid = {n: "mid"}, last = {n: "last"}, page = {n: "page"};
+const d = {n: "dialog", contains: (x) => [d, first, mid, last].includes(x)};
+const all = [first, mid, last];
+const to = (shift, at) => { const r = trapWrap(shift, at, d, all); return r ? r.n : null; };
+console.log(JSON.stringify({
+  shiftFromDialog: to(true, d), tabFromDialog: to(false, d),
+  shiftFromFirst: to(true, first), tabFromLast: to(false, last),
+  shiftFromMid: to(true, mid), tabFromMid: to(false, mid), tabFromFirst: to(false, first), shiftFromLast: to(true, last),
+  shiftFromPage: to(true, page), tabFromPage: to(false, page),
+}));""")
+    assert got == {"shiftFromDialog": "last", "tabFromDialog": "first", "shiftFromFirst": "last", "tabFromLast": "first",
+                   "shiftFromMid": None, "tabFromMid": None, "tabFromFirst": None, "shiftFromLast": None,
+                   "shiftFromPage": "last", "tabFromPage": "first"}
 
 # The GitHub writes the page makes, by component: the GitHub actions button and its forms, plus the Conversation's
 # comment box and review-thread replies (006 FR-018, FR-019). A write anywhere else fails here (006 SC-001).

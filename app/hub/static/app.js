@@ -147,9 +147,16 @@ function trapTab(e) {
   if (e.key !== "Tab" || e.defaultPrevented || e.target.closest("dialog") !== d) return;
   const all = [...d.querySelectorAll(FOCUSABLE)].filter((x) => x.closest("dialog") === d && x.getClientRects().length > 0);
   if (!all.length) return;
-  const first = all[0], last = all[all.length - 1], at = document.activeElement;
-  if (e.shiftKey && (at === first || !d.contains(at))) { e.preventDefault(); last.focus(); }
-  else if (!e.shiftKey && (at === last || !d.contains(at))) { e.preventDefault(); first.focus(); }
+  const wrap = trapWrap(e.shiftKey, document.activeElement, d, all);
+  if (wrap) { e.preventDefault(); wrap.focus(); }
+}
+// Where Tab or Shift+Tab has to be held and sent: the control to focus, or null to let the browser move on. The dialog
+// itself counts as outside the list (it holds focus when its control went away), so Shift+Tab from it goes to the last.
+function trapWrap(shift, at, d, all) {
+  const first = all[0], last = all[all.length - 1];
+  if (shift && (at === d || at === first || !d.contains(at))) return last;
+  if (!shift && (at === d || at === last || !d.contains(at))) return first;
+  return null;
 }
 // The control before or after `from`, inside its dialog if it is in one: how F6 leaves a terminal.
 function focusPast(from, step) {
