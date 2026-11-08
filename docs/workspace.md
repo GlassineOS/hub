@@ -350,7 +350,7 @@ post or send (table below). Captures can hold paired device addresses, so they s
 | Who | Artifacts | Notes, archive search | Tools (`workspace`) |
 |---|---|---|---|
 | Locked session that can post, send or ask first (`issue-triage`, `pr-security-audit`, `pr-review`) | Out of reach: file tools stop at its folder and checkout, given the settings check under Memory and the symlink check below | No tool: nothing checks a comment before it posts, so it could put a note in public | Like any private repository |
-| Locked session that only reads and hands in (`notes-compact`, `notes-sweep`, `knowledge-research`, the `new-*` drafters), and a planner | Out of reach, as above | `notes_find`, read only; it gets out only in what it hands in, which you read before applying or filing | Like any private repository |
+| Locked session that only reads and hands in (`notes-compact`, `notes-sweep`, `knowledge-research`, the `new-*` drafters), and a planner | Out of reach, as above | `notes_find`, read only, the notes and not the archive; it gets out only in what it hands in, which you read before applying or filing | Like any private repository |
 | Steward (no shell, each write asks first) | No tool | No tool (Decision 4) | Like any private repository |
 | Full session | Your rights: readable | Readable, as files | Readable, and it runs the tools |
 | App container | Not mounted | Nothing, except the Notes query, with a login | Through hubd, as today |
@@ -403,7 +403,11 @@ All decided. Each keeps its reasons, as later work may need to reopen one.
    has `notes_find`, and so does a planner. One that can post or send (`comment_issue`, `comment_pr`, a shell with the
    internet) or asks first, the Steward among them, doesn't: nothing checks a comment before it posts (the safety scan sees only
    git, and cards exist only for the Steward's writes). The library decides it from the action's own tools, so a new action
-   doesn't get the tool by being new (`SECURITY.md`, Notes).
+   doesn't get the tool by being new (`SECURITY.md`, Notes). The conditions this once set for the Steward are met or don't
+   apply: a scoped hubd op (`notes_tool.find`, by the session's own token and its list); a filter by source, so no transcripts,
+   diaries or old memory (hubd drops the archive's rows from a locked session's search); `asks_first` counted in the test (no
+   session that asks first has the tool, and a test pins it); and a card line "this session can read notes", which isn't built
+   because no session that asks first can.
 5. **New repositories for this?** Decided: none. Tools go in `workspace`, and notes and artifacts are folders in it that
    it ignores. Tools can split out later if they outgrow it.
 6. **Archive processing's budget and first area?** Decided: Sonnet, a token cap on each run, no overall budget. It starts

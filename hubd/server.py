@@ -579,8 +579,8 @@ class Hubd:
         shell = isinstance(token, str) and auth.same(token, self.agent_token)
         if self.notes is None or not (shell or (scope and (scope.get("tools") is None or NOTES_TOOL in scope["tools"]))):
             return {"ok": False, "refused": True, "error": f"this session can't use {NOTES_TOOL}"}
-        try:
-            return {"ok": True, **await self.notes.find(req.get("words"), req.get("limit"))}
+        try:  # a locked session gets the notes and not the archive: a full session and a shell could read the files anyway
+            return {"ok": True, **await self.notes.find(req.get("words"), req.get("limit"), archive=shell or scope.get("tools") is None)}
         except notes.NotesError as e:
             return {"ok": False, "error": str(e)}
 

@@ -321,6 +321,11 @@ host only, and much of what they hold never passed the safety scan. The app's co
   `notes-compact`, `notes-sweep`, `knowledge-research` and the `new-*` drafters. hubd takes it from such a session's own token,
   from a full session's, and from the general token a hub shell holds. Full sessions and shells could read the files anyway.
   The page's own search (`notes.find`, `notes.status`, `notes.totals`) stays behind the login check.
+- **A locked session gets the notes and not the archive.** The tool also indexes the sources set for this host: the old tree's
+  docs and diaries, memory and transcripts, which never passed the safety scan and hold what tools were asked and what they
+  answered. It has no filter, so `Notes.find` drops those rows (`archive, unreviewed`, and any state it doesn't know) from the
+  search of a session whose token has a list, with the sources and warnings the tool names, which are paths on this host.
+  A full session and a hub shell get every row.
 - **What needs care is a note leaving.** A row can hold private detail, and nothing technical stops a steered session that
   can post from putting it in public: a comment is not scanned (`comment_issue` and `comment_pr` go straight to GitHub), the
   safety scan sees only what goes into git, and only the Steward's writes ask you first. So the tool is kept off the sessions

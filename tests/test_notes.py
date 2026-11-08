@@ -449,6 +449,50 @@ def test_a_session_whose_list_has_the_search_uses_it(tmp_path, workspace):
     assert call(hubd, op="notes.find", agent_token="compact-token", words="fault")["denied"]
 
 
+def _tool_answering(workspace, rows, summary):
+    (workspace / "tools" / "notes").write_text("import json, sys\n"
+                                               f"for row in {rows!r}:\n    print(json.dumps(row))\n"
+                                               "print('notes: /srv/archive/diaries isn\\'t there, so it wasn\\'t searched', file=sys.stderr)\n"
+                                               f"print({summary!r}, file=sys.stderr)\n")
+
+
+def test_a_locked_session_gets_the_notes_and_not_the_archive(tmp_path, workspace):
+    """Transcripts, diaries and old memory never passed the scan: the tool ranks them last, and hubd leaves them out of a locked
+    session's search, with the sources and paths the tool names. A full session and a hub shell could read the files anyway."""
+    hubd, _login = world(tmp_path, workspace)
+    hubd.agents = NotesAgents()
+    reply = call(hubd, op="notes_tool.find", agent_token="compact-token", words="fault")
+    assert [r["state"] for r in reply["rows"]] == ["current", "retracted"] and "old words" not in json.dumps(reply)
+    assert reply["total"] == 2 and reply["says"] == "2 rows in the notes" and reply["warnings"] == []
+    for token in ("full-token", "general-token"):
+        reply = call(hubd, op="notes_tool.find", agent_token=token, words="fault")
+        assert [r["state"] for r in reply["rows"]] == ["current", "retracted", "archive, unreviewed"], token
+        assert reply["says"] == "7 rows from notes, memory" and reply["warnings"], token
+    # The page's own query is the login's and keeps the archive in its counts.
+    hubd, login = world(tmp_path, workspace)
+    assert [r["state"] for r in call(hubd, op="notes.find", token=login, words="fault")["rows"]] == ["current", "retracted", "archive, unreviewed"]
+
+
+def test_a_locked_sessions_search_keeps_only_states_it_knows(tmp_path, workspace):
+    rows = [{"state": s, "label": "", "where": f"a/b:{i}", "text": f"t{i}"}
+            for i, s in enumerate(["current", "open", "history", "retracted", "archive, unreviewed", "something new", ""])]
+    _tool_answering(workspace, rows, "7 rows from notes, memory")
+    hubd, _login = world(tmp_path, workspace)
+    hubd.agents = NotesAgents()
+    reply = call(hubd, op="notes_tool.find", agent_token="compact-token", words="x")
+    assert [r["where"] for r in reply["rows"]] == ["a/b:0", "a/b:1", "a/b:2", "a/b:3"] and reply["total"] == 4
+    assert "memory" not in json.dumps(reply) and "/srv/archive" not in json.dumps(reply)  # the tool's sources and warnings name this host's paths
+
+
+def test_a_locked_session_is_told_when_more_notes_match(tmp_path, workspace):
+    rows = [{"state": "current", "label": "", "where": f"a/b:{i}", "text": f"t{i}"} for i in range(2)]
+    _tool_answering(workspace, rows, "9 rows from notes, memory, showing 2: --limit for more")
+    hubd, _login = world(tmp_path, workspace)
+    hubd.agents = NotesAgents()
+    reply = call(hubd, op="notes_tool.find", agent_token="compact-token", words="x", limit=2)
+    assert len(reply["rows"]) == 2 and reply["total"] == 9 and "more match" in reply["says"] and "memory" not in reply["says"]
+
+
 def test_the_notes_search_is_on_the_actions_that_only_read():
     """The tool is added to a locked action that can't carry a note out: no shell, no write or post tool, nothing that asks
     first. One that can post or send never has it (SECURITY.md, Notes)."""
