@@ -73,7 +73,7 @@ PLANNER_TOOLS = {"pr": ["get_pr", "get_pr_diff_summary", "docs_search", "work_se
                  "repo": ["get_issue", "list_issues", "list_prs", "get_pr", "docs_search", "work_search", *_REPO_READERS],
                  "knowledge": ["get_issue", "get_pr", "docs_search", "work_search", *_REPO_READERS]}
 for _tools in PLANNER_TOOLS.values():
-    _tools.append("notes_find")  # what earlier sessions found, before planning the same work again
+    _tools.append("notes_find")  # what earlier sessions found, before planning the same work again. A full action's planner has none
 # What an action can be about with no repository: the whole project (the Steward), or a question (008 FR-007).
 NO_REPO_OBJECTS = ("project", "knowledge", "notes")
 # The notes search: for sessions and planners that can't carry a note out, which the library decides (SECURITY.md, Notes).
@@ -792,10 +792,11 @@ class Agents:
         else:
             base = with_also(base, also_numbers or [])
         base = validate(self.library, base)
-        # Search can bring in an outsider's text about something else, and a full session's brief comes from here.
+        # Search can bring in an outsider's text about something else, and a note is written after reading it; a full session's
+        # brief comes from here. So its planner has neither search.
         if action["object"] not in PLANNER_TOOLS:
             raise AgentError(f"{action_id} has no planning step")
-        tools = [t for t in PLANNER_TOOLS[action["object"]] if not (_full(action) and t == "work_search")]
+        tools = [t for t in PLANNER_TOOLS[action["object"]] if not (_full(action) and t in ("work_search", NOTES_TOOL))]
         fields = {"action": action["title"], "what_it_does": action["summary"], "repository": f"{ORG}/{repo}" if repo else "none: the question is about the whole project",
                   "object": action["object"], "number": number,
                   "notes_from_the_person": base["notes"], "pinned_by_the_person": base["pins"],

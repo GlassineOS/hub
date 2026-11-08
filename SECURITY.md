@@ -338,6 +338,9 @@ host only, and much of what they hold never passed the safety scan. The app's co
   rule, not a control. Draft issues from a notes sweep are filed by you, in public, so read them for private details first.
   "Send to the Steward" works on them as on any drafts: only by your press, and then the Steward reads what they carry of
   the notes, and each issue it files still asks you. So read them before sending them too.
+- **Planners.** The planner of a locked action has `notes_find` too, without the archive, and what it finds can end up in the
+  brief it writes, which you read before the session starts, as with `work_search`. The planner of a full action has neither: a
+  full session's brief comes from it, and a note is written after reading an outsider's text.
 - **Not held by the line the other searches keep, so kept off instead.** `code_search`, the map and `work_search` don't give a
   session that can post private text by asking about a topic: with no repository named they search public repositories only
   (`hubd/reach.py`). `notes_find` has no such line. It searches every note by a word, so a session that can post and had it

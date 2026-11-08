@@ -208,14 +208,23 @@ def test_you_can_pick_the_planners_model_but_only_from_the_list(tmp_path):
         asyncio.run(a.plan("pr-review", "boot", 5, planner_model="fable"))
 
 
-def test_a_full_actions_planner_has_no_work_search(tmp_path):
+def test_a_full_actions_planner_has_no_work_search_and_no_notes_search(tmp_path):
+    """A full session's brief comes from its planner, so the planner has neither search: both can bring in an outsider's text."""
     a = agents(tmp_path, planned(persona="engineer"))
     try:
         asyncio.run(a.plan("issue-implement", "boot", 5))
     except AgentError:
         pass  # this test's plan may not suit the action; the arguments are what it's about
     args = (tmp_path / "args").read_text().splitlines()
-    assert "mcp__glassine-hub__get_issue" in args and "mcp__glassine-hub__work_search" not in args
+    assert "mcp__glassine-hub__get_issue" in args
+    assert "mcp__glassine-hub__work_search" not in args and "mcp__glassine-hub__notes_find" not in args
+
+
+def test_a_locked_actions_planner_has_both_searches(tmp_path):
+    a = agents(tmp_path, planned(persona="triager"))
+    asyncio.run(a.plan("issue-triage", "boot", 5))
+    args = (tmp_path / "args").read_text().splitlines()
+    assert "mcp__glassine-hub__work_search" in args and "mcp__glassine-hub__notes_find" in args
 
 
 @pytest.mark.parametrize("answer", [

@@ -350,7 +350,7 @@ post or send (table below). Captures can hold paired device addresses, so they s
 | Who | Artifacts | Notes, archive search | Tools (`workspace`) |
 |---|---|---|---|
 | Locked session that can post, send, plan work or ask first (`issue-triage`, `pr-security-audit`, `pr-review`, `pr-explain`, `pr-merge-prep`, the `run-*` actions) | Out of reach: file tools stop at its folder and checkout, given the settings check under Memory and the symlink check below | No tool: nothing checks a comment before it posts, and what `plan_work` carries reaches a planner as yours once you press Start | Like any private repository |
-| Locked session that only reads and hands in (`notes-compact`, `notes-sweep`, `knowledge-research`, the `new-*` drafters), and a planner | Out of reach, as above | `notes_find`, read only, the notes and not the archive; it gets out only in what it hands in, which you read before applying or filing | Like any private repository |
+| Locked session that only reads and hands in (`notes-compact`, `notes-sweep`, `knowledge-research`, the `new-*` drafters), and the planner of a locked action | Out of reach, as above | `notes_find`, read only, the notes and not the archive; it gets out only in what it hands in, which you read before applying or filing | Like any private repository |
 | Steward (no shell, each write asks first) | No tool | No tool (Decision 4) | Like any private repository |
 | Full session | Your rights: readable | Readable, as files | Readable, and it runs the tools |
 | App container | Not mounted | Nothing, except the Notes query, with a login | Through hubd, as today |
