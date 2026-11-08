@@ -233,8 +233,8 @@ out with it.
 **Search:** `notes find WORDS` in `workspace`, over a SQLite FTS index in a 0700 cache folder, built from the notes, the
 old tree's docs and diaries, memory and transcripts, which never passed the scan. It works offline. Every row says
 `current`, `history`, `retracted` or `archive, unreviewed` in words. Current ranks first, so a retracted theory can't
-pass as a fact. The hub's Notes page is the same query through a hubd op that needs a login, and no token has one. Words
-only at first.
+pass as a fact. The hub's Notes page is the same query through a hubd op that needs a login, and no token has that one. A session that may search
+gets `notes_find`, by its own token and without the archive's rows (`SECURITY.md`, Notes). Words only at first.
 
 **Processing the archive,** on the user's word, area by area, with a budget, by sessions the user starts:
 
@@ -344,14 +344,14 @@ pull request gets a worktree of the hub's bare review clone: no notes and no art
 
 `SECURITY.md` keeps agents from finding private text by accident, but a named private repository stays reachable: the sync
 pulls every repository, and `work_search`, `get_issue`, the lists and kept answers serve it. So what must not reach a post
-isn't on GitHub at all. Notes and artifacts stay on this host. Captures can hold paired device addresses, so they stay in
-`artifacts/`.
+isn't on GitHub at all. Notes and artifacts stay on this host, and the notes search is kept off every locked session that can
+post or send (table below). Captures can hold paired device addresses, so they stay in `artifacts/`.
 
 | Who | Artifacts | Notes, archive search | Tools (`workspace`) |
 |---|---|---|---|
-| Other locked session or planner (can post) | Out of reach: file tools stop at its folder and checkout, given the settings check under Memory and the symlink check below | No tool | Like any private repository |
-| Notes session (`notes-compact`, `notes-sweep`: locked, no shell, no write, post or `plan_work` tool) | Out of reach, as above | `notes_find`, read only; it gets out only in the result it hands in, which you read before applying or filing | Like any private repository |
-| Steward (no shell, each write asks first) | No tool | No tool (future scope, Decision 4) | Like any private repository |
+| Locked session that can post, send, plan work or ask first (`issue-triage`, `pr-security-audit`, `pr-review`, `pr-explain`, `pr-merge-prep`, the `run-*` actions) | Out of reach: file tools stop at its folder and checkout, given the settings check under Memory and the symlink check below | No tool: nothing checks a comment before it posts, and what `plan_work` carries reaches a planner as yours once you press Start | Like any private repository |
+| Locked session that only reads and hands in (`notes-compact`, `notes-sweep`, `knowledge-research`, the `new-*` drafters), and the planner of a locked action | Out of reach, as above | `notes_find`, read only, the notes and not the archive; it gets out only in what it hands in, which you read before applying or filing | Like any private repository |
+| Steward (no shell, each write asks first) | No tool | No tool (Decision 4) | Like any private repository |
 | Full session | Your rights: readable | Readable, as files | Readable, and it runs the tools |
 | App container | Not mounted | Nothing, except the Notes query, with a login | Through hubd, as today |
 
@@ -399,10 +399,16 @@ All decided. Each keeps its reasons, as later work may need to reopen one.
    answers the session, and isn't a go.
 3. **`notes` on GitHub at all, even private?** Decided: no, local only, beside artifacts. Once text is on GitHub
    it's out, and the scan catches patterns, not a pasted dump or diary.
-4. **May the Steward search notes?** Decided: future scope, not at first. Its public posts have one click between them and what it
-   read, weaker than the rule at the top. When it's built: a scoped hubd op, a filter by source so no
-   transcripts, diaries or old memory, its `asks_first` counted in the test, and a card line "this session can read
-   notes".
+4. **May sessions search notes?** Decided: those that can't carry a note out. A locked session that only reads and hands in
+   has `notes_find`, and so does a planner. One that can post or send (`comment_issue`, `comment_pr`, a shell with the
+   internet), plans work (`plan_work`) or asks first doesn't, and the Steward is all of those: nothing checks a comment before
+   it posts (the safety scan sees only git, and cards exist only for the Steward's writes), and `plan_work`'s words reach a
+   planner as yours once you press Start. The library decides it from the action's own tools, so a new action doesn't get the
+   tool by being new (`SECURITY.md`, Notes). The Steward stays future scope, with the conditions it had: a scoped hubd op, a
+   filter by source so no transcripts, diaries or old memory, its `asks_first` counted in the test, and a card line "this
+   session can read notes". The first two exist now for the sessions that have the tool (`notes_tool.find`, by the session's
+   own token and list; hubd drops the archive's rows from a locked session's search). The other two don't, and it would need an
+   answer for `plan_work` too.
 5. **New repositories for this?** Decided: none. Tools go in `workspace`, and notes and artifacts are folders in it that
    it ignores. Tools can split out later if they outgrow it.
 6. **Archive processing's budget and first area?** Decided: Sonnet, a token cap on each run, no overall budget. It starts

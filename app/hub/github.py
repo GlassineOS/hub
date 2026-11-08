@@ -898,7 +898,8 @@ class GitHub:
         return (await self.hubd.call(op="result.report", agent_token=CALLER.get(), id=result_id))["report"]
 
     async def notes_find(self, words, limit=20) -> dict:
-        """Under the calling session's token: hubd answers only a session whose action is about the notes."""
+        """Under the calling session's token: hubd answers a session whose list has the tool, or a hub shell. A locked session gets
+        the notes and not the archive."""
         reply = await self.hubd.call(op="notes_tool.find", agent_token=CALLER.get(), words=words, limit=limit)
         return {k: reply[k] for k in ("says", "rows", "total", "warnings") if k in reply}
 

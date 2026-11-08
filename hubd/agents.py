@@ -45,7 +45,7 @@ from .codemap import UNREADABLE, CodeMaps, MapError
 from .codesearch import CodeSearch, SearchError
 from .ghpolicy import ORG, Refused
 from .history import History
-from .results import APPLY_TOOLS, HANDED_IN
+from .results import APPLY_TOOLS
 from .seeds import SeedError, Seeds, remove_tree
 from .shells import ShellError, Shells
 
@@ -72,10 +72,11 @@ PLANNER_TOOLS = {"pr": ["get_pr", "get_pr_diff_summary", "docs_search", "work_se
                  "run": ["get_run", "get_run_log", "docs_search", "work_search", *_REPO_READERS],
                  "repo": ["get_issue", "list_issues", "list_prs", "get_pr", "docs_search", "work_search", *_REPO_READERS],
                  "knowledge": ["get_issue", "get_pr", "docs_search", "work_search", *_REPO_READERS]}
+for _tools in PLANNER_TOOLS.values():
+    _tools.append("notes_find")  # what earlier sessions found, before planning the same work again. A full action's planner has none
 # What an action can be about with no repository: the whole project (the Steward), or a question (008 FR-007).
 NO_REPO_OBJECTS = ("project", "knowledge", "notes")
-# 009: the one tool that reads the notes for a session. Only an action about the notes may list it, and only one that reads
-# and hands in: notes never passed the safety scan (SECURITY.md, Notes).
+# The notes search: for sessions and planners that can't carry a note out, which the library decides (SECURITY.md, Notes).
 NOTES_TOOL = "notes_find"
 # Read-only checkouts that live with the session: a pull request's head, or a repository's default branch.
 _DETACHED = ("pr", "default")
@@ -129,7 +130,7 @@ HUB_SENDER = "@hub"  # who a ping is from: not a valid session name, so it can't
 # asks first until someone has looked at it.
 READS_ONLY = {"overview", "rate_limit", "run_history", "roadmap", "list_issues", "get_issue", "list_prs", "get_pr", "get_pr_threads",
               "get_pr_diff", "get_pr_diff_summary", "list_runs", "get_run", "get_run_log", "list_workflows", "work_search", "work_status",
-              "docs_search", "docs_index_status", "plan_work", "submit_result", "read_report", *REPO_TOOLS}  # submit_result: a result waits for you too
+              "docs_search", "docs_index_status", "plan_work", "submit_result", "read_report", "notes_find", *REPO_TOOLS}  # submit_result: a result waits for you too
 READING_TOOLS = {"Read", "Grep", "Glob", "Skill", "AskUserQuestion"}
 # Marks and fillers that draw nothing but aren't format characters: variation selectors can carry a hidden byte each.
 _BLANKS = {0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x2800, 0x3164, 0xFFA0}
@@ -214,6 +215,16 @@ def _full(action: dict) -> bool:
     return action.get("access") == "full"
 
 
+def _may_search_notes(action: dict) -> bool:
+    """Who gets the notes search among locked actions: one that only reads, and so can't carry a note out. No shell and no
+    tool that writes or posts (`comment_issue`, `comment_pr`, `create_issue` ...), nothing that asks first, and not plan_work,
+    which is read-only but whose words reach a planner as yours once you press Start. What it reads leaves only in what it
+    hands in, which you read before anything happens (SECURITY.md, Notes)."""
+    return (not _full(action) and isinstance(action.get("hub_tools"), list) and not action.get("asks_first")
+            and set(action.get("tools", ())) <= READING_TOOLS
+            and not set(action["hub_tools"]) - (READS_ONLY - {"plan_work"}) - {"submit_drafts"})
+
+
 def _session_scope(name: str, config: dict, full: bool, all_repos: bool = False, asks_first=(), instance=None) -> dict:
     # A full session has your rights, so a tool list wouldn't hold it to anything.
     # instance: this session and no other that gets its name later (the Steward's is always steward). The Claude session id.
@@ -290,6 +301,12 @@ class Library:
         self.root = root
         self.actions = {p.stem: {**tomllib.loads(p.read_text()), "id": p.stem}
                         for p in sorted((root / "actions").glob("*.toml"))}
+        # The notes are kept for agents to read (SECURITY.md, Notes), so a locked action that only reads gets the search. One that
+        # can post, send or ask first doesn't: nothing technical stops a steered session putting a note in public. A full
+        # session has no list to add it to: hubd lets it use any tool.
+        for action in self.actions.values():
+            if NOTES_TOOL not in action.get("hub_tools", ()) and _may_search_notes(action):
+                action["hub_tools"] = [*action["hub_tools"], NOTES_TOOL]
         self.families = tomllib.loads((root / "personas" / "families.toml").read_text())
         self._check()
 
@@ -321,18 +338,9 @@ class Library:
             if not isinstance(result_tools, list) or set(result_tools) - set(APPLY_TOOLS.get(action["result"], ())):
                 raise LibraryError(f"actions/{action['id']}.toml: result_tools for a {action['result']} result are among "
                                    f"{', '.join(APPLY_TOOLS.get(action['result'], ())) or 'none'}")
-            if NOTES_TOOL in action["hub_tools"]:
-                # What it reads leaves only in what it hands in, which a login reads first. So it hands in, through the tool for
-                # its result, and has no other way out: no shell, write or post tool, and not plan_work, which is read-only but
-                # whose notes reach a planner as yours once you press Start (SECURITY.md, Notes).
-                beyond = set(action["hub_tools"]) - (READS_ONLY - {"plan_work"}) - {NOTES_TOOL, "submit_drafts"}
-                hand_in = "submit_drafts" if action["result"] == "drafts" else "submit_result"
-                hands_in = action["result"] in (*HANDED_IN, "drafts") and hand_in in action["hub_tools"]
-                if action["object"] != "notes" or _full(action) or beyond or action.get("asks_first") or action.get("all_repos") \
-                        or set(action["tools"]) - READING_TOOLS or not hands_in:
-                    raise LibraryError(f"actions/{action['id']}.toml: {NOTES_TOOL} is for a locked action about the notes that only reads "
-                                       f"and hands in{': not ' + ', '.join(sorted(beyond)) if beyond else ''}"
-                                       f"{'' if hands_in else f': its result is handed in with {hand_in}, and it lists it'}")
+            if NOTES_TOOL in action.get("hub_tools", ()) and not _may_search_notes(action):  # listed by hand, on an action that can post
+                raise LibraryError(f"actions/{action['id']}.toml: {NOTES_TOOL} is for a locked action that only reads: no shell, no write "
+                                   "or post tool, no plan_work, nothing that asks first")
             verb = action.get("verb")
             if verb is None:
                 continue
@@ -784,10 +792,11 @@ class Agents:
         else:
             base = with_also(base, also_numbers or [])
         base = validate(self.library, base)
-        # Search can bring in an outsider's text about something else, and a full session's brief comes from here.
+        # Search can bring in an outsider's text about something else, and a note is written after reading it; a full session's
+        # brief comes from here. So its planner has neither search.
         if action["object"] not in PLANNER_TOOLS:
             raise AgentError(f"{action_id} has no planning step")
-        tools = [t for t in PLANNER_TOOLS[action["object"]] if not (_full(action) and t == "work_search")]
+        tools = [t for t in PLANNER_TOOLS[action["object"]] if not (_full(action) and t in ("work_search", NOTES_TOOL))]
         fields = {"action": action["title"], "what_it_does": action["summary"], "repository": f"{ORG}/{repo}" if repo else "none: the question is about the whole project",
                   "object": action["object"], "number": number,
                   "notes_from_the_person": base["notes"], "pinned_by_the_person": base["pins"],
@@ -1875,8 +1884,6 @@ class Agents:
         record = self._started_record(name) if isinstance(name, str) and _NAME_RE.fullmatch(name) else None
         if record is None:
             raise AgentError(f"no started session named {name}")
-        if NOTES_TOOL in record["config"].get("hub_tools", ()):  # its words carry notes, which only a login reads
-            raise AgentError(f"{name} reads the notes: what it says is for the person, in the hub")
         state = next(s["state"] for s in await self.started() if s["name"] == name)
         path = self._transcript(record["session_id"])
         said: list[str] = []

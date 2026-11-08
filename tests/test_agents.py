@@ -188,7 +188,8 @@ def test_planner_is_read_only_and_keeps_the_token_off_the_command_line(tmp_path)
     allowed = args[args.index("--allowedTools") + 1:args.index("--disable-slash-commands")]
     assert allowed == ["mcp__glassine-hub__get_pr", "mcp__glassine-hub__get_pr_diff_summary", "mcp__glassine-hub__docs_search",
                            "mcp__glassine-hub__work_search", "mcp__glassine-hub__list_repo_files", "mcp__glassine-hub__read_repo_file", "mcp__glassine-hub__map_overview",
-                           "mcp__glassine-hub__map_definition", "mcp__glassine-hub__map_usages", "mcp__glassine-hub__map_string", "mcp__glassine-hub__code_search"]
+                           "mcp__glassine-hub__map_definition", "mcp__glassine-hub__map_usages", "mcp__glassine-hub__map_string", "mcp__glassine-hub__code_search",
+                       "mcp__glassine-hub__notes_find"]
     assert args[args.index("--tools") + 1] == "" and "--strict-mcp-config" in args
     assert args[args.index("--permission-mode") + 1] == "dontAsk"
     assert "SECRET" not in " ".join(args)
@@ -207,14 +208,23 @@ def test_you_can_pick_the_planners_model_but_only_from_the_list(tmp_path):
         asyncio.run(a.plan("pr-review", "boot", 5, planner_model="fable"))
 
 
-def test_a_full_actions_planner_has_no_work_search(tmp_path):
+def test_a_full_actions_planner_has_no_work_search_and_no_notes_search(tmp_path):
+    """A full session's brief comes from its planner, so the planner has neither search: both can bring in an outsider's text."""
     a = agents(tmp_path, planned(persona="engineer"))
     try:
         asyncio.run(a.plan("issue-implement", "boot", 5))
     except AgentError:
         pass  # this test's plan may not suit the action; the arguments are what it's about
     args = (tmp_path / "args").read_text().splitlines()
-    assert "mcp__glassine-hub__get_issue" in args and "mcp__glassine-hub__work_search" not in args
+    assert "mcp__glassine-hub__get_issue" in args
+    assert "mcp__glassine-hub__work_search" not in args and "mcp__glassine-hub__notes_find" not in args
+
+
+def test_a_locked_actions_planner_has_both_searches(tmp_path):
+    a = agents(tmp_path, planned(persona="triager"))
+    asyncio.run(a.plan("issue-triage", "boot", 5))
+    args = (tmp_path / "args").read_text().splitlines()
+    assert "mcp__glassine-hub__work_search" in args and "mcp__glassine-hub__notes_find" in args
 
 
 @pytest.mark.parametrize("answer", [
@@ -1132,6 +1142,7 @@ def test_a_session_asks_before_it_uses_the_advisor(tmp_path, remote):
 def test_every_kind_of_agent_gets_the_private_rule(tmp_path, remote):
     rule = LIBRARY.text(".", "private")
     assert "stays out of anything written to a public one" in rule
+    assert "in the notes" in rule and "put differently" in rule  # a note, and its paraphrase: not only a private repository
     a = agents(tmp_path, clone_base=remote)
     a.shells = FakeShells()
     name = asyncio.run(a.start(good()))["name"]
@@ -3163,6 +3174,17 @@ def test_esc_while_tmux_pastes_and_refuses_isnt_put_back_or_a_crash(tmp_path, mo
     asyncio.run(go())
 
 
+def test_a_session_from_before_the_notes_search_doesnt_get_it_on_resume(tmp_path):
+    """A resume reads the action as it is now but adds no tool to a non-Steward session, and the Steward's action has no notes
+    search: so no resumed session gains it. It takes a new session (SECURITY.md, Notes)."""
+    a = agents(tmp_path)
+    assert "notes_find" in LIBRARY.action("new-issue")["hub_tools"]
+    old = {"action": "new-issue", "tools": ["Read"], "hub_tools": ["get_issue", "submit_drafts"]}
+    assert a._current_config(old)["hub_tools"] == ["get_issue", "submit_drafts"]
+    singleton = {"action": "project-steward", "tools": [], "hub_tools": ["overview"]}  # the Steward's list is rebuilt from its action
+    assert "notes_find" not in steward(tmp_path)._current_config(singleton)["hub_tools"]
+
+
 def test_a_review_session_from_before_results_loses_review_pr_on_resume_and_gains_nothing(tmp_path):
     """A running session keeps its frozen list (tests/test_app.py), but a resume reads the action
     as it is now, which has no review_pr, and adds no tool a non-Steward session didn't have. Such a session can still
@@ -3270,10 +3292,6 @@ def test_notes_actions_have_no_repository_and_no_planner():
     assert LIBRARY.action("notes-compact")["result_tools"] == ["notes_apply"]
 
 
-def test_a_session_that_reads_notes_has_no_summary_for_others(tmp_path):
-    a = steward(tmp_path)
-    started = asyncio.run(a.start(a.defaults("notes-compact", None, None), started_by="steward"))
-    with pytest.raises(AgentError, match="reads the notes"):
-        asyncio.run(a.started_summary(started["name"]))
-    with pytest.raises(AgentError, match="plan_work"):  # and no session can start one: you do, from Notes
+def test_no_session_starts_a_notes_upkeep_session(tmp_path):
+    with pytest.raises(AgentError, match="plan_work"):  # you do, from Notes
         Agents.check_spawn(type("A", (), {"library": LIBRARY})(), {"action": "notes-compact"})

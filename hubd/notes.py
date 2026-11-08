@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Notes: `notes find` for a login and for a session whose action is about the notes, and the note operations a login
-applies, in the words the tool answers.
+"""Notes: `notes find` for a login and for a session that may search them, and the note operations a login applies, in the
+words the tool answers.
 
 The tool lives in the workspace and is run as a program, never imported: hubd stays standard
 library, and the index stays the tool's own business, in its 0700 cache. Notes and the sources
-behind the search never passed the safety scan, so server.py keeps the search behind the login check, and lets a session's
-token have it only when its action is about the notes and can't post (SECURITY.md, Notes). Writing is a login's alone: a
+behind the search never passed the safety scan, so server.py keeps the page's search behind the login check, and lets a
+session's token have the tool only when its list has it, which the library gives an action that can't post, send or plan
+work, and then without the archive's rows (SECURITY.md, Notes). Writing is a login's alone: a
 closed list of operations, each one `notes add` or `notes set` built here from checked fields, none of them a delete
 (009 FR-006, 005 FR-021).
 """
@@ -49,6 +50,10 @@ _OP_FIELDS = {"supersede": ({"op", "topic", "ids", "words"}, {"why"}), "merge": 
 _ENV_KEEP = ("PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR")
 _TOTAL = re.compile(r"([0-9]+) rows? from (.+?)(?:, showing [0-9]+.*)?")
 NO_STATE = "no state given"  # a row is never shown as if it were a fact
+# What a session's search may show: the notes themselves. The archive's rows ("archive, unreviewed") are the old tree's docs, diaries,
+# memory and transcripts, which never passed the scan and hold what tools were asked and answered. A state the tool doesn't name
+# here is left out too, since hubd can't say what it is.
+NOTE_STATES = ("current", "open", "history", "retracted")
 
 
 class NotesError(Exception):
@@ -198,9 +203,10 @@ class Notes:
         missing = self.missing()
         return {"here": missing is None, "says": missing, "indexing": self.finding > 0}
 
-    async def find(self, words, limit=None, counted: bool = False) -> dict:
+    async def find(self, words, limit=None, counted: bool = False, archive: bool = True) -> dict:
         """`counted` is for a login's search: its counts become the totals. A session's search leaves them as they are, so the
-        flyout never counts what an Archivist looked for."""
+        flyout never counts what an Archivist looked for. `archive=False` is for a locked session: it gets the notes' rows and
+        none of the archive's, and nothing of the sources the tool names, which are paths on this host (SECURITY.md, Notes)."""
         words, limit = words_of(words), limit_of(limit)
         if missing := self.missing():
             return {"here": False, "says": missing, "rows": [], "total": 0, "warnings": []}
@@ -213,6 +219,14 @@ class Notes:
         # Only on a newline: JSON can hold U+2028 and the like unescaped, and splitlines() would break a row on them.
         rows = [_row(line) for line in out.split("\n") if line.strip()]
         summary = next((m for m in map(_TOTAL.fullmatch, said) if m), None)
+        if not archive:
+            # The tool ranks the archive after every note, so cutting its rows from the first `limit` leaves every note it found.
+            kept = [row for row in rows if row["state"] in NOTE_STATES][:limit]
+            everything = len(kept) < len(rows) or not summary or int(summary[1]) <= len(rows)  # no more notes beyond these rows
+            if everything:
+                return {"here": True, "says": f"{count(len(kept))} in the notes", "rows": kept, "total": len(kept), "warnings": []}
+            return {"here": True, "says": f"{count(len(kept))} shown, and more match: ask for a larger limit", "rows": kept,
+                    "total": int(summary[1]), "warnings": []}
         by_label: dict[str, int] = {}
         by_topic: dict[str, int] = {}
         for row in rows[:limit]:
