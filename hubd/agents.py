@@ -217,10 +217,12 @@ def _full(action: dict) -> bool:
 
 def _may_search_notes(action: dict) -> bool:
     """Who gets the notes search among locked actions: one that only reads, and so can't carry a note out. No shell and no
-    tool that writes or posts (`comment_issue`, `comment_pr`, `create_issue` ...), nothing that asks first. What it reads
-    leaves only in what it hands in, which you read before anything happens (SECURITY.md, Notes)."""
+    tool that writes or posts (`comment_issue`, `comment_pr`, `create_issue` ...), nothing that asks first, and not plan_work,
+    which is read-only but whose words reach a planner as yours once you press Start. What it reads leaves only in what it
+    hands in, which you read before anything happens (SECURITY.md, Notes)."""
     return (not _full(action) and isinstance(action.get("hub_tools"), list) and not action.get("asks_first")
-            and set(action.get("tools", ())) <= READING_TOOLS and not set(action["hub_tools"]) - READS_ONLY - {"submit_drafts"})
+            and set(action.get("tools", ())) <= READING_TOOLS
+            and not set(action["hub_tools"]) - (READS_ONLY - {"plan_work"}) - {"submit_drafts"})
 
 
 def _session_scope(name: str, config: dict, full: bool, all_repos: bool = False, asks_first=(), instance=None) -> dict:
@@ -338,7 +340,7 @@ class Library:
                                    f"{', '.join(APPLY_TOOLS.get(action['result'], ())) or 'none'}")
             if NOTES_TOOL in action.get("hub_tools", ()) and not _may_search_notes(action):  # listed by hand, on an action that can post
                 raise LibraryError(f"actions/{action['id']}.toml: {NOTES_TOOL} is for a locked action that only reads: no shell, no write "
-                                   "or post tool, nothing that asks first")
+                                   "or post tool, no plan_work, nothing that asks first")
             verb = action.get("verb")
             if verb is None:
                 continue

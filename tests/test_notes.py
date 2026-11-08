@@ -506,6 +506,11 @@ def test_the_notes_search_is_on_the_actions_that_only_read():
     # The ones that read an outsider's text and post (comment_issue, comment_pr), or have a shell with the internet, or ask first.
     for posts in ("issue-triage", "pr-security-audit", "pr-review", "project-steward"):
         assert "notes_find" not in LIBRARY.action(posts)["hub_tools"], posts
+    # plan_work reads only, but what it carries reaches a planner as yours once you press Start: none of its holders has the search.
+    plans = [a["id"] for a in LIBRARY.actions.values() if "plan_work" in a.get("hub_tools", ())]
+    assert {"pr-explain", "pr-merge-prep", "run-diagnose", "run-explain", "run-flaky", "run-slow", "issue-triage", "pr-review",
+            "pr-security-audit", "project-steward"} <= set(plans)
+    assert not [a for a in plans if "notes_find" in LIBRARY.action(a)["hub_tools"]]
     assert "comment_issue" in LIBRARY.action("issue-triage")["hub_tools"] and "comment_pr" in LIBRARY.action("pr-security-audit")["hub_tools"]
     assert "Bash" in LIBRARY.action("pr-review")["tools"] and LIBRARY.action("project-steward")["asks_first"]
 
@@ -523,6 +528,7 @@ def test_the_library_adds_the_search_only_where_it_cant_carry_a_note_out(tmp_pat
     variants = {"posts": base.replace('"submit_drafts"]', '"submit_drafts", "comment_issue"]'),
                 "writes": base.replace('"submit_drafts"]', '"submit_drafts", "create_issue"]'),
                 "shell": base.replace('tools = ["Read", "Grep", "Glob", "AskUserQuestion"]', 'tools = ["Read", "Grep", "Glob", "AskUserQuestion", "Bash"]'),
+                "plans": base.replace('"submit_drafts"]', '"submit_drafts", "plan_work"]'),
                 "asks": base + 'asks_first = ["comment_issue"]\n'}
     for name, text in variants.items():
         assert text != base, name
@@ -539,6 +545,7 @@ def test_the_library_refuses_a_hand_listed_search_on_an_action_that_can_post(tmp
     action = root / "actions" / "notes-compact.toml"
     good = action.read_text()
     for bad in (good.replace('"submit_result"]', '"submit_result", "comment_issue"]'), good + 'asks_first = ["comment_issue"]\n',
+                good.replace('"submit_result"]', '"submit_result", "plan_work"]'),  # its words would reach a planner as yours
                 good.replace('tools = ["AskUserQuestion"]', 'tools = ["AskUserQuestion", "Bash"]'),
                 good + 'access = "full"\n'):
         assert bad != good

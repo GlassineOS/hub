@@ -316,7 +316,7 @@ The notes are kept for agents to read: what earlier sessions found, so the next 
 host only, and much of what they hold never passed the safety scan. The app's container mounts none of it.
 
 - **Sessions that only read search them.** `notes_find` (`notes_tool.find`) is on the list of a locked action that only reads
-  and hands in: no shell, no write or post tool, nothing that asks first. The library adds it to such an action and refuses to
+  and hands in: no shell, no write or post tool, no `plan_work`, nothing that asks first. The library adds it to such an action and refuses to
   load one that lists it and doesn't fit, so a new action that can post doesn't pick it up by being new. Today that is
   `notes-compact`, `notes-sweep`, `knowledge-research` and the `new-*` drafters. hubd takes it from such a session's own token,
   from a full session's, and from the general token a hub shell holds. Full sessions and shells could read the files anyway.
@@ -330,7 +330,9 @@ host only, and much of what they hold never passed the safety scan. The app's co
   can post from putting it in public: a comment is not scanned (`comment_issue` and `comment_pr` go straight to GitHub), the
   safety scan sees only what goes into git, and only the Steward's writes ask you first. So the tool is kept off the sessions
   that can post or send, which is a control: `issue-triage` (`comment_issue`), `pr-security-audit` (`comment_pr`), `pr-review`
-  and `pr-security-audit` (a shell with the internet) and the Steward (writes that ask first). What a session that has it reads
+  and `pr-security-audit` (a shell with the internet) and the Steward (writes that ask first). It is also kept off whatever
+  holds `plan_work`, which only reads but puts a session's words in front of a planner as your own notes once you press Start:
+  the actions above, `pr-explain`, `pr-merge-prep` and the `run-*` actions. What a session that has it reads
   leaves in what it hands in (drafts, a report, a result), which you read before anything is filed or applied, and in its own
   words, which the Steward can read with `session_summary`. `agents/private.md`, in every agent's prompt, asks it to leave a note out of anything public, in its own words too: that is a
   rule, not a control. Draft issues from a notes sweep are filed by you, in public, so read them for private details first.
