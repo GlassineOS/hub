@@ -2699,6 +2699,23 @@ console.log(JSON.stringify({
                    "shiftFromPage": "last", "tabFromPage": "first"}
 
 
+def test_f6_goes_to_the_next_control_and_round_when_there_is_none_that_way():
+    """001 FR-016, run in node on pickPast as it is in app.js: F6 and Shift+F6 leave a terminal for the nearest control after
+    or before it, and wrap rather than stop at the last or first control."""
+    got = _node_json(_app_js(), ["pickPast"], """
+var Node = {DOCUMENT_POSITION_FOLLOWING: 4, DOCUMENT_POSITION_PRECEDING: 2};
+const at = (n, pos) => ({n, pos});
+const box = {compareDocumentPosition: (x) => x.pos};
+const a = at("a", 2), b = at("b", 2), c = at("c", 4), e = at("e", 4);
+const name = (x) => (x ? x.n : null);
+console.log(JSON.stringify({
+  next: name(pickPast([a, b, c, e], box, 1)), prev: name(pickPast([a, b, c, e], box, -1)),
+  nextWraps: name(pickPast([a, b], box, 1)), prevWraps: name(pickPast([c, e], box, -1)),
+  alone: name(pickPast([], box, 1)), aloneBack: name(pickPast([], box, -1)),
+}));""")
+    assert got == {"next": "c", "prev": "b", "nextWraps": "a", "prevWraps": "e", "alone": None, "aloneBack": None}
+
+
 def test_every_dialog_has_a_name_a_screen_reader_can_read():
     """001 FR-015: each <dialog> has an aria-label or an aria-labelledby that points at an id the page sets."""
     script = _app_js()

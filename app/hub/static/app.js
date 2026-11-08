@@ -165,10 +165,16 @@ function focusPast(from, step) {
   const inside = (x) => (scope === document ? !x.closest("dialog") : x.closest("dialog") === scope);
   const all = [...scope.querySelectorAll(FOCUSABLE)].filter((x) => inside(x) && x.getClientRects().length > 0);
   const box = from.closest(".xterm") || from;
-  const outside = all.filter((x) => !box.contains(x));
-  const next = step > 0 ? outside.find((x) => box.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING)
-    : outside.reverse().find((x) => box.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_PRECEDING);
+  const next = pickPast(all.filter((x) => !box.contains(x)), box, step);
   if (next) next.focus();
+}
+// Of the controls outside `box`, in page order: the nearest after it (step > 0) or before it, and when there is none that
+// way, the one at the other end, so F6 and Shift+F6 go round instead of stopping at the last or first control.
+function pickPast(outside, box, step) {
+  const after = outside.filter((x) => box.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING);
+  const before = outside.filter((x) => box.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_PRECEDING);
+  if (step > 0) return after[0] || before[0];
+  return before[before.length - 1] || after[after.length - 1];
 }
 // The open modals, last opened on top. When the control that had focus goes (an answered card, a stage that moved on),
 // focus goes to the top dialog itself rather than to the page, so the keyboard and a screen reader keep their place.
