@@ -2752,9 +2752,66 @@ def test_the_phone_header_is_new_and_menu():
     assert "<${NeedsButton} asks=${asks} before=${close} />" in menu and "<${UsageMeter} />" in menu and "host.user" in menu
     button = _component(script, "MenuButton")
     assert "needsState(c)" in button and 'data-waits=${state === "blocking" ? "" : undefined}' in button and "aria-label=${`Menu${waits}`}" in button
+    assert "const [menu, setMenu] = useSheet(route.path, phone);" in hub  # closes with the view and when the width leaves phone width
     steward = _component(script, "Steward")
     assert 'class="dock-s steward-fab"' in steward and "<${StewardSheet}" in steward
     # On a phone the sheet opens and closes without touching the wide panel's choice per view.
     assert "if (phone) return setSheet(next ? null : view);" in steward
     assert "showModal()" in _component(script, "StewardSheet")
 
+
+
+_HOOKS = """
+// A minimal hooks runtime: enough for useState and useEffect, with effects run after each render and renders repeated
+// until nothing changes.
+let slots = [], cursor = 0, dirty = false, pending = [], cleanups = [];
+function useState(init) {
+  const k = cursor++;
+  if (!(k in slots)) slots[k] = typeof init === "function" ? init() : init;
+  return [slots[k], (v) => { if (slots[k] !== v) { slots[k] = v; dirty = true; } }];
+}
+function useEffect(fn, deps) {
+  const k = cursor++, prev = slots[k];
+  if (!deps || !prev || deps.some((d, i) => d !== prev[i])) {
+    pending.push(() => { if (cleanups[k]) cleanups[k](); const c = fn(); cleanups[k] = typeof c === "function" ? c : null; });
+    slots[k] = deps;
+  }
+}
+function render(component) {
+  let out;
+  do {
+    dirty = false; cursor = 0; out = component();
+    const run = pending; pending = []; run.forEach((f) => f());
+  } while (dirty || pending.length);
+  return out;
+}
+"""
+
+
+def test_the_phone_state_and_the_sheets_run_in_node():
+    """Review 47: usePhone on a stubbed matchMedia, and a sheet that is closed by a new view and by the width leaving phone
+    width, run for real rather than searched for in the source."""
+    if not shutil.which("node"):
+        pytest.skip("node isn't installed")
+    script = _app_js()
+    src = _HOOKS + 'const PHONE = "(max-width: 760px)";\n' + _component(script, "usePhone") + "\n" + _component(script, "useSheet")
+    code = src + """
+// One live list, as a browser has: its matches changes and then it fires change.
+let listeners = [];
+const list = { matches: true, addEventListener: (t, f) => t === "change" && listeners.push(f), removeEventListener: (t, f) => { listeners = listeners.filter((l) => l !== f); } };
+globalThis.window = { matchMedia: () => list };
+const width = (to) => { list.matches = to; listeners.forEach((f) => f()); };
+const log = [];
+let view = "Work", set;
+const page = () => { const phone = usePhone(); const [sheet, setSheet] = useSheet(view, phone); set = setSheet; return { phone, sheet }; };
+let now = render(page); log.push(["starts on a phone", now.phone, now.sheet]);
+set("Work"); now = render(page); log.push(["opened", now.phone, now.sheet]);
+view = "Sessions"; now = render(page); log.push(["new view", now.phone, now.sheet]);
+set("Sessions"); now = render(page); log.push(["opened again", now.phone, now.sheet]);
+width(false); now = render(page); log.push(["wide", now.phone, now.sheet]);
+width(true); now = render(page); log.push(["phone again", now.phone, now.sheet]);
+console.log(JSON.stringify(log));
+"""
+    log = json.loads(subprocess.run(["node", "-e", code], capture_output=True, text=True, check=True).stdout)
+    assert log == [["starts on a phone", True, None], ["opened", True, "Work"], ["new view", True, None],
+                   ["opened again", True, "Sessions"], ["wide", False, None], ["phone again", True, None]]
