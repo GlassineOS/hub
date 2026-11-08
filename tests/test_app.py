@@ -1101,13 +1101,14 @@ def test_the_header_has_six_views_needs_you_new_work_and_the_meter():
     assert '["queue", "Queue"]' in script and 'query.tab === "queue" ? html`<${WorkQueue} />`' in script
     # Needs you: yellow (data-waits) only when something blocks, outlined while anything waits, plain at none.
     button = _component(script, "NeedsButton")
-    assert 'c.blocking > 0 ? "blocking" : c.pending > 0 ? "pending" : "none"' in button
+    assert 'c.blocking > 0 ? "blocking" : c.pending > 0 ? "pending" : "none"' in script and "const state = needsState(c);" in button
     assert 'data-waits=${state === "blocking" ? "" : undefined}' in button and "aria-label=${needsLabel(asks)}" in button
     css = (Path(__file__).resolve().parents[1] / "app" / "hub" / "static" / "style.css").read_text()
     assert '.needs-open[data-waits]' in css and '.top .needs-open[data-state="none"]' in css
     assert ".top nav a[aria-current] { background: var(--mark)" not in css, "yellow is only for what waits for you"
     hub = _component(script, "Hub")
-    assert "<${NeedsButton} asks=${asks} />" in hub and 'class="primary new-work" onClick=${() => launch({ from: { view: SEEN_SCREEN[here] || "Overview" } })}' in hub
+    assert "<${NeedsButton} asks=${asks} />" in hub and 'const newWork = () => launch({ from: { view: SEEN_SCREEN[here] || "Overview" } });' in hub
+    assert 'class="primary new-work" onClick=${newWork}>＋ New work</button>' in hub
     assert "<${UsageMeter} />" in hub and "host.hubd" in hub and "hubd can't be reached" in hub and 'api("host"), [], 15000' in hub
     overview = _component(script, "Overview")
     assert "<${NeedsYouCard} asks=${asks} />" in overview and "<${BudgetStat} />" in overview and "<${DeviceCard} asks=${asks} />" in overview
@@ -2625,14 +2626,16 @@ def test_the_steward_panel_shows_what_hubd_says_it_was_told():
 
 def test_the_steward_panel_is_a_button_at_phone_width():
     script = _app_js()
-    css = (Path(__file__).resolve().parents[1] / "app" / "hub" / "static" / "style.css").read_text()
-    # 001 FR-008: at phone width a floating button that opens a full sheet, at the same width the stylesheet makes it one.
-    assert 'const PHONE = "(max-width: 1000px)";' in script and "@media (max-width: 1000px) {\n  .dock { position: fixed; inset: 0;" in css
+    css = _style_css()
+    # 001 FR-007, FR-008: at 760 px or less a floating button that opens a full sheet, at the same width the stylesheet
+    # makes it one.
+    assert 'const PHONE = "(max-width: 760px)";' in script and script.count("const PHONE =") == 1
+    assert "@media (max-width: 760px) {" in css
     panel = _component(script, "Steward")
     # The per-view choice is the side panel's: on a phone it isn't applied, isn't kept, and the sheet closes with the view.
     assert "const open = phone ? sheet === view : view in panels ? panels[view] : panelOpen(view);" in panel
     assert panel.index("if (phone) return setSheet(next ? null : view);") < panel.index("keepPanel(view, !next);")
-    assert "useEffect(() => setSheet(null), [view]);" in panel and 'm.addEventListener("change", changed)' in _component(script, "usePhone")
+    assert "const [sheet, setSheet] = useSheet(view, phone);" in panel and "useEffect(() => setSheet(null), [view, phone]);" in _component(script, "useSheet") and 'query.addEventListener("change", on)' in _component(script, "usePhone")
 
 
 def test_the_steward_chips_follow_the_line_on_disk_not_this_tabs_last_answer():
@@ -2673,5 +2676,144 @@ def test_knowledge_and_the_steward_chips_read_the_chosen_repositories_alike():
 def test_home_and_end_on_the_width_handle_go_to_its_min_and_max():
     handle = _component(_app_js(), "WidthHandle")
     # Its value is the panel's width, so Home is aria-valuemin (narrowest) and End aria-valuemax (widest).
-    assert "aria-valuemin=${STEWARD_WIDTH.min} aria-valuemax=${STEWARD_WIDTH.max} aria-valuenow=${width}" in handle
-    assert "Home: STEWARD_WIDTH.min, End: STEWARD_WIDTH.max" in handle
+    assert "aria-valuemin=${STEWARD_WIDTH.min} aria-valuemax=${max} aria-valuenow=${width}" in handle
+    assert "Home: STEWARD_WIDTH.min, End: max" in handle
+
+
+def test_the_width_handle_reports_the_width_that_is_drawn():
+    """Review 47: the 45 % cap is for windows up to 1000 px only, and the handle's maximum and value are what is drawn."""
+    script, css = _app_js(), _style_css()
+    assert "@media (max-width: 1000px) { .dock { max-width: 45vw; } }" in css
+    assert re.search(r"^\.dock \{[^}]*max-width", css, re.M) is None, "the cap is only inside the width query"
+    steward = _component(script, "Steward")
+    assert "const shown = Math.min(width, room);" in steward and "--dock-w: ${shown}px" in steward
+    assert "<${WidthHandle} width=${shown} max=${room}" in steward
+    if not shutil.which("node"):
+        pytest.skip("node isn't installed")
+    src = "const STEWARD_WIDTH = { min: 320, max: 760, start: 440, step: 16 };\n"
+    src += "\n".join(re.search(rf"\nconst {name} = .*?;\n", script, re.S)[0] for name in ("clampWidth", "widthRoom"))
+    code = src + "\nconsole.log(JSON.stringify([[1440, 1001, 1000, 800, 761].map(widthRoom), clampWidth(700, widthRoom(800)), clampWidth(100, widthRoom(800)), clampWidth(700)]));"
+    rooms, narrow, least, wide = json.loads(subprocess.run(["node", "-e", code], capture_output=True, text=True, check=True).stdout)
+    # 1440 and 1001 px keep the spec's 760; up to 1000 px it's 45 % of the window, never under 320.
+    assert rooms == [760, 760, 450, 360, 342] and (narrow, least, wide) == (360, 320, 700)
+def _phone_block(css):
+    start = css.index("@media (max-width: 760px) {")
+    depth, i = 0, css.index("{", start)
+    for i in range(i, len(css)):
+        depth += {"{": 1, "}": -1}.get(css[i], 0)
+        if depth == 0:
+            return css[start:i + 1]
+    raise AssertionError("the phone block isn't closed")
+
+
+def test_one_phone_block_and_no_wide_fixed_widths_in_it():
+    """A static check (001 FR-009): one @media block at 760 px holds the phone rules, and nothing in it is fixed wider
+    than 360 px outside the boxes that scroll on their own."""
+    css = _style_css()
+    assert css.count("@media (max-width: 760px)") == 1
+    # The only rule left at 1000 px is the Steward panel's cap beside a narrow page (761 to 1000 px).
+    assert css.count("@media (max-width: 1000px)") == 1 and "max-width: 720px" not in css, "the phone rules are in the one block"
+    block = _phone_block(css)
+    scroll_boxes = (".board", ".diffbox", ".log", ".term", ".ask-code", ".ask-lines", ".steplog")
+    for rule in re.findall(r"([^{}]+)\{([^{}]*)\}", block[block.index("{") + 1:]):
+        selector, body = rule
+        if any(box in selector for box in scroll_boxes):
+            continue
+        for prop, value in re.findall(r"(?<![-\w])((?:min-|max-)?width)\s*:\s*(\d+)px", body):
+            assert int(value) <= 360, f"{selector.strip()}: {prop} {value}px"
+    # Sheets fill the screen at phone width (001 FR-010), and the controls reach 44 px (001 FR-017).
+    for sheet in ("dialog.sheet", "dialog.nw", "dialog.needs", "dialog.flyout", "dialog.transcript"):
+        assert sheet in block, sheet
+    assert ".dock-handle { display: none; }" in block and ".tick { width: 44px" in block
+    # The 44 px box round a checkbox is for a finger: the desktop keeps the plain checkbox.
+    assert ".boxhit {" in block and css.count(".boxhit {") == 1
+    assert "input[type=\"checkbox\"] { width: 24px; height: 24px; }" in block and "label:has(> input[type=\"checkbox\"]) { min-height: 44px; }" in block
+
+
+def test_reduced_motion_turns_motion_off():
+    """001 FR-018: a reduced-motion block turns transitions and animations off; the app has no motion of its own."""
+    css, script = _style_css(), _app_js()
+    motion = css[css.index("@media (prefers-reduced-motion: reduce)"):]
+    motion = motion[:motion.index("\n}")]
+    assert "transition: none !important" in motion and "animation: none !important" in motion
+    assert 'behavior: "smooth"' not in script and "@keyframes" not in css
+    assert "cursorBlink: !reducedMotion()," in script
+
+
+def test_the_phone_header_is_new_and_menu():
+    """001 FR-007, FR-008: at 760 px or less the header has only "New" and "Menu", Menu holds the navigation, Needs you
+    and the user line, and the Steward is a floating button opening a sheet."""
+    script = _app_js()
+    assert 'const PHONE = "(max-width: 760px)";' in script
+    hub = _component(script, "Hub")
+    phone = hub[hub.index("const header = phone ?"):hub.index(": html`<header class=\"top\">")]
+    assert re.findall(r"<button|<\$\{(\w+)\}", phone) == ["", "MenuButton"], "one button (New) and the Menu button"
+    assert "＋ New</button>" in phone and 'aria-label="New work"' in phone
+    menu = _component(script, "MenuSheet")
+    assert "showModal()" in menu and "NAV.map" in menu and "aria-current" in menu
+    assert "<${NeedsButton} asks=${asks} before=${close} />" in menu and "<${UsageMeter} />" in menu and "host.user" in menu
+    button = _component(script, "MenuButton")
+    assert "needsState(c)" in button and 'data-waits=${state === "blocking" ? "" : undefined}' in button and "aria-label=${`Menu${waits}`}" in button
+    assert "const [menu, setMenu] = useSheet(route.path, phone);" in hub  # closes with the view and when the width leaves phone width
+    steward = _component(script, "Steward")
+    assert 'class="dock-s steward-fab"' in steward and "<${StewardSheet}" in steward
+    # On a phone the sheet opens and closes without touching the wide panel's choice per view.
+    assert "if (phone) return setSheet(next ? null : view);" in steward
+    assert "showModal()" in _component(script, "StewardSheet")
+
+
+
+_HOOKS = """
+// A minimal hooks runtime: enough for useState and useEffect, with effects run after each render and renders repeated
+// until nothing changes.
+let slots = [], cursor = 0, dirty = false, pending = [], cleanups = [];
+function useState(init) {
+  const k = cursor++;
+  if (!(k in slots)) slots[k] = typeof init === "function" ? init() : init;
+  return [slots[k], (v) => { if (slots[k] !== v) { slots[k] = v; dirty = true; } }];
+}
+function useEffect(fn, deps) {
+  const k = cursor++, prev = slots[k];
+  if (!deps || !prev || deps.some((d, i) => d !== prev[i])) {
+    pending.push(() => { if (cleanups[k]) cleanups[k](); const c = fn(); cleanups[k] = typeof c === "function" ? c : null; });
+    slots[k] = deps;
+  }
+}
+function render(component) {
+  let out;
+  do {
+    dirty = false; cursor = 0; out = component();
+    const run = pending; pending = []; run.forEach((f) => f());
+  } while (dirty || pending.length);
+  return out;
+}
+"""
+
+
+def test_the_phone_state_and_the_sheets_run_in_node():
+    """Review 47: usePhone on a stubbed matchMedia, and a sheet that is closed by a new view and by the width leaving phone
+    width, run for real rather than searched for in the source."""
+    if not shutil.which("node"):
+        pytest.skip("node isn't installed")
+    script = _app_js()
+    src = _HOOKS + 'const PHONE = "(max-width: 760px)";\n' + _component(script, "usePhone") + "\n" + _component(script, "useSheet")
+    code = src + """
+// One live list, as a browser has: its matches changes and then it fires change.
+let listeners = [];
+const list = { matches: true, addEventListener: (t, f) => t === "change" && listeners.push(f), removeEventListener: (t, f) => { listeners = listeners.filter((l) => l !== f); } };
+globalThis.window = { matchMedia: () => list };
+const width = (to) => { list.matches = to; listeners.forEach((f) => f()); };
+const log = [];
+let view = "Work", set;
+const page = () => { const phone = usePhone(); const [sheet, setSheet] = useSheet(view, phone); set = setSheet; return { phone, sheet }; };
+let now = render(page); log.push(["starts on a phone", now.phone, now.sheet]);
+set("Work"); now = render(page); log.push(["opened", now.phone, now.sheet]);
+view = "Sessions"; now = render(page); log.push(["new view", now.phone, now.sheet]);
+set("Sessions"); now = render(page); log.push(["opened again", now.phone, now.sheet]);
+width(false); now = render(page); log.push(["wide", now.phone, now.sheet]);
+width(true); now = render(page); log.push(["phone again", now.phone, now.sheet]);
+console.log(JSON.stringify(log));
+"""
+    log = json.loads(subprocess.run(["node", "-e", code], capture_output=True, text=True, check=True).stdout)
+    assert log == [["starts on a phone", True, None], ["opened", True, "Work"], ["new view", True, None],
+                   ["opened again", True, "Sessions"], ["wide", False, None], ["phone again", True, None]]
