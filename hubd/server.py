@@ -61,7 +61,7 @@ WORK_TOOL_OPS = {"work.offer": "plan_work", "work.suggest": "suggest_session", "
 STEWARD = "steward"
 DIRECT_ORIGIN = {"launch": None, "from": None, "by": "you"}  # a session you started with the one click or the advanced form: no Launch record behind it
 RESULT_TOOL_OPS = {"result.submit": "submit_result", "result.report": "read_report"}  # By a session's own token, checked like WORK_TOOL_OPS
-NOTES_TOOL_OPS = {"notes_tool.find": "notes_find"}  # By any session's own token, or a hub shell's: notes are for agents to read
+NOTES_TOOL_OPS = {"notes_tool.find": "notes_find"}  # By the own token of a session whose list has it, or a hub shell's
 ITEM_OBJECTS = ("issue", "pr", "run")  # what a Launch's covered items can be (005 FR-011)
 KIND_WORDS = {"issue": "an issue", "pr": "a pull request", "run": "a run", "repo": "a repository", "project": "the whole project",
               "knowledge": "a question", "notes": "the notes"}
@@ -572,8 +572,8 @@ class Hubd:
         return {"ok": False, "error": f"unknown request: {op}"}
 
     async def notes_tool(self, req: dict) -> dict:
-        """notes_find, for any session: the notes are kept for agents to read (SECURITY.md, Notes). A session's own token
-        whose list has the tool (every action's does; a full session's list is open), or the general token a hub shell holds."""
+        """notes_find: the notes are kept for agents to read (SECURITY.md, Notes). A session's own token whose list has the tool
+        (the library puts it on the actions that only read; a full session's list is open), or the general token a hub shell holds."""
         token = req.get("agent_token")
         scope = self.agents.scope(token) if self.agents else None
         shell = isinstance(token, str) and auth.same(token, self.agent_token)

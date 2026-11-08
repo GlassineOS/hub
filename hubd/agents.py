@@ -76,7 +76,7 @@ for _tools in PLANNER_TOOLS.values():
     _tools.append("notes_find")  # what earlier sessions found, before planning the same work again
 # What an action can be about with no repository: the whole project (the Steward), or a question (008 FR-007).
 NO_REPO_OBJECTS = ("project", "knowledge", "notes")
-# The notes search. Every session and planner has it: the notes are kept for agents to read (SECURITY.md, Notes).
+# The notes search: for sessions and planners that can't carry a note out, which the library decides (SECURITY.md, Notes).
 NOTES_TOOL = "notes_find"
 # Read-only checkouts that live with the session: a pull request's head, or a repository's default branch.
 _DETACHED = ("pr", "default")
@@ -215,6 +215,14 @@ def _full(action: dict) -> bool:
     return action.get("access") == "full"
 
 
+def _may_search_notes(action: dict) -> bool:
+    """Who gets the notes search among locked actions: one that only reads, and so can't carry a note out. No shell and no
+    tool that writes or posts (`comment_issue`, `comment_pr`, `create_issue` ...), nothing that asks first. What it reads
+    leaves only in what it hands in, which you read before anything happens (SECURITY.md, Notes)."""
+    return (not _full(action) and isinstance(action.get("hub_tools"), list) and not action.get("asks_first")
+            and set(action.get("tools", ())) <= READING_TOOLS and not set(action["hub_tools"]) - READS_ONLY - {"submit_drafts"})
+
+
 def _session_scope(name: str, config: dict, full: bool, all_repos: bool = False, asks_first=(), instance=None) -> dict:
     # A full session has your rights, so a tool list wouldn't hold it to anything.
     # instance: this session and no other that gets its name later (the Steward's is always steward). The Claude session id.
@@ -291,10 +299,11 @@ class Library:
         self.root = root
         self.actions = {p.stem: {**tomllib.loads(p.read_text()), "id": p.stem}
                         for p in sorted((root / "actions").glob("*.toml"))}
-        # Every session can search the notes: they're kept for agents to read (SECURITY.md, Notes). A full session has no
-        # list to add it to: hubd lets it use any tool.
+        # The notes are kept for agents to read (SECURITY.md, Notes), so a locked action that only reads gets the search. One that
+        # can post, send or ask first doesn't: nothing technical stops a steered session putting a note in public. A full
+        # session has no list to add it to: hubd lets it use any tool.
         for action in self.actions.values():
-            if isinstance(action.get("hub_tools"), list) and NOTES_TOOL not in action["hub_tools"] and not _full(action):
+            if NOTES_TOOL not in action.get("hub_tools", ()) and _may_search_notes(action):
                 action["hub_tools"] = [*action["hub_tools"], NOTES_TOOL]
         self.families = tomllib.loads((root / "personas" / "families.toml").read_text())
         self._check()
@@ -327,6 +336,9 @@ class Library:
             if not isinstance(result_tools, list) or set(result_tools) - set(APPLY_TOOLS.get(action["result"], ())):
                 raise LibraryError(f"actions/{action['id']}.toml: result_tools for a {action['result']} result are among "
                                    f"{', '.join(APPLY_TOOLS.get(action['result'], ())) or 'none'}")
+            if NOTES_TOOL in action.get("hub_tools", ()) and not _may_search_notes(action):  # listed by hand, on an action that can post
+                raise LibraryError(f"actions/{action['id']}.toml: {NOTES_TOOL} is for a locked action that only reads: no shell, no write "
+                                   "or post tool, nothing that asks first")
             verb = action.get("verb")
             if verb is None:
                 continue

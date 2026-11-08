@@ -1133,6 +1133,7 @@ def test_a_session_asks_before_it_uses_the_advisor(tmp_path, remote):
 def test_every_kind_of_agent_gets_the_private_rule(tmp_path, remote):
     rule = LIBRARY.text(".", "private")
     assert "stays out of anything written to a public one" in rule
+    assert "in the notes" in rule and "put differently" in rule  # a note, and its paraphrase: not only a private repository
     a = agents(tmp_path, clone_base=remote)
     a.shells = FakeShells()
     name = asyncio.run(a.start(good()))["name"]

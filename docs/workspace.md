@@ -349,8 +349,9 @@ isn't on GitHub at all. Notes and artifacts stay on this host. Captures can hold
 
 | Who | Artifacts | Notes, archive search | Tools (`workspace`) |
 |---|---|---|---|
-| Locked session or planner (can post) | Out of reach: file tools stop at its folder and checkout, given the settings check under Memory and the symlink check below | `notes_find`, read only (planners too); a session that posts could quote a note, so the tool says not to | Like any private repository |
-| Steward (no shell, each write asks first) | No tool | `notes_find`, read only | Like any private repository |
+| Locked session that can post, send or ask first (`issue-triage`, `pr-security-audit`, `pr-review`) | Out of reach: file tools stop at its folder and checkout, given the settings check under Memory and the symlink check below | No tool: nothing checks a comment before it posts, so it could put a note in public | Like any private repository |
+| Locked session that only reads and hands in (`notes-compact`, `notes-sweep`, `knowledge-research`, the `new-*` drafters), and a planner | Out of reach, as above | `notes_find`, read only; it gets out only in what it hands in, which you read before applying or filing | Like any private repository |
+| Steward (no shell, each write asks first) | No tool | No tool (Decision 4) | Like any private repository |
 | Full session | Your rights: readable | Readable, as files | Readable, and it runs the tools |
 | App container | Not mounted | Nothing, except the Notes query, with a login | Through hubd, as today |
 
@@ -398,9 +399,11 @@ All decided. Each keeps its reasons, as later work may need to reopen one.
    answers the session, and isn't a go.
 3. **`notes` on GitHub at all, even private?** Decided: no, local only, beside artifacts. Once text is on GitHub
    it's out, and the scan catches patterns, not a pasted dump or diary.
-4. **May sessions search notes?** Decided: yes, every session, planner and the Steward, through `notes_find`. Reading
-   them is what notes are for. What needs care is a note leaving through a public post, which is guarded where it posts,
-   as for any private text a session reads (`SECURITY.md`, Notes).
+4. **May sessions search notes?** Decided: those that can't carry a note out. A locked session that only reads and hands in
+   has `notes_find`, and so does a planner. One that can post or send (`comment_issue`, `comment_pr`, a shell with the
+   internet) or asks first, the Steward among them, doesn't: nothing checks a comment before it posts (the safety scan sees only
+   git, and cards exist only for the Steward's writes). The library decides it from the action's own tools, so a new action
+   doesn't get the tool by being new (`SECURITY.md`, Notes).
 5. **New repositories for this?** Decided: none. Tools go in `workspace`, and notes and artifacts are folders in it that
    it ignores. Tools can split out later if they outgrow it.
 6. **Archive processing's budget and first area?** Decided: Sonnet, a token cap on each run, no overall budget. It starts

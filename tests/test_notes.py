@@ -428,30 +428,81 @@ def test_every_op_is_one_the_real_notes_tool_takes(real_tool):
 
 class NotesAgents(Agents):
     SCOPES = {**Agents.SCOPES, "compact-token": {"session": "notes-compact", "tools": ["notes_find", "submit_result"], "persona": "archivist"},
-              "steward-token": {"session": "steward", "tools": ["notes_find", "docs_search"], "persona": "steward"},
-              "issue-token": {"session": "issue-triage-boot-3", "tools": ["notes_find", "get_issue"], "persona": "triager"},
+              "steward-token": {"session": "steward", "tools": ["docs_search"], "persona": "steward"},
+              "issue-token": {"session": "issue-triage-boot-3", "tools": ["get_issue"], "persona": "triager"},
               "old-token": {"session": "old", "tools": ["get_issue"], "persona": "triager"}}
     library = LIBRARY
 
 
-def test_every_session_searches_the_notes(tmp_path, workspace):
-    """The notes are kept for agents to read: any session's token, a full session's, or a hub shell's."""
+def test_a_session_whose_list_has_the_search_uses_it(tmp_path, workspace):
+    """hubd goes by the token's own list: the library decides which actions list the tool. A full session's list is open, and
+    a hub shell holds the general token."""
     hubd, _login = world(tmp_path, workspace)
     hubd.agents = NotesAgents()
-    for token in ("compact-token", "steward-token", "issue-token", "full-token", "general-token"):
+    for token in ("compact-token", "full-token", "general-token"):
         reply = call(hubd, op="notes_tool.find", agent_token=token, words="fault")
         assert reply["ok"] and reply["rows"], token
-    # Not a session's token, or a list from before the tool (a session still running with its frozen list).
-    for token in ("old-token", "nope", None):
+    # An action that can post or plan has no tool in its list, and hubd doesn't hand it one: nor does an unknown token.
+    for token in ("steward-token", "issue-token", "old-token", "locked-token", "nope", None):
         assert call(hubd, op="notes_tool.find", agent_token=token, words="fault")["refused"], token
     # And not the page's query: that one stays behind the login.
-    assert call(hubd, op="notes.find", agent_token="steward-token", words="fault")["denied"]
+    assert call(hubd, op="notes.find", agent_token="compact-token", words="fault")["denied"]
 
 
-def test_every_action_lists_the_notes_search(tmp_path):
-    from hubd.agents import _full
-    assert all("notes_find" in a["hub_tools"] for a in LIBRARY.actions.values() if not _full(a))  # a full session's list is open
-    assert "notes_find" in LIBRARY.action("project-steward")["hub_tools"]
+def test_the_notes_search_is_on_the_actions_that_only_read():
+    """The tool is added to a locked action that can't carry a note out: no shell, no write or post tool, nothing that asks
+    first. One that can post or send never has it (SECURITY.md, Notes)."""
+    from hubd.agents import _full, _may_search_notes
+    for action in LIBRARY.actions.values():
+        assert ("notes_find" in action.get("hub_tools", ())) == _may_search_notes(action), action["id"]
+        if _full(action):  # a full session has no list: hubd lets it use any tool
+            assert "notes_find" not in action.get("hub_tools", ())
+    for reads in ("notes-compact", "notes-sweep", "knowledge-research", "new-issue", "new-security-audit"):
+        assert "notes_find" in LIBRARY.action(reads)["hub_tools"], reads
+    # The ones that read an outsider's text and post (comment_issue, comment_pr), or have a shell with the internet, or ask first.
+    for posts in ("issue-triage", "pr-security-audit", "pr-review", "project-steward"):
+        assert "notes_find" not in LIBRARY.action(posts)["hub_tools"], posts
+    assert "comment_issue" in LIBRARY.action("issue-triage")["hub_tools"] and "comment_pr" in LIBRARY.action("pr-security-audit")["hub_tools"]
+    assert "Bash" in LIBRARY.action("pr-review")["tools"] and LIBRARY.action("project-steward")["asks_first"]
+
+
+def _copy_of_the_library(tmp_path):
+    root = tmp_path / "agents"
+    shutil.copytree(Path(__file__).resolve().parents[1] / "agents", root)
+    return root
+
+
+def test_the_library_adds_the_search_only_where_it_cant_carry_a_note_out(tmp_path):
+    """An action added later with a post tool, a shell or a card to ask doesn't pick the tool up by being new."""
+    root = _copy_of_the_library(tmp_path)
+    base = (root / "actions" / "new-issue.toml").read_text()
+    variants = {"posts": base.replace('"submit_drafts"]', '"submit_drafts", "comment_issue"]'),
+                "writes": base.replace('"submit_drafts"]', '"submit_drafts", "create_issue"]'),
+                "shell": base.replace('tools = ["Read", "Grep", "Glob", "AskUserQuestion"]', 'tools = ["Read", "Grep", "Glob", "AskUserQuestion", "Bash"]'),
+                "asks": base + 'asks_first = ["comment_issue"]\n'}
+    for name, text in variants.items():
+        assert text != base, name
+        (root / "actions" / f"x-{name}.toml").write_text(text.replace('verb = "issue"', f'verb = "{name}"'))
+    (root / "actions" / "x-reads.toml").write_text(base.replace('verb = "issue"', 'verb = "reads"'))
+    library = Library(root)
+    assert "notes_find" in library.action("x-reads")["hub_tools"]
+    for name in variants:
+        assert "notes_find" not in library.action(f"x-{name}")["hub_tools"], name
+
+
+def test_the_library_refuses_a_hand_listed_search_on_an_action_that_can_post(tmp_path):
+    root = _copy_of_the_library(tmp_path)
+    action = root / "actions" / "notes-compact.toml"
+    good = action.read_text()
+    for bad in (good.replace('"submit_result"]', '"submit_result", "comment_issue"]'), good + 'asks_first = ["comment_issue"]\n',
+                good.replace('tools = ["AskUserQuestion"]', 'tools = ["AskUserQuestion", "Bash"]'),
+                good + 'access = "full"\n'):
+        assert bad != good
+        action.write_text(bad)
+        with pytest.raises(LibraryError, match="notes_find"):
+            Library(root)
+    action.write_text(good)
+    Library(root)  # as it ships, it loads
 
 
 def test_totals_come_from_the_last_search_and_say_so(tmp_path, workspace):
