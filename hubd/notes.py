@@ -16,7 +16,6 @@ import json
 import os
 import re
 import sys
-import unicodedata
 from pathlib import Path
 
 TOOL = Path("tools") / "notes"
@@ -37,9 +36,13 @@ MAX_IDS = 10
 MAX_OP_WORDS = 2000
 MAX_WHY = 500
 # 009 FR-006: what a session may propose, each mapped to one invocation of the tool. merge and distil are a supersede by
-# another name: the new text replaces the first note and rests on all of them. None of them deletes: what's replaced,
-# retracted or closed goes to the topic's Log, marked, as the tool keeps it.
+# another name: the new text replaces the first note named and rests on the others, which stay in Current. It can't rest on
+# the one it replaces, which goes to Log as it's written, so the tool's lint would refuse it; and with nothing else to rest
+# on it would need seen or the person's word, which a session that only reads the notes has neither of. So each names at
+# least two. An open item a session adds is its guess (the tool wants provenance for one). None of them deletes: what's
+# replaced, retracted or closed goes to the topic's Log, marked, as the tool keeps it.
 OPS = ("supersede", "merge", "distil", "retract", "answer", "add")
+_REPLACING = ("supersede", "merge", "distil")
 _OP_FIELDS = {"supersede": ({"op", "topic", "ids", "words"}, {"why"}), "merge": ({"op", "topic", "ids", "words"}, {"why"}),
               "distil": ({"op", "topic", "ids", "words"}, {"why"}), "retract": ({"op", "topic", "ids", "by", "why"}, set()),
               "answer": ({"op", "topic", "ids", "why"}, set()), "add": ({"op", "topic", "words"}, {"open", "why"})}
@@ -50,6 +53,10 @@ NO_STATE = "no state given"  # a row is never shown as if it were a fact
 
 class NotesError(Exception):
     pass
+
+
+class NotesUnknown(NotesError):
+    """A write that was stopped before the tool answered: it may or may not have gone in."""
 
 
 def words_of(value) -> list[str]:
@@ -101,10 +108,12 @@ class OpError(Exception):
 
 
 def _one_line(value, what: str, limit: int) -> str:
+    from .agents import _draws_nothing  # here, not at the top: agents imports results, which imports this module
     if not isinstance(value, str) or not value.strip() or len(value) > limit or "\0" in value:
         raise OpError(f"{what} is text of 1 to {limit} characters")
-    # The card shows every op's words: nothing in them may be hidden from you (as agents.py holds messages to).
-    if any(c not in "\n\t" and unicodedata.category(c) in ("Cc", "Cf", "Co", "Cs", "Cn", "Zl", "Zp") for c in value):
+    # The card shows every op's words, and they go into the shared notes: nothing in them may be hidden from you. The same
+    # test agents.py holds messages to, with the blanks no category gives away (U+2800, U+3164, variation selectors).
+    if any(_draws_nothing(c) for c in value):
         raise OpError(f"{what} can't hold control characters or invisible ones")
     return " ".join(value.split())
 
@@ -128,6 +137,9 @@ def clean_op(op) -> dict:
             raise OpError(f"ids are 1 to {MAX_IDS} different note ids, as cN")
         if op["op"] in ("retract", "answer") and len(ids) != 1:
             raise OpError(f"{op['op']} is about one note")
+        if op["op"] in _REPLACING and len(ids) < 2:
+            raise OpError(f"{op['op']} names the note it replaces, then at least one current note the new words rest on: "
+                          "a note can't rest on the one it replaces")
         out["ids"] = list(ids)
     if "by" in required:
         if not isinstance(op["by"], str) or not _ID_RE.fullmatch(op["by"]) or op["by"] in out["ids"]:
@@ -147,13 +159,13 @@ def clean_op(op) -> dict:
 def argv_of(op: dict) -> list[str]:
     """The tool's arguments for a clean op. Values follow `=` or `--`, so no text the session wrote can be read as a flag."""
     kind, topic = op["op"], op["topic"]
-    if kind in ("supersede", "merge", "distil"):
-        return ["set", f"--replaces={op['ids'][0]}", f"--inferred={','.join(op['ids'])}", "--", topic, op["words"]]
+    if kind in _REPLACING:
+        return ["set", f"--replaces={op['ids'][0]}", f"--inferred={','.join(op['ids'][1:])}", "--", topic, op["words"]]
     if kind == "retract":
         return ["set", f"--retract={op['ids'][0]}", f"--by={op['by']}", f"--why={op['why']}", "--", topic]
     if kind == "answer":
         return ["set", f"--close={op['ids'][0]}", f"--why={op['why']}", "--", topic]
-    return ["add", *(["--open"] if op.get("open") else []), "--", topic, op["words"]]
+    return ["add", *(["--open", "--guess"] if op.get("open") else []), "--", topic, op["words"]]
 
 
 def command_of(op: dict) -> str:
@@ -171,7 +183,7 @@ class Notes:
         self.timeout = timeout
         self.write_timeout = write_timeout
         self.finding = 0  # searches under way: each brings the tool's index up to date first (009 FR-004)
-        self.last: dict | None = None  # totals of the last search's rows, counts only (009 FR-005)
+        self.last: dict | None = None  # totals of a login's last search's rows, counts only (009 FR-005); never a session's
 
     def missing(self) -> str | None:
         """Words for what isn't there yet, as neither has to be, and this creates neither."""
@@ -186,7 +198,9 @@ class Notes:
         missing = self.missing()
         return {"here": missing is None, "says": missing, "indexing": self.finding > 0}
 
-    async def find(self, words, limit=None) -> dict:
+    async def find(self, words, limit=None, counted: bool = False) -> dict:
+        """`counted` is for a login's search: its counts become the totals. A session's search leaves them as they are, so the
+        flyout never counts what an Archivist looked for."""
         words, limit = words_of(words), limit_of(limit)
         if missing := self.missing():
             return {"here": False, "says": missing, "rows": [], "total": 0, "warnings": []}
@@ -205,32 +219,43 @@ class Notes:
             by_label[row["state"]] = by_label.get(row["state"], 0) + 1
             if row["topic"]:
                 by_topic[row["topic"]] = by_topic.get(row["topic"], 0) + 1
-        self.last = {"by_label": by_label, "by_topic": by_topic, "rows": len(rows[:limit])}
+        if counted:
+            self.last = {"by_label": by_label, "by_topic": by_topic, "rows": len(rows[:limit])}
         return {"here": True, "says": f"{count(int(summary[1]))} from {summary[2]}" if summary else f"{count(len(rows))}",
                 "rows": rows[:limit], "total": int(summary[1]) if summary else len(rows),
                 "warnings": [_capped(line.removeprefix("notes: ")) for line in said if line.startswith("notes: ")][:MAX_WARNINGS]}
 
     async def totals(self) -> dict:
-        """009 FR-005: totals per label and per topic. The tool has no stats command yet, so they're counted from the last
+        """009 FR-005: totals per label and per topic. The tool has no stats command yet, so they're counted from your last
         search's rows here, and `source` says so."""
         if missing := self.missing():
             return {"here": False, "says": missing, "by_label": {}, "by_topic": {}, "source": None, "rows": 0}
         last = self.last or {"by_label": {}, "by_topic": {}, "rows": 0}
         return {"here": True, "says": None, "source": "last-search" if self.last else None, **last}
 
-    async def apply(self, ops: list[dict]) -> list[dict]:
-        """A login's press: each op in order, one tool run each. The first that fails stops the rest, which stay to retry,
-        since a later op may rest on an earlier one."""
+    async def apply(self, ops: list[dict], progress=None) -> list[dict]:
+        """A login's press: each op in order, one tool run each. `progress(n, outcome)` hears each op as it starts (running)
+        and as it ends, so whoever keeps the record has it on disk before the next one runs. The first that fails stops the
+        rest, which stay to retry, since a later op may rest on an earlier one; so does one whose outcome is unknown."""
         if missing := self.missing():
             raise NotesError(missing)
         done = []
-        for op in ops:
+        for n, op in enumerate(ops):
+            if progress:
+                progress(n, {"state": "running", "said": None})
             try:
                 out, err = await self._run(argv_of(op), self.write_timeout)
+            except NotesUnknown as e:
+                outcome = {"state": "unknown", "said": str(e)[-600:]}
             except NotesError as e:
-                done.append({"state": "failed", "said": str(e)[-600:]})
+                outcome = {"state": "failed", "said": str(e)[-600:]}
+            else:
+                outcome = {"state": "applied", "said": (out.strip() or err.strip())[-600:]}
+            if progress:
+                progress(n, outcome)
+            done.append(outcome)
+            if outcome["state"] != "applied":
                 break
-            done.append({"state": "applied", "said": (out.strip() or err.strip())[-600:]})
         return done
 
     async def _run(self, args: list[str], timeout: float) -> tuple[str, str]:
@@ -247,9 +272,9 @@ class Notes:
         try:
             out, err = await asyncio.wait_for(proc.communicate(), timeout)
         except TimeoutError:
-            if args[0] != "find":
-                raise NotesError(f"the notes tool gave no answer in {timeout:g} seconds and was stopped: check the topic with "
-                                 "`notes lint` before applying again") from None
+            if args[0] != "find":  # it may have committed just before: only a look at the topic tells
+                raise NotesUnknown(f"the notes tool gave no answer in {timeout:g} seconds and was stopped, so this may or may "
+                                   "not be in the notes: look at its topic, then say which") from None
             raise NotesError(f"the search gave no answer in {timeout:g} seconds and was stopped. "
                              "The first one builds the index: `notes find` in a terminal has no limit.") from None
         finally:

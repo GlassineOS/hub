@@ -893,6 +893,10 @@ class GitHub:
         reply = await self.hubd.call(op="result.submit", agent_token=CALLER.get(), type=kind, payload=payload)
         return {"handed_in": reply["id"], "waits_for": "the person, who applies it"}
 
+    async def read_report(self, result_id) -> dict:
+        """Under the calling session's token: a kept report it was started with pinned. hubd checks the pin."""
+        return (await self.hubd.call(op="result.report", agent_token=CALLER.get(), id=result_id))["report"]
+
     async def notes_find(self, words, limit=20) -> dict:
         """Under the calling session's token: hubd answers only a session whose action is about the notes."""
         reply = await self.hubd.call(op="notes_tool.find", agent_token=CALLER.get(), words=words, limit=limit)

@@ -45,7 +45,7 @@ from .codemap import UNREADABLE, CodeMaps, MapError
 from .codesearch import CodeSearch, SearchError
 from .ghpolicy import ORG, Refused
 from .history import History
-from .results import APPLY_TOOLS
+from .results import APPLY_TOOLS, HANDED_IN
 from .seeds import SeedError, Seeds, remove_tree
 from .shells import ShellError, Shells
 
@@ -129,7 +129,7 @@ HUB_SENDER = "@hub"  # who a ping is from: not a valid session name, so it can't
 # asks first until someone has looked at it.
 READS_ONLY = {"overview", "rate_limit", "run_history", "roadmap", "list_issues", "get_issue", "list_prs", "get_pr", "get_pr_threads",
               "get_pr_diff", "get_pr_diff_summary", "list_runs", "get_run", "get_run_log", "list_workflows", "work_search", "work_status",
-              "docs_search", "docs_index_status", "plan_work", "submit_result", *REPO_TOOLS}  # submit_result: a result waits for you too
+              "docs_search", "docs_index_status", "plan_work", "submit_result", "read_report", *REPO_TOOLS}  # submit_result: a result waits for you too
 READING_TOOLS = {"Read", "Grep", "Glob", "Skill", "AskUserQuestion"}
 # Marks and fillers that draw nothing but aren't format characters: variation selectors can carry a hidden byte each.
 _BLANKS = {0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x2800, 0x3164, 0xFFA0}
@@ -151,7 +151,11 @@ OLD_SCREENS = {"Docs": "Knowledge"}
 def screen_of(screen):
     return OLD_SCREENS.get(screen, screen) if isinstance(screen, str) else screen
 SEEN_KINDS = ("issue", "pull request", "run")
-_SELECTION_RE = re.compile(r"[A-Za-z0-9._-]+#[0-9]+")
+# Names as long as GitHub allows (100), and ids as long as an int64 (a run's are already 11 digits): a link fills these, and
+# they join every turn as the hub's own words, so a crafted sentence-length name doesn't fit.
+MAX_REPO_NAME = 100
+_SELECTION_RE = re.compile(rf"[A-Za-z0-9._-]{{1,{MAX_REPO_NAME}}}#[0-9]{{1,20}}")
+_SEEN_REPO_RE = re.compile(rf"\.?[A-Za-z0-9_][A-Za-z0-9._-]{{0,{MAX_REPO_NAME - 1}}}")  # .github is a repository
 MAX_SEEN_REPOS = 10  # as many as Knowledge lets you choose
 SEES_NAMED = 3  # more than this are told, and shown, only as a count (010 FR-004)
 SEND_POLL = 1  # seconds, while something waits to be sent
@@ -161,7 +165,8 @@ MAX_SUMMARY = 6000  # characters of a started session's own words
 MAX_NOTES = 4000
 MAX_PINS = 12
 MAX_PIN = 1000
-PIN_KINDS = ("ref", "file", "docs", "url", "text", "thread")
+PIN_KINDS = ("ref", "file", "docs", "url", "text", "thread", "report")
+_REPORT_PIN_RE = re.compile(r"r-[0-9a-f]{12}")  # a report pin is a kept report's id, which read_report gives this session alone
 MAX_REPO_MAP = 40_000  # bytes of file names: a big repository is cut, and the planner is told
 MAX_REQUEST = 100_000  # bytes; the request is one argument, and Linux allows 131072
 
@@ -212,8 +217,10 @@ def _full(action: dict) -> bool:
 def _session_scope(name: str, config: dict, full: bool, all_repos: bool = False, asks_first=(), instance=None) -> dict:
     # A full session has your rights, so a tool list wouldn't hold it to anything.
     # instance: this session and no other that gets its name later (the Steward's is always steward). The Claude session id.
+    # reports: the kept reports the person pinned when starting it, the only ones read_report gives it (008 FR-008).
     return {"session": name, "instance": instance, "tools": None if full else [*config["hub_tools"], *asks_first],
-            "persona": config["persona"], "all_repos": all_repos, "asks_first": list(asks_first)}
+            "persona": config["persona"], "all_repos": all_repos, "asks_first": list(asks_first),
+            "reports": [p["label"] for p in config.get("pins", ()) if p["kind"] == "report"]}
 
 
 REMOVE_AFTER_DAYS = 7
@@ -237,7 +244,7 @@ def _check_repos(repos) -> list[str]:
         return []
     if not isinstance(repos, list) or len(repos) > MAX_SEEN_REPOS:
         raise AgentError(f"repos is a list of at most {MAX_SEEN_REPOS} names")
-    if not all(isinstance(r, str) and _REPO_RE.fullmatch(r) for r in repos) or len(set(repos)) != len(repos):
+    if not all(isinstance(r, str) and _SEEN_REPO_RE.fullmatch(r) for r in repos) or len(set(repos)) != len(repos):
         raise AgentError("not a repository name, or one named twice")
     return repos
 
@@ -315,11 +322,17 @@ class Library:
                 raise LibraryError(f"actions/{action['id']}.toml: result_tools for a {action['result']} result are among "
                                    f"{', '.join(APPLY_TOOLS.get(action['result'], ())) or 'none'}")
             if NOTES_TOOL in action["hub_tools"]:
-                beyond = set(action["hub_tools"]) - READS_ONLY - {NOTES_TOOL, "submit_drafts"}
+                # What it reads leaves only in what it hands in, which a login reads first. So it hands in, through the tool for
+                # its result, and has no other way out: no shell, write or post tool, and not plan_work, which is read-only but
+                # whose notes reach a planner as yours once you press Start (SECURITY.md, Notes).
+                beyond = set(action["hub_tools"]) - (READS_ONLY - {"plan_work"}) - {NOTES_TOOL, "submit_drafts"}
+                hand_in = "submit_drafts" if action["result"] == "drafts" else "submit_result"
+                hands_in = action["result"] in (*HANDED_IN, "drafts") and hand_in in action["hub_tools"]
                 if action["object"] != "notes" or _full(action) or beyond or action.get("asks_first") or action.get("all_repos") \
-                        or set(action["tools"]) - READING_TOOLS:
+                        or set(action["tools"]) - READING_TOOLS or not hands_in:
                     raise LibraryError(f"actions/{action['id']}.toml: {NOTES_TOOL} is for a locked action about the notes that only reads "
-                                       f"and hands in{': not ' + ', '.join(sorted(beyond)) if beyond else ''}")
+                                       f"and hands in{': not ' + ', '.join(sorted(beyond)) if beyond else ''}"
+                                       f"{'' if hands_in else f': its result is handed in with {hand_in}, and it lists it'}")
             verb = action.get("verb")
             if verb is None:
                 continue
@@ -415,6 +428,8 @@ def validate(library: Library, config) -> dict:
             isinstance(p, dict) and set(p) == {"kind", "label"} and p["kind"] in PIN_KINDS
             and isinstance(p["label"], str) and 0 < len(p["label"]) <= MAX_PIN for p in pins):
         raise AgentError(f"pins must be at most {MAX_PINS}, each a kind and a label of at most {MAX_PIN} characters")
+    if any(p["kind"] == "report" and not _REPORT_PIN_RE.fullmatch(p["label"]) for p in pins):
+        raise AgentError("a report pin is a report's id, r- and 12 hex digits")
     covers = _covers(action, config, repo, number)
     also = config.get("also_repos", [])
     if not isinstance(also, list):
@@ -616,6 +631,7 @@ class Agents:
         self._sends: dict[str, list[str]] = {}
         self._senders: dict[str, asyncio.Task] = {}
         self._lost: dict[str, str] = {}
+        self._told: dict[str, tuple[str, list[dict]]] = {}  # session -> the context line hubd last wrote, and its chips
         self._from: dict[str, list[str | None]] = {}  # who each queued message is from, in step with _sends: None is the person
         self.home = state_dir / "home"       # the one directory agents run from
         self.sessions = state_dir / "sessions"
@@ -1548,7 +1564,18 @@ class Agents:
         ended = not live or (directory / ENDED_FILE).exists()
         return {"name": name, "state": self._state_word(directory, ended), "queued": len(self._sends.get(name, ())),
                 "lost": self._lost.get(name),
-                "model": self.describe(name)["model"]}
+                "model": self.describe(name)["model"], "sees": self._sees_now(name)}
+
+    def _sees_now(self, name) -> list[dict] | None:
+        """The chips for the line the session's turns get now (010 FR-004). It's one file per session and the last page
+        to write it wins, so a page shows these rather than its own last answer. None when hubd can't vouch for the file:
+        nothing written since hubd started, or it changed since. The folder is the session's own, so it's read as
+        _small_file reads, and only compared: what it holds never reaches the page."""
+        told = self._told.get(name)
+        if told is None:
+            return None
+        line, chips = told
+        return chips if _small_file(self.sessions / name / CONTEXT_FILE, len(line.encode()) + 1) == line else None
 
     async def _send_next(self, name) -> None:
         """One at a time per session, from the look at its state to the paste. Asking tmux about the prompt takes a while, and a
@@ -1688,7 +1715,9 @@ class Agents:
         _check_seen(kind, selection)
         chips = sees(screen, kind, selection, _check_repos(repos))
         if self.is_session(name):
-            (self.sessions / name / CONTEXT_FILE).write_text(sees_line(chips))
+            line = sees_line(chips)
+            (self.sessions / name / CONTEXT_FILE).write_text(line)
+            self._told[name] = (line, chips)
         return {"sees": chips}
 
     def check_message(self, by, name, text) -> None:

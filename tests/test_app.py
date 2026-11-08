@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 import tomllib
+import types
 import urllib.request
 from pathlib import Path
 
@@ -1303,6 +1304,9 @@ def test_notes_page_in_the_page():
     assert 'NO_REPO = ["knowledge", "notes"]' in script
     view = _component(script, "ResultView")
     assert 'r.type === "notes"' in view and "o.command" in view and "Apply this one" in view and "Nothing is deleted" in view
+    # one that may be in already runs again only once you've said it isn't there
+    assert 'answer("resolve", { index: n, found: true })' in view and 'answer("resolve", { index: n, found: false })' in view
+    assert 'o.state === "pending" || o.state === "failed"' in view
 
 
 def test_decision_tools_send_only_the_sessions_token(hubd, github):
@@ -1709,6 +1713,8 @@ def test_results_and_the_background_go_through_to_hubd_for_a_login():
     assert seen[-1] == {"op": "result.list", "token": "good", "type": "comment", "kept": True, "session": "s1", "after": None}
     assert client.post("/api/results/r-0123456789ab/apply", json={"indexes": [0]}, headers=ORIGIN).status_code == 200
     assert seen[-1] == {"op": "result.apply", "token": "good", "id": "r-0123456789ab", "indexes": [0]}
+    assert client.post("/api/results/r-0123456789ab/resolve", json={"index": 1, "found": False}, headers=ORIGIN).status_code == 200
+    assert seen[-1] == {"op": "result.resolve", "token": "good", "id": "r-0123456789ab", "index": 1, "found": False}
     assert client.post("/api/results/r-0123456789ab/post", json={}, headers=ORIGIN).status_code == 400
     assert client.post("/api/results/r-0123456789ab/dismiss", json={}).status_code == 403  # same origin only
     assert client.post("/api/new-work/0123456789ab/background", json={"on": True}, headers=ORIGIN).status_code == 200
@@ -2350,8 +2356,8 @@ class KnowledgeHub:
     def __init__(self, rows=None, fail=None):
         self.rows = rows if rows is not None else [
             {"kind": "issue", "repo": "hub", "number": 3, "title": "LUT version 3 ships", "state": "OPEN", "url": "u3",
-             "passage": "Why LUT version 3: the panel needs it", "meaning": 0.62, "words": 1.0},
-            {"kind": "pr", "repo": "secret", "number": 9, "title": "LUT", "state": "OPEN", "url": "u9", "passage": "x", "meaning": 0.9, "words": 1.0}]
+             "passage": "Why LUT version 3: the panel needs it", "meaning": 0.62},
+            {"kind": "pr", "repo": "secret", "number": 9, "title": "LUT", "state": "OPEN", "url": "u9", "passage": "x", "meaning": 0.9}]
         self.fail = fail
         self.asked = []
 
@@ -2360,22 +2366,35 @@ class KnowledgeHub:
 
     async def work_search(self, query, kind=None, repo=None, state=None, k=8):
         self.asked.append((query, repo, state))
+        self.k = k
         if self.fail:
             raise BadRequest(self.fail)
-        return {"results": [r for r in self.rows if not repo or r["repo"] == repo]}
+        words = [w for w in re.findall(r"\w+", query.lower()) if len(w) > 1]
+        share = lambda r: sum(w in f"{r['title']}\n{r.get('full', r['passage'])}".lower() for w in words) / max(len(words), 1)
+        return {"results": [{**r, "words": r.get("words", round(share(r), 3))} for r in self.rows if not repo or r["repo"] == repo]}
 
     def work_status(self):
-        return {"enabled": True, "ready": True, "running": False, "error": None, "synced_at": 1.0, "counts": {"issue": 4, "pr": 2, "passages": 90}}
+        return {"enabled": True, "ready": True, "running": False, "error": None, "synced_at": 1.0,
+                "counts": {"issue": 4, "pr": 2, "run": 30, "passages": 90}}
 
 
 class KnowledgeDocs:
-    def __init__(self, fail=False):
-        self.fail = fail
+    """The docs search as it scores: score fuses ranks (2/61 at best), meaning is the cosine."""
+    def __init__(self, fail=False, meaning=0.55, text="The LUT version is 3."):
+        self.fail, self.meaning, self.text = fail, meaning, text
+        self.exact_asked = 0
+
+    def _rows(self):
+        return [{"title": "Display", "heading": "LUT", "score": 0.0325, "meaning": self.meaning, "url": "https://docs.glassine.org/d#lut", "text": self.text}]
 
     async def search(self, q, k=5):
         if self.fail:
             raise RuntimeError("no index here")
-        return {"results": [{"title": "Display", "heading": "LUT", "score": 0.2, "url": "https://docs.glassine.org/d#lut", "text": "The LUT version is 3."}]}
+        return {"results": self._rows()}
+
+    async def exact(self, q, keep, k=8):
+        self.exact_asked += 1
+        return {"results": [r for r in self._rows() if keep(r)]}
 
     async def status(self):
         if self.fail:
@@ -2420,7 +2439,7 @@ def test_knowledge_repositories_and_open_only_narrow_the_work_items():
 def test_knowledge_no_good_hits_offers_research():
     weak = KnowledgeHub(rows=[{"kind": "issue", "repo": "hub", "number": 1, "title": "t", "state": "OPEN", "url": "u", "passage": "p",
                                "meaning": 0.1, "words": 0.0}])
-    assert asyncio.run(knowledge.search(KnowledgeDocs(), weak, "why LUT version 3"))["good"] is False
+    assert asyncio.run(knowledge.search(KnowledgeDocs(meaning=0.1), weak, "why LUT version 3"))["good"] is False
     exact = asyncio.run(knowledge.search(KnowledgeDocs(), KnowledgeHub(), "panel needs", mode="exact"))
     assert exact["good"] is True and [r["number"] for r in exact["results"]] == [3]  # only the hit with every word
     assert asyncio.run(knowledge.search(KnowledgeDocs(), KnowledgeHub(), "nowhere words", mode="exact"))["good"] is False
@@ -2440,7 +2459,7 @@ def test_knowledge_needs_words_within_limits():
 def test_knowledge_indexes_say_state_and_age():
     rows = {r["id"]: r for r in asyncio.run(knowledge.indexes(KnowledgeDocs(), KnowledgeHub()))}
     assert (rows["docs"]["state"], rows["docs"]["stale"], rows["docs"]["action"], rows["docs"]["can_act"]) == ("ready", True, "reindex", True)
-    assert (rows["work"]["state"], rows["work"]["size"], rows["work"]["action"]) == ("ready", 6, "sync")
+    assert (rows["work"]["state"], rows["work"]["size"], rows["work"]["action"]) == ("ready", 6, "sync")  # issues and PRs, not runs
     assert (rows["code"]["state"], rows["code"]["action"]) == ("planned", None)
     failed = {r["id"]: r for r in asyncio.run(knowledge.indexes(KnowledgeDocs(fail=True), KnowledgeHub()))}
     assert failed["docs"]["state"] == "failed" and "no index here" in failed["docs"]["says"]
@@ -2461,8 +2480,100 @@ def test_knowledge_view_in_the_page():
     flyout = _component(script, "ResearchFlyout")
     assert 'action: "knowledge-research"' in flyout and "Plan a research session…" in flyout and "<${KnowledgeReports} />" in flyout
     assert 'kept: "1"' in _component(script, "KnowledgeReports") and "Follow up…" in _component(script, "KnowledgeReports")
+    assert 'pins: [{ kind: "report", label: r.id }]' in _component(script, "KnowledgeReports")  # by its id, never its text
     assert "Run docs CI now" in _component(script, "KnowledgeIndexes") and "Ingest now" in _component(script, "KnowledgeIndexes")
     assert 'NO_REPO = ["knowledge"' in script and "noRepo" in _component(script, "LaunchBrief")
+
+
+def test_knowledge_judges_docs_by_their_cosine_not_the_fused_rank():
+    # The docs' own score fuses ranks and never passes 2/61; the cosine is what clears GOOD_SCORE (008 FR-006).
+    found = asyncio.run(knowledge.search(KnowledgeDocs(meaning=0.55), KnowledgeHub(), "LUT version", domains="docs"))
+    assert found["good"] is True and found["results"][0]["score"] == 0.55 and found["results"][0]["by"] == "meaning"
+    weak = KnowledgeHub(rows=[{"kind": "issue", "repo": "hub", "number": 1, "title": "LUT", "state": "OPEN", "url": "u", "passage": "p", "meaning": 0.4}])
+    both = asyncio.run(knowledge.search(KnowledgeDocs(meaning=0.55), weak, "LUT version"))
+    assert [r["domain"] for r in both["results"]] == ["docs", "work"]  # one scale for both domains
+    assert asyncio.run(knowledge.search(KnowledgeDocs(meaning=0.2), KnowledgeHub(rows=[]), "LUT version", domains="docs"))["good"] is False
+
+
+def test_knowledge_a_hit_found_only_by_words_ranks_below_any_meaning_score():
+    rows = [{"kind": "issue", "repo": "hub", "number": 1, "title": "LUT version", "state": "OPEN", "url": "u1", "passage": "p", "meaning": None},
+            {"kind": "issue", "repo": "hub", "number": 2, "title": "panel", "state": "OPEN", "url": "u2", "passage": "p", "meaning": 0.35}]
+    found = asyncio.run(knowledge.search(KnowledgeDocs(meaning=None, text="The LUT table"), KnowledgeHub(rows=rows), "LUT version"))
+    assert [(r["domain"], r.get("number")) for r in found["results"]] == [("work", 2), ("work", 1), ("docs", None)]
+    assert found["results"][1]["score"] is None and found["results"][1]["words"] == 1.0 and found["results"][1]["by"] == "words"
+
+
+def test_knowledge_marks_count_utf16_units_as_the_page_slices():
+    text = "🤖 Generated with Claude Code; the LUT version is 3"
+    spans = knowledge.marks(text, "LUT version")
+    utf16 = text.encode("utf-16-le")
+    assert [utf16[2 * a:2 * b].decode("utf-16-le") for a, b in spans] == ["LUT", "version"]
+    assert knowledge.marks("the LUT version", "LUT version") == [[4, 7], [8, 15]]  # plain text: unchanged
+
+
+def test_knowledge_exact_words_on_work_use_the_whole_passage():
+    rows = [{"kind": "issue", "repo": "hub", "number": 1, "title": "t", "state": "OPEN", "url": "u1", "passage": "the start",
+             "full": "the start, and far below it the panel needs a waveform", "meaning": 0.2},
+            {"kind": "issue", "repo": "hub", "number": 2, "title": "t", "state": "OPEN", "url": "u2", "passage": "panel", "meaning": 0.9}]
+    hub = KnowledgeHub(rows=rows)
+    found = asyncio.run(knowledge.search(KnowledgeDocs(), hub, "panel waveform", mode="exact", domains="work"))
+    assert [r["number"] for r in found["results"]] == [1] and hub.k == knowledge.WORK_EXACT_K
+
+
+def test_knowledge_exact_words_on_docs_search_every_passage():
+    docs = KnowledgeDocs()
+    found = asyncio.run(knowledge.search(docs, KnowledgeHub(), "version is", mode="exact", domains="docs"))
+    assert docs.exact_asked == 1 and [r["title"] for r in found["results"]] == ["Display › LUT"]
+
+
+def test_knowledge_exact_needs_a_usable_word():
+    for q in ("C", "?", "a ?"):
+        with pytest.raises(BadRequest, match="two letters"):
+            asyncio.run(knowledge.search(KnowledgeDocs(), KnowledgeHub(), q, mode="exact"))
+    assert asyncio.run(knowledge.search(KnowledgeDocs(), KnowledgeHub(), "C"))["query"] == "C"  # by meaning it can still be asked
+
+
+class ExactSearcher(FakeSearcher):
+    """A docs index whose ranked search finds one passage, though two have every word."""
+    class site(FakeSearcher.site):
+        @staticmethod
+        def url(u):
+            return f"https://docs.glassine.org/{u}"
+
+    chunks = [{"title": "A", "heading": "a", "url": "a", "text": "LUT version table"},
+              {"title": "B", "heading": "b", "url": "b", "text": "no match here"},
+              {"title": "C", "heading": "c", "url": "c", "text": "the version of the LUT"}]
+
+    def search(self, q, k):
+        hit = types.SimpleNamespace(rank=1, score=0.0328, vector_score=0.61, url="https://docs.glassine.org/a", chunk=self.chunks[0])
+        return [hit], 0.001
+
+
+def test_docsearch_exact_finds_what_the_ranked_search_leaves_out(github):
+    docs = DocSearch(github, loader=lambda: ExactSearcher())
+    keep = lambda r: "lut" in r["text"].lower() and "version" in r["text"].lower()
+    found = asyncio.run(docs.exact("LUT version", keep, 8))["results"]
+    assert [(r["title"], r["meaning"]) for r in found] == [("A", 0.61), ("C", None)]  # ranked first, then the rest, once each
+
+
+def test_read_report_is_listed_only_for_a_research_session_and_goes_to_hubd_under_its_token(github, hubd):
+    from hubd.agents import Library
+    library = Library(Path(__file__).parents[1] / "agents")
+    assert "read_report" in listed_for({"session": "s", "tools": library.actions["knowledge-research"]["hub_tools"], "persona": "researcher"})
+    others = [a for a, spec in library.actions.items() if "read_report" in spec["hub_tools"]]
+    assert others == ["knowledge-research"]
+    listed = {t.name: t for t in asyncio.run(tools.build(GitHub(Hubd("/nonexistent"), CONFIG), FakeDocs()).list_tools())}
+    assert listed["read_report"].annotations.read_only_hint is True
+
+    async def call(**request):
+        assert request == {"op": "result.report", "agent_token": "session-token", "id": "r-0123456789ab"}
+        return {"ok": True, "report": {"id": "r-0123456789ab", "question": "q", "answer": "a"}}
+    hubd.call = call
+
+    async def go():
+        hubd_client.CALLER.set("session-token")
+        return await github.read_report("r-0123456789ab")
+    assert asyncio.run(go())["answer"] == "a"
 
 
 def test_the_page_tells_hubd_the_chosen_repositories_with_the_context():
@@ -2516,6 +2627,78 @@ def test_the_steward_panel_shows_what_hubd_says_it_was_told():
     assert "<${StewardModel}" in panel and 'mode="compact"' in _component(script, "StewardSession")
 
 
+def test_the_steward_panel_is_a_button_at_phone_width():
+    script = _app_js()
+    css = _style_css()
+    # 001 FR-007, FR-008: at 760 px or less a floating button that opens a full sheet, at the same width the stylesheet
+    # makes it one.
+    assert 'const PHONE = "(max-width: 760px)";' in script and script.count("const PHONE =") == 1
+    assert "@media (max-width: 760px) {" in css
+    panel = _component(script, "Steward")
+    # The per-view choice is the side panel's: on a phone it isn't applied, isn't kept, and the sheet closes with the view.
+    assert "const open = phone ? sheet === view : view in panels ? panels[view] : panelOpen(view);" in panel
+    assert panel.index("if (phone) return setSheet(next ? null : view);") < panel.index("keepPanel(view, !next);")
+    assert "const [sheet, setSheet] = useSheet(view, phone);" in panel and "useEffect(() => setSheet(null), [view, phone]);" in _component(script, "useSheet") and 'query.addEventListener("change", on)' in _component(script, "usePhone")
+
+
+def test_the_steward_chips_follow_the_line_on_disk_not_this_tabs_last_answer():
+    panel = _component(_app_js(), "Steward")
+    # 010 FR-004: another tab, or a phone, can write the line after this one; the chips are hubd's for what's on disk,
+    # read again after each write, and this page's own answer only until then (or while the Steward has no folder).
+    assert "const onDisk = state && state.sees && state !== toldWith.current ? state.sees : null;" in panel
+    assert "const chips = onDisk || (told && told.key === seenKey ? told.chips : null);" in panel
+    assert "toldWith.current = known.current; setTold({ key: seenKey, chips: r.sees || [] }); reload();" in panel
+    # Back on a tab it tells the Steward its place again; a hidden tab writes nothing.
+    assert 'window.addEventListener("focus", again)' in panel and 'document.addEventListener("visibilitychange", again)' in panel
+    assert "if (document.hidden) return undefined;" in panel and "}, [running, seenKey, back]);" in panel
+
+
+def test_the_page_drops_what_hubd_would_refuse_in_the_context():
+    script = _app_js()
+    # The same caps as hubd's: a name as long as GitHub allows, an id as long as an int64.
+    assert "/^\\.?[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$/" in _component(script, "seenRepos")
+    assert "/^[A-Za-z0-9._-]{1,100}$/.test(repo" in _component(script, "seenFrom") and "/^[0-9]{1,20}$/.test(n" in _component(script, "seenFrom")
+    from hubd import agents
+    assert agents._SEEN_REPO_RE.pattern == r"\.?[A-Za-z0-9_][A-Za-z0-9._-]{0,99}" and agents._SELECTION_RE.pattern == r"[A-Za-z0-9._-]{1,100}#[0-9]{1,20}"
+
+
+def test_knowledge_and_the_steward_chips_read_the_chosen_repositories_alike():
+    """Review 5: one parser, so a crafted address can't make the Knowledge page and the chips name different repositories."""
+    script = _app_js()
+    assert "repos: seenRepos(q.repos)," in _component(script, "readKnowledge") and "seenRepos(moved.query.repos)" in _component(script, "seenFrom")
+    if not shutil.which("node"):
+        pytest.skip("node isn't installed")
+    src = "\n".join(re.search(rf"\nconst {name} = .*?;\n", script)[0] for name in ("KN_DOMAINS", "KN_PLANNED", "SEEN_REPOS_MOST"))
+    src += _component(script, "seenRepos") + _component(script, "readKnowledge")
+    crafted = ",".join(["hub", "hub", "-x", "r" * 101, ".github"] + [f"r{i}" for i in range(12)])
+    code = src + f"\nconsole.log(JSON.stringify([readKnowledge({{repos: {json.dumps(crafted)}}}).repos, seenRepos({json.dumps(crafted)})]));"
+    page, chips = json.loads(subprocess.run(["node", "-e", code], capture_output=True, text=True, check=True).stdout)
+    assert page == chips == ["hub", ".github"] + [f"r{i}" for i in range(8)]  # each once, names only, then the first ten
+
+
+def test_home_and_end_on_the_width_handle_go_to_its_min_and_max():
+    handle = _component(_app_js(), "WidthHandle")
+    # Its value is the panel's width, so Home is aria-valuemin (narrowest) and End aria-valuemax (widest).
+    assert "aria-valuemin=${STEWARD_WIDTH.min} aria-valuemax=${max} aria-valuenow=${width}" in handle
+    assert "Home: STEWARD_WIDTH.min, End: max" in handle
+
+
+def test_the_width_handle_reports_the_width_that_is_drawn():
+    """Review 47: the 45 % cap is for windows up to 1000 px only, and the handle's maximum and value are what is drawn."""
+    script, css = _app_js(), _style_css()
+    assert "@media (max-width: 1000px) { .dock { max-width: 45vw; } }" in css
+    assert re.search(r"^\.dock \{[^}]*max-width", css, re.M) is None, "the cap is only inside the width query"
+    steward = _component(script, "Steward")
+    assert "const shown = Math.min(width, room);" in steward and "--dock-w: ${shown}px" in steward
+    assert "<${WidthHandle} width=${shown} max=${room}" in steward
+    if not shutil.which("node"):
+        pytest.skip("node isn't installed")
+    src = "const STEWARD_WIDTH = { min: 320, max: 760, start: 440, step: 16 };\n"
+    src += "\n".join(re.search(rf"\nconst {name} = .*?;\n", script, re.S)[0] for name in ("clampWidth", "widthRoom"))
+    code = src + "\nconsole.log(JSON.stringify([[1440, 1001, 1000, 800, 761].map(widthRoom), clampWidth(700, widthRoom(800)), clampWidth(100, widthRoom(800)), clampWidth(700)]));"
+    rooms, narrow, least, wide = json.loads(subprocess.run(["node", "-e", code], capture_output=True, text=True, check=True).stdout)
+    # 1440 and 1001 px keep the spec's 760; up to 1000 px it's 45 % of the window, never under 320.
+    assert rooms == [760, 760, 450, 360, 342] and (narrow, least, wide) == (360, 320, 700)
 def _phone_block(css):
     start = css.index("@media (max-width: 760px) {")
     depth, i = 0, css.index("{", start)
@@ -2531,7 +2714,8 @@ def test_one_phone_block_and_no_wide_fixed_widths_in_it():
     than 360 px outside the boxes that scroll on their own."""
     css = _style_css()
     assert css.count("@media (max-width: 760px)") == 1
-    assert "max-width: 1000px" not in css and "max-width: 720px" not in css, "the phone rules are in the one block"
+    # The only rule left at 1000 px is the Steward panel's cap beside a narrow page (761 to 1000 px).
+    assert css.count("@media (max-width: 1000px)") == 1 and "max-width: 720px" not in css, "the phone rules are in the one block"
     block = _phone_block(css)
     scroll_boxes = (".board", ".diffbox", ".log", ".term", ".ask-code", ".ask-lines", ".steplog")
     for rule in re.findall(r"([^{}]+)\{([^{}]*)\}", block[block.index("{") + 1:]):
@@ -2544,6 +2728,8 @@ def test_one_phone_block_and_no_wide_fixed_widths_in_it():
     for sheet in ("dialog.sheet", "dialog.nw", "dialog.needs", "dialog.flyout", "dialog.transcript"):
         assert sheet in block, sheet
     assert ".dock-handle { display: none; }" in block and ".tick { width: 44px" in block
+    # The 44 px box round a checkbox is for a finger: the desktop keeps the plain checkbox.
+    assert ".boxhit {" in block and css.count(".boxhit {") == 1
     assert "input[type=\"checkbox\"] { width: 24px; height: 24px; }" in block and "label:has(> input[type=\"checkbox\"]) { min-height: 44px; }" in block
 
 
@@ -2571,10 +2757,11 @@ def test_the_phone_header_is_new_and_menu():
     assert "<${NeedsButton} asks=${asks} before=${close} />" in menu and "<${UsageMeter} />" in menu and "host.user" in menu
     button = _component(script, "MenuButton")
     assert "needsState(c)" in button and 'data-waits=${state === "blocking" ? "" : undefined}' in button and "aria-label=${`Menu${waits}`}" in button
+    assert "const [menu, setMenu] = useSheet(route.path, phone);" in hub  # closes with the view and when the width leaves phone width
     steward = _component(script, "Steward")
     assert 'class="dock-s steward-fab"' in steward and "<${StewardSheet}" in steward
     # On a phone the sheet opens and closes without touching the wide panel's choice per view.
-    assert "if (phone) { setSheet(!next); return; }" in steward
+    assert "if (phone) return setSheet(next ? null : view);" in steward
     assert "useModal(ref);" in _component(script, "StewardSheet")
 
 
@@ -2761,3 +2948,59 @@ def test_the_page_no_longer_reads_the_old_routes():
         assert old not in script, old
     assert script.count('"agents/run"') == 1 and 'post("agents/run", { action: "project-steward" })' in script
 
+
+
+_HOOKS = """
+// A minimal hooks runtime: enough for useState and useEffect, with effects run after each render and renders repeated
+// until nothing changes.
+let slots = [], cursor = 0, dirty = false, pending = [], cleanups = [];
+function useState(init) {
+  const k = cursor++;
+  if (!(k in slots)) slots[k] = typeof init === "function" ? init() : init;
+  return [slots[k], (v) => { if (slots[k] !== v) { slots[k] = v; dirty = true; } }];
+}
+function useEffect(fn, deps) {
+  const k = cursor++, prev = slots[k];
+  if (!deps || !prev || deps.some((d, i) => d !== prev[i])) {
+    pending.push(() => { if (cleanups[k]) cleanups[k](); const c = fn(); cleanups[k] = typeof c === "function" ? c : null; });
+    slots[k] = deps;
+  }
+}
+function render(component) {
+  let out;
+  do {
+    dirty = false; cursor = 0; out = component();
+    const run = pending; pending = []; run.forEach((f) => f());
+  } while (dirty || pending.length);
+  return out;
+}
+"""
+
+
+def test_the_phone_state_and_the_sheets_run_in_node():
+    """Review 47: usePhone on a stubbed matchMedia, and a sheet that is closed by a new view and by the width leaving phone
+    width, run for real rather than searched for in the source."""
+    if not shutil.which("node"):
+        pytest.skip("node isn't installed")
+    script = _app_js()
+    src = _HOOKS + 'const PHONE = "(max-width: 760px)";\n' + _component(script, "usePhone") + "\n" + _component(script, "useSheet")
+    code = src + """
+// One live list, as a browser has: its matches changes and then it fires change.
+let listeners = [];
+const list = { matches: true, addEventListener: (t, f) => t === "change" && listeners.push(f), removeEventListener: (t, f) => { listeners = listeners.filter((l) => l !== f); } };
+globalThis.window = { matchMedia: () => list };
+const width = (to) => { list.matches = to; listeners.forEach((f) => f()); };
+const log = [];
+let view = "Work", set;
+const page = () => { const phone = usePhone(); const [sheet, setSheet] = useSheet(view, phone); set = setSheet; return { phone, sheet }; };
+let now = render(page); log.push(["starts on a phone", now.phone, now.sheet]);
+set("Work"); now = render(page); log.push(["opened", now.phone, now.sheet]);
+view = "Sessions"; now = render(page); log.push(["new view", now.phone, now.sheet]);
+set("Sessions"); now = render(page); log.push(["opened again", now.phone, now.sheet]);
+width(false); now = render(page); log.push(["wide", now.phone, now.sheet]);
+width(true); now = render(page); log.push(["phone again", now.phone, now.sheet]);
+console.log(JSON.stringify(log));
+"""
+    log = json.loads(subprocess.run(["node", "-e", code], capture_output=True, text=True, check=True).stdout)
+    assert log == [["starts on a phone", True, None], ["opened", True, "Work"], ["new view", True, None],
+                   ["opened again", True, "Sessions"], ["wide", False, None], ["phone again", True, None]]

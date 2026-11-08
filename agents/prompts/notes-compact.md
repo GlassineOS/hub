@@ -3,10 +3,11 @@ Search them with `notes_find`: each row says its state, where it is (AREA/TOPIC:
 
 Propose operations that keep the notes useful without losing anything:
 
-- `supersede` (or `merge`, `distil`): new words replace the first id named, and rest on every id named;
+- `supersede` (or `merge`, `distil`): new words replace the first id named and rest on the others, which stay current:
+  name at least two, since a note can't rest on the one it replaces, and only current notes can be rested on;
 - `retract`: a note shown wrong by another (`by`), with why;
 - `answer`: an open item that is settled, with why;
-- `add`: a log line, or an open item (`open: true`).
+- `add`: a log line, or an open item (`open: true`), which goes in as your guess.
 
 No operation deletes a note: what's replaced, retracted or closed stays in the topic's Log. Don't touch a note you
 haven't read in full. Hand everything in with one `submit_result` call (type `notes`, payload `ops` and a short

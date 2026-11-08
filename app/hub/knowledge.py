@@ -20,26 +20,44 @@ MAX_QUERY = 500
 MAX_REPOS = 10
 DOCS_K = 8
 WORK_K = 20
-# 008 FR-006: below this, a search by meaning found nothing good, and the page offers research instead. Both indexes
-# score by cosine similarity; a hit under a third of the way is a guess at best. A search by exact words has no score
-# to judge: a hit has every word, so any hit is a good one.
+WORK_EXACT_K = 50  # all the work store gives at once
+# 008 FR-006: below this, a search by meaning found nothing good, and the page offers research instead. A hit's score is
+# the cosine of its passage and the query, in both indexes (the docs' own score fuses ranks, at most 2/61, and isn't
+# used); a hit under a third of the way is a guess at best. The two indexes embed with different models, so the same
+# cosine isn't quite the same match in each. A search by exact words has no score to judge: a hit has every word, so
+# any hit is a good one.
 GOOD_SCORE = 0.3
 SNIPPET = 400
 
 
 def _good(hit: dict) -> bool:
-    """A hit scored by meaning clears GOOD_SCORE; one the work store could only score by words (no model there yet) has
-    to have every word, as in an exact search: a share of the words is no measure of an answer."""
-    return (hit["score"] or 0) >= (GOOD_SCORE if hit["by"] == "meaning" else 1.0)
+    """A hit scored by meaning clears GOOD_SCORE; one found only by its words (the work store has no model yet, or only
+    the docs' word index found it) has to have every word, as in an exact search: a share of the words is no measure of
+    an answer."""
+    return hit["score"] >= GOOD_SCORE if hit["score"] is not None else hit["words"] >= 1.0
+
+
+def _rank(hit: dict) -> tuple:
+    """Best first: a hit with a meaning score above any without one, whose share of the words is on another scale."""
+    return (hit["score"] is None, -(hit["score"] or 0), -(hit["words"] or 0))
 
 
 def _words(query: str) -> list[str]:
     return [w for w in re.findall(r"\w+", query.lower()) if len(w) > 1]
 
 
+def _utf16(text: str) -> list[int]:
+    """For each code point offset, the offset in UTF-16 units, which is how the page's JavaScript slices text."""
+    out, at = [0], 0
+    for ch in text:
+        at += 2 if ord(ch) > 0xFFFF else 1
+        out.append(at)
+    return out
+
+
 def marks(text: str, query: str) -> list[list[int]]:
-    """Where the query's words are in text, as [start, end), merged. A short word only as a whole word (as the work
-    store matches it), a longer one anywhere."""
+    """Where the query's words are in text, as [start, end) in UTF-16 units, merged. A short word only as a whole word
+    (as the work store matches it), a longer one anywhere."""
     spans = []
     for word in set(_words(query)):
         pattern = re.escape(word) if len(word) > 2 else rf"\b{re.escape(word)}\b"
@@ -50,12 +68,25 @@ def marks(text: str, query: str) -> list[list[int]]:
             merged[-1][1] = max(merged[-1][1], end)
         else:
             merged.append([start, end])
+    if merged and not text.isascii():
+        units = _utf16(text)
+        merged = [[units[a], units[b]] for a, b in merged]
     return merged
+
+
+def _found(word: str, low: str) -> bool:
+    return bool(re.search(rf"\b{re.escape(word)}\b", low)) if len(word) <= 2 else word in low
+
+
+def _share(text: str, query: str) -> float:
+    """How many of the query's words text has, as the work store counts them."""
+    words, low = _words(query), text.lower()
+    return round(sum(_found(w, low) for w in words) / max(len(words), 1), 3)
 
 
 def _has_every_word(text: str, query: str) -> bool:
     low = text.lower()
-    return all(re.search(rf"\b{re.escape(w)}\b", low) if len(w) <= 2 else w in low for w in _words(query))
+    return all(_found(w, low) for w in _words(query))
 
 
 def _cut(text: str) -> str:
@@ -86,37 +117,45 @@ def _repos(value, readable: set[str]) -> list[str]:
     return asked
 
 
+def _docs_title(h: dict) -> str:
+    return h["title"] + (f" › {h['heading']}" if h.get("heading") and h.get("heading") != h["title"] else "")
+
+
 async def _docs(docs, query: str, mode: str) -> list[dict]:
-    found = await docs.search(query, DOCS_K * (2 if mode == "exact" else 1))
+    if mode == "exact":  # every passage with every word, not only those the search ranks high (008 FR-003)
+        found = await docs.exact(query, lambda h: _has_every_word(f"{_docs_title(h)}\n{h.get('text') or ''}", query), DOCS_K)
+    else:
+        found = await docs.search(query, DOCS_K)
     rows = []
     for h in found.get("results", []):
-        text = h.get("text") or ""
-        title = h["title"] + (f" › {h['heading']}" if h.get("heading") and h.get("heading") != h["title"] else "")
-        if mode == "exact" and not _has_every_word(f"{title}\n{text}", query):
-            continue
+        text, title = h.get("text") or "", _docs_title(h)
         snippet = _cut(text)
-        rows.append({"domain": "docs", "kind": "docs", "title": title, "score": h.get("score"), "snippet": snippet,
-                     "marks": marks(snippet, query), "link": h["url"], "repo": None, "by": "meaning"})
+        meaning = h.get("meaning")
+        rows.append({"domain": "docs", "kind": "docs", "title": title, "score": meaning, "words": _share(f"{title}\n{text}", query),
+                     "snippet": snippet, "marks": marks(snippet, query), "title_marks": marks(title, query), "link": h["url"],
+                     "repo": None, "by": "meaning" if meaning is not None else "words"})
     return rows[:DOCS_K]
 
 
 async def _work(github, query: str, mode: str, repos: list[str], open_only: bool, readable: set[str]) -> list[dict]:
     state = "open" if open_only else None
-    asks = [github.work_search(query, None, r, state, WORK_K) for r in repos] or [github.work_search(query, None, None, state, WORK_K)]
+    # An exact search keeps only hits with every word, so it asks for as many as the work store gives, not the first few.
+    k = WORK_EXACT_K if mode == "exact" else WORK_K
+    asks = [github.work_search(query, None, r, state, k) for r in repos] or [github.work_search(query, None, None, state, k)]
     found = [row for reply in await asyncio.gather(*asks) for row in reply["results"]]
     rows = []
     for r in found:
         if r["repo"] not in readable:
             continue
-        if mode == "exact" and not _has_every_word(f"{r['title']}\n{r.get('passage') or ''}", query):
+        # The work store counts the words on the whole passage; what it returns is cut to 400 characters.
+        if mode == "exact" and (r.get("words") or 0) < 1.0:
             continue
-        by_meaning = mode == "meaning" and r.get("meaning") is not None
-        score = r["meaning"] if by_meaning else r.get("words")
+        meaning = r.get("meaning")
         snippet = _cut(r.get("passage") or "")
-        rows.append({"domain": "work", "kind": r["kind"], "title": r["title"], "score": score, "snippet": snippet,
-                     "marks": marks(snippet, query), "title_marks": marks(r["title"], query), "link": r["url"], "by": "meaning" if by_meaning else "words",
-                     "repo": r["repo"], "number": r["number"], "state": r["state"]})
-    rows.sort(key=lambda x: -(x["score"] or 0))
+        rows.append({"domain": "work", "kind": r["kind"], "title": r["title"], "score": meaning, "words": r.get("words") or 0,
+                     "snippet": snippet, "marks": marks(snippet, query), "title_marks": marks(r["title"], query), "link": r["url"],
+                     "by": "meaning" if meaning is not None else "words", "repo": r["repo"], "number": r["number"], "state": r["state"]})
+    rows.sort(key=_rank)
     return rows[:WORK_K]
 
 
@@ -129,6 +168,8 @@ async def search(docs, github, query, mode="meaning", domains=None, repos=None, 
         raise BadRequest(f"a search is at most {MAX_QUERY} characters")
     if mode not in MODES:
         raise BadRequest(f"mode is {' or '.join(MODES)}")
+    if mode == "exact" and not _words(query):  # or every hit would have "every word"
+        raise BadRequest("an exact search needs a word of two letters or more")
     asked = _domains(domains)
     readable = {r["name"] for g in (await github.overview())["groups"] for r in g["repos"]}
     chosen = _repos(repos, readable)
@@ -142,7 +183,7 @@ async def search(docs, github, query, mode="meaning", domains=None, repos=None, 
         else:
             states.append({"id": domain, "ok": True, "count": len(reply)})
             results += reply
-    results.sort(key=lambda x: -(x["score"] or 0))
+    results.sort(key=_rank)
     good = bool(results) if mode == "exact" else any(_good(x) for x in results)
     return {"query": query, "mode": mode, "results": results, "domains": states, "good": good, "good_score": GOOD_SCORE}
 
@@ -173,7 +214,7 @@ async def indexes(docs, github) -> list[dict]:
         counts = w.get("counts") or {}
         work_row = {"id": "work", "state": state, "stale": False, "says": str(says)[:300],
                     "age": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(synced)) if synced else None,
-                    "size": sum(v for k, v in counts.items() if k != "passages" and isinstance(v, int)) if isinstance(counts, dict) else None,
+                    "size": sum(v for k, v in counts.items() if k in ("issue", "pr") and isinstance(v, int)) if isinstance(counts, dict) else None,
                     "action": "sync", "can_act": not w.get("running"), "seconds": round(now - synced) if synced else None}
     code_row = {"id": "code", "state": "planned", "stale": False, "says": "not indexed yet", "age": None, "size": None,
                 "action": None, "can_act": False}

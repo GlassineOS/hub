@@ -400,9 +400,10 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
 
     async def result_move(r, b, token):
         move = p(r, "move")
-        if move not in ("apply", "keep", "dismiss"):
+        if move not in ("apply", "keep", "dismiss", "resolve"):
             raise BadRequest(f"can't {move} a result")
-        extra = {"indexes": b.get("indexes")} if move == "apply" else {"kept": b.get("kept", True)} if move == "keep" else {}
+        extra = {"indexes": b.get("indexes")} if move == "apply" else {"kept": b.get("kept", True)} if move == "keep" else \
+            {"index": b.get("index"), "found": b.get("found")} if move == "resolve" else {}
         return {"result": (await hubd.call(op=f"result.{move}", token=token, id=p(r, "id"), **extra))["result"]}
 
     # --- what sessions ask ------------------------------------------------------------
@@ -421,7 +422,7 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         return reply
 
     async def interaction_answer(r, b, token):
-        fields = {k: b.get(k) for k in ("verdict", "reason", "answers", "words", "scope", "ends", "why", "where", "indexes")}
+        fields = {k: b.get(k) for k in ("verdict", "reason", "answers", "words", "scope", "ends", "why", "where", "indexes", "index", "found")}
         return {"item": (await hubd.call(op="interaction.answer", token=token, id=p(r, "id"), **fields))["item"]}
 
     async def agent_actions(r, _b, token):

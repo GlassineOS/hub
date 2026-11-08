@@ -1378,3 +1378,28 @@ def test_a_result_names_a_run_by_its_11_digit_id():
     assert results._ref("kernel#42401463461", "an item") == "kernel#42401463461"
     with pytest.raises(results.ResultError):
         results._ref("kernel#1000000000000000", "an item")
+
+
+def test_read_report_gives_a_kept_report_only_to_a_session_started_with_it_pinned(result_hub):
+    """008 FR-008, SECURITY.md: a report can hold private text, so only the session it was pinned for reads it."""
+    research = RESULT_LIBRARY.actions["knowledge-research"]["hub_tools"]
+    assert "read_report" in research
+
+    def report(session, question):
+        return result_hub.results.submit("report", {"question": question, "answer": f"An answer to {question}"}, session=session,
+                                         session_id="conv-1", launch=None, items=[], action="knowledge-research", persona="researcher")["id"]
+    first, second = report("knowledge-research", "Why LUT 3?"), report("knowledge-research-2", "Which panel?")
+    pinned = {"session": "knowledge-research-3", "tools": research, "persona": "researcher", "instance": "conv-3", "reports": [first]}
+    scopes = {"pinned": pinned, "unpinned": {**pinned, "reports": []}, "no-tool": {**pinned, "tools": ["get_pr"]}}
+    result_hub.agents.scope = scopes.get
+
+    def read(token, rid):
+        return run(result_hub.request({"op": "result.report", "agent_token": token, "id": rid}))
+    assert "isn't kept" in read("pinned", first)["error"]  # handed in, not kept: Knowledge doesn't list it
+    for rid in (first, second):
+        assert run(result_hub.request({"op": "result.keep", "token": "login", "id": rid}))["ok"]
+    got = read("pinned", first)
+    assert got["ok"] and (got["report"]["id"], got["report"]["question"], got["report"]["answer"]) == (first, "Why LUT 3?", "An answer to Why LUT 3?")
+    assert read("pinned", second).get("refused")  # kept too, but not pinned for this session, which reads the whole project
+    assert read("unpinned", first).get("refused") and read("no-tool", first).get("refused") and read("nope", first).get("refused")
+    assert read("pinned", None).get("refused") and read("pinned", ["r-0123456789ab"]).get("refused")

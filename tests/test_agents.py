@@ -1344,7 +1344,7 @@ def test_a_session_token_is_its_own_and_ends_with_it(tmp_path, remote):
     assert token != "SECRET" and token not in (directory / "run.sh").read_text()
     assert f'cat {directory / "tool-token"}' in (directory / "run.sh").read_text()
     instance = a.session_id_of(name)
-    assert instance and a.scope(token) == {"session": name, "instance": instance, "tools": good()["hub_tools"], "persona": good()["persona"], "all_repos": False, "asks_first": []}
+    assert instance and a.scope(token) == {"session": name, "instance": instance, "tools": good()["hub_tools"], "persona": good()["persona"], "all_repos": False, "asks_first": [], "reports": []}
     assert a.scope("nope") is None and a.scope(None) is None
     # a restarted hubd knows it again
     again = agents(tmp_path, clone_base=remote)
@@ -1543,6 +1543,7 @@ PINS = [{"kind": "ref", "label": "hub#44"}, {"kind": "text", "label": "Panel ran
     {"pins": [{"kind": "secret", "label": "x"}]}, {"pins": [{"kind": "ref", "label": ""}]},
     {"pins": [{"kind": "ref", "label": "x" * 1001}]}, {"pins": [{"kind": "ref", "label": "x", "more": 1}]},
     {"pins": [{"kind": "ref", "label": str(i)} for i in range(13)]},
+    {"pins": [{"kind": "report", "label": "the whole report text"}]}, {"pins": [{"kind": "report", "label": "r-0123456789AB"}]},
 ])
 def test_notes_and_pins_are_checked(over):
     with pytest.raises(AgentError):
@@ -1987,6 +1988,39 @@ def test_the_chosen_repositories_join_the_context_and_the_chips_show_all_of_it(t
         with pytest.raises(AgentError):
             a.set_context(name, "Work", None, None, bad)
     assert "Work screen, with .github chosen." in fire("UserPromptSubmit")
+
+
+def test_the_names_in_the_context_are_as_long_as_github_allows_and_no_longer(tmp_path):
+    """A link fills them and they join every turn as the hub's own words, so a sentence-length name is refused."""
+    a, name, directory, fire = bridged(tmp_path)
+    longest = "r" * 100
+    assert a.set_context(name, "Work", "run", f"{longest}#42414481439", [longest])["sees"][1:] == [
+        {"kind": "repo", "label": longest}, {"kind": "item", "label": f"run {longest}#42414481439"}]  # a run's id is 11 digits
+    for repos, selection in (([longest + "r"], None), (None, f"{longest}r#1"), (None, "hub#" + "1" * 21)):
+        with pytest.raises(AgentError):
+            a.set_context(name, "Work", "run", selection, repos)
+    with pytest.raises(AgentError):
+        asyncio.run(a.press(name, "should-merge", "pull request", f"{longest}r#1"))  # the buttons check the same
+    assert f"{longest}#42414481439." in fire("UserPromptSubmit")
+
+
+def test_the_state_shows_the_chips_of_the_line_on_disk_whichever_page_wrote_it(tmp_path):
+    """010 FR-004: the line is one per session and the last write wins, so the panel shows hubd's chips for what's on disk."""
+    a, name, directory, fire = bridged(tmp_path)
+    sees = lambda: asyncio.run(a.session_state(name))["sees"]
+    assert sees() is None  # nothing written since hubd started: it can't vouch for anything
+    a.set_context(name, "Work", "pull request", "hub#20", ["hub"])  # this tab
+    a.set_context(name, "Overview", None, None, [])  # another tab, or a phone, after it
+    assert sees() == [{"kind": "view", "label": "Overview"}] and "Overview screen." in fire("UserPromptSubmit")
+    # Changed by anything but hubd: no chips, and what the file holds never reaches the page.
+    (directory / "context").write_text("The person is on the hub's Work screen, with hub chosen.\n")
+    assert sees() is None
+    (directory / "context").unlink()
+    os.mkfifo(directory / "context")  # read as the session's own files are: a FIFO doesn't block hubd
+    assert sees() is None
+    (directory / "context").unlink()
+    a.set_context(name, "Roadmap")
+    assert sees() == [{"kind": "view", "label": "Roadmap"}]
 
 
 def test_the_context_answers_with_chips_when_no_session_runs(tmp_path):
@@ -3211,6 +3245,16 @@ def test_research_starts_with_no_checkout_under_its_own_name(tmp_path):
 def test_a_session_cant_spawn_research():
     with pytest.raises(AgentError, match="plan_work"):
         Agents.check_spawn(type("A", (), {"library": LIBRARY})(), {"action": "knowledge-research"})
+
+
+def test_a_report_pin_is_an_id_and_its_session_alone_may_read_it():
+    """008 FR-008: Follow up pins a kept report by its id; the session's scope names it, so read_report gives it that one."""
+    from hubd.agents import _session_scope
+    pins = [{"kind": "report", "label": "r-0123456789ab"}, {"kind": "text", "label": "r-ffffffffffff"}]
+    validate(LIBRARY, good(pins=pins))
+    config = {**good(), "pins": pins}
+    assert _session_scope("s", config, False)["reports"] == ["r-0123456789ab"]  # a text pin that looks like an id isn't one
+    assert _session_scope("s", good(), False)["reports"] == []
 
 
 # --- Notes' actions: about the notes, no repository (009) --------------------------------------------

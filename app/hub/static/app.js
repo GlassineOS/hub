@@ -87,6 +87,14 @@ function usePhone() {
   return phone;
 }
 
+// A sheet's open state (the Menu, the Steward): it is closed when the view changes and when the width leaves phone width.
+// A sheet that is no longer drawn fires no close event, so without this it would reopen by itself when the width came back.
+function useSheet(view, phone) {
+  const [sheet, setSheet] = useState(null);
+  useEffect(() => setSheet(null), [view, phone]);
+  return [sheet, setSheet];
+}
+
 // 001 FR-018: no blinking cursor when the viewer asks for reduced motion (and an e-ink browser isn't asked to repaint it).
 const reducedMotion = () => typeof window.matchMedia === "function" && Boolean(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
 
@@ -994,7 +1002,7 @@ const STEER_CHIPS = {
   issue: ["only propose, don't apply", "look for duplicates", "keep the change small"],
   run: ["compare with earlier runs", "don't touch the runner image"],
 };
-const PIN_WORDS = { thread: "Review thread", ref: "Issue / PR", file: "Repo file", docs: "Docs page", url: "Link", text: "Text snippet" };
+const PIN_WORDS = { thread: "Review thread", ref: "Issue / PR", file: "Repo file", docs: "Docs page", url: "Link", text: "Text snippet", report: "Kept report" };
 const PIN_HINTS = { ref: "hub#44", file: "kernel:drivers/gpu/drm/epd/epd_lut.c", docs: "docs path", text: "Something the agent should know" };
 const pinKind = (v) => (/^https?:/.test(v) ? "url" : /#\d/.test(v) ? "ref" : v.indexOf(":") > 0 ? "file" : "docs");
 
@@ -1985,7 +1993,7 @@ function readKnowledge(q) {
   const list = (v) => (v || "").split(",").filter(Boolean);
   const domains = list(q.domains).filter((d) => KN_DOMAINS.some(([id]) => id === d) && !KN_PLANNED.includes(d));
   return { q: (q.q || "").slice(0, 500), mode: q.mode === "exact" ? "exact" : "meaning", domains: domains.length ? domains : ["docs", "work"],
-    repos: list(q.repos).filter((r) => /^[A-Za-z0-9._-]+$/.test(r)).slice(0, 10), open: q.open === "1", layout: q.layout === "grouped" ? "grouped" : "ranked" };
+    repos: seenRepos(q.repos), open: q.open === "1", layout: q.layout === "grouped" ? "grouped" : "ranked" };
 }
 const knowledgeHash = (k) => hash("knowledge", { q: k.q, mode: k.mode === "exact" ? "exact" : undefined,
   domains: k.domains.join(",") === "docs,work" ? undefined : k.domains.join(","), repos: k.repos.join(","), open: k.open ? "1" : undefined,
@@ -2016,7 +2024,9 @@ function KnowledgeResult({ r, sessions, pinned, onPin }) {
       <span class="label" style="padding-right: 8px">${KN_KIND[r.kind] || r.kind}</span>
       ${item ? html`<${ItemPill} ...${item} state=${pillState(r.kind, r)} href=${open} />` : html`<span class="mono soft small">${KN_DOCS_SITE}</span>`}
       <b style="flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere"><${Marked} text=${r.title} marks=${r.title_marks} /></b>
-      <span class="small soft mono" title="How well it matched">score ${r.score == null ? "—" : r.score.toFixed(2)}</span></div>
+      ${r.score == null
+        ? html`<span class="small soft mono" title="Found by its words alone: no meaning score to show">words ${Math.round((r.words || 0) * 100)}%</span>`
+        : html`<span class="small soft mono" title="How close it is in meaning (cosine)">score ${r.score.toFixed(2)}</span>`}</div>
     ${r.snippet && html`<p style="overflow-wrap: anywhere"><${Marked} text=${r.snippet} marks=${r.marks} /></p>`}
     <div class="row" style="gap: 6px 10px">
       ${on.map((s) => html`<${SessionChip} key=${s.name} session=${s} href=${open} />`)}
@@ -2033,7 +2043,7 @@ function KnowledgeIndexes() {
     <${Err} text=${error || act.error} />
     ${data && html`<ul class="stack" style="gap: 10px">${data.map((i) => html`<li class="stack tight">
       <div class="row" style="gap: 8px"><b>${KN_INDEX[i.id] || i.id}</b><span class="badge ${KN_STATE[i.state] || ""}">${i.state}${i.stale ? " · stale" : ""}</span>
-        ${i.age && html`<span class="small soft">${ago(i.age)}</span>`}${i.size != null && html`<span class="small soft">${i.size.toLocaleString()} ${i.id === "docs" ? "passages" : "items"}</span>`}</div>
+        ${i.age && html`<span class="small soft">${ago(i.age)}</span>`}${i.size != null && html`<span class="small soft">${i.size.toLocaleString()} ${i.id === "docs" ? "passages" : "issues and pull requests"}</span>`}</div>
       <span class="small">${i.says}</span>
       ${press[i.action] && html`<button style="align-self: flex-start" disabled=${act.busy || !i.can_act} title=${i.can_act ? "" : "Nothing to do now"}
         onClick=${() => act.run(press[i.action][1])}>${press[i.action][0]}</button>`}</li>`)}</ul>`}</section>`;
@@ -2047,8 +2057,10 @@ function KnowledgeReports() {
   const more = useAct();
   const rows = [...((first.data && first.data.results) || []), ...pages];
   const last = rows[rows.length - 1];
-  const followUp = (r) => launch({ action: "knowledge-research", notes: `Follow-up on ${r.id}: ${(r.payload || {}).question || ""}`.slice(0, 4000),
-    pins: [{ kind: "text", label: `${r.id}: ${(r.payload || {}).question || ""}`.slice(0, 1000) }], from: { view: "Knowledge" } });
+  // 008 FR-008: the report goes by its id, which only a research session can read (read_report): its text, which can be
+  // private, never sits in Launch, where the action could be switched to one that posts.
+  const followUp = (r) => launch({ action: "knowledge-research", notes: `Follow-up on the kept report ${r.id}: ${(r.payload || {}).question || ""}`.slice(0, 4000),
+    pins: [{ kind: "report", label: r.id }], from: { view: "Knowledge" } });
   return html`<section class="stack" style="gap: 8px" aria-labelledby="kn-rep"><h3 id="kn-rep" class="eyebrow">Research reports</h3>
     <${Err} text=${first.error || more.error} />
     ${first.data && !rows.length && html`<p class="small soft">No reports kept yet. A research session's report is kept when you press "Save to Knowledge" on it.</p>`}
@@ -2718,16 +2730,22 @@ function ResultView({ r, reload, where = "Needs you" }) {
       ${r.kept ? html`<p class="small" role="status">Saved to Knowledge.</p>` : waits && html`<div class="row"><button class="primary" disabled=${act.busy} onClick=${() => answer("keep")}>Save to Knowledge</button>${setAside}</div>`}`;
   } else if (r.type === "notes") {
     // 009 FR-006: each op with the exact command hubd built and will run; apply one or all. None deletes a note.
+    // An op whose outcome is unknown (hubd stopped while it ran, or the tool didn't answer) never runs again until you say
+    // whether it's in the notes.
     const ops = p.ops || [];
-    const left = ops.filter((o) => o.state !== "applied").length;
+    const waiting = (o) => o.state === "pending" || o.state === "failed";
+    const left = ops.filter(waiting).length;
     body = html`${p.summary && plainText(p.summary)}
       <ol class="stack" style="gap: 10px">${ops.map((o, n) => html`<li class="stack tight">
         <div class="row" style="gap: 8px"><b>${NOTE_OP_WORD[o.op] || o.op}</b><span class="mono small">${o.topic}</span>${(o.ids || []).length > 0 && html`<span class="mono small soft">${o.ids.join(", ")}</span>`}
-          <span class="badge ${o.state === "failed" ? "bad" : o.state === "applied" ? "dim" : ""}">${o.state}</span></div>
+          <span class="badge ${o.state === "failed" || o.state === "unknown" ? "bad" : o.state === "applied" ? "dim" : ""}">${o.state === "unknown" ? "may be in already" : o.state}</span></div>
         ${o.words && plainText(o.words)}${o.why && html`<span class="small soft">Why: ${o.why}</span>`}
         <code class="small mono" style="white-space: pre-wrap; overflow-wrap: anywhere">${o.command}</code>
-        ${o.said && html`<span class="small" role=${o.state === "failed" ? "alert" : null} style="overflow-wrap: anywhere">${o.state === "failed" ? "The notes tool said: " : ""}${o.said}</span>`}
-        ${r.state === "pending" && o.state !== "applied" && ops.length > 1 && html`<button class="plain" style="align-self: flex-start" disabled=${act.busy} onClick=${() => answer("apply", { indexes: [n] })}>Apply this one</button>`}</li>`)}</ol>
+        ${o.said && html`<span class="small" role=${o.state === "failed" || o.state === "unknown" ? "alert" : null} style="overflow-wrap: anywhere">${o.state === "failed" ? "The notes tool said: " : ""}${o.said}</span>`}
+        ${r.state === "pending" && o.state === "unknown" && html`<div class="row"><span class="small">Search ${o.topic} in Notes: is it there?</span>
+          <button class="plain" disabled=${act.busy} onClick=${() => answer("resolve", { index: n, found: true })}>It's in the notes</button>
+          <button class="plain" disabled=${act.busy} onClick=${() => answer("resolve", { index: n, found: false })}>It isn't</button></div>`}
+        ${r.state === "pending" && waiting(o) && ops.length > 1 && html`<button class="plain" style="align-self: flex-start" disabled=${act.busy} onClick=${() => answer("apply", { indexes: [n] })}>Apply this one</button>`}</li>`)}</ol>
       <p class="small soft">Nothing is deleted: what's replaced, retracted or answered stays in the topic's Log.</p>
       ${r.state === "pending" && left > 0 && html`<div class="row"><button class="primary" disabled=${act.busy} onClick=${() => answer("apply")}>${left === ops.length ? "Apply all" : `Apply the ${count(left, "other")}`}</button>${setAside}</div>`}`;
   } else if (r.type === "pr") {
@@ -3748,7 +3766,7 @@ function KeepNotesUseful({ onClose }) {
       <${Err} text=${error} />
       ${data && !data.here && html`<p class="small" role="status">${data.says}</p>`}
       ${data && data.here && !data.source && html`<p class="small soft">Totals come from a search: search first, and the totals of its rows show here.</p>`}
-      ${data && data.source && html`<p class="small soft">Counted from the last search's ${count(data.rows, "row")}: the notes tool has no totals of its own yet.</p>
+      ${data && data.source && html`<p class="small soft">Counted from your last search's ${count(data.rows, "row")}: the notes tool has no totals of its own yet.</p>
         <section class="stack tight" aria-label="Per label"><span class="eyebrow">Per label</span>
           <ul class="stack tight">${Object.entries(data.by_label).map(([state, n]) => html`<li class="row" style="gap: 8px"><span class="badge ${trustOf(state)[1]}">${trustOf(state)[0]}</span><span>${n}</span></li>`)}</ul></section>
         <section class="stack tight" aria-label="Per topic"><span class="eyebrow">Per topic</span>
@@ -3831,10 +3849,11 @@ function movedRoute(route) {
   return { path: route.path, query: q, moved: false };
 }
 
-// The repositories chosen on the page, from the address: Work's one (or a list), Knowledge's list. hubd checks them again.
+// The repositories chosen on the page, from the address: Work's one (or a list), Knowledge's list. Knowledge reads its list
+// with this too, so the page and the Steward's chips name the same ones. hubd checks them again.
 const SEEN_REPOS_MOST = 10;
 function seenRepos(value) {
-  const names = String(value || "").split(",").filter((r) => /^\.?[A-Za-z0-9_][A-Za-z0-9._-]*$/.test(r));
+  const names = String(value || "").split(",").filter((r) => /^\.?[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$/.test(r));
   return [...new Set(names)].slice(0, SEEN_REPOS_MOST);
 }
 
@@ -3843,7 +3862,7 @@ function seenFrom(route) {
   const moved = movedRoute(route);
   const path = moved.path, tab = path === "work" ? moved.query.tab || "prs" : path;
   // From the address, which a link can fill with anything. Same pattern as hubd's.
-  const item = (repo, n) => (/^[A-Za-z0-9._-]+$/.test(repo || "") && /^[0-9]+$/.test(n || "") ? `${repo}#${n}` : null);
+  const item = (repo, n) => (/^[A-Za-z0-9._-]{1,100}$/.test(repo || "") && /^[0-9]{1,20}$/.test(n || "") ? `${repo}#${n}` : null);
   const repos = path === "work" ? seenRepos(moved.query.repo) : path === "knowledge" ? seenRepos(moved.query.repos) : [];
   if (path === "work" && item(q.at || q.repo, q.item)) return { screen: "Work", kind: SEEN_KIND[tab] || null, selection: item(q.at || q.repo, q.item), repos };
   if (path === "work" && tab === "queue") return { screen: "Queue", kind: null, selection: null, repos };
@@ -3866,18 +3885,31 @@ function keepPanel(view, open) {
 }
 // 010 FR-001: the panel's width, 320 to 760 px, kept per viewer in this browser.
 const STEWARD_WIDTH = { min: 320, max: 760, start: 440, step: 16 };
-const clampWidth = (w) => Math.min(STEWARD_WIDTH.max, Math.max(STEWARD_WIDTH.min, Math.round(Number(w) || STEWARD_WIDTH.start)));
+const clampWidth = (w, max = STEWARD_WIDTH.max) => Math.min(max, Math.max(STEWARD_WIDTH.min, Math.round(Number(w) || STEWARD_WIDTH.start)));
+// Up to 1000 px wide the panel takes at most 45 % of the window (style.css has the same cap), so the widest it can be
+// is that; the handle reports this as its maximum, and the width it reports is the one drawn. Wider, the spec's 760.
+const widthRoom = (inner) => (inner <= 1000 ? Math.max(STEWARD_WIDTH.min, Math.min(STEWARD_WIDTH.max, Math.floor(inner * 0.45))) : STEWARD_WIDTH.max);
+function useWidthRoom() {
+  const [room, setRoom] = useState(() => widthRoom(window.innerWidth));
+  useEffect(() => {
+    const on = () => setRoom(widthRoom(window.innerWidth));
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, []);
+  return room;
+}
 function readWidth() {
   try { return clampWidth(localStorage.getItem("steward-width")); } catch { return STEWARD_WIDTH.start; }
 }
 
-function WidthHandle({ width, onWidth }) {
+function WidthHandle({ width, max, onWidth }) {
   const drag = useRef(null);
-  const set = (w) => onWidth(clampWidth(w));
+  const set = (w) => onWidth(clampWidth(w, max));
   const key = (e) => {
     const step = e.shiftKey ? STEWARD_WIDTH.step * 4 : STEWARD_WIDTH.step;
-    // The panel is on the right: Left widens it, Right narrows it.
-    const next = { ArrowLeft: width + step, ArrowRight: width - step, Home: STEWARD_WIDTH.max, End: STEWARD_WIDTH.min }[e.key];
+    // The panel is on the right: Left widens it, Right narrows it. Home and End go to aria-valuemin and aria-valuemax, the
+    // panel's narrowest and widest, as a window splitter's do for the pane its value is.
+    const next = { ArrowLeft: width + step, ArrowRight: width - step, Home: STEWARD_WIDTH.min, End: max }[e.key];
     if (next === undefined) return;
     e.preventDefault();
     set(next);
@@ -3891,7 +3923,7 @@ function WidthHandle({ width, onWidth }) {
   const move = (e) => { if (drag.current) set(drag.current.w + (drag.current.x - e.clientX)); };
   const up = () => { drag.current = null; };
   return html`<div class="dock-handle" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Steward panel width"
-    aria-valuemin=${STEWARD_WIDTH.min} aria-valuemax=${STEWARD_WIDTH.max} aria-valuenow=${width} aria-valuetext=${`${width} pixels`}
+    aria-valuemin=${STEWARD_WIDTH.min} aria-valuemax=${max} aria-valuenow=${width} aria-valuetext=${`${width} pixels`}
     title="Drag, or use the arrow keys, to resize" onKeyDown=${key} onPointerDown=${down} onPointerMove=${move} onPointerUp=${up} onPointerCancel=${up}></div>`;
 }
 
@@ -3970,15 +4002,18 @@ function Steward({ route, asks }) {
   const seen = seenFrom(route);
   const view = stewardView(seen);
   const phone = usePhone();
-  const [sheet, setSheet] = useState(false);
   const [panels, setPanels] = useState(() => ({ [view]: panelOpen(view) }));
-  const open = phone ? sheet : view in panels ? panels[view] : panelOpen(view);
+  const [sheet, setSheet] = useSheet(view, phone);  // on a phone: the view the sheet was opened on
+  const open = phone ? sheet === view : view in panels ? panels[view] : panelOpen(view);
   const rail = !open;
   const setRail = (next) => {
-    if (phone) { setSheet(!next); return; }
-    keepPanel(view, !next); setPanels({ ...panels, [view]: !next });
+    if (phone) return setSheet(next ? null : view);
+    keepPanel(view, !next);
+    setPanels({ ...panels, [view]: !next });
   };
   const [width, setWidthState] = useState(readWidth);
+  const room = useWidthRoom();
+  const shown = Math.min(width, room);  // what is drawn, and what the handle reports
   const setWidth = (w) => { setWidthState(w); try { localStorage.setItem("steward-width", String(w)); } catch { /* it only helps */ } };
   const [modelOpen, setModelOpen] = useState(false);
   const [planning, setPlanning] = useState(false);
@@ -3992,17 +4027,29 @@ function Steward({ route, asks }) {
   const words = state ? state.state : "Not started";
   const running = words !== "Not started" && words !== "Stopped";
   // 010 FR-004: hubd checks what the page sees, writes the line the Steward gets, and answers with the chips made from
-  // the same values; the panel shows those chips, so it shows all the Steward is told.
+  // the same values. The line is one per session and the last page to write it wins (another tab, a phone), so once
+  // the Steward has a folder the chips are hubd's own for the line on disk (state.sees), read again after each write.
   const seenKey = JSON.stringify([seen.screen, seen.kind, seen.selection, seen.repos]);
   const [told, setTold] = useState(null);
+  const toldWith = useRef(null);  // the state read before this page's last write: its sees are older than the answer
+  const [back, setBack] = useState(0);
   useEffect(() => {
+    // Back on this tab or window: it tells the Steward its own place again. A hidden tab writes nothing.
+    const again = () => { if (!document.hidden) setBack((n) => n + 1); };
+    window.addEventListener("focus", again);
+    document.addEventListener("visibilitychange", again);
+    return () => { window.removeEventListener("focus", again); document.removeEventListener("visibilitychange", again); };
+  }, []);
+  useEffect(() => {
+    if (document.hidden) return undefined;
     let live = true;
     post("agents/context", { name: STEWARD, screen: seen.screen, kind: seen.kind, selection: seen.selection, repos: seen.repos })
-      .then((r) => { if (live) setTold({ key: seenKey, chips: r.sees || [] }); })
+      .then((r) => { if (live) { toldWith.current = known.current; setTold({ key: seenKey, chips: r.sees || [] }); reload(); } })
       .catch(() => { if (live) setTold({ key: seenKey, chips: null }); });
     return () => { live = false; };
-  }, [running, seenKey]);
-  const chips = told && told.key === seenKey ? told.chips : null;
+  }, [running, seenKey, back]);
+  const onDisk = state && state.sees && state !== toldWith.current ? state.sees : null;
+  const chips = onDisk || (told && told.key === seenKey ? told.chips : null);
   // 010 FR-005: what from the Steward waits for you, as Needs you counts it.
   const waiting = asks.interactions.items.filter((r) => r.status === "pending" && r.session === STEWARD).length;
   const stopping = useAct(reload);
@@ -4040,8 +4087,8 @@ function Steward({ route, asks }) {
     <${StewardSession} state=${state || { state: "Not started", queued: 0 }} seen=${seen} buttons=${buttons} reload=${reload} asks=${asks} />
     <p class="small soft" style="margin: 0; padding: 0 12px 12px">A configured session like any other: no shell, reads everything, and every write asks you first.</p>`;
   if (phone) return html`${fab}<${StewardSheet} onClose=${() => setRail(true)}><div class="dock">${body}</div><//>`;
-  return html`<aside class="dock" aria-labelledby="dock-h" style=${`--dock-w: ${width}px`}>
-    <${WidthHandle} width=${width} onWidth=${setWidth} />${body}</aside>`;
+  return html`<aside class="dock" aria-labelledby="dock-h" style=${`--dock-w: ${shown}px`}>
+    <${WidthHandle} width=${shown} max=${room} onWidth=${setWidth} />${body}</aside>`;
 }
 
 function App() {
@@ -4093,7 +4140,7 @@ function Hub({ host: first, route, onOut }) {
   asks.waiting = inter.counts.pending;
   const [needs, setNeeds] = useState(null); // the Needs you modal, and what had focus when it opened
   const phone = usePhone();
-  const [menu, setMenu] = useState(false); // the Menu sheet, at phone width
+  const [menu, setMenu] = useSheet(route.path, phone); // the Menu sheet, at phone width
 
   const [launching, setLaunching] = useState(null);
   const [behind, setBehind] = useState(null); // a Launch sent to the background (005 FR-008)
