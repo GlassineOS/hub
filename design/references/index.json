@@ -1,0 +1,343 @@
+{
+ "contract": 1,
+ "kind": "boards",
+ "chromium": "156.0.8078.79",
+ "libraries": {
+  "font-dejavu": "2.37-r6",
+  "font-opensans": "0_git20210927-r1",
+  "fontconfig": "2.17.1-r1",
+  "freetype": "2.14.3-r0",
+  "harfbuzz": "13.2.1-r0"
+ },
+ "tolerance": {
+  "threshold": 0,
+  "pixels": 0
+ },
+ "cases": {
+  "AskV1.dc.html/560x560/own": {
+   "file": "ed5c25d4fbe15a1b.png",
+   "width": 560,
+   "height": 560
+  },
+  "DockV1.dc.html/1440x1400/own": {
+   "file": "dd8a4781bc5c02f1.png",
+   "width": 1440,
+   "height": 1400
+  },
+  "DocsV1.dc.html/1440x960/own": {
+   "file": "43f42f5853fcd29b.png",
+   "width": 1440,
+   "height": 960
+  },
+  "Feed.dc.html/640x2600/own": {
+   "file": "6cbb3267431f28cc.png",
+   "width": 640,
+   "height": 2600
+  },
+  "FlowAudit.dc.html/1248x3700/own": {
+   "file": "70ff3242b8939cdb.png",
+   "width": 1248,
+   "height": 3700
+  },
+  "FlowImplement.dc.html/1248x3700/own": {
+   "file": "7744b8b13eea5e38.png",
+   "width": 1248,
+   "height": 3700
+  },
+  "FlowInteractions.dc.html/1440x2960/own": {
+   "file": "1c3780fe0d5d0e1a.png",
+   "width": 1440,
+   "height": 2960
+  },
+  "FlowNotes.dc.html/1248x4000/own": {
+   "file": "3da2178043a3d74e.png",
+   "width": 1248,
+   "height": 4000
+  },
+  "FlowResearch.dc.html/1248x3700/own": {
+   "file": "f445b3e6cd0774e3.png",
+   "width": 1248,
+   "height": 3700
+  },
+  "GhActions.dc.html/520x560/own": {
+   "file": "df4553188162dcae.png",
+   "width": 520,
+   "height": 560
+  },
+  "Header.dc.html/1440x72/own": {
+   "file": "51af5c3c0f75aba4.png",
+   "width": 1440,
+   "height": 72
+  },
+  "History.dc.html/1440x1760/own": {
+   "file": "e95a5704e72e4543.png",
+   "width": 1440,
+   "height": 1760
+  },
+  "Inbox.dc.html/1000x1100/own": {
+   "file": "3e1809a6f7650079.png",
+   "width": 1000,
+   "height": 1100
+  },
+  "InboxV1.dc.html/1440x2300/own": {
+   "file": "9033dfc3f9bd06a3.png",
+   "width": 1440,
+   "height": 2300
+  },
+  "Interaction.dc.html/560x560/own": {
+   "file": "7a5b46504d21ca7c.png",
+   "width": 560,
+   "height": 560
+  },
+  "InteractionsV1.dc.html/1440x2280/own": {
+   "file": "8e14d9e3441ba768.png",
+   "width": 1440,
+   "height": 2280
+  },
+  "ItemPicker.dc.html/720x520/own": {
+   "file": "cdcb8b317b4302ad.png",
+   "width": 720,
+   "height": 520
+  },
+  "ItemPill.dc.html/420x48/own": {
+   "file": "4976c0e5327ddce3.png",
+   "width": 420,
+   "height": 48
+  },
+  "Knowledge.dc.html/1440x1890/own": {
+   "file": "f01313f6d35928ec.png",
+   "width": 1440,
+   "height": 1890
+  },
+  "Launch.dc.html/1440x1240/own": {
+   "file": "99db46b62e3e9b1c.png",
+   "width": 1440,
+   "height": 1240
+  },
+  "LaunchV1.dc.html/1440x1720/own": {
+   "file": "8b4eae08ad03a43e.png",
+   "width": 1440,
+   "height": 1720
+  },
+  "Main.dc.html/1440x2200/own": {
+   "file": "cd519d5e888589d9.png",
+   "width": 1440,
+   "height": 2200
+  },
+  "MainV1.dc.html/1440x1560/own": {
+   "file": "0da5e255b32803c8.png",
+   "width": 1440,
+   "height": 1560
+  },
+  "NeedsYou.dc.html/1440x1100/own": {
+   "file": "ade55c240b0e3101.png",
+   "width": 1440,
+   "height": 1100
+  },
+  "NewWorkFlowV1.dc.html/2400x2100/own": {
+   "file": "e17b81e785ee2a8b.png",
+   "width": 2400,
+   "height": 2100
+  },
+  "NewWorkV1.dc.html/1440x1240/own": {
+   "file": "79c3915e43023b00.png",
+   "width": 1440,
+   "height": 1240
+  },
+  "Notes.dc.html/1440x2010/own": {
+   "file": "b47a3c3ab60692a9.png",
+   "width": 1440,
+   "height": 2010
+  },
+  "NotesEmpty.dc.html/1440x900/own": {
+   "file": "ee5c91b936ba4e47.png",
+   "width": 1440,
+   "height": 900
+  },
+  "NotesFailed.dc.html/1440x900/own": {
+   "file": "bfcf0313788115c8.png",
+   "width": 1440,
+   "height": 900
+  },
+  "NotesIndexing.dc.html/1440x2200/own": {
+   "file": "15b713012300447f.png",
+   "width": 1440,
+   "height": 2200
+  },
+  "NotesLimit.dc.html/1440x2200/own": {
+   "file": "b7b6f90f36974be3.png",
+   "width": 1440,
+   "height": 2200
+  },
+  "NotesMissing.dc.html/1440x800/own": {
+   "file": "567a15939f6473cb.png",
+   "width": 1440,
+   "height": 800
+  },
+  "NotesMore.dc.html/1440x2600/own": {
+   "file": "b7ba5cbb4156e9f8.png",
+   "width": 1440,
+   "height": 2600
+  },
+  "NotesNone.dc.html/1440x900/own": {
+   "file": "57d0e5d481b51c0b.png",
+   "width": 1440,
+   "height": 900
+  },
+  "PersonaBadge.dc.html/260x56/own": {
+   "file": "8c34766ed91ed0dd.png",
+   "width": 260,
+   "height": 56
+  },
+  "PhoneLaunch.dc.html/390x1800/own": {
+   "file": "0076888f26292ee8.png",
+   "width": 390,
+   "height": 1800
+  },
+  "PhoneMenu.dc.html/390x844/own": {
+   "file": "af2c7c7a5618a605.png",
+   "width": 390,
+   "height": 844
+  },
+  "PhoneNotes.dc.html/390x3600/own": {
+   "file": "d03f71582bc4a460.png",
+   "width": 390,
+   "height": 3600
+  },
+  "PhoneOverview.dc.html/390x2600/own": {
+   "file": "6be753205829ca38.png",
+   "width": 390,
+   "height": 2600
+  },
+  "PhoneSteward.dc.html/390x844/own": {
+   "file": "31eb072055483c9c.png",
+   "width": 390,
+   "height": 844
+  },
+  "PhoneWorkItem.dc.html/390x3200/own": {
+   "file": "659a0636641ce2db.png",
+   "width": 390,
+   "height": 3200
+  },
+  "PlanDemoV1.dc.html/1440x1400/own": {
+   "file": "dd8a4781bc5c02f1.png",
+   "width": 1440,
+   "height": 1400
+  },
+  "ReadMe.dc.html/1440x4600/own": {
+   "file": "b92372f7d68f9fb7.png",
+   "width": 1440,
+   "height": 4600
+  },
+  "RepoPicker.dc.html/520x520/own": {
+   "file": "242df8421a1c2d94.png",
+   "width": 520,
+   "height": 520
+  },
+  "Roadmap.dc.html/1440x1520/own": {
+   "file": "93db504019056e4e.png",
+   "width": 1440,
+   "height": 1520
+  },
+  "RoadmapV1.dc.html/1440x1100/own": {
+   "file": "69af5fb57b62905a.png",
+   "width": 1440,
+   "height": 1100
+  },
+  "SessionChip.dc.html/260x36/own": {
+   "file": "e01c8ca2fcd29c2c.png",
+   "width": 260,
+   "height": 36
+  },
+  "SessionDemoV1.dc.html/1440x1240/own": {
+   "file": "2fefeb05300b2250.png",
+   "width": 1440,
+   "height": 1240
+  },
+  "SessionView.dc.html/760x720/own": {
+   "file": "ba814d5c43f9c4e9.png",
+   "width": 760,
+   "height": 720
+  },
+  "Sessions.dc.html/1440x1630/own": {
+   "file": "85d1ca30695632ef.png",
+   "width": 1440,
+   "height": 1630
+  },
+  "SessionsTabs.dc.html/900x52/own": {
+   "file": "0c79a63c35337a4a.png",
+   "width": 900,
+   "height": 52
+  },
+  "ShellsV1.dc.html/1440x1120/own": {
+   "file": "24bd0c3a2612d58d.png",
+   "width": 1440,
+   "height": 1120
+  },
+  "SidebarV1.dc.html/440x1400/own": {
+   "file": "7de0e31e056ff00f.png",
+   "width": 440,
+   "height": 1400
+  },
+  "StartFormV1.dc.html/1440x1100/own": {
+   "file": "86bdf147372e724b.png",
+   "width": 1440,
+   "height": 1100
+  },
+  "Steward.dc.html/400x1200/own": {
+   "file": "41294cd01a61fef2.png",
+   "width": 400,
+   "height": 1200
+  },
+  "Work.dc.html/1440x1540/own": {
+   "file": "fa22228aba0ae14d.png",
+   "width": 1440,
+   "height": 1540
+  },
+  "WorkItem.dc.html/1440x2180/own": {
+   "file": "4001a8929f5a4b48.png",
+   "width": 1440,
+   "height": 2180
+  },
+  "WorkItemFiles.dc.html/1440x1800/own": {
+   "file": "ec049142282e363b.png",
+   "width": 1440,
+   "height": 1800
+  },
+  "WorkItemIssue.dc.html/1440x1520/own": {
+   "file": "2745a218d0fd5df7.png",
+   "width": 1440,
+   "height": 1520
+  },
+  "WorkItemRun.dc.html/1440x1540/own": {
+   "file": "61379d759333f32e.png",
+   "width": 1440,
+   "height": 1540
+  },
+  "WorkItemV1.dc.html/1440x2000/own": {
+   "file": "67ac266690a45731.png",
+   "width": 1440,
+   "height": 2000
+  },
+  "WorkNewIssue.dc.html/1440x1540/own": {
+   "file": "415543afb4ccb44f.png",
+   "width": 1440,
+   "height": 1540
+  },
+  "WorkRunWorkflow.dc.html/1440x1540/own": {
+   "file": "e5ed6f118265873a.png",
+   "width": 1440,
+   "height": 1540
+  },
+  "WorkV1.dc.html/1440x1240/own": {
+   "file": "2fefeb05300b2250.png",
+   "width": 1440,
+   "height": 1240
+  },
+  "WorkspaceV1.dc.html/1440x2000/own": {
+   "file": "4d4eeb68b7180490.png",
+   "width": 1440,
+   "height": 2000
+  }
+ }
+}

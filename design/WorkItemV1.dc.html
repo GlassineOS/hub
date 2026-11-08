@@ -1,0 +1,532 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Work item</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Kalam&amp;display=swap">
+<style>
+body{margin:0;background:#ffffff}
+a{color:#2747b8}a:hover{color:#111111}
+a:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid #2747b8;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #ffffff; color: #111111; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15px; line-height: 1.5; display: flex; flex-direction: column">
+
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 28px; padding: 12px 32px; border-bottom: 1.5px solid #111111; background: #ffffff">
+  <a href="MainV1.dc.html" style="display: flex; align-items: center; gap: 12px; text-decoration: none; color: #111111; min-height: 44px">
+    <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="3" width="18" height="22" rx="2" fill="none" stroke="#111111" stroke-width="1.5"></rect><rect x="11" y="7" width="18" height="22" rx="2" fill="#ffd86b" stroke="#2747b8" stroke-width="1.5"></rect></svg>
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">GLASSINEOS HUB</span>
+  </a>
+  <nav aria-label="Primary" style="display: flex; flex-wrap: wrap; gap: 4px">
+    <a href="MainV1.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 12px; color: #111111; text-decoration: none">Overview</a>
+    <a href="DockV1.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 12px; color: #111111; text-decoration: none">Roadmap</a>
+    <a href="WorkV1.dc.html" aria-current="page" style="display: flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 12px; background: #ffd86b; color: #111111; text-decoration: none; font-weight: 600">Work</a>
+    <a href="DocsV1.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 12px; color: #111111; text-decoration: none">Docs</a>
+    <a href="InboxV1.dc.html" aria-label="Sessions, 4 waiting for you" style="display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 12px; color: #111111; text-decoration: none">Sessions <span aria-hidden="true" style="min-width: 22px; height: 22px; padding: 0 6px; box-sizing: border-box; border: 1.5px solid #111111; border-radius: 999px; background: #ffd86b; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; line-height: 19px; text-align: center">4</span></a>
+  </nav>
+</header>
+
+<div style="flex: 1; display: flex; align-items: stretch">
+<main style="flex: 1 1 auto; min-width: 0; padding: 20px 32px 32px; box-sizing: border-box; display: flex; flex-direction: column; gap: 18px">
+
+  <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding-bottom: 12px; border-bottom: 1px dotted #111111">
+    <a href="WorkV1.dc.html" style="display: flex; align-items: center; min-height: 44px; font-weight: 600">← {{it.listName}}</a>
+    <span style="flex: 1 1 auto; font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #4a4a4a">{{it.pos}} · filter: open · all repositories</span>
+    <button type="button" aria-label="Previous item" style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; cursor: pointer"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#111111" stroke-width="1.7" aria-hidden="true"><path d="M3 10l5-5 5 5"></path></svg></button>
+    <button type="button" aria-label="Next item" style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; cursor: pointer"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#111111" stroke-width="1.7" aria-hidden="true"><path d="M3 6l5 5 5-5"></path></svg></button>
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4a4a4a">k / j</span>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em; color: #4a4a4a">{{it.kindLabel}} · GlassineOS/{{it.ref}}</span>
+    <h1 style="margin: 0; font-size: 34px; line-height: 1.15; font-weight: 600; letter-spacing: -0.015em; text-wrap: balance; max-width: 40ch">{{it.title}}</h1>
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: 14px; color: #4a4a4a">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 600; letter-spacing: 0.08em; padding: 1px 8px; border: 1.5px solid #111111; border-radius: 6px; color: #111111; background: {{it.stateBg}}">{{it.state}}</span>
+      <sc-for list="{{it.meta}}" as="m" hint-placeholder-count="3"><span>{{m.t}}</span></sc-for>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+    <sc-for list="{{it.actions}}" as="a" hint-placeholder-count="3">
+      <button type="button" style="{{a.style}}">{{a.label}}</button>
+    </sc-for>
+  </div>
+
+  <section aria-labelledby="h-claude" style="display: flex; flex-direction: column; gap: 14px; padding: 16px 18px; border: 1.5px solid #111111; border-radius: 16px">
+  <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px">
+    <h2 id="h-claude" style="margin: 0; display: flex; align-items: center; gap: 8px; font-size: 19px; font-weight: 600"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#111111" stroke-width="1.9" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M7 9l3 3-3 3M12 15h5"></path></svg>Claude</h2>
+    <span style="font-size: 14px; color: #4a4a4a">{{claudeIntro}}</span>
+  </div>
+  <sc-if value="{{showCompose}}" hint-placeholder-val="{{true}}">
+  <div style="display: flex; flex-direction: column; gap: 14px">
+  <sc-if value="{{composeClosed}}" hint-placeholder-val="{{true}}">
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px">
+      <button type="button" onClick="{{openCompose}}" aria-expanded="false" style="display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; border: 1.5px dashed #111111; border-radius: 12px; background: transparent; color: #111111; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer">＋ Notes &amp; context for the planner</button>
+      <span style="font-size: 13.5px; color: #4a4a4a">{{composeSummary}}</span>
+    </div>
+  </sc-if>
+  <sc-if value="{{composeOpen}}" hint-placeholder-val="{{false}}">
+  <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; background: #f2f2f2; border-radius: 12px">
+    <label for="steer" style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">STEER THE PLANNER</span>
+      <span style="font-size: 13px; color: #4a4a4a">optional · notes and pinned context go into the planner’s prompt for whichever Claude action you start</span>
+    </label>
+    <textarea id="steer" rows="2" value="{{steer}}" onChange="{{onSteer}}" placeholder="e.g. the error paths matter most; check against hardware/epd/waveforms.md; keep the diff small" style="padding: 10px 12px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; resize: vertical"></textarea>
+    <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center">
+      <span style="font-size: 13px; color: #4a4a4a">Add:</span>
+      <sc-for list="{{steerChips}}" as="c" hint-placeholder-count="4">
+        <button type="button" onClick="{{c.add}}" style="min-height: 36px; padding: 0 10px; border: 1.5px solid #111111; border-radius: 999px; background: #ffffff; color: #111111; font: inherit; font-size: 13px; cursor: pointer">+ {{c.t}}</button>
+      </sc-for>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px dotted #111111">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">PINNED CONTEXT · {{pinCount}}</span>
+      <sc-if value="{{hasPins}}" hint-placeholder-val="{{false}}">
+        <ul style="margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px">
+          <sc-for list="{{pins}}" as="p" hint-placeholder-count="2">
+            <li style="display: flex; align-items: center; gap: 4px; padding-left: 10px; border: 1.5px solid #111111; border-radius: 999px; background: #ffffff; font-size: 13px">
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.08em; color: #4a4a4a">{{p.kind}}</span>
+              <span style="font-family: 'IBM Plex Mono', monospace; overflow-wrap: anywhere">{{p.label}}</span>
+              <button type="button" aria-label="Remove {{p.label}}" onClick="{{p.remove}}" style="width: 36px; height: 32px; border: 0; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 12 12" stroke="#111111" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6"></path></svg></button>
+            </li>
+          </sc-for>
+        </ul>
+      </sc-if>
+      <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center">
+        <label style="flex: 1 1 260px; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff">
+          <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Reference to pin</span>
+          <input type="text" value="{{pinInput}}" onChange="{{onPinInput}}" placeholder="hub#44 · kernel:drivers/…/epd_lut.c · docs path · URL" style="border: 0; outline: none; font-family: 'IBM Plex Mono', monospace; font-size: 13px; background: transparent; color: #111111; width: 100%; min-width: 0">
+        </label>
+        <button type="button" onClick="{{addTyped}}" style="min-height: 40px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; background: #111111; color: #ffffff; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer">Pin</button>
+        <span style="font-size: 13px; color: #4a4a4a; margin-left: 4px">or attach:</span>
+        <sc-for list="{{attachers}}" as="a" hint-placeholder-count="5">
+          <button type="button" onClick="{{a.add}}" style="min-height: 36px; padding: 0 10px; border: 1.5px dashed #111111; border-radius: 999px; background: transparent; color: #111111; font: inherit; font-size: 13px; cursor: pointer">{{a.label}}</button>
+        </sc-for>
+      </div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px dotted #111111">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">ALSO COVERS · {{alsoCount}}</span>
+      <span style="font-size: 13px; color: #4a4a4a">Other issues the same session should finish. Each one shows the session in Work, and the PR closes all of them.</span>
+      <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center">
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; padding: 1px 10px; border: 1.5px solid #111111; border-radius: 999px; background: #ffd86b">{{it.ref}} · primary</span>
+        <sc-for list="{{alsoChips}}" as="a" hint-placeholder-count="1">
+          <span style="display: flex; align-items: center; gap: 2px; padding-left: 10px; border: 1.5px solid #111111; border-radius: 999px; background: #ffffff; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px">{{a.ref}}
+            <button type="button" aria-label="Remove {{a.ref}}" onClick="{{a.remove}}" style="width: 32px; height: 28px; border: 0; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 12 12" stroke="#111111" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6"></path></svg></button>
+          </span>
+        </sc-for>
+        <sc-for list="{{alsoSuggest}}" as="a" hint-placeholder-count="2">
+          <button type="button" onClick="{{a.add}}" style="min-height: 32px; padding: 0 10px; border: 1.5px dashed #111111; border-radius: 999px; background: transparent; color: #111111; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; cursor: pointer">+ {{a.ref}} <span style="font-family: 'IBM Plex Sans', sans-serif; color: #4a4a4a">{{a.hint}}</span></button>
+        </sc-for>
+      </div>
+    </div>
+    <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 16px; padding-top: 8px; border-top: 1px dotted #111111">
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <span id="wi-pm" style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">PLANNER</span>
+            <div role="radiogroup" aria-labelledby="wi-pm" style="display: flex; border: 1.5px solid #111111; border-radius: 12px; overflow: hidden">
+              <sc-for list="{{pmodels}}" as="m" hint-placeholder-count="3">
+                <button type="button" role="radio" aria-checked="{{m.checked}}" onClick="{{m.pick}}" style="{{m.style}}">{{m.name}}</button>
+              </sc-for>
+            </div>
+          </div>
+          <span style="flex: 1 1 200px; font-size: 13px; color: #4a4a4a">Model for the throwaway planner run that writes the spec. The agent’s own model is picked on the spec.</span>
+    </div>
+    <button type="button" onClick="{{closeCompose}}" aria-expanded="true" style="align-self: flex-end; min-height: 36px; padding: 0 10px; border: 0; background: transparent; color: #111111; font: inherit; font-size: 13.5px; text-decoration: underline; cursor: pointer">Hide — keeps what you added</button>
+  </div>
+  </sc-if>
+  <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em; color: #4a4a4a">START</span>
+    <sc-for list="{{quick}}" as="q" hint-placeholder-count="3">
+      <button type="button" onClick="{{q.go}}" style="{{q.style}}">{{q.label}}</button>
+    </sc-for>
+    <button type="button" onClick="{{openFollow}}" style="min-height: 44px; padding: 0 14px; border: 1.5px dashed #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; font-weight: 600; cursor: pointer">＋ New work from this…</button>
+    <span style="font-size: 13px; color: #4a4a4a">The planner runs first; you confirm its spec below.</span>
+  </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{plan.planning}}" hint-placeholder-val="{{false}}">
+    <section role="status" style="display: flex; flex-wrap: wrap; gap: 8px 24px; padding: 14px 18px; border: 1.5px dashed #111111; border-radius: 12px">
+      <span style="display: flex; align-items: center; gap: 10px; font-weight: 600"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="#111111" stroke-width="1.5" stroke-dasharray="3 2.5"></circle></svg>Planning “{{plan.label}}” · claude -p · {{plan.pmodelName}}, read-only</span>
+      <ol style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px">
+        <sc-for list="{{plan.steps}}" as="s" hint-placeholder-count="3"><li>{{s.t}}</li></sc-for>
+      </ol>
+    </section>
+  </sc-if>
+
+  <sc-if value="{{plan.ready}}" hint-placeholder-val="{{false}}">
+    <section aria-label="Session spec from planner" style="display: flex; flex-wrap: wrap; gap: 16px 28px; padding: 18px; border: 1.5px solid #111111; border-radius: 16px; box-shadow: 0 3px 0 #b4b4b4">
+      <div style="flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">SPEC FROM PLANNER · {{plan.name}}</span>
+        <dl style="margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 14px; font-size: 14px">
+          <sc-for list="{{plan.rows}}" as="f" hint-placeholder-count="5">
+            <dt style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; letter-spacing: 0.08em; color: #4a4a4a; padding-top: 2px">{{f.k}}</dt>
+            <dd style="margin: 0">{{f.v}}</dd>
+          </sc-for>
+        </dl>
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <span id="mdl" style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">MODEL FOR THIS SESSION</span>
+          <div role="radiogroup" aria-labelledby="mdl" style="display: flex; flex-wrap: wrap; border: 1.5px solid #111111; border-radius: 12px; overflow: hidden; align-self: flex-start">
+            <sc-for list="{{plan.models}}" as="m" hint-placeholder-count="4">
+              <button type="button" role="radio" aria-checked="{{m.checked}}" onClick="{{m.pick}}" style="{{m.style}}">
+                <span style="font-weight: 600">{{m.name}}</span>
+                <span style="font-size: 11.5px">{{m.hint}}</span>
+              </button>
+            </sc-for>
+          </div>
+          <span style="font-size: 13px; color: #4a4a4a">{{plan.modelNote}}</span>
+        </div>
+        <span style="font-size: 13px; color: #4a4a4a">{{plan.ceiling}}</span>
+      </div>
+      <div style="flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 8px">
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">CONTEXT · DOCS SEARCH “{{plan.query}}”</span>
+        <sc-for list="{{plan.passages}}" as="p" hint-placeholder-count="3">
+          <div style="display: flex; gap: 10px; align-items: baseline; padding: 6px 10px; background: #f2f2f2; border-radius: 6px">
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4a4a4a">{{p.score}}</span>
+            <span style="display: flex; flex-direction: column; min-width: 0"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; font-weight: 600; overflow-wrap: anywhere">{{p.path}}</span><span style="font-size: 13px; color: #4a4a4a">{{p.why}}</span></span>
+          </div>
+        </sc-for>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; line-height: 1.5; padding: 8px 10px; background: #f2f2f2; border-radius: 6px">{{plan.prompt}}</span>
+      </div>
+      <div style="flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 8px">
+        <button type="button" onClick="{{plan.start}}" style="min-height: 44px; padding: 0 16px; border: 1.5px solid #111111; border-radius: 12px; background: #2747b8; color: #ffffff; font: inherit; font-weight: 600; cursor: pointer">Start session</button>
+        <a href="LaunchV1.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 14px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; text-decoration: none; font-weight: 600">Advanced…</a>
+        <button type="button" onClick="{{plan.editNotes}}" style="min-height: 44px; padding: 0 14px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; font-weight: 600; cursor: pointer">Edit notes &amp; context</button>
+        <button type="button" onClick="{{plan.replan}}" style="min-height: 44px; padding: 0 14px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; font-weight: 600; cursor: pointer">Re-plan with current notes</button>
+        <button type="button" onClick="{{plan.discard}}" style="min-height: 44px; padding: 0 12px; border: 0; background: transparent; color: #111111; font: inherit; text-decoration: underline; cursor: pointer">Discard</button>
+      </div>
+    </section>
+  </sc-if>
+
+  </section>
+
+  <sc-if value="{{sess.embedded}}" hint-placeholder-val="{{false}}">
+    <section aria-labelledby="h-emb" style="display: flex; flex-direction: column; border: 1.5px solid #111111; border-radius: 16px; overflow: hidden; box-shadow: 0 3px 0 #b4b4b4">
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 8px 16px; border-bottom: 1.5px solid #111111; background: #f2f2f2">
+        <h2 id="h-emb" style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 15px; font-weight: 600">{{sess.name}}</h2>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.08em; padding: 0 6px; border: 1.5px solid #111111; border-radius: 6px; background: #ffffff">RUNNING</span>
+        <span style="flex: 1 1 200px; font-size: 13.5px; color: #4a4a4a">{{sess.persona}} · <span style="font-family: 'IBM Plex Mono', monospace">{{sess.model}}</span></span>
+        <button type="button" onClick="{{sess.toBackground}}" style="min-height: 44px; padding: 0 14px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; font-weight: 600; cursor: pointer">Send to background</button>
+        <a href="ShellsV1.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 14px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; text-decoration: none; font-weight: 600">Open in Sessions</a>
+      </div>
+      <div role="log" aria-label="Session {{sess.name}}" style="background: #121212; color: #eeeeee; font-family: 'IBM Plex Mono', monospace; font-size: 14px; line-height: 1.75; padding: 14px 20px; min-height: 240px; overflow-x: auto; display: flex; flex-direction: column">
+        <sc-for list="{{sess.lines}}" as="l" hint-placeholder-count="5"><span style="{{l.style}}">{{l.text}}</span></sc-for>
+        <span style="white-space: pre"><span style="color: #9db2ff">❯</span> <span style="display: inline-block; width: 9px; height: 18px; background: #eeeeee; vertical-align: text-bottom"></span></span>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 16px; border-top: 1.5px solid #111111; background: #f2f2f2">
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">SEND</span>
+        <sc-for list="{{sess.msgs}}" as="m" hint-placeholder-count="3">
+          <button type="button" onClick="{{m.send}}" title="{{m.text}}" style="min-height: 40px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 999px; background: #ffffff; color: #111111; font: inherit; font-size: 13.5px; cursor: pointer">{{m.label}}</button>
+        </sc-for>
+        <button type="button" onClick="{{sess.interrupt}}" style="min-height: 40px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 999px; background: #ffd9b8; color: #111111; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer">Interrupt · Esc</button>
+      </div>
+    </section>
+  </sc-if>
+
+  <sc-if value="{{sess.inBackground}}" hint-placeholder-val="{{false}}">
+    <div role="status" style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 14px; border: 1.5px dashed #111111; border-radius: 12px">
+      <span style="flex: 1 1 200px"><span style="font-family: 'IBM Plex Mono', monospace; font-weight: 600">{{sess.name}}</span> · {{sess.persona}} is running in the background</span>
+      <button type="button" onClick="{{sess.bringBack}}" style="min-height: 44px; padding: 0 14px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; font-weight: 600; cursor: pointer">Bring back</button>
+    </div>
+  </sc-if>
+
+  <div style="display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start">
+    <section aria-label="Content" style="flex: 999 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+      <div role="tablist" aria-label="Item sections" style="display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1.5px solid #111111">
+        <sc-for list="{{tabs}}" as="t" hint-placeholder-count="3">
+          <button type="button" role="tab" aria-selected="{{t.selected}}" onClick="{{t.pick}}" style="{{t.style}}">{{t.label}}</button>
+        </sc-for>
+      </div>
+
+      <sc-if value="{{isTalk}}" hint-placeholder-val="{{true}}">
+        <div style="display: flex; flex-direction: column; gap: 14px">
+          <div style="display: flex; flex-direction: column; gap: 8px; font-size: 16px; line-height: 1.65; max-width: 72ch">
+            <p style="margin: 0">{{it.body}}</p>
+            <ul style="margin: 0; padding-left: 22px"><sc-for list="{{it.bullets}}" as="b" hint-placeholder-count="2"><li>{{b.t}}</li></sc-for></ul>
+          </div>
+          <sc-if value="{{rv.show}}" hint-placeholder-val="{{true}}">
+            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 14px; border: 1.5px solid #111111; border-radius: 12px; background: #ffd86b">
+              <span style="flex: 1 1 260px; font-weight: 600">{{rv.summary}}</span>
+              <button type="button" onClick="{{rv.selectAll}}" style="min-height: 44px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; font-size: 14px; cursor: pointer">{{rv.selectLabel}}</button>
+            </div>
+          </sc-if>
+
+          <sc-for list="{{tl}}" as="e" hint-placeholder-count="3">
+            <article style="{{e.style}}">
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px">
+                <sc-if value="{{e.selectable}}" hint-placeholder-val="{{false}}">
+                  <button type="button" role="checkbox" aria-checked="{{e.checked}}" aria-label="Select comment on {{e.where}}" onClick="{{e.toggle}}" style="{{e.box}}">
+                    <sc-if value="{{e.on}}" hint-placeholder-val="{{false}}"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#ffffff" stroke-width="2" aria-hidden="true"><path d="M3 7.2l2.6 2.6L11 4.4"></path></svg></sc-if>
+                  </button>
+                </sc-if>
+                <span style="font-size: 13px; color: #4a4a4a; flex: 1 1 auto"><span style="font-weight: 600; color: #111111">{{e.who}}</span> · {{e.when}}<sc-if value="{{e.isInline}}" hint-placeholder-val="{{false}}"> · <span style="font-family: 'IBM Plex Mono', monospace; color: #111111">{{e.where}}</span></sc-if></span>
+                <sc-if value="{{e.hasBadge}}" hint-placeholder-val="{{false}}"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.08em; padding: 0 6px; border: 1.5px solid #111111; border-radius: 6px; background: {{e.badgeBg}}">{{e.badge}}</span></sc-if>
+              </div>
+              <sc-if value="{{e.isInline}}" hint-placeholder-val="{{false}}">
+                <pre style="margin: 0; padding: 8px 10px; background: #f2f2f2; border-radius: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere">{{e.code}}</pre>
+              </sc-if>
+              <span style="font-size: 15px; line-height: 1.55">{{e.text}}</span>
+              <sc-if value="{{e.isInline}}" hint-placeholder-val="{{false}}">
+                <div style="display: flex; flex-wrap: wrap; gap: 8px">
+                  <button type="button" onClick="{{e.reply}}" style="display: flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff; color: #111111; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#111111" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M7 9l3 3-3 3M12 15h5"></path></svg>Reply with Claude</button>
+                  <button type="button" onClick="{{e.resolve}}" style="min-height: 40px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff; color: #111111; font: inherit; font-size: 13.5px; cursor: pointer">{{e.resolveLabel}}</button>
+                </div>
+              </sc-if>
+              <sc-if value="{{e.hasReply}}" hint-placeholder-val="{{false}}">
+                <div style="display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1.5px dashed #111111; border-radius: 10px">
+                  <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.08em">{{e.replyHead}}</span>
+                  <span style="font-size: 14.5px; line-height: 1.5">{{e.replyText}}</span>
+                  <div style="display: flex; gap: 8px">
+                    <button type="button" style="min-height: 40px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; background: #2747b8; color: #ffffff; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer">Post reply</button>
+                    <button type="button" style="min-height: 40px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff; color: #111111; font: inherit; font-size: 13.5px; cursor: pointer">Edit</button>
+                    <button type="button" onClick="{{e.dropReply}}" style="min-height: 40px; padding: 0 10px; border: 0; background: transparent; color: #111111; font: inherit; font-size: 13.5px; text-decoration: underline; cursor: pointer">Discard</button>
+                  </div>
+                </div>
+              </sc-if>
+            </article>
+          </sc-for>
+
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <label for="cmt" style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">COMMENT</label>
+            <textarea id="cmt" rows="4" placeholder="Markdown supported" value="{{draft}}" onChange="{{onDraft}}" style="padding: 10px 12px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; resize: vertical"></textarea>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+              <button type="button" style="min-height: 44px; padding: 0 16px; border: 1.5px solid #111111; border-radius: 12px; background: #111111; color: #ffffff; font: inherit; font-weight: 600; cursor: pointer">Comment</button>
+              <sc-for list="{{drafters}}" as="d" hint-placeholder-count="2">
+                <button type="button" onClick="{{d.go}}" style="display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#111111" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M7 9l3 3-3 3M12 15h5"></path></svg>{{d.label}}</button>
+              </sc-for>
+              <span role="status" style="font-size: 13px; color: #4a4a4a">{{draftNote}}</span>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isChecks}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; flex-direction: column">
+          <sc-for list="{{it.checks}}" as="s" hint-placeholder-count="4">
+            <div style="display: flex; align-items: center; gap: 12px; min-height: 44px; border-bottom: 1px solid #d0d0d0">
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.08em; padding: 1px 6px; border: 1.5px solid #111111; border-radius: 6px; background: {{s.bg}}; min-width: 44px; text-align: center">{{s.state}}</span>
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; flex: 1">{{s.name}}</span>
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #4a4a4a">{{s.t}}</span>
+              <a href="WorkItemV1.dc.html" style="font-size: 14px">Log</a>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isFiles}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; flex-direction: column">
+          <sc-for list="{{it.files}}" as="f" hint-placeholder-count="4">
+            <div style="display: flex; align-items: center; gap: 12px; min-height: 44px; border-bottom: 1px solid #d0d0d0">
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; flex: 1; overflow-wrap: anywhere">{{f.path}}</span>
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">+{{f.add}} −{{f.del}}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+    </section>
+
+    <aside aria-label="Details" style="flex: 1 1 240px; min-width: 0; max-width: 320px; display: flex; flex-direction: column; gap: 14px">
+      <sc-for list="{{it.side}}" as="f" hint-placeholder-count="5">
+        <div style="display: flex; flex-direction: column; gap: 2px; padding-bottom: 12px; border-bottom: 1px solid #d0d0d0">
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em; color: #4a4a4a">{{f.k}}</span>
+          <span style="font-size: 14.5px; overflow-wrap: anywhere">{{f.v}}</span>
+        </div>
+      </sc-for>
+      <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center">
+        <sc-for list="{{it.labels}}" as="l" hint-placeholder-count="2">
+          <span style="padding: 1px 10px; border: 1.5px solid #111111; border-radius: 999px; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px">{{l.n}}</span>
+        </sc-for>
+        <button type="button" style="min-height: 32px; padding: 0 10px; border: 1.5px dashed #111111; border-radius: 999px; background: transparent; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; cursor: pointer">+ label</button>
+      </div>
+    </aside>
+  </div>
+</main>
+<div style="flex: none; display: flex">
+  <dc-import name="SidebarV1" screen="Work item" selection="{{it.ref}}" collapsed="{{yes}}" hint-size="64px,920px"></dc-import>
+</div>
+</div>
+</div>
+<sc-if value="{{nwOpen}}" hint-placeholder-val="{{false}}">
+  <dc-import name="NewWorkV1" open="{{yes}}" template="{{nw.template}}" repo="{{nw.repo}}" context="{{nw.context}}" by="you" notes="{{nw.notes}}" describe="{{nw.describe}}" on-close="{{closeNw}}" hint-size="0px,0px"></dc-import>
+</sc-if>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"item":{"editor":"enum","options":["kernel#212","shell#288","build-image #1184"],"default":"kernel#212"},"$preview":{"width":1440,"height":1500}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { tab: 'talk', plan: null, sess: null, picked: {}, resolved: {}, replies: {}, draft: '', draftNote: '' }; }
+  componentWillUnmount() { clearTimeout(this._t); }
+  renderVals() {
+    const ref = this.props.item ?? 'kernel#212';
+    const st = (name, s, t) => ({ name, state: s === 'f' ? 'FAIL' : s === 'r' ? 'RUN' : s === 'w' ? 'SKIP' : 'OK', bg: s === 'f' ? '#ffd9b8' : s === 'r' || s === 'w' ? '#e2e2e2' : '#ffffff', t });
+    const btn = (primary) => 'min-height: 44px; padding: 0 16px; border: 1.5px solid #111111; border-radius: 12px; font: inherit; font-weight: 600; cursor: pointer; box-shadow: 0 3px 0 #b4b4b4; ' + (primary ? 'background: #111111; color: #ffffff' : 'background: #ffffff; color: #111111');
+    const I = {
+      'kernel#212': { kind: 'pr', kindLabel: 'PULL REQUEST', listName: 'Pull requests', pos: '2 of 25', title: 'drm/epd: add waveform LUT loader', state: '3 OPEN THREADS', stateBg: '#ffd9b8',
+        thread: [
+          { id: 'c1', type: 'comment', who: 'kernel-lut', when: '2 h ago', text: 'Pushed a fixup for the checkpatch warnings.', badge: 'AGENT' },
+          { id: 'r1', type: 'review', who: 'review-kernel-212', when: '40 min ago', text: 'The loader shape is right; three things need fixing before merge.', badge: 'REVIEW' },
+          { id: 'i1', type: 'inline', who: 'review-kernel-212', when: '40 min ago', where: 'epd_lut.c:88', code: 'if (hdr->version > EPD_LUT_VERSION_MAX)\n        return -EINVAL;', text: 'Version 0 passes this check, but hardware/epd/waveforms.md reserves v0. Reject it explicitly.' },
+          { id: 'i2', type: 'inline', who: 'review-kernel-212', when: '40 min ago', where: 'epd_lut.c:142', code: 'if (ret)\n        return ret;   /* fw not released */', text: 'The firmware buffer from request_firmware() leaks on this error path. Release it before returning.' },
+          { id: 'i3', type: 'inline', who: 'review-kernel-212', when: '40 min ago', where: 'epd.yaml:12', code: '+  waveform-name:\n+    $ref: /schemas/types.yaml#/definitions/string', text: 'New property, but the example at the bottom of the binding wasn’t updated, so dt-validate won’t exercise it.' },
+          { id: 'c2', type: 'comment', who: 'maintainer', when: '25 min ago', text: 'Agreed on all three. The binding example can be a follow-up if it gets fiddly.' }
+        ],
+        meta: ['agent/kernel-lut → main', 'opened by maintainer via shell kernel-lut', '3 h ago', '+412 −38'],
+        actions: [['Merge…', true], ['Update branch', false], ['Close', false]],
+        quick: [['review', 'Review this PR'], ['explain', 'Explain the diff']],
+        body: 'Loads waveform tables from /lib/firmware and selects a mode by panel temperature. Part of kernel#204 under hub#44.',
+        bullets: ['Tables are versioned; the loader refuses unknown versions.', 'Temperature compensation is left for a follow-up.'],
+        timeline: [['kernel-lut (agent)', '2 h ago', 'Pushed a fixup for checkpatch warnings.'], ['ci', '14 min ago', 'boot-test · qemu started.']],
+        checks: [st('build · arm64', 'p', '6m 12s'), st('checkpatch', 'p', '41s'), st('dt-validate', 'p', '1m 03s'), st('boot-test · qemu', 'r', '2m so far'), st('sign-off', 'p', '1s')],
+        files: [['drivers/gpu/drm/epd/epd_lut.c', 288, 0], ['drivers/gpu/drm/epd/epd_core.c', 64, 31], ['drivers/gpu/drm/epd/epd_lut.h', 41, 0], ['Documentation/devicetree/bindings/display/epd.yaml', 12, 4], ['drivers/gpu/drm/epd/Kconfig', 5, 1], ['drivers/gpu/drm/epd/Makefile', 2, 2]],
+        side: [['PART OF', 'kernel#204 · which is part of hub#44'], ['REVIEWS', 'review-kernel-212 left 3 threads · posted as review comments, since a PR author can’t review their own PR'], ['ASSIGNEE', 'maintainer'], ['SESSIONS', 'kernel-lut (author) · review-kernel-212 (review)']], labels: ['driver'] },
+      'shell#288': { kind: 'issue', kindLabel: 'ISSUE', listName: 'Issues', pos: '3 of 163', title: 'Quick settings: brightness slider skips steps', state: 'OPEN', stateBg: '#ffffff',
+        meta: ['opened 3 days ago', 'no assignee', '2 comments'],
+        actions: [['Assign to me', false], ['Close', false]],
+        quick: [['triage', 'Triage'], ['implement', 'Implement on a branch']],
+        body: 'The slider maps 0–100 onto 16 panel steps unevenly, so some drags change nothing.',
+        bullets: ['Seen on the Note Air at 20–35%.', 'Expected: every 1/16 of travel moves one step.'],
+        timeline: [['maintainer', '3 d ago', 'Repro on 0.6.0.'], ['triage-weekly (agent)', '2 d ago', 'Suggested “Part of hub#55” and label ui.']],
+        checks: [], files: [],
+        side: [['PART OF', 'nothing yet · suggested hub#55'], ['ASSIGNEE', 'unassigned'], ['MILESTONE', 'none'], ['SESSIONS', 'none']], labels: ['bug', 'ui'] },
+      'build-image #1184': { kind: 'run', kindLabel: 'WORKFLOW RUN', listName: 'Actions', pos: '1 of 41', title: 'image-builder · build-image', state: 'FAILED', stateBg: '#ffd9b8',
+        meta: ['push to main · a3f91c2', 'ubuntu-24.04-arm', '9m 01s', '41 min ago'],
+        actions: [['Re-run failed jobs', true], ['Full log', false]],
+        quick: [['investigate', 'Investigate failure'], ['flaky', 'Check for flakiness']],
+        body: 'Step “rootfs” exited 1: chroot could not run debootstrap’s second stage (exec format error).',
+        bullets: ['Same step failed in #1179 and #1181.'], timeline: [],
+        checks: [st('checkout', 'p', '3s'), st('deps', 'p', '1m 20s'), st('rootfs', 'f', '7m 32s'), st('pack', 'w', 'skipped')], files: [],
+        side: [['WORKFLOW', '.github/workflows/build.yml'], ['TRIGGER', 'push · a3f91c2'], ['RUNNER', 'ubuntu-24.04-arm'], ['SESSIONS', 'none']], labels: [] }
+    };
+    const it0 = I[ref];
+    const tabsDef = it0.kind === 'pr' ? [['talk', 'Conversation'], ['checks', 'Checks ' + it0.checks.length], ['files', 'Files ' + it0.files.length]]
+      : it0.kind === 'issue' ? [['talk', 'Conversation']] : [['talk', 'Summary'], ['checks', 'Steps ' + it0.checks.length]];
+    const tab = tabsDef.some((t) => t[0] === this.state.tab) ? this.state.tab : 'talk';
+    const slug = ref.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+    const SP = {
+      review: ['Code reviewer', 'claude-opus-5-5 · plan', 'detached at PR head', 'read · comment (ask)', 'Review ' + ref + ' for correctness, tests and fit with hub#44. One summary comment.', 'Ceiling for review: read and comment. Never merge or push.', 'epd waveform LUT format loader conventions', [['hardware/epd/waveforms.md', '0.84', 'the LUT format'], ['decisions/0005-firmware-loading.md', '0.79', 'why tables load from /lib/firmware'], ['kernel/CONTRIBUTING.md#review', '0.70', 'review checklist']]],
+      explain: ['Explainer', 'claude-sonnet-5-5 · plan', 'detached at PR head', 'read only', 'Explain the diff of ' + ref + ' file by file, and what could break.', 'Ceiling: read only.', 'epd waveform loader', [['hardware/epd/waveforms.md', '0.76', 'terms the diff uses']]],
+      triage: ['Triage', 'claude-sonnet-5-5 · default', 'none', 'read · labels, body (ask)', 'Label ' + ref + ', find the strategic issue it is part ofegic issue and duplicates.', 'Ceiling for triage: no close, no code.', 'brightness slider quick settings', [['process/labels.md', '0.83', 'labelling rules'], ['process/roadmap.md#strategic', '0.77', 'strategic issues']]],
+      implement: ['Engineer', 'claude-opus-5-5 · default', 'new · agent/' + slug, 'read · comment · open PR (ask)', 'Implement ' + ref + ' on agent/' + slug + '; open a draft PR.', 'Ceiling: own branch, no merge.', 'quick settings brightness steps', [['shell/CONTRIBUTING.md', '0.74', 'commit rules'], ['style/interaction.md#sliders', '0.66', 'slider behaviour']]],
+      investigate: ['CI investigator', 'claude-opus-5-5 · default', 'new · agent/ci-' + slug, 'read · logs · rerun (ask)', 'Find why ' + ref + ' failed. The failed log is attached. Propose the smallest fix as a draft PR.', 'Ceiling: own branch, no dispatch.', 'aarch64 rootfs debootstrap binfmt', [['infra/runners.md', '0.79', 'ARM runner images'], ['image-builder/README.md#rootfs', '0.74', 'second stage under qemu-user']]],
+      address: ['Engineer · kernel', 'claude-opus-5-5 · default', 'checkout of agent/kernel-lut', 'read · comment · push to this PR’s branch (ask)', 'ADDRESS_PROMPT', 'Ceiling: this PR’s branch only. Replies to threads go through you; it never resolves them itself.', 'epd waveform LUT versions firmware release', [['hardware/epd/waveforms.md#versions', '0.86', 'v0 is reserved'], ['kernel/CONTRIBUTING.md#fixups', '0.72', 'fixup commits, then autosquash'], ['decisions/0005-firmware-loading.md', '0.69', 'release rules for request_firmware']]],
+      flaky: ['CI investigator', 'claude-sonnet-5-5 · plan', 'none', 'read · logs', 'Compare ' + ref + ' with the last 20 runs; is it flaky?', 'Ceiling: read only.', 'flaky checks', [['infra/flaky.md', '0.72', 'known flaky steps']]]
+    };
+    const pl = this.state.plan && this.state.plan.ref === ref ? this.state.plan : null;
+    let sp = pl ? SP[pl.action] : null;
+    if (sp && pl.action === 'address') { sp = sp.slice(); sp[4] = 'On agent/kernel-lut, address these review threads on ' + ref + ': ' + (pl.extra || []).join('; ') + '. One fixup commit per thread; then draft a reply for each thread for me to post.'; }
+    const readStep = it0.kind === 'pr' ? 'hub.get_pr(' + ref + ') · diff, checks, linked issue' : it0.kind === 'issue' ? 'hub.get_issue(' + ref + ') · thread, labels' : 'hub.get_run_log(' + ref + ', failed=true)';
+    const qOf = (sp, pl) => sp[6] + (pl && pl.notes ? ' ' + pl.notes.split(/[^A-Za-z0-9#./_-]+/).filter((w) => w.length > 4).slice(0, 4).join(' ') : '');
+    const CH = it0.kind === 'pr' ? ['error paths first', 'keep the diff small', 'check against waveforms.md', 'add tests'] : it0.kind === 'issue' ? ['only propose, don’t apply', 'look for duplicates in reader', 'link to hub#55'] : ['compare with #1179 and #1181', 'don’t touch the runner image'];
+    const steerChips = CH.map((t) => ({ t, add: () => { const cur = (this.state.steer || '').trim(); this.setState({ steer: cur ? cur + '; ' + t : t }); } }));
+    const pinsNow = this.state.pins || [];
+    const ALSO = { 'kernel#212': [['kernel#204', 'what it implements'], ['kernel#219', 'same file']], 'shell#288': [['shell#290', 'same slider code'], ['shell#295', 'part of hub#55 too']], 'build-image #1184': [['image-builder#37', 'same failure']] }[ref] || [];
+    const alsoNow = this.state.also || [];
+    const alsoChips = alsoNow.map((r) => ({ ref: r, remove: () => this.setState({ also: (this.state.also || []).filter((x) => x !== r) }) }));
+    const alsoSuggest = ALSO.filter(([r]) => alsoNow.indexOf(r) < 0).map(([r, hint]) => ({ ref: r, hint, add: () => this.setState({ also: (this.state.also || []).concat([r]) }) }));
+    const addPin = (kind, label) => { if (!label || pinsNow.some((x) => x.label === label)) return; this.setState({ pins: (this.state.pins || []).concat([{ kind, label }]), pinInput: '' }); };
+    const AT = [['Issue / PR', 'ISSUE', 'hub#44'], ['Repo file', 'FILE', 'kernel:drivers/gpu/drm/epd/epd_lut.c'], ['Docs page', 'DOCS', 'hardware/epd/waveforms.md#versions'], ['Text snippet', 'TEXT', '“Panel range is 0–50 °C on the Note Air”'], ['Session summary', 'SESSION', 'review-kernel-212']];
+    const attachers = AT.map(([label, kind, val]) => ({ label: '+ ' + label, add: () => addPin(kind, val) }));
+    const PM = [['claude-opus-5-5', 'Opus'], ['claude-sonnet-5-5', 'Sonnet'], ['claude-haiku-5-5', 'Haiku']];
+    const pmodel = this.state.pmodel || 'claude-opus-5-5';
+    const pmodelName = PM.find((m) => m[0] === pmodel)[1];
+    const pmodels = PM.map(([id, name]) => ({ name, checked: pmodel === id ? 'true' : 'false', pick: () => this.setState({ pmodel: id }),
+      style: 'min-height: 40px; padding: 0 12px; border: 0; border-right: 1px solid #d0d0d0; font: inherit; font-size: 14px; cursor: pointer; ' + (pmodel === id ? 'background: #111111; color: #ffffff; font-weight: 600' : 'background: #ffffff; color: #111111') }));
+    const startPlan = (id, label, extra) => { clearTimeout(this._t); this.setState({ plan: { ref, action: id, label, phase: 'planning', extra: extra || null, also: (this.state.also || []).slice(), notes: (this.state.steer || '').trim(), pins: (this.state.pins || []).concat(open.filter((e) => this.state.picked[ref + e.id]).map((e) => ({ kind: 'THREAD', label: e.where }))) } }); this._t = setTimeout(() => { if (this.state.plan && this.state.plan.ref === ref) this.setState({ plan: { ...this.state.plan, phase: 'ready' } }); }, 1600); };
+    const thread = it0.thread || it0.timeline.map(([who, when, text], i) => ({ id: 't' + i, type: 'comment', who, when, text }));
+    const open = thread.filter((e) => e.type === 'inline' && !this.state.resolved[ref + e.id]);
+    const pickedIds = open.filter((e) => this.state.picked[ref + e.id]).map((e) => e.id);
+    const threadArgs = () => { const pk = open.filter((e) => this.state.picked[ref + e.id]); return (pk.length ? pk : open).map((e) => e.where + ' — ' + e.text.split('.')[0]); };
+    const qDefs = (open.length ? [['address', 'Address review · ' + (pickedIds.length ? pickedIds.length + ' ticked thread' + (pickedIds.length === 1 ? '' : 's') : 'all ' + open.length + ' threads')]] : []).concat(it0.quick);
+    const quick = qDefs.map(([id, label], i) => ({ label,
+      style: 'display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border: 1.5px solid #111111; border-radius: 12px; font: inherit; font-weight: 600; cursor: pointer; box-shadow: 0 3px 0 #b4b4b4; ' + (i === 0 ? 'background: #2747b8; color: #ffffff' : 'background: #ffffff; color: #111111'),
+      go: () => startPlan(id, label, id === 'address' ? threadArgs() : null) }));
+    const MODELS = [['claude-fable-5-1', 'Fable', 'deepest'], ['claude-opus-5-5', 'Opus', 'strong'], ['claude-sonnet-5-5', 'Sonnet', 'fast'], ['claude-haiku-5-5', 'Haiku', 'cheapest']];
+    const pickedModel = sp ? ((pl && pl.model) || sp[1].split(' · ')[0]) : '';
+    const plannerModel = sp ? sp[1].split(' · ')[0] : '';
+    const plan = {
+      pmodelName,
+      models: sp ? MODELS.map(([id, name, hint]) => ({ name, hint: hint + (id === plannerModel ? ' · planner’s pick' : ''), checked: id === pickedModel ? 'true' : 'false',
+        style: 'display: flex; flex-direction: column; align-items: flex-start; min-height: 52px; padding: 6px 14px; border: 0; border-right: 1px solid #d0d0d0; font: inherit; font-size: 14px; cursor: pointer; text-align: left; ' + (id === pickedModel ? 'background: #111111; color: #ffffff' : 'background: #ffffff; color: #111111'),
+        pick: () => this.setState({ plan: { ...this.state.plan, model: id } }) })) : [],
+      modelNote: sp ? (pickedModel === plannerModel ? pickedModel + ' — the planner chose it for this action.' : pickedModel + ' — your choice; the planner suggested ' + plannerModel + '.') : '',
+      planning: !!pl && pl.phase === 'planning', ready: !!pl && pl.phase === 'ready', label: pl ? pl.label : '', name: pl ? pl.action + '-' + slug : '',
+      steps: sp ? [{ t: '0  your notes: ' + (pl.notes ? '“' + pl.notes + '”' : 'none') + ' · pinned: ' + ((pl.pins || []).length ? pl.pins.map((x) => x.label).join(', ') : 'none') }, { t: '1  ' + readStep }, { t: '2  hub.docs_search("' + qOf(sp, pl) + '")' }, { t: '3  ranking passages, writing spec…' }] : [],
+      rows: sp ? [{ k: 'COVERS', v: ref + ' (primary)' + ((pl.also || []).length ? ', ' + pl.also.join(', ') : '') }, { k: 'YOUR NOTES', v: pl.notes || '—' }, { k: 'PINNED', v: (pl.pins || []).length ? pl.pins.map((x) => x.label).join(' · ') : '—' }, { k: 'PERSONA', v: sp[0] }, { k: 'MODE', v: sp[1].split(' · ')[1] }, { k: 'WORKTREE', v: sp[2] }, { k: 'HUB TOOLS', v: sp[3] }] : [],
+      prompt: sp ? sp[4] + ((pl.also || []).length ? ' Also covers ' + pl.also.join(', ') + ' — work them in the same branch and close all of them from the PR.' : '') + (pl.notes ? ' Notes from Maintainer, treat as priorities: ' + pl.notes : '') + ((pl.pins || []).length ? ' Pinned context (read first): ' + pl.pins.map((x) => x.label).join(', ') + '.' : '') : '', ceiling: sp ? sp[5] : '', query: sp ? qOf(sp, pl) : '', notes: pl && pl.notes ? pl.notes : '', hasNotes: !!(pl && pl.notes),
+      passages: sp ? sp[7].map(([path, score, why]) => ({ path, score, why })) : [],
+      start: () => this.setState({ plan: null, sess: { ref, name: pl.action + '-' + slug, persona: sp[0], model: pickedModel, phase: 'embedded',
+        lines: [['dim', '# hub started ' + pl.action + '-' + slug + ' · ' + sp[0]], ['tool', '● ' + readStep], ['tool', '● Read ' + sp[7].length + ' attached passages'], ['out', '● Working on: ' + pl.label.toLowerCase() + '…']] } }),
+      replan: () => startPlan(pl.action, pl.label, pl.extra),
+      editNotes: () => this.setState({ plan: null, composeOpen: true }),
+      discard: () => this.setState({ plan: null })
+    };
+    const se = this.state.sess && this.state.sess.ref === ref ? this.state.sess : null;
+    const LS = (k) => 'white-space: pre-wrap; ' + (k === 'you' ? 'color: #121212; background: #eeeeee; padding: 0 6px; align-self: flex-start; font-weight: 600' : k === 'tool' ? 'color: #9db2ff' : k === 'dim' ? 'color: #bbbbbb; font-style: italic' : 'color: #eeeeee');
+    const add = (more) => () => this.setState({ sess: { ...this.state.sess, lines: this.state.sess.lines.concat(more) } });
+    const MS = [['Progress?', 'Summarise what you have done and what is left, in five lines.'], ['Cite sources', 'List the docs passages you relied on, by path.'], ['Wrap up', 'Wrap up and summarise.']];
+    const sess = se ? { ...se, embedded: se.phase === 'embedded', inBackground: se.phase === 'background',
+      lines: se.lines.map(([k, t]) => ({ text: t, style: LS(k) })),
+      msgs: MS.map(([label, text]) => ({ label, text, send: add([['you', '› ' + text], ['dim', '  sent from a hub button']]) })),
+      interrupt: add([['dim', '⎋ interrupted from hub']]),
+      toBackground: () => this.setState({ sess: { ...this.state.sess, phase: 'background' } }),
+      bringBack: () => this.setState({ sess: { ...this.state.sess, phase: 'embedded' } }) } : { embedded: false, inBackground: false, lines: [], msgs: [] };
+    const S = this.state;
+    const setMap = (k, id, v) => () => this.setState({ [k]: { ...this.state[k], [ref + id]: v === undefined ? !this.state[k][ref + id] : v } });
+    const REPLY = {
+      i1: 'Good catch — v0 is reserved in waveforms.md. Fixed in the next fixup: the loader now rejects version 0 explicitly.',
+      i2: 'Fixed: release_firmware() now runs on every error path after the request succeeds.',
+      i3: 'Updated the example to set waveform-name so dt-validate covers it.'
+    };
+    const tl = thread.map((e) => {
+      const res = !!S.resolved[ref + e.id], on = !!S.picked[ref + e.id], rep = S.replies[ref + e.id];
+      return { ...e, isInline: e.type === 'inline', selectable: e.type === 'inline' && !res, on, checked: on ? 'true' : 'false',
+        hasBadge: !!e.badge || res, badge: res ? 'RESOLVED' : (e.badge || ''), badgeBg: res ? '#e2e2e2' : (e.type === 'review' ? '#ffd9b8' : '#ffffff'),
+        box: 'display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; flex: none; border: 1.5px solid #111111; border-radius: 4px; padding: 0; cursor: pointer; background: ' + (on ? '#2747b8' : '#ffffff'),
+        style: 'display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 12px; ' + (e.type === 'inline' ? 'margin-left: 24px; border: 1.5px solid #111111' + (res ? '; opacity: 0.6' : '') : e.type === 'review' ? 'border: 1.5px solid #111111; background: #f2f2f2' : 'border: 1px solid #d0d0d0'),
+        toggle: setMap('picked', e.id), resolve: setMap('resolved', e.id), resolveLabel: res ? 'Reopen' : 'Resolve',
+        reply: () => { this.setState({ replies: { ...this.state.replies, [ref + e.id]: 'drafting' } }); setTimeout(() => this.setState({ replies: { ...this.state.replies, [ref + e.id]: 'ready' } }), 1200); },
+        hasReply: !!rep, replyHead: rep === 'ready' ? 'DRAFT REPLY · claude -p · read-only' : 'DRAFTING · reading the thread and the diff…',
+        replyText: rep === 'ready' ? (REPLY[e.id] || 'Thanks — addressed.') : '…', dropReply: setMap('replies', e.id, '') };
+    });
+    const pickedWhere = open.filter((e) => S.picked[ref + e.id]).map((e) => e.where);
+    const rv = { show: open.length > 0,
+      summary: open.length + ' open review thread' + (open.length === 1 ? '' : 's') + (pickedIds.length ? ' · ' + pickedIds.length + ' ticked — pinned for the agent' : ' · tick the ones an agent should address'),
+      none: pickedIds.length === 0 && open.length === 0,
+      selectLabel: pickedIds.length === open.length ? 'Clear selection' : 'Select all',
+      selectAll: () => { const all = pickedIds.length === open.length; const n = { ...this.state.picked }; open.forEach((e) => { n[ref + e.id] = !all; }); this.setState({ picked: n }); },
+      addressLabel: 'Address ' + (pickedIds.length || ('all ' + open.length)) + ' in the Claude panel',
+      address: () => startPlan('address', 'Address review', (pickedWhere.length ? open.filter((e) => S.picked[ref + e.id]) : open).map((e) => e.where + ' — ' + e.text.split('.')[0])) };
+    const DR = it0.kind === 'pr'
+      ? 'Thanks for the review. I’ll fix the version check and the firmware release path in this PR; the binding example follows as a fixup if it stays small.'
+      : 'Repro confirmed on 0.6.0. Likely cause: the slider maps 0–100 onto 16 steps with integer rounding. Suggest adding “Part of hub#55”.';
+    const drafters = [['Draft with Claude', DR], ['Summarise thread', it0.kind === 'pr' ? 'Summary: 3 open review threads (version check, firmware release, binding example); author agrees; boot test still running.' : 'Summary: slider skips steps between 20–35%; triage suggests hub#55.']].map(([label, text]) => ({ label,
+      go: () => { this.setState({ draftNote: 'drafting with claude -p (read-only)…' }); setTimeout(() => this.setState({ draft: text, draftNote: 'Draft ready — edit, then Comment. Nothing is posted until you do.' }), 1200); } }));
+    return {
+      yes: true,
+      nwOpen: !!this.state.nw, nw: this.state.nw || {}, closeNw: () => this.setState({ nw: null }),
+      openFollow: () => this.setState({ nw: { template: 'issue', repo: ref.split(/[# ]/)[0].replace('build-image', 'image-builder'), context: ref, notes: 'Follow-up from ' + ref + '. Link it as related.', describe: it0.kind === 'pr' ? 'Update the epd.yaml binding example so dt-validate covers waveform-name (left out of ' + ref + ').' : '' } }),
+      it: { ...it0, ref, meta: it0.meta.map((t) => ({ t })), actions: it0.actions.map(([label, primary]) => ({ label, style: btn(primary) })),
+        bullets: it0.bullets.map((t) => ({ t })), timeline: it0.timeline.map(([who, when, text]) => ({ who, when, text })),
+        files: it0.files.map(([path, add, del]) => ({ path, add, del })), side: it0.side.map(([k, v]) => ({ k, v })), labels: it0.labels.map((n) => ({ n })) },
+      tabs: tabsDef.map(([id, label]) => ({ label, selected: tab === id ? 'true' : 'false', pick: () => this.setState({ tab: id }),
+        style: 'min-height: 44px; padding: 0 14px; border: 0; border-bottom: 3px solid ' + (tab === id ? '#2747b8' : 'transparent') + '; margin-bottom: -1.5px; background: transparent; color: #111111; font: inherit; font-size: 15px; cursor: pointer; font-weight: ' + (tab === id ? '600' : '400') })),
+      isTalk: tab === 'talk', isChecks: tab === 'checks', isFiles: tab === 'files',
+      quick, plan, sess, tl, rv, drafters,
+      pins: open.filter((e) => S.picked[ref + e.id]).map((e) => ({ kind: 'THREAD', label: e.where, remove: setMap('picked', e.id) })).concat(pinsNow.map((x) => ({ ...x, remove: () => this.setState({ pins: (this.state.pins || []).filter((y) => y.label !== x.label) }) }))),
+      hasPins: pinsNow.length + pickedIds.length > 0, pinCount: (pinsNow.length + pickedIds.length) ? String(pinsNow.length + pickedIds.length) : 'none yet', attachers,
+      pinInput: S.pinInput || '', onPinInput: (ev) => this.setState({ pinInput: ev.target.value }),
+      addTyped: () => { const v = (this.state.pinInput || '').trim(); addPin(/^https?:/.test(v) ? 'URL' : /#\d/.test(v) ? 'REF' : v.indexOf(':') > 0 ? 'FILE' : 'DOCS', v); },
+      showCompose: !pl, composeOpen: !!S.composeOpen, composeClosed: !S.composeOpen,
+      openCompose: () => this.setState({ composeOpen: true }), closeCompose: () => this.setState({ composeOpen: false }),
+      composeSummary: ((S.steer || '').trim() ? '“' + (S.steer.length > 60 ? S.steer.slice(0, 60) + '…' : S.steer) + '”' : 'no notes') + ' · ' + ((pinsNow.length + pickedIds.length) ? (pickedIds.length ? pickedIds.length + ' review thread' + (pickedIds.length === 1 ? '' : 's') + (pinsNow.length ? ' + ' + pinsNow.length + ' more' : '') : pinsNow.length) + ' pinned' : 'nothing pinned') + (alsoNow.length ? ' · also covers ' + alsoNow.join(', ') : '') + ' · planner ' + pmodelName + ' — optional',
+      claudeIntro: it0.kind === 'pr' ? 'Start an agent session for this pull request.' : it0.kind === 'issue' ? 'Start an agent session for this issue.' : 'Start an agent session for this run.',
+      pmodels, alsoChips, alsoSuggest, alsoCount: alsoNow.length ? String(alsoNow.length) : 'none',
+      steer: S.steer || '', onSteer: (ev) => this.setState({ steer: ev.target.value }), steerChips,
+      draft: S.draft, draftNote: S.draftNote, onDraft: (ev) => this.setState({ draft: ev.target.value })
+    };
+  }
+}
+</script>
+</body>
+</html>

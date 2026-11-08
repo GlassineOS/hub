@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Repository picker</title>
+<script src="./support.js"></script>
+<script src="data/fixtures.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div style="display: flex; flex-direction: column; gap: 6px; min-width: 0; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15px; line-height: 1.5; color: #111111">
+  <sc-if value="{{hasLabel}}" hint-placeholder-val="{{true}}"><span id="rp-l" style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">{{label}}</span></sc-if>
+  <div style="{{fieldStyle}}">
+    <sc-for list="{{pills}}" as="p" hint-placeholder-count="1">
+      <span style="display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 {{p.padR}} 0 10px; border: 1.5px solid #111111; border-radius: 999px; background: {{p.bg}}; font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; white-space: nowrap">{{p.name}}
+        <sc-if value="{{p.rm}}" hint-placeholder-val="{{true}}"><button type="button" onClick="{{p.remove}}" aria-label="Remove {{p.name}}" style="display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 0; border-radius: 999px; background: #f2f2f2; cursor: pointer"><svg width="9" height="9" viewBox="0 0 12 12" stroke="#111111" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6"></path></svg></button></sc-if>
+      </span>
+    </sc-for>
+    <input type="text" role="combobox" aria-label="{{aria}}" aria-expanded="{{expanded}}" value="{{q}}" onChange="{{onQ}}" onFocus="{{onFocus}}" placeholder="{{placeholder}}" style="flex: 1 1 120px; min-width: 100px; min-height: 32px; border: 0; outline: none; background: transparent; color: #111111; font-family: 'IBM Plex Mono', monospace; font-size: 13.5px">
+    <button type="button" onClick="{{toggle}}" aria-label="{{toggleAria}}" style="display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex: none; border: 0; border-radius: 8px; background: transparent; cursor: pointer"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#111111" stroke-width="1.8" aria-hidden="true"><path d="{{chev}}"></path></svg></button>
+  </div>
+  <sc-if value="{{isOpen}}" hint-placeholder-val="{{true}}">
+    <div style="{{panelStyle}}">
+      <div style="display: flex; flex-wrap: wrap; gap: 4px; padding: 8px; border-bottom: 1px solid #d0d0d0; background: #f2f2f2">
+        <sc-for list="{{layerChips}}" as="l" hint-placeholder-count="6"><button type="button" aria-pressed="{{l.pressed}}" onClick="{{l.pick}}" style="{{l.style}}">{{l.label}} <span style="opacity: 0.8">{{l.n}}</span></button></sc-for>
+      </div>
+      <ul role="listbox" aria-multiselectable="{{multiAttr}}" aria-label="Repositories" style="margin: 0; padding: 4px; list-style: none; display: flex; flex-direction: column; gap: 1px; max-height: 336px; overflow-y: auto">
+        <sc-for list="{{sections}}" as="s" hint-placeholder-count="2">
+          <li role="presentation" style="padding: 6px 8px 2px; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; color: #4a4a4a">{{s.label}}</li>
+          <sc-for list="{{s.rows}}" as="r" hint-placeholder-count="4">
+            <li role="option" aria-selected="{{r.sel}}">
+              <button type="button" onClick="{{r.pick}}" style="{{r.style}}">
+                <span aria-hidden="true" style="{{r.box}}">{{r.mark}}</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13.5px; font-weight: 600; flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis">{{r.name}}</span>
+                <span style="font-size: 12px; color: #4a4a4a; white-space: nowrap">{{r.meta}}</span>
+                <sc-if value="{{r.failing}}" hint-placeholder-val="{{false}}"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.08em; padding: 0 5px; border: 3px double #111111; border-radius: 4px">FAILING</span></sc-if>
+              </button>
+            </li>
+          </sc-for>
+        </sc-for>
+      </ul>
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 8px 6px 12px; border-top: 1px solid #d0d0d0">
+        <span style="flex: 1; font-size: 12.5px; color: #4a4a4a">{{footer}}</span>
+        <sc-if value="{{multi}}" hint-placeholder-val="{{false}}"><button type="button" onClick="{{pickVisible}}" style="min-height: 36px; padding: 0 10px; border: 1.5px dashed #111111; border-radius: 10px; background: #ffffff; color: #111111; font: inherit; font-size: 13px; cursor: pointer">{{pickVisibleLabel}}</button></sc-if>
+        <button type="button" onClick="{{close}}" style="min-height: 36px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff; color: #111111; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer">Done</button>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"value":{"editor":null},"multi":{"editor":"boolean","default":false},"allowAll":{"editor":"boolean","default":false},"label":{"editor":"text","default":"REPOSITORY"},"open":{"editor":"boolean","default":false},"query":{"editor":"text","default":""},"float":{"editor":"boolean","default":false},"onChange":{"editor":null},"$preview":{"width":520,"height":520}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { q: p.query || '', open: !!p.open, layer: null, local: null }; }
+  renderVals() {
+    const H = window.HUB, P = this.props, S = this.state;
+    const multi = !!P.multi, all = !!P.allowAll;
+    const raw = S.local !== null ? S.local : (P.value !== undefined ? P.value : (multi ? [] : (all ? 'all' : 'hub')));
+    const value = multi ? (Array.isArray(raw) ? raw : (raw && raw !== 'all' ? [raw] : [])) : (Array.isArray(raw) ? raw[0] : raw);
+    const set = (v) => { this.setState({ local: v }); if (P.onChange) P.onChange(v); };
+    const q = S.q.trim().toLowerCase();
+    const LAB = { 'STRATEGY': 'Strategy', 'KNOWLEDGE & RULES': 'Knowledge', 'DISTRIBUTION': 'Distribution', 'SYSTEM': 'System', 'HARDWARE ENABLEMENT': 'Hardware' };
+    const isSel = (n) => multi ? value.indexOf(n) >= 0 : value === n;
+    const score = (r) => { const n = r.name; if (!q) return 1; if (n === q) return 4; if (n.indexOf(q) === 0) return 3; if (n.indexOf(q) >= 0) return 2; let i = 0; for (const c of n) if (c === q[i]) i++; return i === q.length ? 1 : (r.commit.toLowerCase().indexOf(q) >= 0 ? 0.5 : 0); };
+    const pool = H.repos.filter((r) => !S.layer || r.layer === S.layer).map((r) => ({ r, s: score(r) })).filter((x) => x.s > 0);
+    const failing = (r) => r.runs.slice(-1) === 'f' || r.runs.slice(-2) === 'ff';
+    const mk = (r) => { const on = isSel(r.name); return { name: r.name, sel: on ? 'true' : 'false', failing: failing(r), mark: on ? '✓' : '',
+      meta: LAB[r.layer] + ' · ' + r.issues + ' issues · ' + r.last,
+      box: 'display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; flex: none; border: 1.5px solid #111111; border-radius: ' + (multi ? '4px' : '999px') + '; font-size: 12px; color: #ffffff; background: ' + (on ? '#2747b8' : '#ffffff'),
+      pick: () => { if (multi) set(on ? value.filter((v) => v !== r.name) : value.concat([r.name])); else { set(r.name); this.setState({ open: false, q: '' }); } },
+      style: 'display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 4px 10px; border: 0; border-radius: 8px; font: inherit; color: #111111; cursor: pointer; background: ' + (on ? '#f2f2f2' : '#ffffff') }; };
+    let sections;
+    if (!q && !S.layer) {
+      const recent = H.recentRepos.map((n) => H.repos.find((r) => r.name === n)).filter(Boolean);
+      const attention = H.repos.filter((r) => failing(r) && H.recentRepos.indexOf(r.name) < 0);
+      sections = [];
+      if (all && !multi) sections.push({ label: 'ALL', rows: [{ ...mk({ name: 'all', layer: 'STRATEGY', issues: H.repos.reduce((n, r) => n + r.issues, 0), last: '', runs: 'p', commit: '' }), name: 'All repositories', meta: H.repos.length + ' repositories', pick: () => { set('all'); this.setState({ open: false }); }, sel: value === 'all' ? 'true' : 'false' }] });
+      if (multi && value.length) sections.push({ label: 'SELECTED · ' + value.length, rows: value.map((n) => mk(H.repos.find((r) => r.name === n))) });
+      sections.push({ label: 'RECENT', rows: recent.map(mk) });
+      if (attention.length) sections.push({ label: 'FAILING NOW', rows: attention.map(mk) });
+    } else {
+      const sorted = pool.sort((a, b) => b.s - a.s || a.r.name.localeCompare(b.r.name)).map((x) => x.r);
+      sections = [{ label: (S.layer ? LAB[S.layer].toUpperCase() + ' · ' : '') + (q ? 'MATCHING “' + S.q.trim() + '”' : 'ALL') + ' · ' + sorted.length, rows: sorted.slice(0, 40).map(mk) }];
+    }
+    const visible = pool.map((x) => x.r.name);
+    const isOpen = S.open || q.length > 0;
+    const pills = multi ? value.map((n) => ({ name: n, rm: true, padR: '3px', bg: '#ffffff', remove: () => set(value.filter((v) => v !== n)) }))
+      : (!isOpen ? [{ name: value === 'all' ? 'All repositories' : 'GlassineOS/' + value, rm: false, padR: '10px', bg: '#ffffff', remove: () => {} }] : []);
+    return {
+      hasLabel: !!(P.label ?? 'REPOSITORY'), label: P.label ?? 'REPOSITORY', aria: (P.label || 'Repository') + ', type to filter ' + H.repos.length + ' repositories',
+      q: S.q, onQ: (ev) => this.setState({ q: ev.target.value, open: true }), onFocus: () => this.setState({ open: true }),
+      toggle: () => this.setState({ open: !isOpen, q: isOpen ? '' : S.q }), toggleAria: isOpen ? 'Close the list' : 'Show all repositories', chev: isOpen ? 'M2.5 8l3.5-4 3.5 4' : 'M2.5 4.5l3.5 4 3.5-4',
+      expanded: isOpen ? 'true' : 'false', isOpen, multi, multiAttr: multi ? 'true' : 'false', pills,
+      placeholder: multi ? (value.length ? 'add another…' : 'Filter ' + H.repos.length + ' repositories…') : (isOpen ? 'Type to filter ' + H.repos.length + ' repositories…' : ''),
+      fieldStyle: 'display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 48px; padding: 6px 6px 6px 10px; box-sizing: border-box; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff' + (isOpen ? '; outline: 2px solid #2747b8; outline-offset: 2px' : ''),
+      panelStyle: 'display: flex; flex-direction: column; border: 1.5px solid #111111; border-radius: 12px; overflow: hidden; background: #ffffff; box-shadow: 0 3px 0 #b4b4b4, 0 10px 24px rgba(0, 0, 0, 0.12)' + (P.float ? '; position: absolute; z-index: 30; width: 420px; max-width: 92vw; margin-top: 54px' : ''),
+      layerChips: [{ id: null, label: 'All layers', n: String(H.repos.length) }].concat(H.layers.map((l) => ({ id: l, label: LAB[l], n: String(H.repos.filter((r) => r.layer === l).length) }))).map((l) => ({ ...l, pressed: S.layer === l.id ? 'true' : 'false', pick: () => this.setState({ layer: l.id, open: true }),
+        style: 'min-height: 32px; padding: 0 10px; border: 1.5px solid #111111; border-radius: 999px; font: inherit; font-size: 12.5px; cursor: pointer; ' + (S.layer === l.id ? 'background: #111111; color: #ffffff; font-weight: 600' : 'background: #ffffff; color: #111111') })),
+      sections, footer: (q || S.layer) ? visible.length + ' of ' + H.repos.length + ' repositories' : 'Type to filter ' + H.repos.length + ' repositories, or pick a layer.',
+      pickVisible: () => set(Array.from(new Set(value.concat(visible)))), pickVisibleLabel: 'Select all ' + visible.length + ' shown',
+      close: () => this.setState({ open: false, q: '' })
+    };
+  }
+}
+</script>
+</body>
+</html>

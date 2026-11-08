@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Work with the Steward's suggested session open</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Kalam&amp;display=swap">
+<style>body{margin:0;background:#ffffff}</style>
+</helmet>
+<div style="position: relative; min-height: 1240px; background: #ffffff; overflow: hidden">
+  <dc-import name="WorkV1" hint-size="100%,1240px"></dc-import>
+  <sc-if value="{{open}}" hint-placeholder-val="{{true}}">
+    <dc-import name="StartFormV1" layer="absolute" by="steward" on-close="{{close}}" hint-size="0px,0px"></dc-import>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1240}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { open: true }; }
+  renderVals() { return { open: this.state.open, close: () => this.setState({ open: false }) }; }
+}
+</script>
+</body>
+</html>

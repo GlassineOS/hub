@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>History</title>
+<script src="./support.js"></script>
+<script src="data/fixtures.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Kalam&amp;display=swap">
+<style>
+body{margin:0;background:#ffffff}
+a{color:#2747b8}a:hover{color:#111111}
+a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid #2747b8;outline-offset:2px}
+</style>
+</helmet>
+<div style="position: relative; min-height: 100vh; background: #ffffff; color: #111111; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15px; line-height: 1.5; display: flex; flex-direction: column">
+
+<dc-import style="position: static" name="Header" active="sessions" layer="absolute" hint-size="100%,66px"></dc-import>
+
+<div style="flex: 1; display: flex; align-items: stretch">
+<main style="flex: 1 1 auto; min-width: 0; padding: 20px 32px 48px; box-sizing: border-box; display: flex; flex-direction: column; gap: 28px">
+
+  <dc-import name="SessionsTabs" active="history" hint-size="100%,50px"></dc-import>
+
+  <section aria-labelledby="h-hist" style="display: flex; flex-direction: column; gap: 14px; background: transparent">
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px">
+      <div style="display: flex; flex-direction: column; gap: 2px; flex: 1 1 320px">
+        <h1 id="h-hist" style="margin: 0; font-size: 24px; font-weight: 600">Resume a past session</h1>
+        <span style="font-size: 14px; color: #4a4a4a">Every ended Claude session, with its transcript. Resuming reopens it in tmux with <span style="font-family: 'IBM Plex Mono', monospace">claude --resume</span>, right where it stopped.</span>
+      </div>
+      <label style="flex: 0 1 300px; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 12px; box-sizing: border-box">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#111111" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+        <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search transcripts</span>
+        <input type="search" placeholder="Search transcripts · kernel#204, LUT…" style="border: 0; outline: none; font: inherit; background: transparent; color: #111111; width: 100%; min-width: 0">
+      </label>
+    </div>
+    <div role="group" aria-label="Filter" style="display: flex; flex-wrap: wrap; gap: 6px">
+      <sc-for list="{{hf}}" as="f" hint-placeholder-count="4">
+        <button type="button" aria-pressed="{{f.pressed}}" onClick="{{f.pick}}" style="{{f.style}}">{{f.label}}</button>
+      </sc-for>
+    </div>
+    <div style="display: flex; flex-direction: column; border: 1px solid #d0d0d0; border-radius: 16px; overflow: hidden">
+      <sc-for list="{{hist}}" as="h" hint-placeholder-count="5">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding: 14px 18px; border-bottom: 1px solid #d0d0d0">
+          <span aria-hidden="true" style="{{h.avatar}}">{{h.initial}}</span>
+          <div style="flex: 1 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+            <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px">
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 15px; font-weight: 600">{{h.name}}</span>
+              <span style="font-size: 13.5px">{{h.persona}} · <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px">{{h.model}}</span></span>
+              <span style="font-size: 13px; color: #4a4a4a">from {{h.origin}}</span>
+            </div>
+            <span style="font-size: 14.5px; line-height: 1.45">“{{h.last}}”</span>
+            <span style="font-size: 13px; color: #4a4a4a">{{h.ended}} · {{h.turns}} · transcript <span style="font-family: 'IBM Plex Mono', monospace">{{h.id}}</span></span>
+          </div>
+          <span style="{{h.wtStyle}}">{{h.wt}}</span>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+            <sc-if value="{{h.idle}}" hint-placeholder-val="{{true}}">
+              <button type="button" onClick="{{h.resume}}" style="min-height: 44px; padding: 0 16px; border: 1.5px solid #111111; border-radius: 12px; background: #2747b8; color: #ffffff; font: inherit; font-weight: 600; box-shadow: 0 3px 0 #b4b4b4; cursor: pointer">{{h.resumeLabel}}</button>
+              <button type="button" style="min-height: 44px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; font-weight: 600; cursor: pointer">Transcript</button>
+            </sc-if>
+            <sc-if value="{{h.busy}}" hint-placeholder-val="{{false}}">
+              <span role="status" style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="#111111" stroke-width="1.5" stroke-dasharray="3 2.5"></circle></svg>{{h.busyText}}</span>
+            </sc-if>
+            <sc-if value="{{h.back}}" hint-placeholder-val="{{false}}">
+              <a href="Sessions.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 14px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; text-decoration: none; font-weight: 600">Running again · open →</a>
+            </sc-if>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+    <p style="margin: 0; font-size: 13px; color: #4a4a4a">Claude Code keys transcripts by folder. When a worktree was removed, hub recreates it at the same path from its branch first, so <span style="font-family: 'IBM Plex Mono', monospace">--resume</span> finds the transcript. The Steward isn’t listed: it resumes itself.</p>
+  </section>
+
+  <section aria-labelledby="h-clean" style="display: flex; flex-direction: column; gap: 14px; background: transparent">
+    <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 24px">
+      <div style="display: flex; flex-direction: column; gap: 2px; flex: 1 1 320px">
+        <h2 id="h-clean" style="margin: 0; font-size: 24px; font-weight: 600">Workspace</h2>
+        <span style="font-size: 14px; color: #4a4a4a">Worktrees under <span style="font-family: 'IBM Plex Mono', monospace">~/hub-worktrees</span> and dead tmux sessions. Transcripts are kept, so removing a worktree never stops a session from being resumed.</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px; min-width: 260px">
+        <div style="display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px"><span>{{usedLabel}}</span><span>{{safeLabel}}</span></div>
+        <div role="img" aria-label="{{barLabel}}" style="display: flex; height: 14px; border: 1.5px solid #111111; border-radius: 999px; overflow: hidden">
+          <span style="display: block; width: {{keepW}}; background: #111111"></span>
+          <span style="display: block; width: {{safeW}}; background: #b4b4b4; border-left: 1.5px solid #111111"></span>
+        </div>
+        <span style="font-size: 12.5px; color: #4a4a4a">black: keep or in use · yellow: safe to remove</span>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+      <button type="button" onClick="{{selectSafe}}" style="min-height: 44px; padding: 0 14px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; font-weight: 600; cursor: pointer">Select everything safe</button>
+      <button type="button" onClick="{{ask}}" disabled="{{noneSel}}" style="{{removeStyle}}">{{removeLabel}}</button>
+      <span role="status" style="font-size: 14px; font-weight: 600">{{doneText}}</span>
+    </div>
+
+    <sc-if value="{{confirming}}" hint-placeholder-val="{{false}}">
+      <div role="alertdialog" aria-labelledby="h-conf" style="display: flex; flex-direction: column; gap: 12px; padding: 16px 18px; border: 3px double #111111; border-radius: 16px; background: #ffffff">
+        <h3 id="h-conf" style="margin: 0; font-size: 17px; font-weight: 600">hubd will run exactly this</h3>
+        <pre style="margin: 0; padding: 12px 14px; background: #121212; color: #eeeeee; border-radius: 10px; font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere">{{commands}}</pre>
+        <span style="font-size: 13.5px">Only paths under <span style="font-family: 'IBM Plex Mono', monospace">~/hub-worktrees</span> only. <span style="font-family: 'IBM Plex Mono', monospace">worktree remove</span> refuses dirty trees and <span style="font-family: 'IBM Plex Mono', monospace">branch -d</span> refuses unmerged branches, so a mistake here fails instead of losing work.</span>
+        <div style="display: flex; gap: 8px">
+          <button type="button" onClick="{{confirm}}" style="min-height: 44px; padding: 0 16px; border: 1.5px solid #111111; border-radius: 12px; background: #111111; color: #ffffff; font: inherit; font-weight: 600; cursor: pointer">Remove {{selCount}} · {{selSize}}</button>
+          <button type="button" onClick="{{cancel}}" style="min-height: 44px; padding: 0 12px; border: 0; background: transparent; color: #111111; font: inherit; text-decoration: underline; cursor: pointer">Cancel</button>
+        </div>
+      </div>
+    </sc-if>
+
+    <div style="border: 1px solid #d0d0d0; border-radius: 16px; overflow: hidden">
+      <sc-for list="{{rows}}" as="r" hint-placeholder-count="8">
+        <div style="{{r.rowStyle}}">
+          <button type="button" role="checkbox" aria-checked="{{r.checked}}" aria-label="Select {{r.path}}" disabled="{{r.locked}}" onClick="{{r.toggle}}" style="{{r.box}}">
+            <sc-if value="{{r.on}}" hint-placeholder-val="{{false}}"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#ffffff" stroke-width="2" aria-hidden="true"><path d="M3 7.2l2.6 2.6L11 4.4"></path></svg></sc-if>
+          </button>
+          <div style="flex: 1 1 360px; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13.5px; font-weight: 600; overflow-wrap: anywhere">{{r.path}}</span>
+            <span style="font-size: 13.5px; color: #4a4a4a">{{r.what}}</span>
+          </div>
+          <span style="{{r.tagStyle}}">{{r.tag}}</span>
+          <span style="flex: none; width: 78px; font-family: 'IBM Plex Mono', monospace; font-size: 13.5px; text-align: right">{{r.size}}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <fieldset style="margin: 0; padding: 16px 18px; border: 0; background: #f2f2f2; border-radius: 16px; display: flex; flex-direction: column; gap: 8px">
+      <legend style="float: left; margin-bottom: 4px; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">CLEAN UP BY ITSELF</legend>
+      <label style="clear: both; display: flex; align-items: flex-start; gap: 10px; font-size: 14.5px"><input type="checkbox" checked style="width: 20px; height: 20px; margin: 1px 0 0; accent-color: #2747b8; flex: none">Remove a worktree 7 days after its PR merges</label>
+      <span style="font-size: 13px; color: #4a4a4a">Anything with uncommitted files, unpushed commits or a running session is never removed automatically — it shows up here as Review.</span>
+    </fieldset>
+  </section>
+</main>
+<dc-import style="display: flex; flex: none; position: static" name="Steward" context="Sessions · History" layer="absolute" hint-size="400px,100%"></dc-import>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2000}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { hfilter: 'all', resuming: {}, sel: {}, confirming: false, removed: {}, freed: 0 }; }
+  componentWillUnmount() { (this._t || []).forEach(clearTimeout); }
+  renderVals() {
+    const S = this.state;
+    const H = window.HUB.history;
+    const HF = [['all', 'All'], ['interrupted', 'Interrupted'], ['ended', 'Ended by you'], ['finished', 'Finished']];
+    const hist = H.filter((h) => S.hfilter === 'all' || h[4] === S.hfilter).map(([name, persona, model, origin, kind, ended, last, turns, id, wt]) => {
+      const r = S.resuming[name];
+      return { name, persona, model, origin, ended, last, turns, id,
+        initial: persona[0], avatar: 'display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; flex: none; border: 1.5px solid #111111; border-radius: 999px; font-family: \'IBM Plex Mono\', monospace; font-size: 15px; font-weight: 600; background: ' + (kind === 'interrupted' ? '#e2e2e2' : '#ffffff'),
+        wt: wt === 'kept' ? 'WORKTREE KEPT' : wt === 'removed' ? 'WORKTREE REMOVED' : 'NO CHECKOUT',
+        wtStyle: 'flex: none; font-family: \'IBM Plex Mono\', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 6px; ' + (wt === 'removed' ? 'border: 1.5px dashed #111111' : 'border: 1.5px solid #111111'),
+        resumeLabel: wt === 'removed' ? 'Restore & resume' : 'Resume',
+        idle: !r, busy: r === 'busy', back: r === 'back',
+        busyText: wt === 'removed' ? 'Restoring the worktree from its branch…' : 'claude --resume ' + id.split('…')[0] + '…',
+        resume: () => { this.setState({ resuming: { ...this.state.resuming, [name]: 'busy' } }); this._t = (this._t || []).concat([setTimeout(() => this.setState({ resuming: { ...this.state.resuming, [name]: 'back' } }), 1600)]); } };
+    });
+    const R = window.HUB.worktrees.filter((r) => !S.removed[r[0]]);
+    const TAG = { safe: ['SAFE TO REMOVE', 'border: 1.5px solid #111111; background: #ffffff'], review: ['REVIEW FIRST', 'border: 3px double #111111; background: #ffffff'], keep: ['KEEP · OPEN PR', 'border: 1.5px solid #111111; background: #ffffff'], inuse: ['IN USE', 'border: 1.5px dashed #111111; background: #ffffff'] };
+    const fmt = (g) => g >= 1 ? g.toFixed(1) + ' GB' : g > 0 ? Math.round(g * 1000) + ' MB' : '—';
+    const rows = R.map(([id, path, what, st, size, command]) => {
+      const locked = st === 'inuse' || st === 'keep';
+      const on = !!S.sel[id] && !locked;
+      return { path, what, size: fmt(size), tag: TAG[st][0], locked, on, checked: on ? 'true' : 'false',
+        tagStyle: 'flex: none; font-family: \'IBM Plex Mono\', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 6px; ' + TAG[st][1],
+        box: 'display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; flex: none; border: 1.5px ' + (locked ? 'dashed' : 'solid') + ' #111111; border-radius: 4px; padding: 0; cursor: ' + (locked ? 'not-allowed' : 'pointer') + '; background: ' + (on ? '#2747b8' : '#ffffff'),
+        rowStyle: 'display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 12px 18px; border-bottom: 1px solid #d0d0d0; background: ' + (on ? '#fff6d6' : '#ffffff'),
+        toggle: () => { if (!locked) this.setState({ sel: { ...this.state.sel, [id]: !on } }); }, _cmd: command, _id: id, _size: size, _st: st };
+    });
+    const sel = rows.filter((r) => r.on);
+    const selSize = sel.reduce((a, r) => a + r._size, 0);
+    const total = rows.reduce((a, r) => a + r._size, 0);
+    const safe = rows.filter((r) => r._st === 'safe').reduce((a, r) => a + r._size, 0);
+    const cmd = (r) => r._cmd;
+    return {
+      yes: true,
+      hf: HF.map(([id, label]) => ({ label, pressed: S.hfilter === id ? 'true' : 'false', pick: () => this.setState({ hfilter: id }),
+        style: 'min-height: 40px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 999px; font: inherit; font-size: 14px; cursor: pointer; ' + (S.hfilter === id ? 'background: #111111; color: #ffffff; font-weight: 600' : 'background: #ffffff; color: #111111') })),
+      hist, rows,
+      usedLabel: fmt(total) + ' used', safeLabel: fmt(safe) + ' safe to remove',
+      keepW: (total ? Math.round((total - safe) / total * 100) : 0) + '%', safeW: (total ? Math.round(safe / total * 100) : 0) + '%',
+      barLabel: fmt(total) + ' used, ' + fmt(safe) + ' safe to remove',
+      selectSafe: () => { const n = {}; rows.forEach((r) => { if (r._st === 'safe') n[r._id] = true; }); this.setState({ sel: n }); },
+      noneSel: sel.length === 0,
+      removeLabel: sel.length ? 'Remove ' + sel.length + ' · ' + fmt(selSize) + '…' : 'Remove…',
+      removeStyle: 'min-height: 44px; padding: 0 16px; border: 1.5px solid #111111; border-radius: 12px; font: inherit; font-weight: 600; cursor: pointer; ' + (sel.length ? 'background: #2747b8; color: #ffffff; box-shadow: 0 3px 0 #b4b4b4' : 'background: #ffffff; color: #4a4a4a; border-style: dashed'),
+      ask: () => { if (sel.length) this.setState({ confirming: true }); },
+      confirming: S.confirming, selCount: String(sel.length), selSize: fmt(selSize),
+      commands: sel.map(cmd).join('\n'),
+      confirm: () => { const rm = { ...this.state.removed }; let freed = 0; sel.forEach((r) => { if (r._st === 'safe') { rm[r._id] = true; freed += r._size; } }); const failed = sel.filter((r) => r._st !== 'safe').length;
+        this.setState({ removed: rm, sel: {}, confirming: false, freed: this.state.freed + freed, failMsg: failed ? ' · ' + failed + ' refused (needs review)' : '' }); },
+      cancel: () => this.setState({ confirming: false }),
+      doneText: S.freed ? 'Freed ' + fmt(S.freed) + (S.failMsg || '') + '. Their sessions stay resumable.' : ''
+    };
+  }
+}
+</script>
+</body>
+</html>

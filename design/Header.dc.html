@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Header</title>
+<script src="./support.js"></script>
+<script src="data/fixtures.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Kalam&amp;display=swap">
+<style>
+body{margin:0}
+.hub-nav{display:flex}
+/* Surfaces: every screen's content sits on the grey sheet; cards are white paper on it. */
+main{background:#f2f2f2}
+main :is(section,article,aside > div,[role="search"]):not([style*="background"]){background-color:#ffffff}
+.row-act{border-color:#d0d0d0 !important}
+.row-hover:hover .row-act,.row-act:focus-visible{border-color:#111111 !important}
+.hub-menu{display:none}
+/* Phone (<= 760px): one row with logo, New and Menu; the tabs open as a list. Every screen imports Header, so the main gutter rule lives here too. */
+@media (max-width: 760px){
+  .hub-hdr{padding:8px 16px !important;gap:8px !important}
+  .hub-nav{display:none !important}
+  .hub-nav.is-open{display:flex !important;flex-direction:column;order:10;width:100%;padding:4px 0 8px}
+  .hub-menu{display:flex !important}
+  .hub-sub,.hub-user,.hub-newlabel{display:none !important}
+  .hub-new{padding:0 12px !important}
+  main{padding-left:16px !important;padding-right:16px !important}
+}
+</style>
+</helmet>
+<div style="display: contents">
+<header class="hub-hdr" style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px; padding: 10px 24px; border-bottom: 1.5px solid #111111; background: #ffffff; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15px; line-height: 1.5; color: #111111">
+  <a href="Main.dc.html" style="display: flex; align-items: center; gap: 10px; min-height: 44px; color: #111111; text-decoration: none">
+    <svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="3" width="18" height="22" rx="2" fill="none" stroke="#111111" stroke-width="1.5"></rect><rect x="11" y="7" width="18" height="22" rx="2" fill="#ffd86b" stroke="#2747b8" stroke-width="1.5"></rect></svg>
+    <span style="display: flex; flex-direction: column; line-height: 1.2"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; letter-spacing: 0.08em">GLASSINEOS HUB</span><span class="hub-sub" style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: #4a4a4a">GlassineOS/hub</span></span>
+  </a>
+  <nav id="hub-nav" aria-label="Primary" class="{{navClass}}" style="flex-wrap: wrap; gap: 4px">
+    <sc-for list="{{tabs}}" as="t" hint-placeholder-count="5">
+      <a href="{{t.href}}" aria-current="{{t.current}}" aria-label="{{t.aria}}" style="{{t.style}}">{{t.label}}<sc-if value="{{t.hasBadge}}" hint-placeholder-val="{{false}}"><span aria-hidden="true" style="display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 6px; margin-left: 6px; border: 1.5px solid #111111; border-radius: 999px; background: #ffd86b; color: #111111; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; box-sizing: border-box">{{t.badge}}</span></sc-if></a>
+    </sc-for>
+  </nav>
+  <span style="flex: 1"></span>
+  <button type="button" onClick="{{openInbox}}" aria-haspopup="dialog" aria-label="Needs you, {{waiting}} waiting" class="hub-inbox" style="display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 8px 0 14px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; font-weight: 600; cursor: pointer"><span class="hub-newlabel">Needs you</span><span aria-hidden="true" style="display: inline-flex; align-items: center; justify-content: center; min-width: 28px; height: 28px; padding: 0 7px; border: 1.5px solid #111111; border-radius: 999px; background: #ffd86b; font-family: 'IBM Plex Mono', monospace; font-size: 13px; box-sizing: border-box">{{waiting}}</span></button>
+  <button type="button" onClick="{{openNew}}" aria-label="New work" class="hub-new" style="display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px; border: 1.5px solid #111111; border-radius: 12px; background: #2747b8; color: #ffffff; font: inherit; font-weight: 600; cursor: pointer; box-shadow: 0 3px 0 #b4b4b4"><span aria-hidden="true" style="font-size: 18px; line-height: 1">＋</span><span class="hub-newlabel"> New work</span></button>
+  <button type="button" onClick="{{toggleMenu}}" aria-expanded="{{menuExpanded}}" aria-controls="hub-nav" aria-label="{{menuAria}}" class="hub-menu" style="position: relative; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; cursor: pointer"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#111111" stroke-width="1.8" aria-hidden="true"><path d="{{menuIcon}}"></path></svg></button>
+  <span class="hub-user" style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; padding: 2px 10px; border: 1.5px solid #111111; border-radius: 999px">{{user}} · hubd 127.0.0.1</span>
+</header>
+<sc-if value="{{inboxOpen}}" hint-placeholder-val="{{false}}">
+  <dc-import style="position: static" name="Inbox" layer="{{layer}}" on-close="{{closeInbox}}" hint-size="100%,900px"></dc-import>
+</sc-if>
+<sc-if value="{{launching}}" hint-placeholder-val="{{false}}">
+  <dc-import style="position: static" name="Launch" layer="{{layer}}" entry="new" action="sec" context="{{ctx}}" by="you" on-close="{{closeNew}}" hint-size="100%,900px"></dc-import>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"active":{"editor":"enum","options":["overview","roadmap","work","knowledge","notes","sessions"],"default":"overview"},"menuOpen":{"editor":"boolean","default":false},"inboxOpen":{"editor":"boolean","default":false},"layer":{"editor":"enum","options":["fixed","absolute"],"default":"fixed"},"$preview":{"width":1440,"height":72}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { open: false, menu: !!p.menuOpen, inbox: !!p.inboxOpen }; }
+  renderVals() {
+    const H = window.HUB;
+    const active = this.props.active || 'overview';
+    const waiting = H.interactions.length;
+    const T = [['overview', 'Overview', 'Main.dc.html'], ['roadmap', 'Roadmap', 'Roadmap.dc.html'], ['work', 'Work', 'Work.dc.html'], ['knowledge', 'Knowledge', 'Knowledge.dc.html'], ['notes', 'Notes', 'Notes.dc.html'], ['sessions', 'Sessions', 'Sessions.dc.html']];
+    const NAMES = { overview: 'Overview', roadmap: 'Roadmap', work: 'Work', knowledge: 'Knowledge', notes: 'Notes', sessions: 'Sessions' };
+    return {
+      user: H.user, waiting: String(waiting), navClass: 'hub-nav' + (this.state.menu ? ' is-open' : ''), menuExpanded: this.state.menu ? 'true' : 'false', menuAria: this.state.menu ? 'Close menu' : 'Menu',
+      menuIcon: this.state.menu ? 'M4 4l10 10M14 4L4 14' : 'M2 4.5h14M2 9h14M2 13.5h14', toggleMenu: () => this.setState({ menu: !this.state.menu }),
+      tabs: T.map(([id, label, href]) => {
+        const on = id === active;
+        return { label, href, current: on ? 'page' : 'false', hasBadge: false, badge: '', aria: label,
+          style: 'display: flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 12px; text-decoration: none; color: #111111; font-weight: ' + (on ? '600; background: #111111; color: #ffffff' : '500; background: transparent') };
+      }),
+      inboxOpen: this.state.inbox, openInbox: () => this.setState({ inbox: true, menu: false }), closeInbox: () => this.setState({ inbox: false }),
+      openNew: () => this.setState({ open: true }), closeNew: () => this.setState({ open: false }),
+      launching: this.state.open, layer: this.props.layer || 'fixed', ctx: NAMES[active]
+    };
+  }
+}
+</script>
+</body>
+</html>

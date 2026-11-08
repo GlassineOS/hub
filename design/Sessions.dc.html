@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sessions</title>
+<script src="./support.js"></script>
+<script src="data/fixtures.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Kalam&amp;display=swap">
+<style>body{margin:0;background:#ffffff} a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid #2747b8;outline-offset:2px} @media (max-width: 760px){ .ss-row{flex-wrap:wrap !important} .ss-list{width:100% !important;max-width:none !important} }</style>
+</helmet>
+<div style="position: relative; min-height: 100vh; display: flex; flex-direction: column; background: #ffffff; color: #111111; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15px; line-height: 1.5">
+  <dc-import style="position: static" name="Header" active="sessions" layer="absolute" hint-size="100%,66px"></dc-import>
+  <div style="flex: 1; display: flex; align-items: stretch">
+    <main style="flex: 1; min-width: 0; padding: 20px 32px 48px; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px">
+      <dc-import name="SessionsTabs" active="running" hint-size="100%,50px"></dc-import>
+      <div class="ss-row" style="display: flex; flex-wrap: nowrap; gap: 20px; align-items: flex-start">
+        <div class="ss-list" style="{{listStyle}}">
+          <button type="button" onClick="{{toggleNarrow}}" aria-pressed="{{narrowPressed}}" aria-label="{{narrowAria}}" title="{{narrowAria}}" style="align-self: flex-start; display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 44px; min-height: 40px; padding: 0 10px; border: 1px solid #d0d0d0; border-radius: 10px; background: #ffffff; color: #111111; font: inherit; font-size: 13.5px; cursor: pointer"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#111111" stroke-width="1.8" aria-hidden="true"><path d="{{narrowIcon}}"></path></svg><sc-if value="{{wide}}" hint-placeholder-val="{{true}}">Narrow list</sc-if></button>
+          <sc-if value="{{wide}}" hint-placeholder-val="{{true}}">
+          <div style="display: flex; flex-wrap: wrap; gap: 8px">
+            <button type="button" style="min-height: 44px; padding: 0 14px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; font-weight: 600; cursor: pointer">＋ Plain shell</button>
+            <a href="History.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 14px; border: 1.5px solid #111111; border-radius: 12px; color: #111111; text-decoration: none; font-weight: 600">Resume a past session</a>
+          </div>
+          <div role="list" aria-label="Persona families" style="display: flex; flex-wrap: wrap; gap: 6px">
+            <sc-for list="{{fams}}" as="fm" hint-placeholder-count="5"><span role="listitem" style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.06em; padding: 1px 8px; border: 1px solid #111111; border-radius: 999px; background: {{fm.tint}}">{{fm.label}}</span></sc-for>
+          </div>
+          </sc-if>
+          <sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+            <section style="display: flex; flex-direction: column; gap: 6px; background: transparent">
+              <sc-if value="{{wide}}" hint-placeholder-val="{{true}}"><h2 style="margin: 0; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15.5px; font-weight: 600">{{g.label}} · {{g.count}}</h2></sc-if>
+              <sc-if value="{{narrow}}" hint-placeholder-val="{{false}}"><span role="separator" aria-label="{{g.label}}" title="{{g.label}}" style="display: block; height: 1px; margin: 4px 6px; background: #b4b4b4"></span></sc-if>
+              
+              <sc-for list="{{g.rows}}" as="r" hint-placeholder-count="3">
+                <button type="button" onClick="{{r.pick}}" aria-pressed="{{r.pressed}}" aria-label="{{r.name}}" title="{{r.tip}}" style="{{r.style}}">
+                  <dc-import name="PersonaBadge" persona="{{r.persona}}" size="m" hint-size="34px,34px"></dc-import>
+                  <sc-if value="{{wide}}" hint-placeholder-val="{{true}}">
+                  <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; text-align: left; gap: 2px">
+                    <span style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; font-weight: 600">{{r.name}}</span><span style="{{r.badge}}">{{r.state}}</span><sc-if value="{{r.hasAsks}}" hint-placeholder-val="{{false}}"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; padding: 0 6px; border: 1.5px solid #111111; border-radius: 999px; background: #ffd86b">{{r.asks}} waiting</span></sc-if></span>
+                    <span style="font-size: 13px; color: #4a4a4a">{{r.sub}}</span>
+                    <sc-if value="{{r.isRelated}}" hint-placeholder-val="{{false}}"><span style="align-self: flex-start; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 600; padding: 1px 8px; border: 1.5px solid #2747b8; border-radius: 999px; color: #2747b8; background: #ffffff">⇄ also on {{r.shared}}</span></sc-if>
+                    <sc-if value="{{r.hasCovers}}" hint-placeholder-val="{{true}}"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">{{r.covers}}</span></sc-if>
+                  </span>
+                  </sc-if>
+                  <sc-if value="{{r.narrowWait}}" hint-placeholder-val="{{false}}"><span aria-hidden="true" style="position: absolute; top: 4px; right: 4px; width: 12px; height: 12px; border: 1.5px solid #111111; border-radius: 999px; background: #ffd86b"></span></sc-if>
+                </button>
+              </sc-for>
+            </section>
+          </sc-for>
+        </div>
+        <div style="flex: 1 1 0; min-width: 0">
+          <dc-import name="SessionView" sid="{{sel}}" size="full" on-switch="{{pick}}" hint-size="100%,820px"></dc-import>
+        </div>
+      </div>
+    </main>
+    <dc-import style="display: flex; flex: none; position: static" name="Steward" context="Sessions · Running" collapsed="{{yes}}" layer="absolute" hint-size="64px,100%"></dc-import>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"narrow":{"editor":"boolean","default":false},"selected":{"editor":"enum","options":["kernel-lut","review-kernel-212","docs-edl","review-docs-88","investigate-1184","arch-kernel","audit-hub","steward","maintainer"],"default":"kernel-lut"},"$preview":{"width":1440,"height":1400}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { sel: p.selected || 'kernel-lut', narrow: !!p.narrow }; }
+  renderVals() {
+    const H = window.HUB, sel = this.state.sel;
+    const ent = Object.entries(H.sessions);
+    const selS = H.sessions[sel] || {}, mine = (selS.covers || []).concat(selS.prs || []);
+    const asksOf = (id) => H.interactions.filter((x) => x.session === id).length;
+    const G = [
+      ['EMBEDDED IN A VIEW', 'shown where they were started; also here', ([, s]) => !s.plain && s.state !== 'DONE' && s.view !== 'background'],
+      ['IN THE BACKGROUND', 'sent away from their view; results land in Needs you', ([, s]) => !s.plain && s.view === 'background'],
+      ['FINISHED · TMUX STILL OPEN', 'clean up in History', ([, s]) => !s.plain && s.state === 'DONE' && s.view !== 'background'],
+      ['PLAIN SHELLS', 'your own tmux windows', ([, s]) => s.plain]
+    ];
+    const groups = G.map(([label, hint, test]) => {
+      const rows = ent.filter(test).map(([id, s]) => {
+        const on = id === sel, n = asksOf(id), model = (H.models.find((m) => m[0] === s.model) || [0, ''])[1];
+        const shared = id === sel ? [] : (s.covers || []).concat(s.prs || []).filter((r) => mine.indexOf(r) >= 0);
+        return { tip: id + ' · ' + (s.plain ? 'plain shell' : s.persona) + ' · ' + s.state.toLowerCase() + (n ? ' · ' + n + ' waiting for you' : ''), narrowWait: this.state.narrow && n > 0, name: id, state: s.state, persona: s.plain ? 'Shell' : s.persona, isRelated: shared.length > 0, shared: shared.join(', '), asks: String(n), hasAsks: n > 0, pressed: on ? 'true' : 'false', pick: () => this.setState({ sel: id }),
+          sub: s.plain ? 'plain shell · ' + s.cwd : s.persona + ' · ' + model + ' · from ' + s.origin,
+          hasCovers: (s.covers || []).length > 0 || !!s.repo, covers: (s.covers || []).length ? s.covers.join(' + ') + ((s.prs || []).length ? ' → ' + s.prs.join(', ') : '') : 'repo ' + s.repo,
+          initial: s.steward ? 'S' : (s.persona || '?')[0],
+          avatar: 'display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex: none; border-radius: 999px; background: #ffffff; ' + (s.steward ? 'border: 1.5px solid #2747b8; color: #2747b8; font-family: Kalam, cursive; font-size: 19px' : 'border: 1.5px solid #111111; font-family: \'IBM Plex Mono\', monospace; font-size: 13px; font-weight: 600'),
+          badge: 'font-family: \'IBM Plex Mono\', monospace; font-size: 10.5px; font-weight: 500; letter-spacing: 0.08em; padding: 0 6px; border-radius: 6px; border: 1.5px ' + (s.state === 'RUNNING' ? 'dashed' : 'solid') + ' #111111; background: ' + (s.state === 'WAITING' ? '#ffd86b' : s.state === 'DONE' ? '#e2e2e2' : '#ffffff'),
+          style: 'position: relative; display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: ' + (this.state.narrow ? '8px; justify-content: center' : '10px 12px') + '; border-radius: 12px; font: inherit; color: #111111; cursor: pointer; text-align: left; ' + (on ? 'border: 1.5px solid #111111; background: #ffffff; box-shadow: 0 3px 0 #b4b4b4' : shared.length ? 'border: 1.5px dashed #2747b8; background: #ffffff' : 'border: 1.5px solid #d0d0d0; background: #ffffff') };
+      });
+      return { label: label.charAt(0) + label.slice(1).toLowerCase(), hint, rows, count: String(rows.length) };
+    }).filter((g) => g.rows.length);
+    const nw = this.state.narrow;
+    return { wide: !nw, narrow: nw, narrowPressed: nw ? 'true' : 'false', narrowAria: nw ? 'Show the full session list' : 'Narrow the session list to icons', narrowIcon: nw ? 'M5 2l5 5-5 5' : 'M9 2L4 7l5 5', toggleNarrow: () => this.setState({ narrow: !nw }),
+      listStyle: 'flex: none; width: ' + (nw ? '68px' : '340px') + '; display: flex; flex-direction: column; gap: ' + (nw ? '8px' : '18px'),
+      yes: true, groups, sel, pick: (id) => this.setState({ sel: id }), fams: ['build', 'review', 'investigate', 'write', 'organise'].map((k) => ({ label: H.families[k].label, tint: H.families[k].tint })) };
+  }
+}
+</script>
+</body>
+</html>

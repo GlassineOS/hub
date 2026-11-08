@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Item picker</title>
+<script src="./support.js"></script>
+<script src="data/fixtures.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div style="display: flex; flex-direction: column; gap: 6px; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15px; line-height: 1.5; color: #111111">
+  <span id="ip-l" style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">{{label}}</span>
+  <div style="{{fieldStyle}}">
+    <sc-for list="{{pills}}" as="p" hint-placeholder-count="2">
+      <dc-import name="ItemPill" item-ref="{{p.ref}}" removable="{{yes}}" on-remove="{{p.remove}}" max-title="{{p.maxTitle}}" hint-size="260px,36px"></dc-import>
+    </sc-for>
+    <input type="text" role="combobox" aria-labelledby="ip-l" aria-expanded="{{expanded}}" aria-controls="ip-list" value="{{q}}" onChange="{{onQ}}" onFocus="{{onFocus}}" placeholder="{{placeholder}}" style="flex: 1 1 220px; min-width: 160px; min-height: 36px; border: 0; outline: none; background: transparent; color: #111111; font: inherit; font-size: 14.5px">
+  </div>
+  <sc-if value="{{isOpen}}" hint-placeholder-val="{{true}}">
+    <div style="display: flex; flex-direction: column; border: 1.5px solid #111111; border-radius: 12px; overflow: hidden; background: #ffffff; box-shadow: 0 3px 0 #b4b4b4">
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 12px; border-bottom: 1px solid #d0d0d0; background: #f2f2f2">
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.08em">{{engine}}</span>
+        <span style="flex: 1; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4a4a4a; overflow-wrap: anywhere">{{engineDetail}}</span>
+      </div>
+      <ul id="ip-list" role="listbox" aria-label="Matching issues and pull requests" style="margin: 0; padding: 4px; list-style: none; display: flex; flex-direction: column; gap: 2px">
+        <sc-for list="{{opts}}" as="o" hint-placeholder-count="4">
+          <li role="option" aria-selected="{{o.sel}}">
+            <button type="button" onClick="{{o.pick}}" disabled="{{o.added}}" style="{{o.style}}">
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; white-space: nowrap; width: 128px; flex: none; overflow: hidden; text-overflow: ellipsis">{{o.ref}}</span>
+              <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; text-align: left">
+                <span style="font-size: 14.5px; line-height: 1.35">{{o.title}}</span>
+                <span style="font-size: 12.5px; color: #4a4a4a">{{o.meta}}</span>
+              </span>
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; white-space: nowrap">{{o.right}}</span>
+            </button>
+          </li>
+        </sc-for>
+      </ul>
+      <sc-if value="{{none}}" hint-placeholder-val="{{false}}"><p style="margin: 0; padding: 10px 14px; font-size: 14px">Nothing matches. Try GitHub syntax, e.g. <span style="font-family: 'IBM Plex Mono', monospace">repo:epd is:open lut</span>.</p></sc-if>
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 6px 8px 6px 12px; border-top: 1px solid #d0d0d0">
+        <span style="flex: 1; font-size: 12.5px; color: #4a4a4a">{{footer}}</span>
+        <button type="button" onClick="{{close}}" style="min-height: 36px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff; color: #111111; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer">Done</button>
+      </div>
+    </div>
+  </sc-if>
+  <sc-if value="{{hasHint}}" hint-placeholder-val="{{true}}"><span style="font-size: 12.5px; color: #4a4a4a">{{hint}}</span></sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"value":{"editor":null},"label":{"editor":"text","default":"COVERS"},"hint":{"editor":"text","default":"The session is told to close every issue here; its PR says “Closes …” for each."},"open":{"editor":"boolean","default":false},"query":{"editor":"text","default":""},"onChange":{"editor":null},"$preview":{"width":720,"height":520}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { q: p.query || '', open: !!p.open, local: null }; }
+  renderVals() {
+    const H = window.HUB, P = this.props, S = this.state;
+    const value = S.local || P.value || ['kernel#212'];
+    const set = (v) => { this.setState({ local: v }); if (P.onChange) P.onChange(v); };
+    const q = S.q.trim();
+    const items = Object.entries(H.items).filter(([, it]) => it.kind === 'issue' || it.kind === 'pr' || it.kind === 'roadmap');
+    const repoOf = (ref) => ref.split('#')[0];
+    const gh = /(^|\s)(is|repo|label|state|author|no):\S/.test(q) || /^[a-z0-9-]+#\d+$/i.test(q);
+    let rows = [], engine, detail;
+    const ctx = value.map((r) => (H.items[r] || {}).partOf).filter(Boolean)[0] || (H.items[value[0]] || {}).partOf;
+    const sessOf = (ref) => Object.entries(H.sessions).filter(([, s]) => s.state !== 'DONE' && ((s.covers || []).indexOf(ref) >= 0 || (s.prs || []).indexOf(ref) >= 0)).map(([id]) => id);
+    if (!q) {
+      engine = 'RELATED'; detail = ctx ? 'other open issues that are Part of ' + ctx + ' · type to search everything' : 'type to search';
+      rows = items.filter(([ref, it]) => ctx && it.kind !== 'roadmap' && value.indexOf(ref) < 0 && (it.partOf === ctx || ref === ctx) && it.state !== 'CLOSED').map(([ref, it]) => ({ ref, it, score: null }));
+    } else if (gh) {
+      engine = 'GITHUB SEARCH';
+      const quals = {}; const words = [];
+      q.split(/\s+/).forEach((t) => { const m = t.match(/^(is|repo|label|state|author):(.+)$/); if (m) (quals[m[1]] = quals[m[1]] || []).push(m[2].toLowerCase()); else words.push(t.toLowerCase()); });
+      detail = 'gh search issues ' + (quals.is && quals.is.indexOf('pr') >= 0 ? '--include-prs ' : '') + q + ' · org:GlassineOS';
+      rows = items.filter(([ref, it]) => {
+        if (/^[a-z0-9-]+#\d+$/i.test(q)) return ref.toLowerCase() === q.toLowerCase();
+        if (quals.repo && quals.repo.indexOf(repoOf(ref)) < 0) return false;
+        if (quals.is) { for (const v of quals.is) { if (v === 'open' && it.state === 'CLOSED') return false; if (v === 'closed' && it.state !== 'CLOSED') return false; if (v === 'issue' && it.kind === 'pr') return false; if (v === 'pr' && it.kind !== 'pr') return false; } }
+        if (quals.label && !(it.labels || []).some((l) => quals.label.indexOf(l) >= 0)) return false;
+        return words.every((w) => (it.title + ' ' + (it.body || '')).toLowerCase().indexOf(w) >= 0);
+      }).map(([ref, it]) => ({ ref, it, score: null }));
+    } else {
+      engine = 'BY MEANING'; detail = 'work-item index · 1,284 items · hub.search(domain: work)';
+      const toks = q.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2).map((t) => t.length > 5 ? t.slice(0, t.length - 3) : t);
+      rows = items.map(([ref, it]) => {
+        const text = (ref + ' ' + it.title + ' ' + (it.body || '') + ' ' + (it.labels || []).join(' ')).toLowerCase();
+        const f = toks.length ? toks.filter((t) => new RegExp('(^|[^a-z0-9])' + t).test(text)).length / toks.length : 0;
+        const sc = f > 0 ? Math.min(0.97, 0.42 + 0.45 * f + (ctx && it.partOf === ctx ? 0.08 : 0)) : 0;
+        return { ref, it, score: sc };
+      }).filter((r) => r.score > 0).sort((a, b) => b.score - a.score);
+    }
+    const total = rows.length; rows = rows.slice(0, 6);
+    const opts = rows.map(({ ref, it, score }) => {
+      const added = value.indexOf(ref) >= 0, ss = sessOf(ref).filter((s) => true);
+      const meta = [it.kind === 'pr' ? 'pull request' : it.kind === 'roadmap' ? 'roadmap item' : 'issue', it.state ? it.state.toLowerCase() : null, it.partOf ? 'Part of ' + it.partOf : null, ss.length ? 'in session ' + ss.join(', ') : null].filter(Boolean).join(' · ');
+      return { ref, title: it.title, meta, added, sel: added ? 'true' : 'false', right: added ? 'added' : score !== null ? score.toFixed(2) : '+ add',
+        pick: () => { if (!added) set(value.concat([ref])); },
+        style: 'display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 6px 10px; border: 0; border-radius: 8px; font: inherit; color: #111111; text-align: left; cursor: ' + (added ? 'default' : 'pointer') + '; background: ' + (added ? '#f2f2f2' : '#ffffff') };
+    });
+    const isOpen = S.open || q.length > 0;
+    return {
+      yes: true, label: P.label || 'COVERS', q: S.q, onQ: (ev) => this.setState({ q: ev.target.value, open: true }), onFocus: () => this.setState({ open: true }),
+      expanded: isOpen ? 'true' : 'false', isOpen,
+      pills: value.map((ref) => ({ ref, maxTitle: value.length > 2 ? '18ch' : '30ch', remove: () => set(value.filter((r) => r !== ref)) })),
+      placeholder: value.length ? 'Add more — search by meaning, or GitHub syntax (repo:epd is:open)' : 'Search issues and PRs by meaning, ref, or GitHub syntax',
+      fieldStyle: 'display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 52px; padding: 7px 10px; box-sizing: border-box; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff' + (isOpen ? '; outline: 2px solid #2747b8; outline-offset: 2px' : ''),
+      engine, engineDetail: detail, opts, none: isOpen && total === 0,
+      footer: !q ? 'Suggestions share a Part of line with what is already covered.' : total > 6 ? 'Showing 6 of ' + total + ' — keep typing to narrow' : (gh ? 'Exact GitHub search; type a ref like epd#14 to add it directly.' : 'Ranked by meaning; add a qualifier like repo: or is:open to switch to GitHub search.'),
+      close: () => this.setState({ open: false, q: '' }),
+      hasHint: !!(P.hint ?? true), hint: P.hint ?? 'The session is told to close every issue here; its PR says “Closes …” for each.'
+    };
+  }
+}
+</script>
+</body>
+</html>

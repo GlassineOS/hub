@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Steward sidebar</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Kalam&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div style="font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #111111; font-size: 15px; line-height: 1.5; display: flex; min-height: 920px; height: 100%">
+
+<sc-if value="{{rail}}" hint-placeholder-val="{{false}}">
+  <nav aria-label="Steward" style="width: 64px; box-sizing: border-box; border-left: 1.5px solid #111111; background: #f2f2f2; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 12px 0">
+    <button type="button" onClick="{{expand}}" aria-label="{{railLabel}}" style="position: relative; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1.5px solid #2747b8; border-radius: 999px; background: #ffffff; font-family: Kalam, cursive; font-size: 21px; color: #2747b8; cursor: pointer">S
+      <sc-if value="{{hasWaiting}}" hint-placeholder-val="{{true}}"><span style="position: absolute; top: -7px; right: -7px; min-width: 20px; height: 20px; padding: 0 4px; box-sizing: border-box; border: 1.5px solid #111111; border-radius: 999px; background: #ffd86b; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; line-height: 17px; text-align: center; color: #111111">{{waitCount}}</span></sc-if>
+    </button>
+    <button type="button" onClick="{{planHere}}" aria-label="Plan new work" style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1.5px dashed #111111; border-radius: 12px; background: #ffffff; cursor: pointer; font-size: 22px; line-height: 1; color: #111111">＋</button>
+  </nav>
+</sc-if>
+
+<sc-if value="{{open}}" hint-placeholder-val="{{true}}">
+<aside aria-labelledby="st-h" style="width: 440px; box-sizing: border-box; border-left: 1.5px solid #111111; background: #ffffff; display: flex; flex-direction: column">
+  <div style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1.5px solid #111111; background: #f2f2f2">
+    <span aria-hidden="true" style="display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border: 1.5px solid #2747b8; border-radius: 999px; font-family: Kalam, cursive; font-size: 20px; color: #2747b8; background: #ffffff">S</span>
+    <span style="display: flex; flex-direction: column; flex: 1; line-height: 1.25; min-width: 0">
+      <h2 id="st-h" style="margin: 0; font-size: 17px; font-weight: 600">Steward</h2>
+      <button type="button" onClick="{{toggleModel}}" aria-expanded="{{modelOpenAria}}" aria-label="Steward model: {{modelName}}. Change" style="align-self: flex-start; display: flex; align-items: center; gap: 4px; min-height: 28px; padding: 0 6px; margin-left: -6px; border: 0; border-radius: 6px; background: transparent; color: #111111; font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer"><span style="text-decoration: underline">{{modelName}}</span> <span aria-hidden="true">▾</span> <span style="color: #4a4a4a">· resumed 12 days</span></button>
+    </span>
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.08em; padding: 0 6px; border: 1.5px solid #111111; border-radius: 6px; background: {{stateBg}}">{{stateLabel}}</span>
+    <button type="button" onClick="{{planHere}}" aria-label="Plan new work from {{screen}}" title="Plan new work" style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; cursor: pointer; font-size: 22px; line-height: 1; color: #111111">＋</button>
+    <button type="button" onClick="{{collapse}}" aria-label="Collapse to rail" style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; cursor: pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#111111" stroke-width="1.8" aria-hidden="true"><path d="M9 5l7 7-7 7"></path></svg></button>
+  </div>
+
+  <sc-if value="{{modelOpen}}" hint-placeholder-val="{{false}}">
+    <div role="group" aria-label="Steward model" style="display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-bottom: 1.5px solid #111111; background: #ffffff">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.08em">STEWARD MODEL</span>
+      <div role="radiogroup" aria-label="Steward model" style="display: flex; border: 1.5px solid #111111; border-radius: 12px; overflow: hidden; align-self: flex-start">
+        <sc-for list="{{smodels}}" as="m" hint-placeholder-count="4">
+          <button type="button" role="radio" aria-checked="{{m.checked}}" onClick="{{m.pick}}" style="{{m.style}}">{{m.name}}</button>
+        </sc-for>
+      </div>
+      <span style="font-size: 12.5px; line-height: 1.45; color: #4a4a4a">{{modelNote}}</span>
+    </div>
+  </sc-if>
+
+  <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 14px; border-bottom: 1px solid #d0d0d0; font-size: 13px">
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.08em; color: #4a4a4a">SEES</span>
+    <span style="font-family: 'IBM Plex Mono', monospace; padding: 1px 8px; border: 1px solid #111111; border-radius: 999px">{{screen}}</span>
+    <span style="font-family: 'IBM Plex Mono', monospace; padding: 1px 8px; border: 1px solid #111111; border-radius: 999px; background: #ffd86b">{{selection}}</span>
+  </div>
+
+  <sc-if value="{{hasWaiting}}" hint-placeholder-val="{{true}}">
+    <section aria-labelledby="st-wait" style="display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border-bottom: 1px solid #d0d0d0; background: #f2f2f2">
+      <h3 id="st-wait" style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.08em">WAITING FOR YOU · {{waitCount}}</h3>
+      <sc-for list="{{asks}}" as="a" hint-placeholder-count="2">
+        <dc-import name="AskV1" item="{{a.item}}" compact="{{yes}}" on-resolve="{{onAsk}}" hint-size="100%,360px"></dc-import>
+      </sc-for>
+      <sc-for list="{{drafted}}" as="d" hint-placeholder-count="2">
+        <article aria-label="New work the Steward drafted" style="display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; background: #ffffff; border: 1.5px solid #111111; border-radius: 16px; box-shadow: 0 3px 0 #b4b4b4">
+          <div style="display: flex; align-items: center; gap: 8px">
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.08em; padding: 1px 8px; border: 1.5px solid #111111; border-radius: 6px">{{d.label}}</span>
+            <span style="font-size: 12.5px; color: #4a4a4a">{{d.because}}</span>
+          </div>
+          <span style="font-size: 15px; font-weight: 600; line-height: 1.35">{{d.title}}</span>
+          <span style="font-size: 13.5px; line-height: 1.45"><span style="font-family: Kalam, cursive; font-size: 16px; color: #2747b8">why</span> {{d.why}}</span>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px">
+            <button type="button" onClick="{{d.open}}" style="min-height: 40px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; background: #2747b8; color: #ffffff; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer">{{d.btn}}</button>
+            <button type="button" onClick="{{d.dismiss}}" style="min-height: 40px; padding: 0 10px; border: 0; background: transparent; color: #111111; font: inherit; font-size: 14px; text-decoration: underline; cursor: pointer">Not now</button>
+          </div>
+        </article>
+      </sc-for>
+    </section>
+  </sc-if>
+
+  <div style="flex: 1; display: flex; flex-direction: column; min-height: 0">
+    <div role="log" aria-label="Steward session" style="flex: 1; min-height: 320px; background: #121212; color: #eeeeee; font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.7; padding: 12px 14px; display: flex; flex-direction: column; overflow-x: auto">
+      <sc-for list="{{lines}}" as="l" hint-placeholder-count="10"><span style="{{l.style}}">{{l.text}}</span></sc-for>
+      <span style="white-space: pre"><span style="color: #9db2ff">❯</span> <span style="display: inline-block; width: 8px; height: 16px; background: #eeeeee; vertical-align: text-bottom"></span></span>
+    </div>
+    <div style="display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 14px 0">
+      <sc-for list="{{msgs}}" as="m" hint-placeholder-count="3">
+        <button type="button" onClick="{{m.send}}" title="{{m.text}}" style="min-height: 36px; padding: 0 10px; border: 1.5px solid #111111; border-radius: 999px; background: #ffffff; color: #111111; font: inherit; font-size: 13px; cursor: pointer">{{m.label}}</button>
+      </sc-for>
+      <button type="button" onClick="{{interrupt}}" style="min-height: 36px; padding: 0 10px; border: 1.5px solid #111111; border-radius: 999px; background: #ffd9b8; color: #111111; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer">Esc</button>
+    </div>
+    <label style="display: flex; align-items: center; gap: 8px; margin: 10px 14px; min-height: 44px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 12px">
+      <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Ask the Steward</span>
+      <input type="text" placeholder="Ask about {{selection}}…" style="border: 0; outline: none; font: inherit; background: transparent; color: #111111; width: 100%; min-width: 0">
+    </label>
+    <p style="margin: 0 14px 14px; padding-top: 10px; border-top: 1px dotted #111111; font-size: 12.5px; line-height: 1.45; color: #4a4a4a">A configured session like any other: persona Steward · {{modelShort}} · hub write tools ask first. <a href="LaunchV1.dc.html" style="font-weight: 600">Configure</a></p>
+  </div>
+</aside>
+</sc-if>
+<sc-if value="{{sfOpen}}" hint-placeholder-val="{{false}}">
+  <dc-import name="StartFormV1" by="steward" covers="{{sf.covers}}" notes="{{sf.notes}}" why="{{sf.why}}" on-close="{{closeSf}}" hint-size="0px,0px"></dc-import>
+</sc-if>
+<sc-if value="{{nwOpen}}" hint-placeholder-val="{{false}}">
+  <dc-import name="NewWorkV1" open="{{yes}}" template="{{nw.template}}" repo="{{nw.repo}}" context="{{nw.context}}" by="{{nw.by}}" note="{{nw.note}}" notes="{{nw.notes}}" describe="{{nw.describe}}" on-close="{{closeNw}}" hint-size="0px,0px"></dc-import>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"screen":{"editor":null,"default":"Roadmap"},"selection":{"editor":null,"default":"hub#44"},"openPlanner":{"editor":"boolean","default":false},"collapsed":{"editor":"boolean","default":false},"$preview":{"width":440,"height":1400}}'>
+class Component extends DCLogic {
+  static get AUDIT() { return { template: 'sec', repo: 'hub', context: 'Steward · 0.4 planning', by: 'steward', note: 'Before LAN mode (hub#74) lands, hub should get a full security audit — the last one predates the tool server.', notes: 'Assume LAN clients can reach the dashboard. Focus on token handling, TLS setup and the tool server.', describe: '' }; }
+  constructor(p) {
+    super(p);
+    this.state = { rail: null, sent: [], done: {}, gone: {}, nw: p.openPlanner ? Component.AUDIT : null };
+  }
+  renderVals() {
+    const screen = this.props.screen ?? 'Roadmap';
+    const selection = this.props.selection ?? 'hub#44';
+    const rail = this.state.rail ?? (this.props.collapsed ?? false);
+    const S = this.state;
+    const L = (kind, text) => ({ text, style: 'white-space: pre-wrap; ' + (kind === 'you' ? 'color: #121212; background: #eeeeee; padding: 0 6px; align-self: flex-start; font-weight: 600' : kind === 'tool' ? 'color: #9db2ff' : kind === 'dim' ? 'color: #bbbbbb; font-style: italic' : kind === 'ev' ? 'color: #121212; background: #9db2ff; padding: 0 6px; align-self: flex-start' : kind === 'ask' ? 'color: #121212; background: #ffd86b; padding: 0 6px; align-self: flex-start' : 'color: #eeeeee') });
+    const ASKS = [
+      { id: 's1', kind: 'question', steward: true, session: 'steward', persona: 'Steward', origin: 'planning 0.3', waited: '14 min', timeoutLeft: 'until you answer', timeoutPct: 100,
+        header: 'SCOPE · MILESTONE 0.3', question: 'hub#60 needs the arm64 runner the kernel boot tests use. What should 0.3 include?', note: '← I’d move it: 0.3 is about the kernel path.',
+        options: [{ label: 'Move hub#60 to 0.5', desc: 'Frees the runner for kernel boot tests.', rec: true }, { label: 'Keep it, add a second runner', desc: 'New self-hosted runner and its review.' }, { label: 'Split it', desc: 'CI images now, reproducibility in 0.5.' }],
+        links: ['hub#60', 'hub#44'] },
+      { id: 's2', kind: 'permission', tool: 'hub.create_issue', session: 'steward', persona: 'Steward', origin: 'planning hub#44', waited: '3 min', timeoutLeft: '7:00', timeoutPct: 70,
+        title: 'Create an issue in kernel', code: 'hub.create_issue(repo="kernel",\n  title="Temperature compensation for LUT selection",\n  body="… Part of GlassineOS/hub#44")', reason: 'kernel#212 merged without it; splitting it out keeps hub#44 honest.', alwaysLabel: 'hub.create_issue' }
+    ].filter((a) => !S.done[a.id]);
+    const DRAFTED = [
+      { id: 'd0', session: true, kind: 'IMPLEMENT', because: 'you asked just now', title: 'Implement epd#9, also covering epd#11', why: 'Both are in epd_lut.c and touch the same error path; one session avoids two conflicting branches.',
+        sf: { covers: [['epd#9', 'LUT loader rejects version 0'], ['epd#11', 'Release the firmware buffer on every error path']], why: 'Both are in epd_lut.c and touch the same error path. One session avoids two branches conflicting.', notes: 'Do epd#9 first: reject version 0 in the header check. epd#11 touches the same error path in epd_lut.c, so fix it in the same branch with its own commit. One PR that closes both.' } },
+      { id: 'd1', kind: 'SECURITY AUDIT', because: 'planning 0.4', title: 'Full security audit of hub', why: 'LAN mode (hub#74) is next, and the last audit predates the tool server.', nw: Component.AUDIT },
+      { id: 'd2', kind: 'ISSUE', because: 'reviewing hub#63', title: 'Follow-up: hyphenation without the dictionary bundle', why: 'reader#14 was closed unmerged, but hub#63 still needs hyphenation.',
+        nw: { template: 'issue', repo: 'reader', context: 'reader#14 (closed)', by: 'steward', note: 'reader#14 closed without merging, but hub#63 still needs hyphenation. A smaller follow-up keeps it on the plan.', notes: 'Leave the dictionary bundle out; it’s what blocked reader#14.', describe: 'Hyphenation for German EPUBs, using the system’s hyphen patterns.' } }
+    ].filter((d) => !S.gone[d.id]);
+    const waiting = ASKS.length + DRAFTED.length;
+    const base = [
+      L('you', '› where does hub#44 stand?'),
+      L('tool', '● hub.search_issues("Part of GlassineOS/hub#44")'),
+      L('out', 'kernel#212 landed the loader; temperature'),
+      L('out', 'compensation still needs an issue.'),
+      L('ask', '◆ asked to create it — waiting for you'),
+      L('tool', '● hub.get_issue(reader#14) → closed, not merged'),
+      L('out', 'hub#63 still needs hyphenation without it.'),
+      L('out', 'Drafted a follow-up issue.'),
+      L('ask', '◆ new work drafted — waiting for you'),
+      L('you', '› start a session to implement epd#9 and epd#11'),
+      L('tool', '● hub.get_issue(epd#9) · hub.get_issue(epd#11)'),
+      L('out', 'Same file, same error path — one session.'),
+      L('tool', '● hub.suggest_session(action="implement", issues=["epd#9", "epd#11"])'),
+      L('ask', '◆ suggested a session — waiting for you')
+    ];
+    const lines = base.slice();
+    S.sent.forEach((t) => { if (t === '⎋') lines.push(L('dim', '⎋ interrupted from hub')); else { lines.push(L('you', '› ' + t)); lines.push(L('dim', '  sent from a hub button')); } });
+    const push = (t) => () => this.setState({ sent: this.state.sent.concat([t]) });
+    const M = /Roadmap/.test(screen) ? [['What’s blocking this?', 'What is blocking ' + selection + ', and what is the fastest way to unblock it?'], ['Re-plan week', 'Re-plan this week against the current board.'], ['Status of 0.3', 'Give me a five-line status of 0.3.']]
+      : /Work/.test(screen) ? [['Should this merge?', 'Is ' + selection + ' ready to merge? Check it against what it is part of and the checks.'], ['Review queue', 'Start review sessions for every PR waiting on review.'], ['Who else is affected?', 'Which other issues and PRs does ' + selection + ' touch?']]
+      : [['Status of 0.3', 'Give me a five-line status of 0.3.'], ['What needs me?', 'What is waiting on me right now, most urgent first?']];
+    const openNw = (o) => this.setState({ nw: o });
+    const SM = [['claude-fable-5-1', 'Fable'], ['claude-opus-5-5', 'Opus'], ['claude-sonnet-5-5', 'Sonnet'], ['claude-haiku-5-5', 'Haiku']];
+    const smodel = S.smodel || 'claude-sonnet-5-5';
+    const smodelShort = SM.find((m) => m[0] === smodel)[1];
+    return {
+      yes: true, screen, selection, rail, open: !rail,
+      modelName: smodel, modelShort: smodelShort, modelOpen: !!S.modelOpen, modelOpenAria: S.modelOpen ? 'true' : 'false',
+      toggleModel: () => this.setState({ modelOpen: !this.state.modelOpen }),
+      smodels: SM.map(([id, name]) => ({ name: name + (id === 'claude-sonnet-5-5' ? ' · default' : ''), checked: smodel === id ? 'true' : 'false', pick: () => this.setState({ smodel: id, modelChanged: id !== 'claude-sonnet-5-5' || !!this.state.smodel }),
+        style: 'min-height: 40px; padding: 0 12px; border: 0; border-right: 1px solid #d0d0d0; font: inherit; font-size: 13.5px; cursor: pointer; ' + (smodel === id ? 'background: #111111; color: #ffffff; font-weight: 600' : 'background: #ffffff; color: #111111') })),
+      modelNote: S.modelChanged ? 'Switches to ' + smodelShort + ' on the Steward’s next turn (hub sends /model when it’s idle) and is saved in its session spec.' : 'Sonnet by default. Saved in the Steward’s session spec; a change takes effect on its next turn.',
+      expand: () => this.setState({ rail: false }), collapse: () => this.setState({ rail: true }),
+      hasWaiting: waiting > 0, waitCount: String(waiting),
+      railLabel: waiting ? 'Open the Steward, ' + waiting + ' waiting for you' : 'Open the Steward',
+      stateLabel: waiting ? 'WAITING ON YOU' : 'WORKING', stateBg: waiting ? '#ffd86b' : '#ffffff',
+      asks: ASKS.map((item) => ({ item })),
+      onAsk: (id) => this.setState({ done: { ...this.state.done, [id]: true } }),
+      sfOpen: !!S.sf, sf: S.sf || {}, closeSf: () => this.setState({ sf: null }),
+      drafted: DRAFTED.map((d) => ({ ...d, label: d.session ? 'SESSION · ' + d.kind : 'NEW WORK · ' + d.kind, btn: d.session ? 'Open the start form' : 'Open in the planner', open: d.session ? () => this.setState({ sf: d.sf }) : () => openNw(d.nw), dismiss: () => this.setState({ gone: { ...this.state.gone, [d.id]: true } }) })),
+      lines, msgs: M.map(([label, text]) => ({ label, text, send: push(text) })), interrupt: push('⎋'),
+      nwOpen: !!S.nw, nw: S.nw || {}, closeNw: () => this.setState({ nw: null }),
+      planHere: () => openNw({ template: /Roadmap/.test(screen) ? 'road' : /Work/.test(screen) ? 'issue' : 'sec', repo: /^[a-z-]+#/.test(selection) ? selection.split('#')[0] : 'hub', context: screen + (selection ? ' · ' + selection : ''), by: 'you', note: '', notes: '', describe: '' })
+    };
+  }
+}
+
+</script>
+</body>
+</html>

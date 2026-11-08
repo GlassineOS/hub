@@ -265,6 +265,30 @@ make check
 `tests/dev_hubd.py` is a `hubd` with a fixed password for trying the app. It accepts any
 user with that password, so never use it as the real daemon.
 
+## Design
+
+`design/` holds the hub's design boards: screens, states and small interactive prototypes, as
+`*.dc.html` files with a `canvas.json` and made-up sample data in `data/fixtures.js`. They are drawings
+of the app, not its code, and the numbers, names and findings on them are invented. They are rendered and
+compared by [GlassineOS/ui](https://github.com/GlassineOS/ui)'s board tools (its README, "Boards" and
+"References"), at the version pinned by `UI_REF` in the `Makefile` and fetched to `~/.cache/glassine/ui/`.
+
+```sh
+make boards-preview            # the canvas in a browser, on 127.0.0.1:4790, reloads on save
+make boards-check              # every board renders with no error and nothing unsupported
+make boards-references         # every board against its stored image in design/references/
+make boards-references-update  # write those images
+```
+
+The last three run in Alpine with the pinned Chromium (Docker), as CI does; the preview only needs Node.
+Reports and images of differences land in `out/`.
+
+To add a board, put `Name.dc.html` in `design/` and give it a place in `canvas.json` (an entry in `boards`
+with its position, size, title and page, and its name in `order`). Its data goes in `data/fixtures.js`,
+never real people or repositories. Run `make boards-references-update`, look at what changed with
+`git status design/references`, and commit the board and its images together. Moving `UI_REF` can change
+pixels too: run the same update and commit the pin with the images.
+
 ## License
 
 GPL-2.0-or-later (`LICENSE`). The IBM Plex and Kalam fonts are under the SIL Open Font License

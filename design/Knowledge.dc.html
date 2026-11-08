@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Knowledge</title>
+<script src="./support.js"></script>
+<script src="data/fixtures.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Kalam&amp;display=swap">
+<style>body{margin:0;background:#ffffff} a{color:#111111} a:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid #2747b8;outline-offset:2px}</style>
+</helmet>
+<div style="position: relative; min-height: 100vh; display: flex; flex-direction: column; background: #ffffff; color: #111111; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15px; line-height: 1.5">
+  <dc-import style="position: static" name="Header" active="knowledge" layer="absolute" hint-size="100%,66px"></dc-import>
+  <div style="flex: 1; display: flex; align-items: stretch">
+    <main style="flex: 1; min-width: 0; padding: 24px 32px 48px; box-sizing: border-box; display: flex; flex-direction: column; gap: 18px">
+
+      <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px">
+        <h1 style="margin: 0; font-size: 30px; font-weight: 600">Knowledge</h1>
+        <span style="font-size: 14.5px; color: #4a4a4a">One search over the docs, every ingested issue, PR and thread, and code. The same <span style="font-family: 'IBM Plex Mono', monospace">hub.search</span> every session uses. What the project has learned, with how far to trust it, has its own word search: <a href="Notes.dc.html" style="color: #2747b8">Notes</a>.</span>
+      </div>
+
+      <div role="search" style="display: flex; flex-direction: column; gap: 12px; padding: 16px; border: 1px solid #d0d0d0; border-radius: 16px; box-shadow: 0 3px 0 #b4b4b4">
+        <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center">
+          <label style="flex: 1 1 420px; display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 14px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#111111" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+            <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search everything</span>
+            <input type="search" value="{{q}}" onChange="{{onQ}}" placeholder="Ask or search: a symptom, a ref, a function…" style="flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: #111111; font: inherit; font-size: 17px">
+            <sc-if value="{{hasQ}}" hint-placeholder-val="{{true}}"><button type="button" onClick="{{clearQ}}" aria-label="Clear search" style="display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 0; border-radius: 8px; background: #f2f2f2; cursor: pointer"><svg width="12" height="12" viewBox="0 0 12 12" stroke="#111111" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6"></path></svg></button></sc-if>
+          </label>
+          <div role="radiogroup" aria-label="Match by" style="display: flex; border: 1.5px solid #111111; border-radius: 12px; overflow: hidden">
+            <sc-for list="{{modes}}" as="m" hint-placeholder-count="2"><button type="button" role="radio" aria-checked="{{m.checked}}" onClick="{{m.pick}}" title="{{m.hint}}" style="{{m.style}}">{{m.label}}</button></sc-for>
+          </div>
+          <button type="button" onClick="{{toggleFly}}" aria-expanded="{{flyExpanded}}" aria-controls="kn-fly" style="display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px; border: 1.5px solid #111111; border-radius: 12px; background: #2747b8; color: #ffffff; font: inherit; font-weight: 600; cursor: pointer; box-shadow: 0 3px 0 #b4b4b4">Research this…<sc-if value="{{hasPins}}" hint-placeholder-val="{{true}}"><span style="display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; background: #ffffff; color: #2747b8; font-family: 'IBM Plex Mono', monospace; font-size: 12px; box-sizing: border-box" title="pinned as context">{{pinCount}}</span></sc-if></button>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center">
+          <div role="group" aria-label="Domains" style="display: flex; flex-wrap: wrap; gap: 6px">
+            <sc-for list="{{domainChips}}" as="d" hint-placeholder-count="3">
+              <button type="button" aria-pressed="{{d.pressed}}" onClick="{{d.toggle}}" style="{{d.style}}">{{d.label}} <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px">{{d.n}}</span><sc-if value="{{d.planned}}" hint-placeholder-val="{{false}}"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.08em; padding: 0 5px; border: 1.5px dashed currentColor; border-radius: 4px">PLANNED</span></sc-if></button>
+            </sc-for>
+          </div>
+          <span aria-hidden="true" style="width: 1px; height: 28px; background: #d0d0d0"></span>
+          <div style="flex: 0 1 340px; min-width: 240px"><dc-import name="RepoPicker" value="{{repos}}" multi="{{yes}}" label="" float="{{yes}}" on-change="{{pickRepos}}" hint-size="100%,50px"></dc-import></div>
+          <button type="button" aria-pressed="{{openOnlyPressed}}" onClick="{{toggleOpen}}" style="{{openOnlyStyle}}">Open work items only</button>
+          <span style="flex: 1"></span>
+          <div role="radiogroup" aria-label="Arrange" style="display: flex; border: 1.5px solid #111111; border-radius: 10px; overflow: hidden">
+            <sc-for list="{{views}}" as="v" hint-placeholder-count="2"><button type="button" role="radio" aria-checked="{{v.checked}}" onClick="{{v.pick}}" style="{{v.style}}">{{v.label}}</button></sc-for>
+          </div>
+        </div>
+      </div>
+
+      <div style="position: relative; display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start">
+        <section aria-label="Results" style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 14px; background: transparent">
+          <p role="status" style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px">{{statusLine}}</p>
+
+          <sc-if value="{{noQ}}" hint-placeholder-val="{{false}}">
+            <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center"><span style="font-size: 14px">Try</span>
+              <sc-for list="{{tries}}" as="t" hint-placeholder-count="3"><button type="button" onClick="{{t.go}}" style="min-height: 40px; padding: 0 12px; border: 1.5px dashed #111111; border-radius: 999px; background: #ffffff; color: #111111; font: inherit; font-size: 14px; cursor: pointer">{{t.q}}</button></sc-for>
+            </div>
+          </sc-if>
+          <sc-if value="{{noHits}}" hint-placeholder-val="{{false}}">
+            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 16px; border: 1.5px dashed #111111; border-radius: 12px">
+              <span style="flex: 1 1 280px">Nothing in the selected domains matches. A research agent can read further than the index does.</span>
+              <button type="button" onClick="{{research}}" style="min-height: 44px; padding: 0 16px; border: 1.5px solid #111111; border-radius: 12px; background: #2747b8; color: #ffffff; font: inherit; font-weight: 600; cursor: pointer; box-shadow: 0 3px 0 #b4b4b4">Research this question</button>
+            </div>
+          </sc-if>
+
+          <sc-for list="{{groups}}" as="g" hint-placeholder-count="1">
+            <div style="display: flex; flex-direction: column; gap: 10px">
+              <sc-if value="{{g.hasHead}}" hint-placeholder-val="{{false}}"><h2 style="margin: 6px 0 0; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15.5px; font-weight: 600">{{g.label}} · {{g.n}}</h2></sc-if>
+              <sc-for list="{{g.rows}}" as="r" hint-placeholder-count="5">
+                <article style="{{r.card}}; background: transparent">
+                  <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px">
+                    <span style="{{r.kindStyle}}">{{r.kind}}</span>
+                    <span style="font-size: 16px; font-weight: 600; line-height: 1.35">{{r.title}}</span>
+                    <span style="flex: 1"></span>
+                    <span role="img" aria-label="Match {{r.score}}" style="display: flex; align-items: center; gap: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 12px"><span style="width: 56px; height: 6px; border: 1px solid #111111; border-radius: 999px; overflow: hidden"><span style="display: block; height: 100%; width: {{r.w}}; background: #111111"></span></span>{{r.score}}</span>
+                  </div>
+                  <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: #4a4a4a; overflow-wrap: anywhere">{{r.ref}} · {{r.meta}}</span>
+                  <p style="{{r.snipStyle}}"><sc-for list="{{r.segs}}" as="sg" hint-placeholder-count="3"><span style="{{sg.s}}">{{sg.t}}</span></sc-for></p>
+                  <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px">
+                    <sc-for list="{{r.sess}}" as="ss" hint-placeholder-count="1"><dc-import name="SessionChip" sid="{{ss.id}}" hint-size="160px,30px"></dc-import></sc-for>
+                    <span style="flex: 1"></span>
+                    <sc-if value="{{r.canOpen}}" hint-placeholder-val="{{true}}"><a href="{{r.href}}" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; text-decoration: none; font-size: 14px; font-weight: 500">{{r.openLabel}}</a></sc-if>
+                    <button type="button" aria-pressed="{{r.pinPressed}}" onClick="{{r.pin}}" style="{{r.pinStyle}}">{{r.pinLabel}}</button>
+                  </div>
+                </article>
+              </sc-for>
+            </div>
+          </sc-for>
+        </section>
+
+        <sc-if value="{{flyOpen}}" hint-placeholder-val="{{false}}">
+        <aside id="kn-fly" role="dialog" aria-label="Research and indexes" style="position: absolute; top: 0; right: 0; z-index: 30; width: 420px; max-width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px; padding: 14px; border: 1.5px solid #111111; border-radius: 16px; background: #f2f2f2; box-shadow: 0 3px 0 #b4b4b4, 0 16px 36px rgba(0, 0, 0, 0.2)">
+          <div style="display: flex; align-items: center; gap: 8px"><span style="flex: 1; font-size: 15.5px; font-weight: 600">Research &amp; indexes</span><button type="button" onClick="{{toggleFly}}" aria-label="Close" style="display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff; cursor: pointer"><svg width="12" height="12" viewBox="0 0 12 12" stroke="#111111" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6"></path></svg></button></div>
+          <section aria-labelledby="h-res" style="display: flex; flex-direction: column; gap: 10px; padding: 16px; border: 1px solid #d0d0d0; border-radius: 16px; background: #ffffff">
+            <h2 id="h-res" style="margin: 0; font-size: 17px; font-weight: 600">Ask a research agent</h2>
+            <label style="display: flex; flex-direction: column; gap: 4px; font-size: 14px; font-weight: 500">Question
+              <textarea rows="3" value="{{question}}" onChange="{{onQuestion}}" style="padding: 10px 12px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; font-weight: 400; resize: vertical"></textarea></label>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center">
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.08em">SCOPE</span>
+              <sc-for list="{{scopeChips}}" as="c" hint-placeholder-count="3"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; padding: 0 8px; border: 1.5px solid #111111; border-radius: 999px; background: #ffffff">{{c.t}}</span></sc-for>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.08em">PINNED AS CONTEXT · {{pinCount}}</span>
+              <sc-if value="{{noPins}}" hint-placeholder-val="{{false}}"><span style="font-size: 13px">Pin results to hand them to the agent.</span></sc-if>
+              <sc-for list="{{pinned}}" as="p" hint-placeholder-count="2">
+                <span style="display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 10px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff"><span style="flex: 1; min-width: 0; font-family: 'IBM Plex Mono', monospace; font-size: 12px; overflow-wrap: anywhere">{{p.ref}}</span><button type="button" onClick="{{p.remove}}" aria-label="Unpin {{p.ref}}" style="display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 0; border-radius: 8px; background: #f2f2f2; cursor: pointer"><svg width="10" height="10" viewBox="0 0 12 12" stroke="#111111" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6"></path></svg></button></span>
+              </sc-for>
+            </div>
+            <button type="button" onClick="{{research}}" style="min-height: 48px; padding: 0 16px; border: 1.5px solid #111111; border-radius: 12px; background: #2747b8; color: #ffffff; font: inherit; font-weight: 600; cursor: pointer; box-shadow: 0 3px 0 #b4b4b4">Plan a research session…</button>
+          </section>
+
+          <section aria-labelledby="h-reports" style="display: flex; flex-direction: column; gap: 8px; background: transparent">
+            <h2 id="h-reports" style="margin: 0; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15.5px; font-weight: 600">Research reports</h2>
+            <sc-for list="{{reports}}" as="rp" hint-placeholder-count="2">
+              <div style="display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid #d0d0d0; border-radius: 12px; background: #ffffff">
+                <span style="font-weight: 600; line-height: 1.35">{{rp.q}}</span>
+                <span style="font-size: 12.5px; color: #4a4a4a">{{rp.when}} · by {{rp.by}} · {{rp.model}} · {{rp.sources}}</span>
+                <div style="display: flex; gap: 6px"><button type="button" onClick="{{rp.open}}" style="min-height: 36px; padding: 0 10px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff; color: #111111; font: inherit; font-size: 13px; cursor: pointer">Open report</button><button type="button" onClick="{{rp.follow}}" style="min-height: 36px; padding: 0 10px; border: 1.5px dashed #111111; border-radius: 10px; background: #ffffff; color: #111111; font: inherit; font-size: 13px; cursor: pointer">Follow up…</button></div>
+              </div>
+            </sc-for>
+            
+          </section>
+
+          <section aria-labelledby="h-idx" style="display: flex; flex-direction: column; gap: 8px; background: transparent">
+            <h2 id="h-idx" style="margin: 0; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15.5px; font-weight: 600">Indexes</h2>
+            <sc-for list="{{indexes}}" as="ix" hint-placeholder-count="3">
+              <div style="{{ix.card}}">
+                <div style="display: flex; align-items: center; gap: 8px"><span style="font-weight: 600; flex: 1">{{ix.label}}</span><span style="{{ix.badge}}">{{ix.state}}</span></div>
+                <span style="font-size: 13px; line-height: 1.45">{{ix.detail}}</span>
+                <div style="display: flex; align-items: center; gap: 8px"><span style="flex: 1; font-family: 'IBM Plex Mono', monospace; font-size: 12px">{{ix.count}}</span><sc-if value="{{ix.hasAct}}" hint-placeholder-val="{{true}}"><button type="button" style="min-height: 36px; padding: 0 10px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff; color: #111111; font: inherit; font-size: 13px; cursor: pointer">{{ix.act}}</button></sc-if></div>
+              </div>
+            </sc-for>
+          </section>
+        </aside>
+        </sc-if>
+      </div>
+    </main>
+    <dc-import style="display: flex; flex: none; position: static" name="Steward" context="Knowledge" collapsed="{{yes}}" layer="absolute" hint-size="64px,100%"></dc-import>
+  </div>
+  <sc-if value="{{launching}}" hint-placeholder-val="{{false}}">
+    <dc-import style="position: static" name="Launch" layer="absolute" entry="{{L.entry}}" action="research" describe="{{L.q}}" scope="{{L.scope}}" pins="{{L.pins}}" context="Knowledge" on-close="{{closeLaunch}}" hint-size="100%,900px"></dc-import>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"flyout":{"editor":"boolean","default":false},"query":{"editor":"text","default":"tablet won’t boot after flashing, how do I get it back"},"$preview":{"width":1440,"height":1700}}'>
+class Component extends DCLogic {
+  constructor(p) {
+    super(p);
+    this.state = { q: p.query ?? window.HUB.knowledge.defaultQuery, mode: 'meaning', on: { docs: true, work: true, code: true }, repos: [], openOnly: false, view: 'ranked', pins: ['docs#91'], question: null, L: null, fly: !!p.flyout };
+  }
+  renderVals() {
+    const H = window.HUB, K = H.knowledge, S = this.state;
+    const q = S.q || '';
+    const toks = q.toLowerCase().replace(/[^a-z0-9#_ ]/g, ' ').split(/\s+/).filter((t) => t.length > 2 && ['how', 'the', 'and', 'get', 'back', 'after', 'what', 'why', 'does', 'won'].indexOf(t) < 0);
+    const stem = (t) => t.length > 5 ? t.slice(0, Math.max(4, t.length - 3)) : t;
+    const stems = toks.map(stem);
+    const hit = (it, t) => new RegExp('(^|[^a-z0-9])' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(it.title + ' ' + it.snip + ' ' + it.terms + ' ' + it.ref);
+    const scored = K.corpus.map((it) => {
+      const frac = toks.length ? stems.filter((t) => hit(it, t)).length / stems.length : 0;
+      const sc = S.mode === 'exact' ? (frac === 1 ? Math.min(0.99, it.score + 0.1) : 0) : (frac > 0 ? 0.4 * it.score + 0.55 * frac : it.score * 0.3);
+      return { it, sc: Math.round(sc * 100) / 100 };
+    }).filter((x) => toks.length && x.sc >= (S.mode === 'exact' ? 0.3 : 0.28));
+    const passRepo = (x) => !S.repos.length || S.repos.indexOf(x.it.repo) >= 0;
+    const passOpen = (x) => !S.openOnly || x.it.d !== 'work' || x.it.open;
+    const base = scored.filter(passRepo).filter(passOpen);
+    const shown = base.filter((x) => S.on[x.it.d]).sort((a, b) => b.sc - a.sc);
+    const KIND = { DOC: 'border: 1.5px solid #111111; background: #ffffff', ISSUE: 'border: 1.5px solid #111111; background: #e2e2e2', PR: 'border: 1.5px solid #111111; background: #e2e2e2', CODE: 'border: 1.5px dashed #111111; background: #121212; color: #eeeeee' };
+    const sessFor = (ref) => Object.entries(H.sessions).filter(([, s]) => s.state !== 'DONE' && ((s.covers || []).indexOf(ref) >= 0 || (s.prs || []).indexOf(ref) >= 0)).map(([id]) => ({ id }));
+    const esc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const segs = (text, code) => {
+      if (!toks.length) return [{ t: text, s: '' }];
+      const re = new RegExp('(' + stems.map((t) => esc(t) + '[a-z0-9_]*').join('|') + ')', 'ig');
+      return text.split(re).filter((x) => x !== '').map((t) => ({ t, s: stems.some((st) => t.toLowerCase().indexOf(st) === 0) ? (code ? 'background: #9db2ff; color: #121212; padding: 0 2px' : 'background: #e2e2e2; font-weight: 600; padding: 0 2px') : '' }));
+    };
+    const row = ({ it, sc }) => {
+      const pinned = S.pins.indexOf(it.ref) >= 0, code = it.d === 'code';
+      return { kind: it.kind, title: it.title, ref: it.ref, meta: it.meta, score: sc.toFixed(2), w: Math.round(sc * 100) + '%',
+        kindStyle: 'font-family: \'IBM Plex Mono\', monospace; font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; padding: 1px 6px; border-radius: 4px; ' + KIND[it.kind],
+        card: 'display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 12px; ' + (pinned ? 'border: 1.5px solid #111111; box-shadow: 0 3px 0 #b4b4b4' : 'border: 1.5px solid #d0d0d0'),
+        snipStyle: 'margin: 0; ' + (code ? 'padding: 8px 10px; background: #121212; color: #eeeeee; border-radius: 8px; font-family: \'IBM Plex Mono\', monospace; font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere' : 'font-size: 14.5px; line-height: 1.55'),
+        segs: segs(it.snip, code), sess: it.d === 'work' ? sessFor(it.ref) : [],
+        canOpen: !code, href: it.d === 'work' ? 'WorkItem.dc.html' : 'Knowledge.dc.html', openLabel: it.d === 'work' ? 'Open item' : 'Open page',
+        pinPressed: pinned ? 'true' : 'false', pinLabel: pinned ? 'Pinned' : 'Pin as context',
+        pinStyle: 'min-height: 40px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; font: inherit; font-size: 14px; cursor: pointer; ' + (pinned ? 'background: #111111; color: #ffffff; font-weight: 600' : 'background: #ffffff; color: #111111'),
+        pin: () => this.setState({ pins: pinned ? S.pins.filter((p) => p !== it.ref) : S.pins.concat([it.ref]) }) };
+    };
+    const DL = { docs: 'Docs', work: 'Work items', code: 'Code' };
+    const groups = S.view === 'grouped'
+      ? K.domains.map((d) => ({ label: DL[d.id], hasHead: true, rows: shown.filter((x) => x.it.d === d.id).map(row) })).filter((g) => g.rows.length).map((g) => ({ ...g, n: String(g.rows.length) }))
+      : [{ label: '', hasHead: false, n: '', rows: shown.map(row) }];
+    const seg = (on) => 'min-height: 44px; padding: 0 14px; border: 0; border-right: 1px solid #d0d0d0; font: inherit; font-size: 14px; cursor: pointer; ' + (on ? 'background: #111111; color: #ffffff; font-weight: 600' : 'background: #ffffff; color: #111111');
+    const scopeIds = K.domains.filter((d) => S.on[d.id]).map((d) => d.id);
+    const scopeText = scopeIds.map((id) => ({ docs: 'docs', work: 'work items', code: 'code' }[id])).join(', ') + (S.repos.length ? ' · ' + (S.repos.length > 3 ? S.repos.length + ' repos' : S.repos.join(', ')) : '');
+    const question = S.question !== null ? S.question : q;
+    const ST = { CURRENT: 'border: 1.5px solid #111111; background: #ffffff', BUILDING: 'border: 1.5px dashed #111111; background: #e2e2e2', PLANNED: 'border: 1.5px dashed #111111; background: #ffffff' };
+    const ms = 24 + shown.length * 3;
+    const research = () => this.setState({ L: { entry: 'new', q: question, scope: scopeText, pins: S.pins } });
+    return {
+      flyOpen: !!S.fly, flyExpanded: S.fly ? 'true' : 'false', toggleFly: () => this.setState({ fly: !this.state.fly }), hasPins: S.pins.length > 0,
+      yes: true, q, hasQ: q.length > 0, onQ: (ev) => this.setState({ q: ev.target.value }), clearQ: () => this.setState({ q: '' }),
+      modes: [['meaning', 'Meaning', 'vector search: finds related wording'], ['exact', 'Exact', 'every word must appear']].map(([id, label, hint]) => ({ label, hint, checked: S.mode === id ? 'true' : 'false', style: seg(S.mode === id), pick: () => this.setState({ mode: id }) })),
+      domainChips: K.domains.map((d) => { const on = S.on[d.id]; return { label: d.label, n: String(base.filter((x) => x.it.d === d.id).length), planned: d.status === 'proposed', pressed: on ? 'true' : 'false',
+        toggle: () => this.setState({ on: { ...S.on, [d.id]: !on } }),
+        style: 'display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 999px; font: inherit; font-size: 14px; cursor: pointer; ' + (on ? 'background: #111111; color: #ffffff; font-weight: 600' : 'background: #ffffff; color: #111111') }; }),
+      repos: S.repos, pickRepos: (v) => this.setState({ repos: v }),
+      openOnlyPressed: S.openOnly ? 'true' : 'false', toggleOpen: () => this.setState({ openOnly: !S.openOnly }),
+      openOnlyStyle: 'min-height: 40px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; font: inherit; font-size: 14px; cursor: pointer; ' + (S.openOnly ? 'background: #111111; color: #ffffff; font-weight: 600' : 'background: #ffffff; color: #111111'),
+      views: [['ranked', 'Ranked together'], ['grouped', 'By domain']].map(([id, label]) => ({ label, checked: S.view === id ? 'true' : 'false', pick: () => this.setState({ view: id }), style: seg(S.view === id).replace('min-height: 44px', 'min-height: 40px') })),
+      statusLine: !toks.length ? 'Type to search. Results update as you type.' : shown.length + ' results · ' + ms + ' ms · ' + (S.mode === 'meaning' ? 'by meaning' : 'exact words') + ' · docs index at a41c09e',
+      noQ: !toks.length, noHits: toks.length > 0 && shown.length === 0,
+      tries: ['tablet won’t boot after flashing', 'LUT version 0', 'arm64 rootfs exec format error'].map((t) => ({ q: t, go: () => this.setState({ q: t }) })),
+      groups,
+      question, onQuestion: (ev) => this.setState({ question: ev.target.value }),
+      scopeChips: scopeText.split(/, | · /).filter(Boolean).map((t) => ({ t })),
+      pinned: S.pins.map((ref) => ({ ref, remove: () => this.setState({ pins: S.pins.filter((p) => p !== ref) }) })), pinCount: String(S.pins.length), noPins: S.pins.length === 0,
+      research,
+      reports: K.reports.map((r) => ({ ...r, open: () => this.setState({ L: { entry: 'results', q: r.q, scope: 'docs, work items', pins: [] } }), follow: () => this.setState({ L: { entry: 'new', q: 'Follow-up: ' + r.q, scope: scopeText, pins: S.pins } }) })),
+      indexes: K.domains.map((d) => ({ ...d, badge: 'font-family: \'IBM Plex Mono\', monospace; font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; padding: 1px 6px; border-radius: 4px; ' + ST[d.state],
+        hasAct: d.status !== 'proposed', act: d.id === 'docs' ? 'Run docs CI now' : 'Ingest now',
+        card: 'display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 12px; background: #ffffff; ' + (d.status === 'proposed' ? 'border: 1.5px dashed #111111' : 'border: 1.5px solid #111111') })),
+      launching: !!S.L, L: S.L || { entry: 'new', q: '', scope: '', pins: [] }, closeLaunch: () => this.setState({ L: null })
+    };
+  }
+}
+</script>
+</body>
+</html>

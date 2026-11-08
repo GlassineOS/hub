@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Start a session</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Kalam&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div style="display: contents">
+<sc-if value="{{isOpen}}" hint-placeholder-val="{{true}}">
+<div style="{{wrapStyle}}">
+<section role="dialog" aria-modal="true" aria-labelledby="sf-h" style="width: 100%; max-width: 880px; background: #ffffff; border: 1.5px solid #111111; border-radius: 16px; box-shadow: 0 3px 0 #b4b4b4, 0 16px 40px rgba(0, 0, 0, 0.25); display: flex; flex-direction: column; overflow: hidden">
+
+  <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 14px 20px; border-bottom: 1.5px solid #111111; background: {{headBg}}">
+    <sc-if value="{{bySteward}}" hint-placeholder-val="{{true}}">
+      <span aria-hidden="true" style="display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; flex: none; border: 1.5px solid #2747b8; border-radius: 999px; background: #ffffff; font-family: Kalam, cursive; font-size: 21px; color: #2747b8">S</span>
+    </sc-if>
+    <h2 id="sf-h" style="margin: 0; font-size: 20px; font-weight: 600; flex: 1">{{title}}</h2>
+    <button type="button" onClick="{{close}}" aria-label="Close" style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; cursor: pointer"><svg width="16" height="16" viewBox="0 0 16 16" stroke="#111111" stroke-width="1.8" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9"></path></svg></button>
+  </div>
+
+  <sc-if value="{{bySteward}}" hint-placeholder-val="{{true}}">
+    <div style="display: flex; gap: 10px; align-items: flex-start; padding: 12px 20px; border-bottom: 1px dotted #111111">
+      <span style="font-family: Kalam, cursive; font-size: 20px; line-height: 1.3; color: #2747b8; flex: none">why</span>
+      <span style="font-size: 15px; line-height: 1.5">{{why}}</span>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{notStarted}}" hint-placeholder-val="{{true}}">
+  <div style="display: flex; flex-direction: column; gap: 18px; padding: 18px 20px">
+
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">COVERS</span>
+      <div style="display: flex; flex-direction: column; border: 1.5px solid #111111; border-radius: 12px; overflow: hidden">
+        <sc-for list="{{covers}}" as="c" hint-placeholder-count="2">
+          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 10px 14px; border-bottom: 1px solid #d0d0d0">
+            <span style="{{c.roleStyle}}">{{c.role}}</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; font-weight: 600">{{c.ref}}</span>
+            <span style="flex: 1 1 220px; min-width: 0; font-size: 14.5px">{{c.title}}</span>
+            <sc-if value="{{c.canPromote}}" hint-placeholder-val="{{true}}">
+              <button type="button" onClick="{{c.promote}}" style="min-height: 36px; padding: 0 10px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff; color: #111111; font: inherit; font-size: 13px; cursor: pointer">Make primary</button>
+            </sc-if>
+            <sc-if value="{{c.canRemove}}" hint-placeholder-val="{{true}}">
+              <button type="button" onClick="{{c.remove}}" aria-label="Remove {{c.ref}}" style="display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff; cursor: pointer"><svg width="12" height="12" viewBox="0 0 12 12" stroke="#111111" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6"></path></svg></button>
+            </sc-if>
+          </div>
+        </sc-for>
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 10px 14px; background: #f2f2f2">
+          <span style="font-size: 13px; color: #4a4a4a">Also cover:</span>
+          <sc-for list="{{suggestAlso}}" as="s" hint-placeholder-count="2">
+            <button type="button" onClick="{{s.add}}" style="min-height: 36px; padding: 0 10px; border: 1.5px dashed #111111; border-radius: 999px; background: #ffffff; color: #111111; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; cursor: pointer">+ {{s.ref}} <span style="font-family: 'IBM Plex Sans', sans-serif; color: #4a4a4a">{{s.hint}}</span></button>
+          </sc-for>
+          <label style="display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 10px; border: 1.5px solid #111111; border-radius: 999px; background: #ffffff">
+            <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Add an issue by reference</span>
+            <input type="text" placeholder="repo#123" style="border: 0; outline: none; width: 90px; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; background: transparent; color: #111111">
+          </label>
+        </div>
+      </div>
+      <span style="font-size: 13px; color: #4a4a4a">{{coversNote}}</span>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 16px 24px">
+      <dl style="flex: 1 1 300px; margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 14px; font-size: 14px; align-content: start">
+        <dt style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; letter-spacing: 0.08em; color: #4a4a4a; padding-top: 2px">ACTION</dt><dd style="margin: 0">Implement · {{persona}}</dd>
+        <dt style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; letter-spacing: 0.08em; color: #4a4a4a; padding-top: 2px">BRANCH</dt><dd style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 13px">{{branch}}</dd>
+        <dt style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; letter-spacing: 0.08em; color: #4a4a4a; padding-top: 2px">PR BODY</dt><dd style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 13px; white-space: pre-line">{{closesText}}</dd>
+        <dt style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; letter-spacing: 0.08em; color: #4a4a4a; padding-top: 2px">SESSION</dt><dd style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 13px">{{sessName}}</dd>
+      </dl>
+      <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 6px">
+        <span id="sf-m" style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">AGENT MODEL</span>
+        <div role="radiogroup" aria-labelledby="sf-m" style="display: flex; flex-wrap: wrap; border: 1.5px solid #111111; border-radius: 12px; overflow: hidden; align-self: flex-start">
+          <sc-for list="{{models}}" as="m" hint-placeholder-count="4">
+            <button type="button" role="radio" aria-checked="{{m.checked}}" onClick="{{m.pick}}" style="{{m.style}}">{{m.name}}</button>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+
+    <label style="display: flex; flex-direction: column; gap: 4px; font-size: 14px; font-weight: 500">{{notesLabel}}
+      <textarea rows="4" value="{{notes}}" onChange="{{onNotes}}" style="padding: 10px 12px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; font-weight: 400; line-height: 1.5; resize: vertical"></textarea>
+    </label>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{started}}" hint-placeholder-val="{{false}}">
+    <div role="status" style="display: flex; flex-direction: column; gap: 10px; padding: 22px 20px">
+      <span style="font-size: 18px; font-weight: 600"><span style="font-family: 'IBM Plex Mono', monospace">{{sessName}}</span> started</span>
+      <span style="font-size: 15px">It covers {{coverList}}. Both show the session in Work, and its PR will close both.</span>
+      <a href="ShellsV1.dc.html" style="align-self: flex-start; display: flex; align-items: center; min-height: 44px; padding: 0 14px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; text-decoration: none; font-weight: 600">Open in Sessions</a>
+    </div>
+  </sc-if>
+
+  <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 14px 20px; border-top: 1.5px solid #111111; background: #f2f2f2">
+    <sc-if value="{{notStarted}}" hint-placeholder-val="{{true}}">
+      <button type="button" onClick="{{start}}" style="min-height: 44px; padding: 0 18px; border: 1.5px solid #111111; border-radius: 12px; background: #2747b8; color: #ffffff; font: inherit; font-weight: 600; box-shadow: 0 3px 0 #b4b4b4; cursor: pointer">Start session</button>
+      <button type="button" style="min-height: 44px; padding: 0 14px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; font-weight: 600; box-shadow: 0 3px 0 #b4b4b4; cursor: pointer">Plan first…</button>
+    </sc-if>
+    <span style="flex: 1 1 240px; font-size: 13.5px">{{footNote}}</span>
+    <button type="button" onClick="{{close}}" style="min-height: 44px; padding: 0 12px; border: 0; background: transparent; color: #111111; font: inherit; text-decoration: underline; cursor: pointer">{{closeLabel}}</button>
+  </div>
+</section>
+</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"layer":{"editor":null},"by":{"editor":"enum","options":["you","steward"],"default":"steward"},"covers":{"editor":null},"notes":{"editor":null},"why":{"editor":null},"onClose":{"editor":null},"$preview":{"width":1440,"height":1100}}'>
+class Component extends DCLogic {
+  constructor(p) {
+    super(p);
+    this.state = { list: (p.covers || [['epd#9', 'LUT loader rejects version 0'], ['epd#11', 'Release the firmware buffer on every error path']]).map((x) => ({ ref: x[0], title: x[1] })), notes: null, model: 'claude-opus-5-5', started: false, hidden: false };
+  }
+  renderVals() {
+    const S = this.state, P = this.props;
+    const bySteward = (P.by ?? 'steward') === 'steward';
+    const list = S.list;
+    const prim = list[0] || { ref: '—', title: '' };
+    const repo = prim.ref.split('#')[0];
+    const nums = list.map((c) => c.ref.split('#')[1]);
+    const MODELS = [['claude-fable-5-1', 'Fable'], ['claude-opus-5-5', 'Opus'], ['claude-sonnet-5-5', 'Sonnet'], ['claude-haiku-5-5', 'Haiku']];
+    const SUG = [['epd#12', 'same file'], ['epd#7', 'Part of hub#44']].filter((s) => !list.some((c) => c.ref === s[0]));
+    const defaultNotes = P.notes || 'Do epd#9 first: reject version 0 in the header check. epd#11 touches the same error path in epd_lut.c, so fix it in the same branch with its own commit. One PR that closes both.';
+    const roleStyle = (p) => 'font-family: \'IBM Plex Mono\', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; padding: 1px 7px; border-radius: 6px; ' + (p ? 'border: 1.5px solid #111111; background: #ffd86b' : 'border: 1.5px solid #111111; background: #ffffff');
+    const sessName = 'impl-' + repo + '-' + nums.join('-');
+    const wrap = P.layer === 'absolute'
+      ? 'position: absolute; inset: 0; z-index: 50; background: rgba(17, 17, 17, 0.5); display: flex; justify-content: center; align-items: flex-start; padding: 32px 16px; box-sizing: border-box;'
+      : 'position: fixed; inset: 0; z-index: 50; background: rgba(17, 17, 17, 0.5); overflow-y: auto; display: flex; justify-content: center; align-items: flex-start; padding: 32px 16px; box-sizing: border-box;';
+    return {
+      isOpen: !S.hidden, wrapStyle: wrap + ' font-family: \'IBM Plex Sans\', system-ui, sans-serif; font-size: 15px; line-height: 1.5; color: #111111',
+      bySteward, headBg: bySteward ? '#f2f2f2' : '#ffd86b',
+      title: (bySteward ? 'The Steward suggests a session · ' : 'Start a session · ') + 'Implement ' + prim.ref + (list.length > 1 ? ', also covering ' + list.slice(1).map((c) => c.ref).join(', ') : ''),
+      why: P.why || 'Both are in epd_lut.c and touch the same error path. One session avoids two branches conflicting.',
+      covers: list.map((c, i) => ({ ...c, role: i === 0 ? 'PRIMARY' : 'ALSO COVERS', roleStyle: roleStyle(i === 0), canPromote: i > 0, canRemove: list.length > 1,
+        promote: () => { const l = this.state.list.slice(); const [x] = l.splice(i, 1); l.unshift(x); this.setState({ list: l }); },
+        remove: () => this.setState({ list: this.state.list.filter((_, j) => j !== i) }) })),
+      suggestAlso: SUG.map(([ref, hint]) => ({ ref, hint, add: () => this.setState({ list: this.state.list.concat([{ ref, title: ref === 'epd#12' ? 'Log the LUT version on load' : 'Temperature compensation for LUT selection' }]) }) })),
+      coversNote: list.length > 1 ? 'Every issue here shows this session in Work, and the session is told to close all of them from its PR.' : 'Add issues the same change should close.',
+      persona: 'Kernel engineer', branch: 'agent/' + sessName,
+      closesText: list.map((c) => 'Closes ' + c.ref.replace(repo + '#', '#')).join('\n'),
+      sessName,
+      models: MODELS.map(([id, name]) => ({ name, checked: S.model === id ? 'true' : 'false', pick: () => this.setState({ model: id }),
+        style: 'min-height: 44px; padding: 0 14px; border: 0; border-right: 1px solid #d0d0d0; font: inherit; font-size: 14px; cursor: pointer; ' + (S.model === id ? 'background: #111111; color: #ffffff; font-weight: 600' : 'background: #ffffff; color: #111111') })),
+      notesLabel: bySteward ? 'Notes — the Steward proposed these; edit freely' : 'Notes',
+      notes: S.notes !== null ? S.notes : defaultNotes, onNotes: (ev) => this.setState({ notes: ev.target.value }),
+      notStarted: !S.started, started: S.started, coverList: list.map((c) => c.ref).join(' and '),
+      start: () => this.setState({ started: true }),
+      footNote: S.started ? '' : 'Nothing runs until you press Start.',
+      closeLabel: S.started ? 'Done' : 'Cancel',
+      close: () => { if (P.onClose) P.onClose(); else this.setState({ hidden: true }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

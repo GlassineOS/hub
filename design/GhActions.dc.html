@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Your actions</title>
+<script src="./support.js"></script>
+<script src="data/fixtures.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
+<style>body{margin:0} .gh-item:hover:not(:disabled){background:#f2f2f2 !important}</style>
+</helmet>
+<div style="position: relative; display: inline-flex; flex-direction: column; align-items: flex-end; gap: 4px; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15px; line-height: 1.5; color: #111111">
+  <div role="group" aria-label="Your actions on GitHub" title="Your own actions on GitHub — not an agent" style="display: inline-flex; border-radius: 12px; overflow: hidden; border: 1.5px solid #111111">
+    <button type="button" onClick="{{primary.go}}" style="display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 14px; border: 0; background: #111111; color: #ffffff; font: inherit; font-size: 14.5px; font-weight: 600; cursor: pointer">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3.5"></circle><path d="M2 12h6.5M15.5 12H22"></path></svg>{{primary.label}}
+    </button>
+    <button type="button" onClick="{{toggle}}" aria-haspopup="menu" aria-expanded="{{expanded}}" aria-label="More actions on GitHub" style="display: flex; align-items: center; justify-content: center; width: 40px; min-height: 42px; border: 0; border-left: 1px solid #4a4a4a; background: #111111; cursor: pointer"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#ffffff" stroke-width="1.8" aria-hidden="true"><path d="{{chev}}"></path></svg></button>
+  </div>
+  <sc-if value="{{hasStatus}}" hint-placeholder-val="{{false}}"><span role="status" style="font-size: 12.5px; color: #4a4a4a">{{status}}</span></sc-if>
+
+  <sc-if value="{{isOpen}}" hint-placeholder-val="{{false}}">
+    <div role="menu" aria-label="Actions on GitHub" style="position: absolute; top: 48px; right: 0; z-index: 40; width: 320px; display: flex; flex-direction: column; padding: 6px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; box-shadow: 0 3px 0 #b4b4b4, 0 12px 28px rgba(0, 0, 0, 0.18)">
+      <span style="padding: 6px 10px 4px; font-size: 12.5px; color: #4a4a4a">On GitHub, as {{user}}</span>
+      <sc-for list="{{items}}" as="it" hint-placeholder-count="4">
+        <sc-if value="{{it.sep}}" hint-placeholder-val="{{false}}"><span role="separator" style="display: block; height: 1px; margin: 4px 6px; background: #d0d0d0"></span></sc-if>
+        <button type="button" role="menuitem" class="gh-item" onClick="{{it.go}}" disabled="{{it.off}}" style="{{it.style}}">
+          <span style="font-weight: 500">{{it.label}}</span>
+          <sc-if value="{{it.hasHint}}" hint-placeholder-val="{{false}}"><span style="font-size: 12.5px; color: #4a4a4a">{{it.hint}}</span></sc-if>
+        </button>
+        <sc-if value="{{it.confirming}}" hint-placeholder-val="{{false}}">
+          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 2px 6px 6px; padding: 8px 10px; border-radius: 8px; background: #f2f2f2">
+            <span style="flex: 1 1 140px; font-size: 13.5px">{{it.confirmText}}</span>
+            <button type="button" onClick="{{it.confirm}}" style="min-height: 36px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; background: #111111; color: #ffffff; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer">{{it.confirmLabel}}</button>
+            <button type="button" onClick="{{cancelConfirm}}" style="min-height: 36px; padding: 0 10px; border: 0; background: transparent; color: #111111; font: inherit; font-size: 13.5px; text-decoration: underline; cursor: pointer">Cancel</button>
+          </div>
+        </sc-if>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{isLabels}}" hint-placeholder-val="{{false}}">
+    <div role="dialog" aria-label="Labels" style="position: absolute; top: 48px; right: 0; z-index: 40; width: 300px; display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; box-shadow: 0 3px 0 #b4b4b4, 0 12px 28px rgba(0, 0, 0, 0.18)">
+      <span style="font-weight: 600">Labels on {{ref}}</span>
+      <div style="display: flex; flex-wrap: wrap; gap: 6px">
+        <sc-for list="{{labelOpts}}" as="lb" hint-placeholder-count="6"><button type="button" aria-pressed="{{lb.pressed}}" onClick="{{lb.toggle}}" style="{{lb.style}}">{{lb.name}}</button></sc-for>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px">
+        <button type="button" onClick="{{closeAll}}" style="min-height: 36px; padding: 0 10px; border: 0; background: transparent; color: #111111; font: inherit; font-size: 13.5px; text-decoration: underline; cursor: pointer">Cancel</button>
+        <button type="button" onClick="{{saveLabels}}" style="min-height: 36px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; background: #111111; color: #ffffff; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer">Save labels</button>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{isNewIssue}}" hint-placeholder-val="{{false}}">
+    <div role="dialog" aria-labelledby="gh-ni" style="position: absolute; top: 48px; right: 0; z-index: 40; width: 460px; max-width: 92vw; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border: 1.5px solid #111111; border-radius: 16px; background: #ffffff; box-shadow: 0 3px 0 #b4b4b4, 0 16px 36px rgba(0, 0, 0, 0.2)">
+      <span id="gh-ni" style="font-size: 17px; font-weight: 600">New issue</span>
+      <dc-import name="RepoPicker" value="{{niRepo}}" label="Repository" on-change="{{pickRepo}}" hint-size="100%,60px"></dc-import>
+      <label style="display: flex; flex-direction: column; gap: 4px; font-size: 14px; font-weight: 500">Title
+        <input type="text" value="{{niTitle}}" onChange="{{onTitle}}" style="min-height: 44px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; font: inherit; font-weight: 400"></label>
+      <label style="display: flex; flex-direction: column; gap: 4px; font-size: 14px; font-weight: 500">Description
+        <textarea rows="4" style="padding: 10px 12px; border: 1.5px solid #111111; border-radius: 10px; font: inherit; font-weight: 400; resize: vertical"></textarea></label>
+      <label style="display: flex; flex-direction: column; gap: 4px; font-size: 14px; font-weight: 500">Part of <span style="font-weight: 400; font-size: 12.5px; color: #4a4a4a">optional · adds a “Part of …” line to the body</span>
+        <input type="text" placeholder="GlassineOS/hub#44" style="min-height: 44px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; font-family: 'IBM Plex Mono', monospace; font-size: 14px"></label>
+      <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center"><span style="font-size: 14px; font-weight: 500">Labels</span>
+        <sc-for list="{{niLabels}}" as="lb" hint-placeholder-count="6"><button type="button" aria-pressed="{{lb.pressed}}" onClick="{{lb.toggle}}" style="{{lb.style}}">{{lb.name}}</button></sc-for>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 4px">
+        <button type="button" onClick="{{toLaunch}}" style="min-height: 40px; padding: 0 4px; border: 0; background: transparent; color: #2747b8; font: inherit; font-size: 14px; text-decoration: underline; cursor: pointer">Let Claude write it instead</button>
+        <span style="flex: 1"></span>
+        <button type="button" onClick="{{closeAll}}" style="min-height: 40px; padding: 0 10px; border: 0; background: transparent; color: #111111; font: inherit; font-size: 14px; text-decoration: underline; cursor: pointer">Cancel</button>
+        <button type="button" onClick="{{createIssue}}" disabled="{{niDisabled}}" style="min-height: 44px; padding: 0 16px; border: 1.5px solid #111111; border-radius: 12px; background: #111111; color: #ffffff; font: inherit; font-weight: 600; cursor: pointer">Create issue</button>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{isRunWf}}" hint-placeholder-val="{{false}}">
+    <div role="dialog" aria-labelledby="gh-rw" style="position: absolute; top: 48px; right: 0; z-index: 40; width: 440px; max-width: 92vw; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border: 1.5px solid #111111; border-radius: 16px; background: #ffffff; box-shadow: 0 3px 0 #b4b4b4, 0 16px 36px rgba(0, 0, 0, 0.2)">
+      <span id="gh-rw" style="font-size: 17px; font-weight: 600">Run workflow</span>
+      <dc-import name="RepoPicker" value="{{wfRepo}}" label="Repository" on-change="{{pickWfRepo}}" hint-size="100%,60px"></dc-import>
+      <sc-if value="{{hasWfs}}" hint-placeholder-val="{{true}}">
+        <label style="display: flex; flex-direction: column; gap: 4px; font-size: 14px; font-weight: 500">Workflow
+          <select onChange="{{pickWf}}" style="min-height: 44px; padding: 0 10px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff; font: inherit; font-weight: 400"><sc-for list="{{wfOpts}}" as="w" hint-placeholder-count="2"><option value="{{w.id}}" selected="{{w.sel}}">{{w.name}} · {{w.id}}</option></sc-for></select></label>
+        <label style="display: flex; flex-direction: column; gap: 4px; font-size: 14px; font-weight: 500">Branch or tag
+          <input type="text" value="main" style="min-height: 44px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; font-family: 'IBM Plex Mono', monospace; font-size: 14px"></label>
+        <sc-for list="{{wfInputs}}" as="in" hint-placeholder-count="1">
+          <sc-if value="{{in.isChoice}}" hint-placeholder-val="{{false}}"><label style="display: flex; flex-direction: column; gap: 4px; font-size: 14px; font-weight: 500">{{in.name}}<select style="min-height: 44px; padding: 0 10px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff; font: inherit; font-weight: 400"><sc-for list="{{in.opts}}" as="o" hint-placeholder-count="2"><option>{{o.v}}</option></sc-for></select></label></sc-if>
+          <sc-if value="{{in.isBool}}" hint-placeholder-val="{{false}}"><label style="display: flex; align-items: center; gap: 10px; min-height: 40px; font-size: 14px; font-weight: 500"><input type="checkbox" style="width: 20px; height: 20px"> {{in.name}}</label></sc-if>
+          <sc-if value="{{in.isText}}" hint-placeholder-val="{{false}}"><label style="display: flex; flex-direction: column; gap: 4px; font-size: 14px; font-weight: 500">{{in.name}}<input type="text" value="{{in.def}}" style="min-height: 44px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; font: inherit; font-weight: 400"></label></sc-if>
+        </sc-for>
+      </sc-if>
+      <sc-if value="{{noWfs}}" hint-placeholder-val="{{false}}"><p style="margin: 0; font-size: 14px">This repository has no workflow you can start by hand.</p></sc-if>
+      <div style="display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px">
+        <button type="button" onClick="{{closeAll}}" style="min-height: 40px; padding: 0 10px; border: 0; background: transparent; color: #111111; font: inherit; font-size: 14px; text-decoration: underline; cursor: pointer">Cancel</button>
+        <button type="button" onClick="{{runWf}}" disabled="{{noWfs}}" style="min-height: 44px; padding: 0 16px; border: 1.5px solid #111111; border-radius: 12px; background: #111111; color: #ffffff; font: inherit; font-weight: 600; cursor: pointer">Run workflow</button>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"kind":{"editor":"enum","options":["pr","issue","run","work"],"default":"pr"},"itemRef":{"editor":"text","default":"kernel#212"},"repo":{"editor":"text","default":"image-builder"},"show":{"editor":"enum","options":["none","menu","labels","new-issue","run-workflow"],"default":"none"},"onLaunch":{"editor":null},"$preview":{"width":520,"height":560}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { show: p.show && p.show !== 'none' ? p.show : null, confirm: null, status: '', labels: null, ni: [], niTitle: '', niRepo: null, wfRepo: null, wf: null, closed: false }; }
+  renderVals() {
+    const H = window.HUB, P = this.props, S = this.state;
+    const kind = P.kind || 'pr', ref = P.itemRef || 'kernel#212';
+    const it = H.items[ref] || {};
+    const set = (o) => this.setState(o);
+    const done = (msg) => set({ show: null, confirm: null, status: msg });
+    const labels = S.labels || it.labels || [];
+    const chip = (on) => 'min-height: 34px; padding: 0 10px; border: 1.5px solid ' + (on ? '#111111' : '#d0d0d0') + '; border-radius: 999px; font-family: \'IBM Plex Mono\', monospace; font-size: 12.5px; cursor: pointer; ' + (on ? 'background: #111111; color: #ffffff' : 'background: #ffffff; color: #111111');
+    let primary, items;
+    const I = (id, label, o) => Object.assign({ id, label, hint: '', off: false, danger: false, sep: false, confirmText: '', confirmLabel: '', run: null }, o || {});
+    const closed = S.closed || it.state === 'CLOSED' || it.state === 'MERGED';
+    if (kind === 'pr') {
+      const checksOk = (it.checks || []).every((c) => c[1] === 'p');
+      const mergeBlock = [!checksOk ? 'checks still running' : null, !it.approved ? 'not approved yet' : null, it.threads ? it.threads + ' threads open' : null].filter(Boolean).join(' · ');
+      const draft = it.state === 'DRAFT';
+      items = [
+        I('merge', 'Merge…', { off: !!mergeBlock || draft, hint: mergeBlock || 'squash, merge commit or rebase', confirmText: 'Squash and merge into main?', confirmLabel: 'Squash and merge', run: 'Merged into main.' }),
+        draft ? I('ready', 'Mark ready for review', { run: 'Marked ready for review.' }) : null,
+        I('update', 'Update branch', { off: !it.behind, hint: it.behind ? it.behind + ' commits behind main' : 'up to date', run: 'Branch updated · ' + (it.behind || 0) + ' commits from main.' }),
+        I('labels', 'Labels…', { hint: labels.join(', ') || 'none', sep: true }),
+        I('close', closed ? 'Reopen pull request' : 'Close pull request', { danger: !closed, confirmText: closed ? '' : 'Close ' + ref + ' without merging?', confirmLabel: 'Close', run: closed ? 'Reopened.' : 'Closed.' }),
+        I('gh', 'Open on GitHub', { sep: true, run: 'Opened in a new tab.' })
+      ].filter(Boolean);
+      primary = draft ? items.find((x) => x.id === 'ready') : !items[0].off ? items[0] : it.behind ? items.find((x) => x.id === 'update') : items.find((x) => x.id === 'labels');
+    } else if (kind === 'issue') {
+      items = closed ? [I('reopen', 'Reopen issue', { run: 'Reopened.' }), I('labels', 'Labels…', { hint: labels.join(', ') || 'none', sep: true }), I('gh', 'Open on GitHub', { sep: true, run: 'Opened in a new tab.' })]
+        : [I('done', 'Close as completed', { confirmText: 'Close ' + ref + ' as completed?', confirmLabel: 'Close issue', run: 'Closed as completed.' }), I('np', 'Close as not planned', { confirmText: 'Close ' + ref + ' as not planned?', confirmLabel: 'Close issue', run: 'Closed as not planned.' }),
+          I('labels', 'Labels…', { hint: labels.join(', ') || 'none', sep: true }), I('assign', 'Assign to me', { hint: 'now: ' + (it.assignee || 'unassigned'), run: 'Assigned to ' + H.user + '.' }), I('gh', 'Open on GitHub', { sep: true, run: 'Opened in a new tab.' })];
+      primary = closed ? items[0] : (!it.assignee || it.assignee === 'unassigned') ? items.find((x) => x.id === 'assign') : Object.assign({}, items[0], { label: 'Close issue…' });
+    } else if (kind === 'run') {
+      const running = it.state === 'RUNNING';
+      items = [I('rerunf', 'Re-run failed jobs', { off: running || it.state === 'PASSED', run: 'Re-run started · ' + ref.replace(/#(\d+)/, (m, n) => '#' + (Number(n) + 1)) }), I('rerun', 'Re-run all jobs', { off: running, run: 'Re-run started.' }),
+        I('cancel', 'Cancel run', { off: !running, hint: running ? '' : 'already finished', danger: true, confirmText: 'Cancel ' + ref + '?', confirmLabel: 'Cancel run', run: 'Cancelled.' }), I('log', 'Download full log', { sep: true, run: 'Log downloaded.' }), I('gh', 'Open on GitHub', { run: 'Opened in a new tab.' })];
+      primary = running ? items[2] : items[0];
+    } else {
+      items = [I('new', 'New issue…', { hint: 'a plain issue, written by you' }), I('wf', 'Run workflow…', { hint: 'start a workflow by hand' })];
+      primary = items[0];
+    }
+    const act = (x) => () => {
+      if (x.off) return;
+      if (x.id === 'labels') return set({ show: 'labels' });
+      if (x.id === 'new') return set({ show: 'new-issue' });
+      if (x.id === 'wf') return set({ show: 'run-workflow' });
+      if (x.confirmText && S.confirm !== x.id) return set({ show: 'menu', confirm: x.id });
+      const closing = ['close', 'done', 'np'].indexOf(x.id) >= 0, reopening = x.id === 'reopen' || (x.id === 'close' && closed);
+      set({ closed: closing ? true : reopening ? false : S.closed });
+      done(x.run);
+    };
+    const pr = Object.assign({}, primary, { go: () => { if (primary.confirmText || primary.id === 'done') set({ show: 'menu', confirm: primary.id }); else act(primary)(); } });
+    const wfRepo = S.wfRepo || P.repo || 'image-builder';
+    const wfs = H.workflows[wfRepo] || [];
+    const wf = wfs.find((w) => w[0] === S.wf) || wfs[0];
+    return {
+      user: H.user, ref, primary: pr, expanded: S.show === 'menu' ? 'true' : 'false', chev: S.show === 'menu' ? 'M2.5 8l3.5-4 3.5 4' : 'M2.5 4.5l3.5 4 3.5-4',
+      toggle: () => set({ show: S.show ? null : 'menu', confirm: null }), closeAll: () => set({ show: null, confirm: null }), cancelConfirm: () => set({ confirm: null }),
+      hasStatus: !!S.status, status: S.status,
+      isOpen: S.show === 'menu', isLabels: S.show === 'labels', isNewIssue: S.show === 'new-issue', isRunWf: S.show === 'run-workflow',
+      items: items.map((x) => ({ ...x, hasHint: !!x.hint, go: act(x), confirming: S.confirm === x.id, confirm: () => { set({ confirm: null }); const closing = ['close', 'done', 'np'].indexOf(x.id) >= 0; set({ closed: closing ? !closed : S.closed }); done(x.run); },
+        style: 'display: flex; flex-direction: column; align-items: flex-start; gap: 0; width: 100%; min-height: 44px; padding: 6px 10px; border: 0; border-radius: 8px; background: #ffffff; font: inherit; font-size: 14.5px; text-align: left; cursor: ' + (x.off ? 'default' : 'pointer') + '; color: ' + (x.off ? '#4a4a4a' : x.danger ? '#b4380a' : '#111111') })),
+      labelOpts: H.labelSet.map((name) => { const on = labels.indexOf(name) >= 0; return { name, pressed: on ? 'true' : 'false', style: chip(on), toggle: () => set({ labels: on ? labels.filter((l) => l !== name) : labels.concat([name]) }) }; }),
+      saveLabels: () => done('Labels saved: ' + (labels.join(', ') || 'none') + '.'),
+      niRepo: S.niRepo || P.repo || 'epd', pickRepo: (v) => set({ niRepo: v }), niTitle: S.niTitle, onTitle: (ev) => set({ niTitle: ev.target.value }), niDisabled: !S.niTitle.trim(),
+      niLabels: H.labelSet.slice(0, 8).map((name) => { const on = S.ni.indexOf(name) >= 0; return { name, pressed: on ? 'true' : 'false', style: chip(on), toggle: () => set({ ni: on ? S.ni.filter((l) => l !== name) : S.ni.concat([name]) }) }; }),
+      createIssue: () => { if (S.niTitle.trim()) done('Created ' + (S.niRepo || P.repo || 'epd') + '#15.'); },
+      toLaunch: () => { set({ show: null }); if (P.onLaunch) P.onLaunch('issue'); },
+      wfRepo, pickWfRepo: (v) => set({ wfRepo: v, wf: null }), hasWfs: wfs.length > 0, noWfs: wfs.length === 0,
+      wfOpts: wfs.map((w) => ({ id: w[0], name: w[1], sel: wf && w[0] === wf[0] })), pickWf: (ev) => set({ wf: ev.target.value }),
+      wfInputs: (wf ? wf[2] : []).filter((x) => x !== 'ref').map((x) => { const [name, rest] = x.split(': '); const choices = (rest || '').split('|'); return { name, def: rest || '', isChoice: choices.length > 1, isBool: rest === 'false' || rest === 'true', isText: choices.length < 2 && rest !== 'false' && rest !== 'true', opts: choices.map((v) => ({ v })) }; }),
+      runWf: () => { if (wf) done('Started ' + wf[0] + ' on main · see Runs.'); }
+    };
+  }
+}
+</script>
+</body>
+</html>

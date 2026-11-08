@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Persona badge</title>
+<script src="./support.js"></script>
+<script src="data/fixtures.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Kalam&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<span style="display: inline-flex; align-items: center; gap: 8px; min-width: 0; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #111111">
+  <span aria-hidden="true" style="{{disc}}">
+    <sc-if value="{{isSteward}}" hint-placeholder-val="{{false}}"><span style="font-family: Kalam, cursive; font-size: {{kalam}}; line-height: 1; color: #2747b8">S</span></sc-if>
+    <sc-if value="{{hasIcon}}" hint-placeholder-val="{{true}}"><svg width="{{px}}" height="{{px}}" viewBox="0 0 24 24" fill="none" stroke="#111111" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="{{icon}}"></path></svg></sc-if>
+  </span>
+  <sc-if value="{{showName}}" hint-placeholder-val="{{true}}">
+    <span style="display: flex; flex-direction: column; min-width: 0; line-height: 1.25">
+      <span style="font-size: {{nameSize}}; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{name}}</span>
+      <sc-if value="{{showRole}}" hint-placeholder-val="{{true}}"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: 0.08em; color: #4a4a4a">{{role}}</span></sc-if>
+    </span>
+  </sc-if>
+  <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">{{sr}}</span>
+</span>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"persona":{"editor":"enum","options":["Steward","Engineer","Kernel engineer","CI fixer","Code reviewer","CI investigator","Security auditor","Architect","Docs writer","Issue writer","Researcher","Archivist","Triage","Release steward","Shell"],"default":"Kernel engineer"},"size":{"editor":"enum","options":["s","m","l"],"default":"m"},"showName":{"editor":"boolean","default":false},"showRole":{"editor":"boolean","default":true},"$preview":{"width":260,"height":56}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const H = window.HUB, P = this.props;
+    const name = P.persona || 'Kernel engineer';
+    const pe = H.personas[name] || H.personas.Engineer;
+    const fam = H.families[pe.family];
+    const D = { s: [26, 14, '15px'], m: [34, 18, '19px'], l: [44, 22, '24px'] }[P.size || 'm'];
+    const steward = pe.family === 'steward';
+    return {
+      name, role: fam.label.toUpperCase(), icon: pe.icon, hasIcon: !!pe.icon, isSteward: steward, kalam: D[2], px: String(D[1]),
+      showName: !!P.showName, showRole: P.showRole !== false, nameSize: P.size === 's' ? '13px' : '14.5px', sr: P.showName ? '' : name + ', ' + fam.label,
+      disc: 'display: flex; align-items: center; justify-content: center; flex: none; width: ' + D[0] + 'px; height: ' + D[0] + 'px; border-radius: 999px; box-sizing: border-box; background: ' + fam.tint + '; border: 1.5px ' + (steward ? 'solid #2747b8' : pe.family === 'shell' ? 'dashed #111111' : 'solid #111111')
+    };
+  }
+}
+</script>
+</body>
+</html>

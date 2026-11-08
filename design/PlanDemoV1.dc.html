@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Roadmap with the Steward's planner open</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Kalam&amp;display=swap">
+<style>body{margin:0;background:#ffffff}</style>
+</helmet>
+<div style="position: relative; min-height: 1400px; background: #ffffff; overflow: hidden">
+  <dc-import name="DockV1" hint-size="100%,1400px"></dc-import>
+  <sc-if value="{{open}}" hint-placeholder-val="{{true}}">
+    <dc-import name="NewWorkV1" layer="absolute" template="sec" repo="hub" context="Steward · 0.4 planning" by="steward" note="Before LAN mode (hub#74) lands, hub should get a full security audit — the last one predates the tool server." notes="Assume LAN clients can reach the dashboard. Focus on token handling, TLS setup and the tool server." describe="" on-close="{{close}}" hint-size="0px,0px"></dc-import>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1400}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { open: true }; }
+  renderVals() { return { open: this.state.open, close: () => this.setState({ open: false }) }; }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Implement two issues in one session</title>
+<script src="./support.js"></script>
+<script src="data/fixtures.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Kalam&amp;display=swap">
+<style>body{margin:0;background:#ffffff}</style>
+</helmet>
+<div style="padding: 32px; display: flex; flex-direction: column; gap: 36px; max-width: 1184px; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15px; line-height: 1.5; color: #111111">
+  <header style="display: flex; flex-direction: column; gap: 6px">
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.08em">FLOW · ONE LAUNCH COMPONENT, FOUR STAGES</span>
+    <h1 style="margin: 0; font-size: 28px; font-weight: 600">Implement two issues in one session</h1>
+    <p style="margin: 0; max-width: 80ch; font-size: 15.5px">The Steward’s suggestion card (i3) opens Launch with the brief already filled: epd#9 and epd#11 as pills in Covers (add more by searching), its notes in the notes box. The same modal opens from the Implement button on either issue. Every board below is the real Launch component in <code>layer="inline"</code>, pinned to one stage.</p>
+  </header>
+  <section style="display: flex; flex-direction: column; gap: 10px; background: transparent">
+    <div style="display: flex; align-items: baseline; gap: 12px"><span style="display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex: none; border: 1.5px solid #2747b8; border-radius: 999px; font-family: Kalam, cursive; font-size: 19px; color: #2747b8">1</span><h2 style="margin: 0; font-size: 19px; font-weight: 600">Brief</h2><span style="font-family: Kalam, cursive; font-size: 17px; color: #2747b8">what the Steward filled in</span></div>
+    <dc-import name="Launch" layer="inline" entry="suggested" action="implement" by="steward" covers="{{covers}}" why="Both are in epd/lut.c and share the error path. One session, one PR that closes both, is half the review." notes="Two commits, one per issue. Keep the version check in lut_parse_header()." stage="brief" hint-size="100%,820px"></dc-import>
+  </section>
+  <section style="display: flex; flex-direction: column; gap: 10px; background: transparent">
+    <div style="display: flex; align-items: baseline; gap: 12px"><span style="display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex: none; border: 1.5px solid #2747b8; border-radius: 999px; font-family: Kalam, cursive; font-size: 19px; color: #2747b8">2</span><h2 style="margin: 0; font-size: 19px; font-weight: 600">Plan</h2><span style="font-family: Kalam, cursive; font-size: 17px; color: #2747b8">review before anything runs</span></div>
+    <dc-import name="Launch" layer="inline" entry="suggested" action="implement" by="steward" covers="{{covers}}" why="Both are in epd/lut.c and share the error path. One session, one PR that closes both, is half the review." notes="Two commits, one per issue. Keep the version check in lut_parse_header()." stage="plan" hint-size="100%,820px"></dc-import>
+  </section>
+  <section style="display: flex; flex-direction: column; gap: 10px; background: transparent">
+    <div style="display: flex; align-items: baseline; gap: 12px"><span style="display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex: none; border: 1.5px solid #2747b8; border-radius: 999px; font-family: Kalam, cursive; font-size: 19px; color: #2747b8">3</span><h2 style="margin: 0; font-size: 19px; font-weight: 600">Run</h2><span style="font-family: Kalam, cursive; font-size: 17px; color: #2747b8">the real session, embedded; it asks one question</span></div>
+    <dc-import name="Launch" layer="inline" entry="suggested" action="implement" by="steward" covers="{{covers}}" why="Both are in epd/lut.c and share the error path. One session, one PR that closes both, is half the review." notes="Two commits, one per issue. Keep the version check in lut_parse_header()." stage="run" hint-size="100%,820px"></dc-import>
+  </section>
+  <section style="display: flex; flex-direction: column; gap: 10px; background: transparent">
+    <div style="display: flex; align-items: baseline; gap: 12px"><span style="display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex: none; border: 1.5px solid #2747b8; border-radius: 999px; font-family: Kalam, cursive; font-size: 19px; color: #2747b8">4</span><h2 style="margin: 0; font-size: 19px; font-weight: 600">Result</h2><span style="font-family: Kalam, cursive; font-size: 17px; color: #2747b8">a draft PR that closes both</span></div>
+    <dc-import name="Launch" layer="inline" entry="suggested" action="implement" by="steward" covers="{{covers}}" why="Both are in epd/lut.c and share the error path. One session, one PR that closes both, is half the review." notes="Two commits, one per issue. Keep the version check in lut_parse_header()." stage="result" hint-size="100%,820px"></dc-import>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1248,"height":3700}}'>
+class Component extends DCLogic { renderVals() { return { covers: ['epd#9', 'epd#11'] }; } }
+</script>
+</body>
+</html>

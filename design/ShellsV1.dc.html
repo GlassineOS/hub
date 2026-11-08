@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sessions</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Kalam&amp;display=swap">
+<style>
+body{margin:0;background:#ffffff}
+a{color:#2747b8}a:hover{color:#111111}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #2747b8;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #ffffff; color: #111111; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15px; line-height: 1.5">
+
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 28px; padding: 12px 32px; border-bottom: 1.5px solid #111111; background: #ffffff">
+  <a href="MainV1.dc.html" style="display: flex; align-items: center; gap: 12px; text-decoration: none; color: #111111; min-height: 44px">
+    <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="3" width="18" height="22" rx="2" fill="none" stroke="#111111" stroke-width="1.5"></rect><rect x="11" y="7" width="18" height="22" rx="2" fill="#ffd86b" stroke="#2747b8" stroke-width="1.5"></rect></svg>
+    <span style="display: flex; flex-direction: column; line-height: 1.2">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">GLASSINEOS HUB</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #4a4a4a">GlassineOS/hub</span>
+    </span>
+  </a>
+  <nav aria-label="Primary" style="display: flex; flex-wrap: wrap; gap: 4px">
+    <a href="MainV1.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 12px; color: #111111; text-decoration: none">Overview</a>
+    <a href="RoadmapV1.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 12px; color: #111111; text-decoration: none">Roadmap</a>
+    <a href="WorkV1.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 12px; color: #111111; text-decoration: none">Work</a>
+    <a href="DocsV1.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 12px; color: #111111; text-decoration: none">Docs</a>
+    <a href="ShellsV1.dc.html" aria-current="page" aria-label="Sessions, 4 waiting for you" style="display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 12px; background: #ffd86b; color: #111111; text-decoration: none; font-weight: 600">Sessions <span aria-hidden="true" style="min-width: 22px; height: 22px; padding: 0 6px; box-sizing: border-box; border: 1.5px solid #111111; border-radius: 999px; background: #ffd86b; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; line-height: 19px; text-align: center">4</span></a>
+  </nav>
+  <div style="flex: 1 1 280px; display: flex; justify-content: flex-end; align-items: center; gap: 12px">
+    <button type="button" style="min-height: 44px; padding: 0 14px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; font-weight: 600; box-shadow: 0 3px 0 #b4b4b4; cursor: pointer">Plain shell</button>
+    <a href="LaunchV1.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 16px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; text-decoration: none; font-weight: 600; box-shadow: 0 3px 0 #b4b4b4">Advanced session…</a>
+  </div>
+</header>
+
+<main style="max-width: 1400px; margin: 0 auto; padding: 28px 32px; box-sizing: border-box; display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start">
+
+  <nav aria-labelledby="h-sessions" style="flex: 1 1 250px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+    <h1 id="h-sessions" style="margin: 0; font-size: 27px; line-height: 1.2; font-weight: 600">Sessions</h1>
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: #4a4a4a; border-bottom: 1px dotted #111111; padding-bottom: 8px">tmux -L glassine-hub</span>
+    <a href="InboxV1.dc.html" style="display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 14px; border: 1.5px solid #111111; border-radius: 12px; background: #ffd86b; color: #111111; text-decoration: none; font-weight: 600; box-shadow: 0 3px 0 #b4b4b4"><span style="flex: 1">Needs you</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; padding: 0 7px; border: 1.5px solid #111111; border-radius: 999px; background: #ffffff">4</span><span aria-hidden="true">→</span></a>
+    <sc-for list="{{groups}}" as="g" hint-placeholder-count="2">
+      <h2 style="margin: 8px 0 0; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">{{g.name}}</h2>
+      <sc-for list="{{g.items}}" as="s" hint-placeholder-count="3">
+        <button type="button" aria-pressed="{{s.pressed}}" onClick="{{s.pick}}" style="{{s.style}}">
+          <span style="display: flex; justify-content: space-between; gap: 8px; width: 100%">
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; font-weight: 600">{{s.name}}</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.08em; padding: 0 6px; border: 1.5px solid #111111; border-radius: 6px; background: {{s.badgeBg}}">{{s.state}}</span>
+          </span>
+          <sc-if value="{{s.managed}}" hint-placeholder-val="{{true}}">
+            <span style="display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 13px; align-items: center">
+              <span style="font-weight: 600">{{s.persona}}</span>
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4a4a4a">{{s.modelShort}}</span>
+            </span>
+          </sc-if>
+          <span style="font-size: 13px; color: #4a4a4a; text-align: left; line-height: 1.4">{{s.topic}}</span>
+          <sc-if value="{{s.hasOrigin}}" hint-placeholder-val="{{true}}">
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; text-align: left">{{s.origin}}</span>
+          </sc-if>
+        </button>
+      </sc-for>
+    </sc-for>
+  </nav>
+
+  <section aria-labelledby="h-term" style="flex: 999 1 520px; min-width: 0; display: flex; flex-direction: column; border: 1.5px solid #111111; border-radius: 16px; overflow: hidden; box-shadow: 0 3px 0 #b4b4b4">
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 8px 16px; border-bottom: 1.5px solid #111111; background: #f2f2f2">
+      <h2 id="h-term" style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 15px; font-weight: 600">{{cur.name}}</h2>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #4a4a4a; flex: 1 1 200px; overflow-wrap: anywhere">{{cur.cwd}}</span>
+      <button type="button" style="min-height: 44px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; font-size: 14px; cursor: pointer">Detach</button>
+      <button type="button" style="min-height: 44px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; font-size: 14px; cursor: pointer">End…</button>
+    </div>
+    <sc-if value="{{cur.waiting}}" hint-placeholder-val="{{false}}">
+      <div role="status" style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 16px; border-bottom: 1.5px solid #111111; background: #ffd86b">
+        <svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2l6.5 12h-13z" fill="none" stroke="#111111" stroke-width="1.5" stroke-linejoin="round"></path><path d="M8 6.5v3.5M8 11.6v.4" stroke="#111111" stroke-width="1.5"></path></svg>
+        <span style="flex: 1 1 260px; font-weight: 500">Waiting for you — answer in the terminal below.</span>
+        <button type="button" style="min-height: 44px; padding: 0 14px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; font-weight: 600; cursor: pointer">Jump to prompt</button>
+      </div>
+    </sc-if>
+    <div role="log" aria-label="Terminal" style="background: #121212; color: #eeeeee; font-family: 'IBM Plex Mono', monospace; font-size: 14px; line-height: 1.75; padding: 16px 20px; min-height: 520px; overflow-x: auto; display: flex; flex-direction: column">
+      <sc-for list="{{cur.lines}}" as="l" hint-placeholder-count="10">
+        <span style="{{l.style}}">{{l.text}}</span>
+      </sc-for>
+      <span style="white-space: pre"><span style="color: #9db2ff">{{cur.prompt}}</span> <span style="display: inline-block; width: 9px; height: 18px; background: #eeeeee; vertical-align: text-bottom"></span></span>
+    </div>
+  </section>
+
+  <aside aria-labelledby="h-man" style="flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 16px; padding: 20px; background: #f2f2f2; border-radius: 16px">
+    <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px">
+      <h2 id="h-man" style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">{{cur.manTitle}}</h2>
+      <sc-if value="{{cur.managed}}" hint-placeholder-val="{{true}}"><a href="LaunchV1.dc.html" style="font-size: 14px; font-weight: 500">Clone setup</a></sc-if>
+    </div>
+
+    <sc-if value="{{cur.managed}}" hint-placeholder-val="{{true}}">
+      <div style="display: flex; flex-direction: column; gap: 16px">
+        <div style="display: flex; gap: 12px; align-items: center; padding: 12px 14px; background: #ffffff; border: 1.5px solid #111111; border-radius: 12px">
+          <span aria-hidden="true" style="display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border: 1.5px solid #2747b8; border-radius: 999px; font-family: Kalam, cursive; font-size: 21px; color: #2747b8; flex: none">{{cur.initial}}</span>
+          <span style="display: flex; flex-direction: column; min-width: 0">
+            <span style="font-weight: 600">{{cur.persona}}</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: #4a4a4a; overflow-wrap: anywhere">{{cur.model}} · {{cur.mode}}</span>
+          </span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <h3 style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">PROMPT BUILDER</h3>
+          <span style="font-size: 14px">{{cur.topic}}</span>
+          <span style="font-size: 13px; color: #4a4a4a">{{cur.context}}</span>
+          <button type="button" aria-expanded="{{cur.promptOpen}}" onClick="{{togglePrompt}}" style="align-self: flex-start; min-height: 36px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff; color: #111111; font: inherit; font-size: 13.5px; cursor: pointer">{{cur.promptBtn}}</button>
+          <sc-if value="{{cur.showPrompt}}" hint-placeholder-val="{{false}}">
+            <pre style="margin: 0; padding: 10px 12px; background: #ffffff; border: 1px solid #d0d0d0; border-radius: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; line-height: 1.55; white-space: pre-wrap">{{cur.promptText}}</pre>
+          </sc-if>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <h3 style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">SKILLS</h3>
+          <div style="display: flex; flex-wrap: wrap; gap: 6px">
+            <sc-for list="{{cur.skills}}" as="k" hint-placeholder-count="3">
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; padding: 2px 8px; border: 1.5px solid #111111; border-radius: 6px; background: #ffffff">{{k.n}}</span>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 4px">
+          <h3 style="margin: 0 0 2px; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">HUB TOOLS · {{cur.toolCount}}</h3>
+          <sc-for list="{{cur.tools}}" as="t" hint-placeholder-count="3">
+            <div style="display: flex; align-items: center; gap: 10px; min-height: 30px; border-bottom: 1px solid #d0d0d0">
+              <span style="flex: 1; font-size: 14px">{{t.group}}</span>
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.08em; padding: 0 6px; border: 1.5px solid #111111; border-radius: 6px; background: {{t.bg}}">{{t.mode}}</span>
+            </div>
+          </sc-for>
+          <span style="font-size: 12.5px; color: #4a4a4a; margin-top: 4px">Enforced by the session token’s scope in hubd, not only by Claude’s settings.</span>
+        </div>
+
+        <dl style="margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 14px; font-size: 14px; border-top: 1px dotted #111111; padding-top: 12px">
+          <sc-for list="{{cur.ctx}}" as="f" hint-placeholder-count="3">
+            <dt style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; letter-spacing: 0.08em; color: #4a4a4a; padding-top: 2px">{{f.k}}</dt>
+            <dd style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 13px; overflow-wrap: anywhere">{{f.v}}</dd>
+          </sc-for>
+        </dl>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{cur.plain}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; flex-direction: column; gap: 12px">
+        <p style="margin: 0; font-size: 14.5px">A plain tmux shell as your user. No persona, no prompt; the hub tool-server URL and a token are in its environment so a <span style="font-family: 'IBM Plex Mono', monospace">claude</span> you start here can still use hub.</p>
+        <dl style="margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 14px; font-size: 14px">
+          <sc-for list="{{cur.ctx}}" as="f" hint-placeholder-count="3">
+            <dt style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; letter-spacing: 0.08em; color: #4a4a4a; padding-top: 2px">{{f.k}}</dt>
+            <dd style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 13px; overflow-wrap: anywhere">{{f.v}}</dd>
+          </sc-for>
+        </dl>
+      </div>
+    </sc-if>
+  </aside>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1120}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { sel: 'audit-hubd', open: false }; }
+  renderVals() {
+    const { sel, open } = this.state;
+    const L = (kind, text) => ({ text, style: 'white-space: pre-wrap; ' + (kind === 'tool' ? 'color: #9db2ff' : kind === 'skill' ? 'color: #eeeeee; font-style: italic' : kind === 'dim' ? 'color: #bbbbbb; font-style: italic' : kind === 'ask' ? 'color: #121212; background: #ffd86b; padding: 0 6px; align-self: flex-start' : kind === 'find' ? 'color: #121212; background: #ffd9b8; padding: 0 6px; align-self: flex-start' : kind === 'cmd' ? 'font-weight: 600' : 'color: #eeeeee') });
+    const T = (group, mode) => ({ group, mode: mode.toUpperCase(), bg: mode === 'allow' ? '#ffffff' : mode === 'ask' ? '#ffd86b' : '#e2e2e2' });
+    const S = {
+      'audit-hubd': { managed: true, state: 'RUNNING', persona: 'Security auditor', model: 'claude-fable-5-1', modelShort: 'Fable', mode: 'plan · read-only',
+        topic: 'Security audit · hubd gh proxy and session tokens', context: '4 docs passages and 2 decision records from semantic search', cwd: '~/hub-worktrees/hub/audit-hubd',
+        skills: ['threat-model', 'audit-report', 'hub-repo-map'],
+        tools: [T('Read: issues, PRs, runs, docs search', 'allow'), T('Draft issues (label security)', 'ask'), T('Comment, labels', 'off'), T('Merge, close, dispatch', 'off')], toolCount: '11 of 27',
+        ctx: { WORKTREE: 'detached at 9b1e2aa', OUTPUT: 'reports/audit-2026-11-01.md', TOKEN: 'scoped · expires 18:00' },
+        promptText: 'Audit hubd as an attacker on the loopback interface.\nScope: hubd/, app/hub/github.py, deploy/.\nFocus: gh argv allowlist, GraphQL document loading, session token issue/verify, Unix socket permissions.\nContext (from docs search):\n- decisions/0003-rights-vs-interface.md\n- hub/security/gh-proxy.md#refusals\n- hub/security/tokens.md\n- …\nWrite findings to reports/ with severity and a way back. Do not change code.',
+        lines: [L('dim', '# managed by hub · persona Security auditor · skills loaded'), L('skill', '◆ skill threat-model: assets, entry points, trust boundaries'), L('tool', '● hub.docs_search("gh proxy refusal rules") → 4 passages'), L('out', '● Read hubd/proxy/argv.py (212 lines)'), L('out', '● Read hubd/graphql/__init__.py'), L('tool', '● hub.list_issues(repo=hub, label=security) → 2 open'), L('find', 'Finding M-1 · argv check matches flags by prefix; verify "--hostname" cannot be smuggled via "-h"'), L('out', '● Checking how tokens are compared in hubd/auth.py …')] },
+      'docs-edl': { managed: true, state: 'WAITING', persona: 'Docs writer', model: 'claude-opus-5-5', modelShort: 'Opus', mode: 'accept edits',
+        topic: 'Docs page from issue · hub#47 EDL recovery', context: 'Issue body, 6 passages from docs search, Interleaf content rules', cwd: '~/hub-worktrees/docs/agent-docs-edl',
+        skills: ['interleaf-voice', 'verified-stamp', 'mkdocs-check'],
+        tools: [T('Read: issues, PRs, runs, docs search', 'allow'), T('Comment, labels', 'allow'), T('Open PR from own branch', 'ask'), T('Merge, close, dispatch', 'off')], toolCount: '16 of 27',
+        ctx: { BRANCH: 'agent/docs-edl', COVERS: 'hub#47, docs#91', TOKEN: 'scoped · expires 18:00' },
+        promptText: 'Write the EDL recovery guide for hub#47 in docs/guides/recovery/edl.md.\nFollow the Interleaf content rules: facts in present tense, a verification date on every hardware fact, every warning names the way back.\nContext (from docs search): boot-chain.md#abl, backup.md, dead-ends.md#fastboot, partitions.md …',
+        lines: [L('dim', '# managed by hub · persona Docs writer'), L('tool', '● hub.get_issue(hub#47)'), L('tool', '● hub.docs_search("enter EDL mode Note Air") → 6 passages'), L('skill', '◆ skill verified-stamp: offsets marked from source, untested'), L('out', '● mkdocs build --strict passed'), L('ask', 'Push agent/docs-edl and open a draft PR?'), L('out', '  1. Yes   2. No, tell Claude what to do differently')], waiting: true },
+      'impl-epd-9-11': { managed: true, state: 'RUNNING', persona: 'Kernel engineer', model: 'claude-opus-5-5', modelShort: 'Opus', mode: 'default · asks before edits',
+        topic: 'Implement epd#9, also covering epd#11', context: 'Both issue threads, the Steward’s notes', cwd: '~/hub-worktrees/epd/agent-impl-epd-9-11',
+        skills: ['checkpatch', 'hub-repo-map'],
+        tools: [T('Read: issues, PRs, runs, docs search', 'allow'), T('Comment on covered issues', 'allow'), T('Open PR from own branch', 'ask'), T('Merge, close', 'off')], toolCount: '17 of 27',
+        ctx: { COVERS: 'epd#9 (primary), epd#11', 'PR WILL SAY': 'Closes #9 · Closes #11', BRANCH: 'agent/impl-epd-9-11', TOKEN: 'scoped · expires 21:00' },
+        promptText: 'Implement epd#9 and epd#11 on agent/impl-epd-9-11. Do epd#9 first; epd#11 touches the same error path, so give it its own commit. Open one PR whose body says Closes #9 and Closes #11.',
+        lines: [L('dim', '# hub started impl-epd-9-11 · covers epd#9, epd#11'), L('tool', '● hub.get_issue(epd#9) · hub.get_issue(epd#11)'), L('out', '● Edit epd_lut.c — reject version 0 (epd#9)'), L('out', '● Commit 1/2: “epd: reject LUT version 0” · refs #9'), L('dim', '  next: release the firmware buffer on error (epd#11)')] },
+      'kernel-lut': { managed: true, state: 'RUNNING', persona: 'Kernel engineer', model: 'claude-opus-5-5', modelShort: 'Opus', mode: 'default · asks before edits',
+        topic: 'Implement kernel#204 · LUT loader', context: 'Issue thread, driver notes from docs search', cwd: '~/hub-worktrees/kernel/agent-kernel-lut',
+        skills: ['checkpatch', 'dt-bindings', 'hub-repo-map'],
+        tools: [T('Read: issues, PRs, runs, docs search', 'allow'), T('Comment, labels', 'allow'), T('Rerun checks, update branch', 'ask'), T('Merge, close', 'off')], toolCount: '18 of 27',
+        ctx: { BRANCH: 'agent/kernel-lut', COVERS: 'kernel#204', TOKEN: 'scoped · expires 18:00' },
+        promptText: 'Implement kernel#204 on agent/kernel-lut. Keep commits checkpatch-clean and signed off. Report progress as comments on kernel#204.',
+        lines: [L('tool', '● hub.get_pr_checks(kernel#212) → boot-test · qemu running'), L('dim', '  waiting for checks…')] },
+      'maintainer': { plain: true, state: 'ATTACHED', topic: 'zsh · ~/src/glassine/hub', cwd: '~/src/glassine/hub', prompt: 'maintainer@host hub $',
+        ctx: { SHELL: 'zsh', HUB_URL: 'http://127.0.0.1:9095', TOKEN: 'in $HUB_TOKEN' },
+        lines: [L('cmd', '$ python -m pytest -q'), L('out', '133 passed, 2 skipped')] }
+    };
+    S['investigate-1184'] = { managed: true, state: 'RUNNING', persona: 'CI investigator', model: 'claude-opus-5-5', modelShort: 'Opus', mode: 'default',
+      topic: 'Investigate failure · build-image #1184', context: '3 passages from docs search, failed log', cwd: '~/hub-worktrees/image-builder/agent-investigate-1184',
+      skills: ['hub-repo-map'], tools: [T('Read: issues, PRs, runs, docs search', 'allow'), T('Rerun, open PR', 'ask'), T('Merge, close, dispatch', 'off')], toolCount: '15 of 27',
+      ctx: { BRANCH: 'agent/investigate-1184', TOKEN: 'scoped · expires 18:00' },
+      promptText: 'Find why build-image #1184 failed. The failed log is attached. Propose the smallest fix as a draft PR. The attached docs passages are your reference; cite them by path.',
+      lines: [L('tool', '● hub.get_run_log(build-image #1184, failed=true)'), L('tool', '● hub.docs_search("aarch64 rootfs debootstrap binfmt") → 10 passages'), L('out', '● binfmt_misc has no qemu-aarch64 entry'), L('out', '● Opened image-builder#40')] };
+    const FROM = { 'impl-epd-9-11': ['Steward suggestion · epd#9 + epd#11', 'background'], 'docs-edl': ['Work · hub#47 → docs#88', 'embedded'], 'investigate-1184': ['Work · run build-image #1184', 'background'], 'kernel-lut': ['Roadmap · hub#44 → kernel#204', 'background'], 'audit-hubd': ['Overview · hub', 'background'] };
+    Object.keys(FROM).forEach((n) => { S[n].ctx = { 'SPAWNED FROM': FROM[n][0], VIEW: FROM[n][1] === 'embedded' ? 'embedded there now' : 'background', ...S[n].ctx }; });
+    const badge = (s) => s === 'WAITING' ? '#ffd86b' : s === 'ATTACHED' ? '#e2e2e2' : '#ffffff';
+    const item = (name) => { const s = S[name]; return { name, hasOrigin: !!FROM[name], origin: FROM[name] ? '↳ ' + FROM[name][0] + ' · ' + FROM[name][1] : '', state: s.state, badgeBg: badge(s.state), managed: !!s.managed, persona: s.persona, modelShort: s.modelShort, topic: s.topic, pressed: sel === name ? 'true' : 'false',
+      style: 'display: flex; flex-direction: column; align-items: flex-start; gap: 4px; width: 100%; padding: 12px 14px; border: 1.5px solid #111111; border-radius: 12px; font: inherit; color: #111111; cursor: pointer; box-sizing: border-box; background: ' + (sel === name ? '#ffd86b' : '#ffffff') + (sel === name ? '; box-shadow: 0 3px 0 #b4b4b4' : ''),
+      pick: () => this.setState({ sel: name, open: false }) }; };
+    const c = S[sel];
+    return {
+      groups: [
+        { name: 'MANAGED CLAUDE SESSIONS', items: ['audit-hubd', 'docs-edl', 'impl-epd-9-11', 'kernel-lut', 'investigate-1184'].map(item) },
+        { name: 'PLAIN SHELLS', items: ['maintainer'].map(item) }
+      ],
+      togglePrompt: () => this.setState({ open: !this.state.open }),
+      cur: { ...c, name: sel, managed: !!c.managed, plain: !!c.plain, waiting: !!c.waiting, prompt: c.prompt || '❯',
+        manTitle: c.managed ? 'SESSION MANIFEST' : 'PLAIN SHELL', initial: (c.persona || ' ')[0],
+        showPrompt: open, promptOpen: open ? 'true' : 'false', promptBtn: open ? 'Hide built prompt' : 'Show built prompt',
+        skills: (c.skills || []).map((n) => ({ n })), tools: c.tools || [], ctx: Object.keys(c.ctx).map((k) => ({ k, v: c.ctx[k] })) }
+    };
+  }
+}
+</script>
+</body>
+</html>

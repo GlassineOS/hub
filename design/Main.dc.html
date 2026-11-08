@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Overview</title>
+<script src="./support.js"></script>
+<script src="data/fixtures.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Kalam&amp;display=swap">
+<style>body{margin:0;background:#ffffff} a{color:#111111} a:focus-visible,button:focus-visible{outline:2px solid #2747b8;outline-offset:2px}</style>
+</helmet>
+<div style="position: relative; min-height: 100vh; display: flex; flex-direction: column; background: #ffffff; color: #111111; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15px; line-height: 1.5">
+  <dc-import style="position: static" name="Header" active="overview" inbox-open="{{inbox}}" layer="absolute" hint-size="100%,66px"></dc-import>
+  <div style="flex: 1; display: flex; align-items: stretch">
+    <main style="flex: 1; min-width: 0; padding: 20px 28px 48px; box-sizing: border-box; display: flex; flex-direction: column; gap: 22px">
+      <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch">
+        <a href="NeedsYou.dc.html" aria-label="Needs you: {{ny.n}} waiting, open the list" style="flex: 2 1 320px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding: 16px 20px; border: 1.5px solid #111111; border-radius: 16px; background: #ffd86b; color: #111111; text-decoration: none; box-shadow: 0 3px 0 #b4b4b4">
+          <span style="font-size: 52px; font-weight: 600; line-height: 1">{{ny.n}}</span>
+          <span style="flex: 1 1 180px; display: flex; flex-direction: column; gap: 2px">
+            <span style="font-size: 18px; font-weight: 600">Needs you</span>
+            <span style="font-size: 14px">{{ny.breakdown}}</span>
+            <span style="font-size: 13.5px">longest waiting: {{ny.oldest}}</span>
+          </span>
+          <span style="font-weight: 600; white-space: nowrap">Open →</span>
+        </a>
+        <div style="flex: 3 1 480px; display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 12px">
+          <sc-for list="{{stats}}" as="s" hint-placeholder-count="4">
+            <a href="{{s.href}}" style="display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border: 1px solid #d0d0d0; border-radius: 12px; text-decoration: none; background: #ffffff; color: #111111">
+              <span style="font-size: 13px; color: #4a4a4a">{{s.k}}</span>
+              <span style="font-size: 22px; font-weight: 600; line-height: 1.2">{{s.v}}</span>
+              <span style="font-size: 12.5px; color: #4a4a4a">{{s.sub}}</span>
+            </a>
+          </sc-for>
+        </div>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px">
+        <h2 style="margin: 0; font-size: 20px; font-weight: 600">Repositories <span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; font-weight: 400">{{repoCount}}</span></h2>
+        <label style="flex: 0 1 320px; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 12px">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#111111" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+          <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Filter repositories</span>
+          <input type="search" value="{{f}}" onChange="{{onF}}" placeholder="Filter by name or last commit" style="flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: #111111; font-family: 'IBM Plex Mono', monospace; font-size: 13.5px">
+        </label>
+        <button type="button" aria-pressed="{{attnPressed}}" onClick="{{toggleAttn}}" style="{{attnStyle}}">Needs attention only</button>
+        <span style="flex: 1"></span>
+        <button type="button" onClick="{{toggleAll}}" style="min-height: 40px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff; color: #111111; font: inherit; font-size: 14px; cursor: pointer">{{allLabel}}</button>
+      </div>
+      <sc-for list="{{layers}}" as="l" hint-placeholder-count="5">
+        <section aria-label="{{l.name}}" style="display: flex; flex-direction: column; border: 1px solid #d0d0d0; border-radius: 16px; overflow: hidden">
+          <button type="button" onClick="{{l.toggle}}" aria-expanded="{{l.expanded}}" style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; min-height: 48px; padding: 6px 16px; border: 0; border-bottom: {{l.headBorder}}; background: #ffffff; color: #111111; font: inherit; text-align: left; cursor: pointer">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#111111" stroke-width="1.8" aria-hidden="true"><path d="{{l.chev}}"></path></svg>
+            <span style="font-size: 15.5px; font-weight: 600">{{l.label}}</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">{{l.count}}</span>
+            <span style="flex: 1"></span>
+            <span style="font-size: 13px">{{l.summary}}</span>
+          </button>
+          <sc-if value="{{l.open}}" hint-placeholder-val="{{true}}">
+            <div role="table" aria-label="{{l.name}} repositories" style="display: flex; flex-direction: column">
+              <sc-for list="{{l.rows}}" as="r" hint-placeholder-count="4">
+                <div role="row" class="row-hover" style="{{r.rowStyle}}">
+                  <span role="cell" style="flex: 0 0 170px; min-width: 0; display: flex; flex-direction: column"><a href="Work.dc.html" style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; font-weight: 600">{{r.name}}</a><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: #4a4a4a">{{r.release}}</span></span>
+                  <span role="cell" style="flex: 0 0 120px; font-size: 13.5px"><span style="font-weight: 600">{{r.issues}}</span> issues · <span style="font-weight: 600">{{r.prs}}</span> PRs</span>
+                  <span role="cell" aria-label="{{r.runsAria}}" style="flex: 0 0 150px; display: flex; gap: 3px"><sc-for list="{{r.runs}}" as="x" hint-placeholder-count="10"><span style="{{x.s}}"></span></sc-for></span>
+                  <span role="cell" style="flex: 1 1 200px; min-width: 0; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4a4a4a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{r.commit}} · {{r.last}}</span>
+                  <span role="cell" style="flex: 0 1 auto; display: flex; flex-wrap: wrap; gap: 4px"><sc-for list="{{r.sess}}" as="ss" hint-placeholder-count="1"><dc-import name="SessionChip" sid="{{ss.id}}" hint-size="160px,30px"></dc-import></sc-for></span>
+                  <span role="cell"><button type="button" onClick="{{r.audit}}" aria-label="Launch on {{r.name}}" class="row-act" style="min-height: 36px; padding: 0 10px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff; color: #111111; font: inherit; font-size: 13px; cursor: pointer">Launch…</button></span>
+                </div>
+              </sc-for>
+              <sc-if value="{{l.hasMore}}" hint-placeholder-val="{{true}}"><button type="button" onClick="{{l.more}}" style="min-height: 44px; border: 0; background: #ffffff; color: #111111; font: inherit; font-size: 14px; text-decoration: underline; cursor: pointer">{{l.moreLabel}}</button></sc-if>
+            </div>
+          </sc-if>
+        </section>
+      </sc-for>
+      <sc-if value="{{noMatch}}" hint-placeholder-val="{{false}}"><p style="margin: 0; padding: 14px; border: 1.5px dashed #111111; border-radius: 12px">No repository matches “{{f}}”.</p></sc-if>
+      <p style="margin: 0; font-size: 13.5px; color: #4a4a4a">Unplaced: <span style="font-family: 'IBM Plex Mono', monospace">{{unplaced}}</span> — not in <span style="font-family: 'IBM Plex Mono', monospace">config/repos.toml</span> yet.</p>
+    </main>
+    <dc-import style="display: flex; flex: none; position: static" name="Steward" context="Overview" layer="absolute" hint-size="400px,100%"></dc-import>
+  </div>
+  <sc-if value="{{launching}}" hint-placeholder-val="{{false}}">
+    <dc-import style="position: static" name="Launch" layer="absolute" entry="new" action="sec" repo="{{L.repo}}" context="{{L.context}}" on-close="{{closeLaunch}}" hint-size="100%,900px"></dc-import>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"inbox":{"editor":"boolean","default":false},"$preview":{"width":1440,"height":2000}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { L: null, f: '', attn: false, closed: {}, full: {} }; }
+  renderVals() {
+    const H = window.HUB, T = H.totals;
+    const ses = Object.entries(H.sessions).filter(([, s]) => !s.plain);
+    const live = ses.filter(([, s]) => s.state !== 'DONE').length;
+    const RUN = { p: 'background: #111111; border: 1.5px solid #111111', f: 'background: #ffd9b8; border: 3px double #111111', r: 'background: #ffffff; border: 1.5px dashed #111111' };
+    const stats = [
+      { k: 'Sessions', v: String(live), sub: 'running or waiting', href: 'Sessions.dc.html', bg: '#ffffff' },
+      { k: 'Open issues', v: String(T.issues), sub: 'across ' + H.repos.length + ' repositories', href: 'Work.dc.html', bg: '#ffffff' },
+      { k: 'Open PRs', v: String(T.prs), sub: 'failing: ' + T.failing, href: 'Work.dc.html', bg: '#ffffff' },
+      { k: 'Knowledge', v: H.knowledge.domains[1].count, sub: 'work items indexed · docs ' + T.docsIndex, href: 'Knowledge.dc.html', bg: '#ffffff' }
+    ];
+    const S = this.state, fq = S.f.trim().toLowerCase();
+    const sessFor = (r) => ses.filter(([, s]) => s.state !== 'DONE' && (s.repo === r.name || (s.covers || []).concat(s.prs || []).some((c) => c.split('#')[0] === r.name || ((H.items[c] || {}).repo === r.name))));
+    const failing = (r) => r.runs.slice(-1) === 'f';
+    const rank = (r) => (failing(r) ? 4 : 0) + (sessFor(r).length ? 2 : 0) + (r.runs.indexOf('f') >= 0 ? 1 : 0);
+    const SHOW = 5;
+    const layers = H.layers.map((name) => {
+      const all = H.repos.filter((r) => r.layer === name);
+      const match = all.filter((r) => (!fq || (r.name + ' ' + r.commit).toLowerCase().indexOf(fq) >= 0) && (!S.attn || rank(r) > 0)).sort((a, b) => rank(b) - rank(a));
+      const full = S.full[name] || !!fq, open = !S.closed[name];
+      const nf = all.filter(failing).length, ns = all.filter((r) => sessFor(r).length).length;
+      const shown = full ? match : match.slice(0, SHOW);
+      return { name, label: name.charAt(0) + name.slice(1).toLowerCase(), count: (fq || S.attn ? match.length + ' of ' : '') + all.length, open, expanded: open ? 'true' : 'false', chev: open ? 'M2.5 4.5l3.5 4 3.5-4' : 'M4.5 2.5l4 3.5-4 3.5', headBorder: open ? '1px solid #d0d0d0' : '0',
+        summary: [nf ? nf + ' failing' : null, ns ? ns + ' with sessions' : null].filter(Boolean).join(' · ') || 'all green',
+        toggle: () => this.setState({ closed: { ...S.closed, [name]: open } }),
+        hasMore: match.length > shown.length, moreLabel: 'Show ' + (match.length - shown.length) + ' more in ' + name.toLowerCase(), more: () => this.setState({ full: { ...S.full, [name]: true } }),
+        _n: match.length,
+        rows: shown.map((r) => ({ name: r.name, release: r.release, issues: String(r.issues), prs: String(r.prs), commit: r.commit, last: r.last,
+          rowStyle: 'display: flex; cursor: default; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 8px 16px; border-bottom: 1px solid #d0d0d0; background: ' + (failing(r) ? '#ffe7d3' : '#ffffff'),
+          runs: r.runs.split('').map((c) => ({ s: 'width: 11px; height: 11px; border-radius: 3px; box-sizing: border-box; ' + RUN[c] })),
+          runsAria: 'Last ' + r.runs.length + ' runs: ' + (r.runs.match(/f/g) || []).length + ' failed',
+          sess: sessFor(r).map(([id, s]) => ({ id, style: 'font-family: \'IBM Plex Mono\', monospace; font-size: 11.5px; padding: 1px 8px; border: 1.5px ' + (s.state === 'RUNNING' ? 'dashed' : 'solid') + ' #111111; border-radius: 999px; text-decoration: none; background: ' + (s.state === 'WAITING' ? '#ffd86b' : '#ffffff') })),
+          audit: () => this.setState({ L: { repo: r.name, context: 'Overview · ' + r.name } }) })) };
+    }).filter((l) => l._n > 0 || (!fq && !S.attn));
+    const anyClosed = Object.values(S.closed).some(Boolean);
+    const I = H.interactions, cnt = (k) => I.filter((x) => k.indexOf(x.kind) >= 0).length;
+    const ny = { n: String(I.length), breakdown: [cnt(['permission', 'question']) + ' blocking a session', cnt(['suggestion']) + ' suggestions', cnt(['results']) + ' results ready'].join(' · '), oldest: (() => { const m = (w) => { const v = parseFloat(w); return /h/.test(w) ? v * 60 : /min/.test(w) ? v : v / 60; }; const o = I.slice().sort((a, b) => m(b.waited) - m(a.waited))[0]; return o ? o.title + ' · ' + o.waited : ''; })() };
+    return { ny, inbox: !!this.props.inbox, stats, layers, repoCount: String(H.repos.length), f: S.f, onF: (ev) => this.setState({ f: ev.target.value }), noMatch: layers.length === 0,
+      attnPressed: S.attn ? 'true' : 'false', toggleAttn: () => this.setState({ attn: !S.attn }), attnStyle: 'min-height: 40px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; font: inherit; font-size: 14px; cursor: pointer; ' + (S.attn ? 'background: #111111; color: #ffffff; font-weight: 600' : 'background: #ffffff; color: #111111'),
+      allLabel: anyClosed ? 'Expand all layers' : 'Collapse all layers', toggleAll: () => this.setState({ closed: anyClosed ? {} : Object.fromEntries(H.layers.map((l) => [l, true])) }), unplaced: H.unplaced.join(', '), launching: !!this.state.L, L: this.state.L || { repo: 'hub', context: '' }, closeLaunch: () => this.setState({ L: null }) };
+  }
+}
+</script>
+</body>
+</html>

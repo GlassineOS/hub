@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sessions: needs you</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Kalam&amp;display=swap">
+<style>
+body{margin:0;background:#ffffff}
+a{color:#2747b8}a:hover{color:#111111}
+a:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid #2747b8;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #ffffff; color: #111111; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15px; line-height: 1.5; display: flex; flex-direction: column">
+
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 28px; padding: 12px 32px; border-bottom: 1.5px solid #111111; background: #ffffff">
+  <a href="MainV1.dc.html" style="display: flex; align-items: center; gap: 12px; text-decoration: none; color: #111111; min-height: 44px">
+    <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="3" width="18" height="22" rx="2" fill="none" stroke="#111111" stroke-width="1.5"></rect><rect x="11" y="7" width="18" height="22" rx="2" fill="#ffd86b" stroke="#2747b8" stroke-width="1.5"></rect></svg>
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">GLASSINEOS HUB</span>
+  </a>
+  <nav aria-label="Primary" style="display: flex; flex-wrap: wrap; gap: 4px">
+    <a href="MainV1.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 12px; color: #111111; text-decoration: none">Overview</a>
+    <a href="DockV1.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 12px; color: #111111; text-decoration: none">Roadmap</a>
+    <a href="WorkV1.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 12px; color: #111111; text-decoration: none">Work</a>
+    <a href="DocsV1.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 12px; color: #111111; text-decoration: none">Docs</a>
+    <a href="InboxV1.dc.html" aria-current="page" aria-label="{{navLabel}}" style="display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 12px; background: #ffd86b; color: #111111; text-decoration: none; font-weight: 600">Sessions
+      <sc-if value="{{hasPending}}" hint-placeholder-val="{{true}}"><span aria-hidden="true" style="min-width: 22px; height: 22px; padding: 0 6px; box-sizing: border-box; border: 1.5px solid #111111; border-radius: 999px; background: #ffffff; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; line-height: 19px; text-align: center">{{pendingCount}}</span></sc-if>
+    </a>
+  </nav>
+</header>
+
+<div style="flex: 1; display: flex; align-items: stretch">
+<main style="flex: 1 1 auto; min-width: 0; padding: 24px 32px 40px; box-sizing: border-box; display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start">
+
+  <section aria-labelledby="h-inbox" style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 18px">
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px">
+      <div role="tablist" aria-label="Sessions" style="display: flex; gap: 4px; border-bottom: 1.5px solid #111111; flex: 1 1 auto">
+        <span role="tab" aria-selected="true" style="display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 16px; border-bottom: 3px solid #2747b8; margin-bottom: -1.5px; font-size: 16px; font-weight: 600"><span id="h-inbox">Needs you</span> <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; padding: 1px 7px; border: 1.5px solid #111111; border-radius: 999px; background: {{countBg}}">{{pendingCount}}</span></span>
+        <a href="ShellsV1.dc.html" role="tab" aria-selected="false" style="display: flex; align-items: center; min-height: 48px; padding: 0 16px; color: #111111; text-decoration: none; font-size: 16px">Running</a>
+        <a href="WorkspaceV1.dc.html" role="tab" aria-selected="false" style="display: flex; align-items: center; min-height: 48px; padding: 0 16px; color: #111111; text-decoration: none; font-size: 16px">History &amp; cleanup</a>
+      </div>
+      <div role="group" aria-label="Show" style="display: flex; flex-wrap: wrap; gap: 6px">
+        <sc-for list="{{filters}}" as="f" hint-placeholder-count="4">
+          <button type="button" aria-pressed="{{f.pressed}}" onClick="{{f.pick}}" style="{{f.style}}">{{f.label}}</button>
+        </sc-for>
+      </div>
+    </div>
+
+    <sc-if value="{{allClear}}" hint-placeholder-val="{{false}}">
+      <div role="status" style="display: flex; align-items: center; gap: 14px; padding: 18px 20px; border: 1.5px dashed #111111; border-radius: 16px">
+        <span style="font-family: Kalam, cursive; font-size: 24px; color: #2747b8">all clear</span>
+        <span style="font-size: 15px">Nothing is waiting on you. Sessions keep working; anything new shows up here and on the Sessions badge.</span>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{showSteward}}" hint-placeholder-val="{{true}}">
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; align-items: baseline; gap: 10px">
+          <h2 style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">FROM THE STEWARD</h2>
+          <span style="font-size: 13px; color: #4a4a4a">the same question is pinned in the Steward sidebar — answer either one</span>
+        </div>
+        <sc-for list="{{stewardItems}}" as="c" hint-placeholder-count="1">
+          <dc-import name="AskV1" item="{{c.item}}" status="{{c.status}}" on-resolve="{{onResolve}}" on-focus="{{onFocus}}" hint-size="100%,460px"></dc-import>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{showRuns}}" hint-placeholder-val="{{true}}">
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <h2 style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">SUGGESTED SESSIONS AND NEW WORK</h2>
+        <sc-if value="{{sessSuggest}}" hint-placeholder-val="{{true}}">
+          <article aria-label="Session suggested by the Steward" style="display: flex; flex-direction: column; background: #ffffff; border: 1.5px solid #111111; border-radius: 16px; overflow: hidden; box-shadow: 0 3px 0 #b4b4b4">
+            <div style="display: flex; align-items: center; gap: 12px; padding: 12px 18px; background: #f2f2f2; border-bottom: 1.5px solid #111111">
+              <span aria-hidden="true" style="display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; flex: none; border: 1.5px solid #2747b8; border-radius: 999px; background: #ffffff; font-family: Kalam, cursive; font-size: 21px; color: #2747b8">S</span>
+              <span style="display: flex; flex-direction: column; flex: 1; line-height: 1.3"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; font-weight: 600">steward <span style="font-family: 'IBM Plex Sans', sans-serif; font-weight: 400; font-size: 13px">Steward</span></span><span style="font-size: 12.5px; color: #4a4a4a">you asked in the sidebar · 1 min ago</span></span>
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.08em; padding: 2px 8px; border: 1.5px solid #111111; border-radius: 6px; background: #ffffff">SUGGESTED SESSION</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 10px; padding: 14px 18px">
+              <h3 style="margin: 0; font-size: 17px; font-weight: 600">Implement epd#9, also covering epd#11</h3>
+              <span style="font-size: 14.5px; line-height: 1.5"><span style="font-family: Kalam, cursive; font-size: 17px; color: #2747b8">why</span> Both are in epd_lut.c and touch the same error path; one session avoids two branches conflicting.</span>
+              <span style="font-size: 13.5px; color: #4a4a4a">Proposed notes: “Do epd#9 first … one PR that closes both.” Nothing runs until you start it.</span>
+              <div style="display: flex; flex-wrap: wrap; gap: 8px">
+                <button type="button" onClick="{{openStart}}" style="min-height: 44px; padding: 0 16px; border: 1.5px solid #111111; border-radius: 12px; background: #2747b8; color: #ffffff; font: inherit; font-weight: 600; box-shadow: 0 3px 0 #b4b4b4; cursor: pointer">Open the start form</button>
+                <button type="button" onClick="{{dropSess}}" style="min-height: 44px; padding: 0 12px; border: 0; background: transparent; color: #111111; font: inherit; text-decoration: underline; cursor: pointer">Not now</button>
+              </div>
+            </div>
+          </article>
+        </sc-if>
+        <sc-if value="{{draftsWaiting}}" hint-placeholder-val="{{true}}">
+          <article aria-label="Drafts ready from audit-hub" style="display: flex; flex-direction: column; background: #ffffff; border: 1.5px solid #111111; border-radius: 16px; overflow: hidden; box-shadow: 0 3px 0 #b4b4b4">
+            <div style="display: flex; align-items: center; gap: 12px; padding: 12px 18px; background: #ffd86b; border-bottom: 1.5px solid #111111">
+              <span aria-hidden="true" style="display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; flex: none; border: 1.5px solid #111111; border-radius: 999px; background: #ffffff; font-family: 'IBM Plex Mono', monospace; font-size: 14px; font-weight: 600">S</span>
+              <span style="display: flex; flex-direction: column; flex: 1; line-height: 1.3"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; font-weight: 600">audit-hub <span style="font-family: 'IBM Plex Sans', sans-serif; font-weight: 400; font-size: 13px">Security auditor</span></span><span style="font-size: 12.5px; color: #4a4a4a">sent to the background from Overview · finished after 31 min</span></span>
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.08em; padding: 2px 8px; border: 1.5px solid #111111; border-radius: 6px; background: #ffffff">DRAFTS READY</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 10px; padding: 14px 18px">
+              <h3 style="margin: 0; font-size: 17px; font-weight: 600">Security audit of hub · 4 drafts</h3>
+              <div style="display: flex; flex-wrap: wrap; gap: 6px">
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; padding: 1px 7px; border: 3px double #111111; border-radius: 6px">1 HIGH</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; padding: 1px 7px; border: 2.5px solid #111111; border-radius: 6px">1 MEDIUM</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; padding: 1px 7px; border: 1.5px solid #111111; border-radius: 6px">1 LOW</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; padding: 1px 7px; border: 1.5px dashed #111111; border-radius: 6px">1 INFO</span>
+              </div>
+              <span style="font-size: 14px; color: #4a4a4a">“hubd: session token compared with == (timing leak)” and 3 more. Nothing is filed yet.</span>
+              <div style="display: flex; flex-wrap: wrap; gap: 8px">
+                <button type="button" onClick="{{openDrafts}}" style="min-height: 44px; padding: 0 16px; border: 1.5px solid #111111; border-radius: 12px; background: #2747b8; color: #ffffff; font: inherit; font-weight: 600; box-shadow: 0 3px 0 #b4b4b4; cursor: pointer">Review drafts</button>
+              </div>
+            </div>
+          </article>
+        </sc-if>
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 16px; border: 1.5px dashed #111111; border-radius: 12px">
+          <svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="#111111" stroke-width="1.5" stroke-dasharray="3 2.5"></circle></svg>
+          <span style="flex: 1 1 260px"><span style="font-family: 'IBM Plex Mono', monospace; font-weight: 600">arch-kernel</span> · Architecture audit · running 12 min in the background · usually 20–40 min</span>
+          <button type="button" onClick="{{openRun}}" style="min-height: 40px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff; color: #111111; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer">Reopen</button>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{showWorkers}}" hint-placeholder-val="{{true}}">
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <h2 style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">FROM SESSIONS · oldest first</h2>
+        <sc-for list="{{workerItems}}" as="c" hint-placeholder-count="3">
+          <dc-import name="AskV1" item="{{c.item}}" status="{{c.status}}" on-resolve="{{onResolve}}" on-focus="{{onFocus}}" hint-size="100%,360px"></dc-import>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <details style="display: flex; flex-direction: column; gap: 10px; border-top: 1px dotted #111111; padding-top: 12px">
+      <summary style="min-height: 40px; cursor: pointer; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">ANSWERED TODAY · {{doneCount}}</summary>
+      <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px">
+        <sc-for list="{{doneItems}}" as="c" hint-placeholder-count="5">
+          <dc-import name="AskV1" item="{{c.item}}" status="{{c.status}}" compact="{{yes}}" on-focus="{{onFocus}}" hint-size="100%,220px"></dc-import>
+        </sc-for>
+      </div>
+    </details>
+  </section>
+
+  <aside aria-labelledby="h-live" style="flex: 1 1 400px; max-width: 540px; min-width: 0; display: flex; flex-direction: column; border: 1.5px solid #111111; border-radius: 16px; overflow: hidden; box-shadow: 0 3px 0 #b4b4b4">
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 10px 16px; border-bottom: 1.5px solid #111111; background: #f2f2f2">
+      <h2 id="h-live" style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 15px; font-weight: 600">{{term.session}}</h2>
+      <span style="flex: 1 1 160px; font-size: 13px; color: #4a4a4a">live terminal · the same prompt</span>
+      <a href="ShellsV1.dc.html" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff; color: #111111; text-decoration: none; font-size: 13.5px; font-weight: 600">Attach</a>
+    </div>
+    <div role="log" aria-label="Terminal of {{term.session}}" style="background: #121212; color: #eeeeee; font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.7; padding: 14px 16px; min-height: 520px; overflow-x: auto; display: flex; flex-direction: column">
+      <sc-for list="{{term.lines}}" as="l" hint-placeholder-count="14"><span style="{{l.style}}">{{l.text}}</span></sc-for>
+    </div>
+    <p style="margin: 0; padding: 10px 16px; font-size: 13px; color: #4a4a4a; border-top: 1.5px solid #111111">A PermissionRequest hook asks hub and waits; the terminal keeps its own prompt. Whichever answer comes first wins, and the other side closes.</p>
+  </aside>
+</main>
+<div style="flex: none; display: flex">
+  <dc-import name="SidebarV1" screen="Sessions" selection="Needs you" collapsed="{{yes}}" hint-size="64px,920px"></dc-import>
+</div>
+</div>
+</div>
+<sc-if value="{{sfOpen}}" hint-placeholder-val="{{false}}">
+  <dc-import name="StartFormV1" by="steward" on-close="{{closeSf}}" hint-size="0px,0px"></dc-import>
+</sc-if>
+<sc-if value="{{nwOpen}}" hint-placeholder-val="{{false}}">
+  <dc-import name="NewWorkV1" open="{{yes}}" stage="{{nw.stage}}" template="{{nw.template}}" repo="{{nw.repo}}" context="{{nw.context}}" by="you" on-close="{{closeNw}}" hint-size="0px,0px"></dc-import>
+</sc-if>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1900}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { res: {}, focus: 'p1', filter: 'all' }; }
+  renderVals() {
+    const S = this.state;
+    const steward = { id: 's1', kind: 'question', steward: true, session: 'steward', persona: 'Steward', origin: 'planning 0.3 · asked from the Roadmap', waited: '14 min', timeoutLeft: 'until you answer', timeoutPct: 100,
+      header: 'SCOPE · MILESTONE 0.3', question: 'hub#60 needs the arm64 runner that the kernel boot tests use. What should 0.3 include?',
+      note: '← I’d move it: 0.3 is about the kernel path.',
+      options: [
+        { label: 'Move hub#60 to 0.5', desc: 'Frees the runner for kernel boot tests. Images stay hand-built until spring.', rec: true },
+        { label: 'Keep it, add a second runner', desc: 'Needs a new self-hosted arm64 runner and its review — infra work this month.' },
+        { label: 'Split it', desc: 'Images build in CI for 0.3; bit-for-bit reproducibility moves to 0.5.' }],
+      links: ['hub#60', 'hub#44', 'runner use · 7 days'] };
+    const W = [
+      { id: 'p1', kind: 'permission', tool: 'Bash', session: 'docs-edl', persona: 'Docs writer', origin: 'Work · hub#47 → docs#88', waited: '6 min', timeoutLeft: '4:02', timeoutPct: 40,
+        title: 'Run a command', code: 'git push -u origin agent/docs-edl', reason: 'Push the guide branch so I can open the draft PR for hub#47.', alwaysLabel: 'git push' },
+      { id: 'q1', kind: 'question', session: 'investigate-1184', persona: 'CI investigator', origin: 'Work · build-image #1184', waited: '3 min', timeoutLeft: '7:10', timeoutPct: 72,
+        header: 'CI FIX', question: 'The runner image has no qemu-user-static. Which fix should the PR use?',
+        options: [
+          { label: 'docker/setup-qemu-action', desc: 'Maintained action; registers binfmt for every architecture.', rec: true },
+          { label: 'Install qemu-user-static in the job', desc: 'One apt step; adds about 20 s per run.' },
+          { label: 'Native arm64 container', desc: 'No emulation, but needs a new base image.' }] },
+      { id: 'p2', kind: 'permission', tool: 'Edit', session: 'kernel-lut', persona: 'Kernel engineer', origin: 'Work · kernel#212 · address review', waited: '40 s', timeoutLeft: '9:20', timeoutPct: 93,
+        title: 'Edit a file', path: 'drivers/gpu/drm/epd/epd_lut.c · line 88', diff: [['−', 'if (hdr->version > EPD_LUT_VERSION_MAX)'], ['+', 'if (!hdr->version || hdr->version > EPD_LUT_VERSION_MAX)'], ['', '        return -EINVAL;']],
+        reason: 'Review thread epd_lut.c:88 — version 0 is reserved in hardware/epd/waveforms.md.', alwaysLabel: 'edits in this worktree' }
+    ];
+    const DONE = [
+      { st: 'answered', item: { id: 'd1', kind: 'question', session: 'docs-edl', persona: 'Docs writer', origin: 'Work · hub#47', header: 'CONTENT', question: 'Partition offsets: mark them untested, or wait for docs#91?', options: [], answerDefault: 'Mark as from source, untested' } },
+      { st: 'allowed', item: { id: 'd2', kind: 'permission', tool: 'Bash', session: 'shell-288', persona: 'Engineer', origin: 'Work · shell#288', title: 'Run a command', code: 'npm test -- slider', reason: 'Run the slider tests after the rounding fix.' } },
+      { st: 'denied', item: { id: 'd3', kind: 'permission', tool: 'Bash', session: 'investigate-1184', persona: 'CI investigator', origin: 'Work · build-image #1184', title: 'Run a command', code: 'sudo apt-get install qemu-user-static', reason: 'Reproduce the runner fix locally.', denyDefault: 'No sudo on this host — put it in the workflow instead.' } },
+      { st: 'terminal', item: { id: 'd4', kind: 'permission', tool: 'Bash', session: 'kernel-lut', persona: 'Kernel engineer', origin: 'Work · kernel#212', title: 'Run a command', code: 'make -j16 ARCH=arm64 Image', reason: 'Build to check the fixup compiles.', answeredAt: '12:41' } },
+      { st: 'timeout', item: { id: 'd5', kind: 'permission', tool: 'Bash', session: 'audit-hubd', persona: 'Security auditor', origin: 'Overview · hub', title: 'Run a command', code: 'ss -xlp | grep glassine', reason: 'Check who can reach the hubd socket.' } }
+    ];
+    const f = S.filter;
+    const okKind = (it) => f === 'all' || (f === 'perm' && it.kind === 'permission') || (f === 'ask' && it.kind === 'question' && !it.steward) || (f === 'steward' && it.steward);
+    const status = (it) => S.res[it.id] ? S.res[it.id].s : 'pending';
+    const pend = [steward].concat(W).filter((it) => !S.res[it.id]).length + (S.draftsDone ? 0 : 1) + (S.sessDone ? 0 : 1);
+    const F = [['all', 'All'], ['perm', 'Permissions'], ['ask', 'Questions'], ['steward', 'Steward']];
+    const focusIt = [steward].concat(W).concat(DONE.map((d) => d.item)).find((x) => x.id === S.focus) || W[0];
+    const focusSt = S.res[focusIt.id] ? S.res[focusIt.id].s : (DONE.find((d) => d.item.id === focusIt.id) || {}).st || 'pending';
+    const focusAns = S.res[focusIt.id] ? S.res[focusIt.id].a : (focusIt.answerDefault || focusIt.denyDefault || '');
+    const T = (k, t) => ({ text: t, style: 'white-space: pre-wrap; ' + (k === 'tool' ? 'color: #9db2ff' : k === 'dim' ? 'color: #bbbbbb; font-style: italic' : k === 'box' ? 'color: #eeeeee; border-left: 1.5px solid #bbbbbb; padding-left: 12px; margin-left: 2px' : k === 'sel' ? 'color: #121212; background: #ffd86b; padding: 0 6px; align-self: flex-start; margin-left: 16px' : k === 'opt' ? 'color: #eeeeee; border-left: 1.5px solid #bbbbbb; padding-left: 28px; margin-left: 2px' : k === 'hub' ? 'color: #121212; background: #9db2ff; padding: 0 6px; align-self: flex-start' : 'color: #eeeeee') });
+    let lines;
+    if (focusIt.kind === 'permission') {
+      const call = focusIt.tool === 'Edit' ? 'Update(' + (focusIt.path || '').split(' ·')[0] + ')' : 'Bash(' + focusIt.code + ')';
+      lines = [T('tool', '● ' + call)];
+      if (focusSt === 'pending' || focusSt === 'timeout') {
+        lines = lines.concat([T('box', focusIt.tool === 'Edit' ? 'Edit file' : 'Bash command'), T('box', '  ' + (focusIt.code || focusIt.diff[1][1])), T('box', '  ' + focusIt.reason), T('box', ''), T('box', 'Do you want to proceed?'), T('box', '❯ 1. Yes'), T('box', '  2. Yes, and don’t ask again for ' + (focusIt.alwaysLabel || 'this') + ' commands'), T('box', '  3. No, and tell Claude what to do differently (esc)'), T('dim', '')]);
+        lines.push(focusSt === 'pending' ? T('hub', 'hub · PermissionRequest hook waiting · ' + focusIt.timeoutLeft + ' left') : T('dim', 'hub · hook timed out — answer here; nothing was approved'));
+      } else if (focusSt === 'denied') {
+        lines = lines.concat([T('out', '  ⎿  Denied via hub'), T('dim', '     “' + focusAns + '”'), T('out', '● Understood — I’ll put it in the workflow instead.')]);
+      } else if (focusSt === 'terminal') {
+        lines = lines.concat([T('out', '  ⎿  Allowed in the terminal'), T('out', '  ⎿  Kernel: arch/arm64/boot/Image is ready'), T('dim', 'hub · hook saw the answer and closed its card')]);
+      } else {
+        lines = lines.concat([T('out', '  ⎿  Allowed via hub' + (focusSt === 'always' ? ' · won’t ask again for ' + focusIt.alwaysLabel : '')), T('out', focusIt.tool === 'Edit' ? '  ⎿  Updated with 1 addition and 1 removal' : '  ⎿  Done')]);
+      }
+    } else {
+      lines = [T('tool', '● AskUserQuestion'), T('box', '☐ ' + (focusIt.header || '').toLowerCase()), T('box', focusIt.question)];
+      if (focusSt === 'pending') {
+        (focusIt.options || []).forEach((o, i) => { lines.push(i === 0 ? T('sel', '❯ 1. ' + o.label) : T('opt', (i + 1) + '. ' + o.label)); });
+        lines.push(T('opt', ((focusIt.options || []).length + 1) + '. Type something.'));
+        lines.push(T('dim', ''));
+        lines.push(T('hub', focusIt.steward ? 'hub · waiting for your answer (no timeout for the Steward)' : 'hub · hook waiting · ' + focusIt.timeoutLeft + ' left'));
+      } else {
+        lines.push(T('out', '  ⎿  User answered via hub: “' + focusAns + '”'));
+        lines.push(T('out', focusIt.steward ? '● Got it. Moving hub#60 next — that write will ask you.' : '● Thanks — going with that.'));
+      }
+    }
+    if (focusIt.steward) lines.unshift(T('dim', '# the Steward lives in the sidebar; this is the same session'));
+    return {
+      yes: true,
+      pendingCount: String(pend), hasPending: pend > 0, allClear: pend === 0 && f === 'all',
+      navLabel: 'Sessions, ' + pend + ' waiting for you', countBg: pend ? '#ffd86b' : '#ffffff',
+      filters: F.map(([id, label]) => ({ label, pressed: f === id ? 'true' : 'false', pick: () => this.setState({ filter: id }),
+        style: 'min-height: 40px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 999px; font: inherit; font-size: 14px; cursor: pointer; ' + (f === id ? 'background: #111111; color: #ffffff; font-weight: 600' : 'background: #ffffff; color: #111111') })),
+      stewardItems: okKind(steward) ? [{ item: steward, status: status(steward) }] : [],
+      showSteward: okKind(steward),
+      workerItems: W.filter(okKind).map((it) => ({ item: it, status: status(it) })),
+      showWorkers: W.some(okKind),
+      showRuns: f === 'all', draftsWaiting: !S.draftsDone,
+      sessSuggest: !S.sessDone, sfOpen: !!S.sf, openStart: () => this.setState({ sf: true }), closeSf: () => this.setState({ sf: false }), dropSess: () => this.setState({ sessDone: true }),
+      nwOpen: !!S.nw, nw: S.nw || {},
+      openDrafts: () => this.setState({ nw: { stage: 'drafts', template: 'sec', repo: 'hub', context: 'Overview · hub' } }),
+      openRun: () => this.setState({ nw: { stage: 'session', template: 'arch', repo: 'kernel', context: 'Overview · kernel' } }),
+      closeNw: () => this.setState({ nw: null, draftsDone: this.state.draftsDone || (this.state.nw && this.state.nw.stage === 'drafts') }),
+      doneItems: DONE.filter((d) => okKind(d.item)).map((d) => ({ item: d.item, status: d.st })),
+      doneCount: String(DONE.length + Object.keys(S.res).length),
+      onResolve: (id, s, a) => this.setState({ res: { ...this.state.res, [id]: { s, a } }, focus: id }),
+      onFocus: (id) => this.setState({ focus: id }),
+      term: { session: focusIt.session, lines }
+    };
+  }
+}
+</script>
+</body>
+</html>

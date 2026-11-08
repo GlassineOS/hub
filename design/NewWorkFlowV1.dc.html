@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>New work flow</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Kalam&amp;display=swap">
+<style>body{margin:0;background:#ffffff}</style>
+</helmet>
+<div style="width: 2400px; box-sizing: border-box; padding: 48px 56px 64px; background: #ffffff; color: #111111; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15px; line-height: 1.5; display: flex; flex-direction: column; gap: 36px">
+  <div style="display: flex; flex-direction: column; gap: 8px; max-width: 80ch">
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em; color: #4a4a4a">NEW WORK · ONE MODAL, FOUR STAGES</span>
+    <h1 style="margin: 0; font-size: 34px; line-height: 1.15; font-weight: 600; letter-spacing: -0.015em">From a sentence to drafts, with the slow part made visible</h1>
+    <p style="margin: 0; font-size: 17px; line-height: 1.6; color: #4a4a4a">The rail on the left of the modal is the flow. The planner is quick and you approve its spec; the session is real, takes minutes to an hour, and can be sent to the background at any time — its drafts then wait in Sessions › Needs you.</p>
+  </div>
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 48px 40px; align-items: start">
+    <sc-for list="{{cells}}" as="c" hint-placeholder-count="4">
+      <section aria-label="{{c.name}}" style="display: flex; flex-direction: column; gap: 14px">
+        <div style="display: flex; align-items: baseline; gap: 12px; padding-bottom: 10px; border-bottom: 1px dotted #111111">
+          <span aria-hidden="true" style="font-family: Kalam, cursive; font-size: 28px; line-height: 1; color: #2747b8">{{c.num}}</span>
+          <h2 style="margin: 0; font-size: 21px; font-weight: 600">{{c.name}}</h2>
+          <span style="flex: 1; font-size: 14.5px; color: #4a4a4a">{{c.what}}</span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; padding: 1px 8px; border: 1px solid #111111; border-radius: 999px">{{c.time}}</span>
+        </div>
+        <dc-import name="NewWorkV1" inline="{{yes}}" stage="{{c.stage}}" template="sec" repo="hub" context="Overview · hub" by="you" hint-size="100%,720px"></dc-import>
+      </section>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":2400,"height":2100}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { yes: true, cells: [
+      { num: '1', name: 'Configure', stage: 'config', time: 'you', what: 'What to make, where, notes and pins, which model plans it, who gets the drafts.' },
+      { num: '2', name: 'Review the plan', stage: 'review', time: '~1 min planner', what: 'The planner’s spec: persona, checkout, tools, ceiling, docs context, first prompt. Change the agent model or the prompt, re-plan, or go back.' },
+      { num: '3', name: 'Session', stage: 'session', time: '20–40 min', what: 'The real Claude session, embedded. Its questions appear right here; send messages, or send the whole thing to the background.' },
+      { num: '4', name: 'Drafts', stage: 'drafts', time: 'you', what: 'Pick what to file, or hand them to the Steward. Backgrounded runs land in Needs you and reopen here.' }
+    ] };
+  }
+}
+</script>
+</body>
+</html>

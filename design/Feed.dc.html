@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Feed</title>
+<script src="./support.js"></script>
+<script src="data/fixtures.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Kalam&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div style="display: contents">
+<section aria-label="{{label}}" style="display: flex; flex-direction: column; gap: {{gap}}; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15px; line-height: 1.5; color: #111111; background: transparent">
+  <sc-if value="{{empty}}" hint-placeholder-val="{{false}}">
+    <p style="margin: 0; padding: 14px 16px; border: 1.5px dashed #111111; border-radius: 12px; font-size: 14px; color: #4a4a4a">Nothing is waiting for you.</p>
+  </sc-if>
+  <sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <sc-if value="{{showHeads}}" hint-placeholder-val="{{true}}">
+        <div style="display: flex; align-items: baseline; gap: 10px">
+          <h3 style="margin: 0; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15.5px; font-weight: 600">{{g.label}} · {{g.count}}</h3>
+          
+        </div>
+      </sc-if>
+      <sc-for list="{{g.cards}}" as="c" hint-placeholder-count="2">
+        <sc-if value="{{dense}}" hint-placeholder-val="{{false}}">
+          <div style="{{c.rowWrap}}">
+            <button type="button" onClick="{{c.toggle}}" aria-expanded="{{c.expanded}}" style="display: flex; align-items: flex-start; gap: 10px; width: 100%; min-height: 52px; padding: 9px 12px; border: 0; background: transparent; color: #111111; font: inherit; text-align: left; cursor: pointer">
+              <span style="{{c.tagStyle}}">{{c.tag}}</span>
+              <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px">
+                <span style="font-size: 14.5px; font-weight: 500; line-height: 1.35">{{c.summary}}</span>
+                <span style="font-size: 12.5px; color: #4a4a4a">{{c.meta}}</span>
+              </span>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#111111" stroke-width="1.8" aria-hidden="true" style="flex: none; margin-top: 5px"><path d="{{c.chev}}"></path></svg>
+            </button>
+            <sc-if value="{{c.open}}" hint-placeholder-val="{{false}}">
+              <div style="padding: 0 6px 6px">
+                <dc-import name="Interaction" iid="{{c.iid}}" compact="{{yes}}" on-resolve="{{resolve}}" on-open="{{open}}" hint-size="100%,300px"></dc-import>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+        <sc-if value="{{full}}" hint-placeholder-val="{{true}}">
+          <dc-import name="Interaction" iid="{{c.iid}}" compact="{{compact}}" on-resolve="{{resolve}}" on-open="{{open}}" hint-size="100%,300px"></dc-import>
+        </sc-if>
+      </sc-for>
+    </div>
+  </sc-for>
+  <sc-if value="{{hasMore}}" hint-placeholder-val="{{false}}">
+    <a href="NeedsYou.dc.html" style="display: flex; align-items: center; justify-content: center; min-height: 44px; border: 1.5px solid #111111; border-radius: 12px; color: #111111; text-decoration: none; font-weight: 600">{{moreLabel}}</a>
+  </sc-if>
+  <sc-if value="{{hasResolved}}" hint-placeholder-val="{{false}}">
+    <p role="status" style="margin: 0; font-size: 13px; color: #4a4a4a">{{resolvedText}}</p>
+  </sc-if>
+</section>
+<sc-if value="{{launching}}" hint-placeholder-val="{{false}}">
+  <dc-import style="position: static" name="Launch" layer="{{layer}}" entry="{{L.entry}}" action="{{L.action}}" covers="{{L.covers}}" repo="{{L.repo}}" by="{{L.by}}" why="{{L.why}}" notes="{{L.notes}}" context="{{L.context}}" on-close="{{closeLaunch}}" on-done="{{launchDone}}" hint-size="100%,900px"></dc-import>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"filter":{"editor":"enum","options":["all","steward","workers"],"default":"all"},"limit":{"editor":"number","default":0},"compact":{"editor":"boolean","default":false},"dense":{"editor":"boolean","default":false},"heads":{"editor":"boolean","default":true},"layer":{"editor":"enum","options":["fixed","absolute"],"default":"fixed"},"$preview":{"width":640,"height":2600}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { gone: {}, launch: null, opened: null, exp: {} }; }
+  renderVals() {
+    const H = window.HUB;
+    const P = this.props, S = this.state;
+    const filter = P.filter || 'all';
+    const keep = (x) => !S.gone[x.id] && (filter === 'all' || (filter === 'steward' ? x.session === 'steward' : x.session !== 'steward'));
+    const live = H.interactions.filter(keep);
+    const G = [
+      ['BLOCKING A SESSION', 'the session waits until you answer', (x) => x.kind === 'permission' || x.kind === 'question'],
+      ['SUGGESTED', 'open one in Launch, or let it go', (x) => x.kind === 'suggestion'],
+      ['RESULTS READY', 'finished sessions; nothing is filed until you choose', (x) => x.kind === 'results']
+    ];
+    let budget = P.limit || 999;
+    const groups = [];
+    for (const [label, hint, test] of G) {
+      const all = live.filter(test);
+      const shown = all.slice(0, Math.max(0, budget));
+      budget -= shown.length;
+      if (shown.length) groups.push({ label: label.charAt(0) + label.slice(1).toLowerCase(), hint, count: String(all.length), cards: shown.map((x) => {
+        const open = !!S.exp[x.id], blocking = x.kind === 'permission' || x.kind === 'question';
+        const TAG = { permission: 'ALLOW?', question: 'DECIDE', suggestion: 'SUGGESTS', results: 'RESULTS' };
+        const summary = x.kind === 'question' ? (x.question || x.header) : (x.title || '');
+        const who = x.session === 'steward' ? '' : x.session + ' · ';
+        return { iid: x.id, open, expanded: open ? 'true' : 'false', tag: TAG[x.kind], summary, meta: who + (blocking ? 'blocking · ' : '') + 'waiting ' + x.waited,
+          chev: open ? 'M2.5 8l3.5-4 3.5 4' : 'M2.5 4.5l3.5 4 3.5-4', toggle: () => this.setState({ exp: { ...this.state.exp, [x.id]: !open } }),
+          tagStyle: 'flex: none; margin-top: 2px; font-family: \'IBM Plex Mono\', monospace; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; padding: 1px 6px; border-radius: 4px; border: 1.5px solid #111111; background: ' + (blocking ? '#ffd86b' : '#ffffff'),
+          rowWrap: 'display: flex; flex-direction: column; border-radius: 12px; background: #ffffff; border: 1.5px solid ' + (open ? '#111111' : '#d0d0d0') };
+      }) });
+    }
+    const shownCount = groups.reduce((n, g) => n + g.cards.length, 0);
+    const goneCount = Object.keys(S.gone).length;
+    const ctxOf = (it) => it.session === 'steward' ? 'the Steward' : 'Needs you · ' + it.session;
+    return {
+      label: filter === 'steward' ? 'Waiting for you from the Steward' : 'Needs you',
+      dense: !!P.dense, full: !P.dense, yes: true,
+      gap: P.dense ? '6px' : P.compact ? '14px' : '22px', compact: !!P.compact, showHeads: P.heads !== false,
+      empty: live.length === 0, groups,
+      hasMore: shownCount < live.length, moreLabel: 'All ' + live.length + ' in Needs you',
+      hasResolved: goneCount > 0, resolvedText: goneCount + ' handled in this view. Sessions › History keeps the record.',
+      resolve: (id, st) => { if (st === 'pending') return; this._t = setTimeout(() => this.setState({ gone: { ...this.state.gone, [id]: true } }), 900); },
+      open: (it) => this.setState({ opened: it.id, launch: {
+        entry: it.kind === 'results' ? 'results' : it.what === 'new work' ? 'new' : 'suggested',
+        action: it.action, covers: it.covers || [], repo: it.repo || '', by: it.session === 'steward' ? 'steward' : 'you',
+        why: it.why || it.summary || '', notes: it.notes || '', context: ctxOf(it) } }),
+      launching: !!S.launch, L: S.launch || { entry: 'new', action: 'sec', covers: [], repo: '', by: 'you', why: '', notes: '', context: '' }, layer: P.layer || 'fixed',
+      closeLaunch: () => this.setState({ launch: null }),
+      launchDone: () => { const id = this.state.opened; if (id) this.setState({ gone: { ...this.state.gone, [id]: true } }); }
+    };
+  }
+}
+</script>
+</body>
+</html>
