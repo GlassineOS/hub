@@ -2635,7 +2635,7 @@ def test_the_steward_panel_is_a_button_at_phone_width():
     # The per-view choice is the side panel's: on a phone it isn't applied, isn't kept, and the sheet closes with the view.
     assert "const open = phone ? sheet === view : view in panels ? panels[view] : panelOpen(view);" in panel
     assert panel.index("if (phone) return setSheet(next ? null : view);") < panel.index("keepPanel(view, !next);")
-    assert "useEffect(() => setSheet(null), [view]);" in panel and 'query.addEventListener("change", on)' in _component(script, "usePhone")
+    assert "const [sheet, setSheet] = useSheet(view, phone);" in panel and "useEffect(() => setSheet(null), [view, phone]);" in _component(script, "useSheet") and 'query.addEventListener("change", on)' in _component(script, "usePhone")
 
 
 def test_the_steward_chips_follow_the_line_on_disk_not_this_tabs_last_answer():

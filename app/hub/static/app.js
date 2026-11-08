@@ -87,6 +87,14 @@ function usePhone() {
   return phone;
 }
 
+// A sheet's open state (the Menu, the Steward): it is closed when the view changes and when the width leaves phone width.
+// A sheet that is no longer drawn fires no close event, so without this it would reopen by itself when the width came back.
+function useSheet(view, phone) {
+  const [sheet, setSheet] = useState(null);
+  useEffect(() => setSheet(null), [view, phone]);
+  return [sheet, setSheet];
+}
+
 // 001 FR-018: no blinking cursor when the viewer asks for reduced motion (and an e-ink browser isn't asked to repaint it).
 const reducedMotion = () => typeof window.matchMedia === "function" && Boolean(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
 
@@ -3905,8 +3913,7 @@ function Steward({ route, asks }) {
   const view = stewardView(seen);
   const phone = usePhone();
   const [panels, setPanels] = useState(() => ({ [view]: panelOpen(view) }));
-  const [sheet, setSheet] = useState(null);  // on a phone: the view the sheet was opened on
-  useEffect(() => setSheet(null), [view]);
+  const [sheet, setSheet] = useSheet(view, phone);  // on a phone: the view the sheet was opened on
   const open = phone ? sheet === view : view in panels ? panels[view] : panelOpen(view);
   const rail = !open;
   const setRail = (next) => {
@@ -4043,7 +4050,7 @@ function Hub({ host: first, route, onOut }) {
   asks.waiting = inter.counts.pending;
   const [needs, setNeeds] = useState(null); // the Needs you modal, and what had focus when it opened
   const phone = usePhone();
-  const [menu, setMenu] = useState(false); // the Menu sheet, at phone width
+  const [menu, setMenu] = useSheet(route.path, phone); // the Menu sheet, at phone width
 
   const [launching, setLaunching] = useState(null);
   const [behind, setBehind] = useState(null); // a Launch sent to the background (005 FR-008)
