@@ -316,33 +316,34 @@ The notes are kept for agents to read: what earlier sessions found, so the next 
 host only, and much of what they hold never passed the safety scan. The app's container mounts none of it.
 
 - **Sessions that only read search them.** `notes_find` (`notes_tool.find`) is on the list of a locked action that only reads
-  and hands in: no shell, no write or post tool, no `plan_work`, nothing that asks first. The library adds it to such an action and refuses to
-  load one that lists it and doesn't fit, so a new action that can post doesn't pick it up by being new. Today that is
-  `notes-compact`, `notes-sweep`, `knowledge-research` and the `new-*` drafters. hubd takes it from such a session's own token,
-  from a full session's, and from the general token a hub shell holds. Full sessions and shells could read the files anyway.
-  The page's own search (`notes.find`, `notes.status`, `notes.totals`) stays behind the login check. A session started
-  before the tool was on its action's list keeps the list it started with, and a resume doesn't add to it (only the Steward's
-  list is rebuilt from its action, and that has no `notes_find`): it takes a new session.
-- **A locked session gets the notes and not the archive.** The tool also indexes the sources set for this host: the old tree's
-  docs and diaries, memory and transcripts, which never passed the safety scan and hold what tools were asked and what they
-  answered. It has no filter, so `Notes.find` drops those rows (`archive, unreviewed`, and any state it doesn't know) from the
-  search of a session whose token has a list, with the sources and warnings the tool names, which are paths on this host.
+  and hands in: no shell, no write or post tool, no `plan_work`, nothing that asks first. The library adds it to such an action
+  and refuses to load one that lists it and doesn't fit, so a new action that can post doesn't pick it up by being new. Today
+  that is `notes-compact`, `notes-sweep`, `knowledge-research` and the `new-*` drafters. hubd takes it from such a session's
+  own token, from a full session's, and from the general token a hub shell holds. Full sessions and shells could read the
+  files anyway. The page's own search (`notes.find`, `notes.status`, `notes.totals`) stays behind the login check. A session
+  started before the tool was on its action's list keeps the list it started with, and a resume doesn't add to it (only the
+  Steward's list is rebuilt from its action, and that has no `notes_find`): it takes a new session.
+- **A locked session gets the notes and not the archive.** The tool also indexes the sources set for this host: the old
+  tree's docs and diaries, memory and transcripts, which never passed the safety scan and hold what tools were asked and what
+  they answered. It has no filter, so `Notes.find` drops those rows (`archive, unreviewed`, and any state it doesn't know) from
+  the search of a session whose token has a list, with the sources and warnings the tool names, which are paths on this host.
   A full session and a hub shell get every row.
 - **What needs care is a note leaving.** A row can hold private detail, and nothing technical stops a steered session that
   can post from putting it in public: a comment is not scanned (`comment_issue` and `comment_pr` go straight to GitHub), the
   safety scan sees only what goes into git, and only the Steward's writes ask you first. So the tool is kept off the sessions
   that can post or send, which is a control: `issue-triage` (`comment_issue`), `pr-security-audit` (`comment_pr`), `pr-review`
   and `pr-security-audit` (a shell with the internet) and the Steward (writes that ask first). It is also kept off whatever
-  holds `plan_work`, which only reads but puts a session's words in front of a planner as your own notes once you press Start:
-  the actions above, `pr-explain`, `pr-merge-prep` and the `run-*` actions. What a session that has it reads
-  leaves in what it hands in (drafts, a report, a result), which you read before anything is filed or applied, and in its own
-  words, which the Steward can read with `session_summary`. `agents/private.md`, in every agent's prompt, asks it to leave a note out of anything public, in its own words too: that is a
-  rule, not a control. Draft issues from a notes sweep are filed by you, in public, so read them for private details first.
-  "Send to the Steward" works on them as on any drafts: only by your press, and then the Steward reads what they carry of
-  the notes, and each issue it files still asks you. So read them before sending them too.
+  holds `plan_work`, which only reads but puts a session's words in front of a planner as your own notes once you press
+  Start: the actions above, `pr-explain`, `pr-merge-prep` and the `run-*` actions. What a session that has it reads leaves in
+  what it hands in (drafts, a report, a result), which you read before anything is filed or applied, and in its own words,
+  which the Steward can read with `session_summary`. `agents/private.md`, in every agent's prompt, asks it to leave a note out
+  of anything public, in its own words too: that is a rule, not a control. Draft issues from a notes sweep are filed by you,
+  in public, so read them for private details first. "Send to the Steward" works on them as on any drafts: only by your
+  press, and then the Steward reads what they carry of the notes, and each issue it files still asks you. So read them
+  before sending them too.
 - **Planners.** The planner of a locked action has `notes_find` too, without the archive, and what it finds can end up in the
-  brief it writes, which you read before the session starts, as with `work_search`. The planner of a full action has neither: a
-  full session's brief comes from it, and a note is written after reading an outsider's text.
+  brief it writes, which you read before the session starts, as with `work_search`. The planner of a full action has neither:
+  a full session's brief comes from it, and a note can carry an outsider's text, as a work item can.
 - **Not held by the line the other searches keep, so kept off instead.** `code_search`, the map and `work_search` don't give a
   session that can post private text by asking about a topic: with no repository named they search public repositories only
   (`hubd/reach.py`). `notes_find` has no such line. It searches every note by a word, so a session that can post and had it
