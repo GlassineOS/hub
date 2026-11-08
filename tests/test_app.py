@@ -2725,6 +2725,8 @@ def test_one_phone_block_and_no_wide_fixed_widths_in_it():
     for sheet in ("dialog.sheet", "dialog.nw", "dialog.needs", "dialog.flyout", "dialog.transcript"):
         assert sheet in block, sheet
     assert ".dock-handle { display: none; }" in block and ".tick { width: 44px" in block
+    # The 44 px box round a checkbox is for a finger: the desktop keeps the plain checkbox.
+    assert ".boxhit {" in block and css.count(".boxhit {") == 1
     assert "input[type=\"checkbox\"] { width: 24px; height: 24px; }" in block and "label:has(> input[type=\"checkbox\"]) { min-height: 44px; }" in block
 
 
