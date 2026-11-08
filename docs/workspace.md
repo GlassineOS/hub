@@ -233,8 +233,8 @@ out with it.
 **Search:** `notes find WORDS` in `workspace`, over a SQLite FTS index in a 0700 cache folder, built from the notes, the
 old tree's docs and diaries, memory and transcripts, which never passed the scan. It works offline. Every row says
 `current`, `history`, `retracted` or `archive, unreviewed` in words. Current ranks first, so a retracted theory can't
-pass as a fact. The hub's Notes page is the same query through a hubd op that needs a login, and no token has one. Words
-only at first.
+pass as a fact. The hub's Notes page is the same query through a hubd op that needs a login, and no token has that one. A session that may search
+gets `notes_find`, by its own token and without the archive's rows (`SECURITY.md`, Notes). Words only at first.
 
 **Processing the archive,** on the user's word, area by area, with a budget, by sessions the user starts:
 

@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Notes: `notes find` for a login and for a session whose action is about the notes, and the note operations a login
-applies, in the words the tool answers.
+"""Notes: `notes find` for a login and for a session that may search them, and the note operations a login applies, in the
+words the tool answers.
 
 The tool lives in the workspace and is run as a program, never imported: hubd stays standard
 library, and the index stays the tool's own business, in its 0700 cache. Notes and the sources
-behind the search never passed the safety scan, so server.py keeps the search behind the login check, and lets a session's
-token have it only when its action is about the notes and can't post (SECURITY.md, Notes). Writing is a login's alone: a
+behind the search never passed the safety scan, so server.py keeps the page's search behind the login check, and lets a
+session's token have the tool only when its list has it, which the library gives an action that can't post, send or plan
+work, and then without the archive's rows (SECURITY.md, Notes). Writing is a login's alone: a
 closed list of operations, each one `notes add` or `notes set` built here from checked fields, none of them a delete
 (009 FR-006, 005 FR-021).
 """

@@ -557,7 +557,7 @@ class Hubd:
 
     # --- notes -------------------------------------------------------------------------
     async def notes_request(self, op: str, req: dict) -> dict:
-        """Behind the login check, with no token path: they never passed the scan, and a session can post."""
+        """Behind the login check, with no token path (a session's is notes_tool, below): they never passed the scan."""
         if self.notes is None:
             return {"ok": False, "error": "notes aren't set up"}
         try:
