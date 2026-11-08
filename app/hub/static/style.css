@@ -36,6 +36,8 @@ h1 { font-size: 44px; line-height: 1.08; font-weight: 600; letter-spacing: -0.02
 code, pre, .mono { font-family: var(--mono); }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 :focus-visible { outline: 2px solid var(--pen); outline-offset: 2px; }
+/* The terminal's input is a hidden textarea: the terminal itself shows that it has the keys (001 FR-015). */
+.term:focus-within { outline: 2px solid var(--pen); outline-offset: -2px; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
 .eyebrow { font: 500 11.5px/1.5 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
@@ -96,7 +98,7 @@ label.field > span, div.field > span { font: 500 11.5px var(--mono); letter-spac
 /* surfaces */
 .panel { display: flex; flex-direction: column; gap: 16px; padding: 22px; background: var(--sheet); border-radius: 16px; min-width: 0; }
 .keycap { border: 1.5px solid var(--ink); border-radius: 12px; box-shadow: 0 3px 0 var(--shade); background: var(--paper); }
-.notice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 16px; border: 1.5px solid var(--ink); border-radius: 12px; background: var(--mark); }
+.notice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 16px; border: 1.5px solid var(--ink); border-radius: 12px; background: var(--sheet); }
 .notice > :first-child { flex: 1 1 260px; font-weight: 500; }
 .notice.quiet { background: var(--sheet); border-style: dashed; }
 .notice.quiet > :first-child { font-weight: 400; }
@@ -130,7 +132,7 @@ label.field > span, div.field > span { font: 500 11.5px var(--mono); letter-spac
 .repos { flex: 1 1 400px; min-width: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
 .repo { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 6px; width: 100%; min-height: 0; padding: 12px 14px; font-weight: 400; text-align: left; }
 .repo { display: flex; }
-.repo[data-picked] { background: var(--mark); }
+.repo[data-picked] { background: var(--sheet); box-shadow: inset 0 0 0 1.5px var(--ink); }
 .repo .title.plain { justify-content: flex-start; padding: 0; border: 0; background: none; text-align: left; }
 .repo .title.plain:hover { text-decoration: underline; }
 .layer-toggle { padding: 0; min-height: 0; border: 0; background: none; font: inherit; letter-spacing: inherit; text-transform: inherit; }
@@ -224,7 +226,7 @@ button.stat.blocking { background: var(--mark); }
 .sesslist { flex: 1 1 250px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .sesslist h1 { font-size: 27px; line-height: 1.2; letter-spacing: 0; }
 .sess-item { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 4px; width: 100%; min-height: 0; padding: 12px 14px; font: 400 15px var(--sans); text-align: left; box-shadow: none; }
-.sess-item[aria-pressed="true"], .sess-item[aria-pressed="true"]:hover:not(:disabled) { background: var(--mark); box-shadow: 0 3px 0 var(--shade); }
+.sess-item[aria-pressed="true"], .sess-item[aria-pressed="true"]:hover:not(:disabled) { background: var(--sheet); box-shadow: inset 0 0 0 1.5px var(--ink), 0 3px 0 var(--shade); }
 .sess-item .h { display: flex; justify-content: space-between; gap: 8px; width: 100%; align-items: flex-start; }
 .sess-item .h b { font: 600 14px var(--mono); overflow-wrap: anywhere; }
 .termbox { flex: 999 1 520px; min-width: 0; display: flex; flex-direction: column; border: 1.5px solid var(--ink); border-radius: 16px; overflow: hidden; box-shadow: 0 3px 0 var(--shade); }
@@ -254,7 +256,7 @@ button.stat.blocking { background: var(--mark); }
 .step-head h2 { flex: 1; font-size: 22px; font-weight: 600; }
 .choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
 .choice { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 4px; min-height: 0; padding: 14px; text-align: left; font-weight: 400; }
-.choice[aria-checked="true"], .choice[aria-checked="true"]:hover:not(:disabled) { background: var(--mark); }
+.choice[aria-checked="true"], .choice[aria-checked="true"]:hover:not(:disabled) { background: var(--sheet); box-shadow: inset 0 0 0 1.5px var(--ink), 0 3px 0 var(--shade); }
 .choice b { font-size: 16px; font-weight: 600; }
 .pick { display: flex; gap: 12px; align-items: flex-start; justify-content: flex-start; width: 100%; min-height: 0; padding: 10px 12px; font-weight: 400; text-align: left; box-shadow: none; border-color: var(--rule); }
 .pick[aria-pressed="true"] { border-color: var(--ink); }
@@ -336,7 +338,7 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
 .ask-lines .del { color: #bbbbbb; text-decoration: line-through; }
 .ask-plan { max-height: 320px; overflow: auto; padding: 12px 14px; border: 1px solid var(--rule); border-radius: 10px; }
 .ask-option { display: flex; align-items: flex-start; gap: 12px; width: 100%; min-height: 44px; padding: 12px 14px; box-shadow: none; color: var(--ink); text-align: left; font-weight: 400; }
-.ask-option[aria-checked="true"], .ask-other.on { background: var(--mark); }
+.ask-option[aria-checked="true"], .ask-other.on { background: var(--sheet); }
 .ask-option[aria-checked="true"] { box-shadow: 0 3px 0 var(--shade); }
 .ask-dot { width: 20px; height: 20px; flex: none; margin-top: 2px; border: 1.5px solid var(--ink); border-radius: 999px; background: var(--paper); }
 .ask-dot.square { border-radius: 5px; }
@@ -376,13 +378,13 @@ button.ask-deny-send:hover:not(:disabled) { background: var(--ink); color: var(-
 .past { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; padding: 12px 14px; border: 1.5px solid var(--ink); border-radius: 12px; }
 .past.interrupted { border-left-width: 6px; }
 .past-tag { flex: none; padding: 2px 8px; border: 1.5px solid var(--ink); border-radius: 6px; font: 500 11px var(--mono); letter-spacing: 0.08em; }
-.past-tag.safe { background: var(--mark); font-weight: 600; }
+.past-tag.safe { font-weight: 600; }
 .past-tag.review { border: 3px double var(--ink); font-weight: 600; }
 .clean-row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 10px; }
 .clean-row input[type="checkbox"] { width: 22px; height: 22px; flex: none; margin: 0; }
 .clean-path { overflow-wrap: anywhere; }
 .clean-bar { height: 10px; border: 1.5px solid var(--ink); border-radius: 999px; background: var(--ink); overflow: hidden; display: flex; justify-content: flex-end; }
-.clean-bar span { display: block; background: var(--mark); }
+.clean-bar span { display: block; background: var(--paper); }
 .clean-confirm { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border: 1.5px solid var(--ink); border-radius: 12px; background: var(--sheet); }
 .clean-confirm h3 { margin: 0; font-size: 16px; }
 .clean-confirm pre { margin: 0; overflow-x: auto; white-space: pre; }
@@ -396,7 +398,7 @@ dialog.nw { width: min(1120px, calc(100vw - 32px)); max-width: none; padding: 0;
 dialog.nw h2 { margin: 0; font-size: 20px; font-weight: 600; }
 dialog.nw .row { margin-top: 0; }
 dialog.nw h3 { margin: 0; font-size: 17px; font-weight: 600; }
-.nw-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 14px 20px; border-bottom: 1.5px solid var(--ink); background: var(--mark); }
+.nw-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 14px 20px; border-bottom: 1.5px solid var(--ink); background: var(--sheet); }
 .nw-head.agent { background: var(--sheet); }
 .steward-mark { border-color: var(--pen); color: var(--pen); font: 400 21px var(--hand); background: var(--paper); }
 .nw-why { display: flex; gap: 10px; align-items: flex-start; padding: 12px 20px; border-bottom: 1px dotted var(--ink); }
@@ -422,7 +424,7 @@ dialog.nw h3 { margin: 0; font-size: 17px; font-weight: 600; }
 .nw-sev.critical, .nw-sev.high { border: 3px double var(--ink); }
 .nw-sev.medium { border: 2.5px solid var(--ink); }
 .nw-sev.low { border: 1.5px solid var(--ink); }
-.nw-tag { padding: 0 6px; border: 1.5px solid var(--ink); border-radius: 6px; background: var(--mark); color: var(--ink); font: 600 11px var(--mono); letter-spacing: 0.08em; }
+.nw-tag { padding: 0 6px; border: 1.5px solid var(--ink); border-radius: 6px; background: var(--paper); color: var(--ink); font: 600 11px var(--mono); letter-spacing: 0.08em; }
 .nw-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 14px 20px; border-top: 1.5px solid var(--ink); background: var(--sheet); }
 .nw-stages { display: flex; flex-wrap: wrap; align-items: stretch; }
 .nw-stages > .nw-body { flex: 999 1 520px; min-width: 0; }
@@ -522,13 +524,15 @@ dialog.needs .row { margin-top: 0; }
 /* header (001 FR-002, 001 FR-005, 001 FR-006, 001 FR-020) */
 .top .needs-open[data-state="none"] { border-color: var(--rule); color: var(--soft); font-weight: 400; }
 .top .needs-open[data-state="blocking"] { border-width: 2.5px; }
+/* At 0 the Menu button is still the phone's only way around: plain, but not faint. */
+.top .menu-open[data-state="none"] { border-color: var(--ink); color: var(--ink); }
 .top .new-work { min-height: 40px; border-radius: 999px; box-shadow: none; font-size: 14px; }
 .whoami { display: inline-flex; flex-wrap: wrap; gap: 0 6px; max-width: 32ch; overflow-wrap: anywhere; }
 .budget.usage.low { color: var(--ink); font-weight: 600; }
 .unreachable { padding: 8px 32px; border-bottom: 1.5px dashed var(--ink); background: var(--sheet); font-size: 14px; }
 /* Sessions › Running, badges only (004 FR-014) */
 .sess-badge { position: relative; min-height: 44px; min-width: 44px; padding: 4px; box-shadow: none; }
-.sess-badge[aria-pressed="true"] { background: var(--mark); }
+.sess-badge[aria-pressed="true"] { background: var(--sheet); box-shadow: inset 0 0 0 1.5px var(--ink); }
 .sess-badge .dock-count { position: absolute; top: -4px; right: -4px; }
 .clean-cmd { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 
@@ -573,7 +577,7 @@ table.diff tr.notes td { padding: 6px 8px; white-space: normal; background: var(
 .steplog li::marker { color: #888; }
 .steplog li.err { background: rgb(255 154 107 / .22); outline: 1px solid #ff9a6b; }
 /* Knowledge (008 FR-004): marked words keep the text's colour, so the mark is never the only signal of the words. */
-.kn-hit mark { background: var(--mark); color: inherit; padding: 0 1px; border-bottom: 1.5px solid var(--ink); }
+.kn-hit mark { background: none; color: inherit; font-weight: 600; padding: 0 1px; border-bottom: 2px solid var(--ink); }
 /* Reduced motion (001 FR-018): nothing moves when the viewer asks for that, and no state needs motion to be read. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }

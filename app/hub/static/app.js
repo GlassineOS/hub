@@ -147,13 +147,78 @@ function useAct(after) {
 
 const useSessions = () => useLoad(() => api("shells").catch(() => []), [], 15000);
 
+// 001 FR-016: every modal and sheet opens with showModal, so Esc closes it and the page behind it is inert, and Tab and
+// Shift+Tab go round inside it instead of out to the browser. A dialog opened inside another one keeps its own Tab.
+const FOCUSABLE = 'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex]:not([tabindex="-1"])';
+function trapTab(e) {
+  const d = e.currentTarget;
+  if (e.key !== "Tab" || e.defaultPrevented || e.target.closest("dialog") !== d) return;
+  const all = [...d.querySelectorAll(FOCUSABLE)].filter((x) => x.closest("dialog") === d && x.getClientRects().length > 0);
+  if (!all.length) return;
+  const wrap = trapWrap(e.shiftKey, document.activeElement, d, all);
+  if (wrap) { e.preventDefault(); wrap.focus(); }
+}
+// Where Tab or Shift+Tab has to be held and sent: the control to focus, or null to let the browser move on. The dialog
+// itself counts as outside the list (it holds focus when its control went away), so Shift+Tab from it goes to the last.
+function trapWrap(shift, at, d, all) {
+  const first = all[0], last = all[all.length - 1];
+  if (shift && (at === d || at === first || !d.contains(at))) return last;
+  if (!shift && (at === d || at === last || !d.contains(at))) return first;
+  return null;
+}
+// The control before or after `from`, inside its dialog if it is in one: how F6 leaves a terminal.
+function focusPast(from, step) {
+  if (!from) return;
+  const scope = from.closest("dialog[open]") || document;
+  const inside = (x) => (scope === document ? !x.closest("dialog") : x.closest("dialog") === scope);
+  const all = [...scope.querySelectorAll(FOCUSABLE)].filter((x) => inside(x) && x.getClientRects().length > 0);
+  const box = from.closest(".xterm") || from;
+  const next = pickPast(all.filter((x) => !box.contains(x)), box, step);
+  if (next) next.focus();
+}
+// Of the controls outside `box`, in page order: the nearest after it (step > 0) or before it, and when there is none that
+// way, the one at the other end, so F6 and Shift+F6 go round instead of stopping at the last or first control.
+function pickPast(outside, box, step) {
+  const after = outside.filter((x) => box.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING);
+  const before = outside.filter((x) => box.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_PRECEDING);
+  if (step > 0) return after[0] || before[0];
+  return before[before.length - 1] || after[after.length - 1];
+}
+// The open modals, last opened on top. When the control that had focus goes (an answered card, a stage that moved on),
+// focus goes to the top dialog itself rather than to the page, so the keyboard and a screen reader keep their place.
+const MODALS = [];
+const focusLost = () => !document.activeElement || document.activeElement === document.body;
+function useModal(ref) {
+  useEffect(() => {
+    const d = ref.current, opener = document.activeElement;
+    d.tabIndex = -1;
+    d.showModal();
+    MODALS.push(d);
+    d.addEventListener("keydown", trapTab);
+    const watch = new MutationObserver(() => { if (MODALS[MODALS.length - 1] === d && focusLost()) d.focus(); });
+    watch.observe(d, { childList: true, subtree: true });
+    return () => {
+      watch.disconnect();
+      d.removeEventListener("keydown", trapTab);
+      MODALS.splice(MODALS.indexOf(d), 1);
+      // Back to what opened it, or else to the dialog under it.
+      setTimeout(() => {
+        if (!focusLost()) return;
+        const top = MODALS[MODALS.length - 1];
+        const back = opener && opener.isConnected && opener !== document.body && (!top || top.contains(opener)) ? opener : top;
+        if (back) back.focus();
+      }, 0);
+    };
+  }, []);
+}
+
 const Err = ({ text }) => (text ? html`<div class="error" role="alert">${text}</div>` : null);
 const Eyebrow = ({ children, soft }) => html`<span class="eyebrow ${soft ? "soft" : ""}">${children}</span>`;
 
 function Confirm({ title, text, label, danger, onYes, onNo }) {
   const ref = useRef();
-  useEffect(() => { ref.current.showModal(); }, []);
-  return html`<dialog ref=${ref} onClose=${onNo}>
+  useModal(ref);
+  return html`<dialog ref=${ref} aria-label=${title} onClose=${onNo}>
     <h2>${title}</h2><p>${text}</p>
     <div class="row">
       <button class=${danger ? "danger" : "primary"} onClick=${onYes}>${label}</button>
@@ -1053,12 +1118,12 @@ function LabelsDialog({ repo, have, path, onDone, onNo }) {
   const all = useLoad(() => api(`labels/${repo}`), [repo]);
   const [on, setOn] = useState(() => new Set(have));
   const act = useAct();
-  useEffect(() => { ref.current.showModal(); }, []);
+  useModal(ref);
   const names = [...new Set([...(all.data || []).map((l) => l.name), ...have])].sort((a, b) => a.localeCompare(b));
   const add = names.filter((n) => on.has(n) && !have.includes(n));
   const remove = have.filter((n) => !on.has(n));
   const apply = () => act.run(async () => { await post(path, { add, remove }); onDone(`Labels changed${add.length ? `: +${add.join(", +")}` : ""}${remove.length ? `${add.length ? "," : ":"} −${remove.join(", −")}` : ""}`); });
-  return html`<dialog ref=${ref} onClose=${onNo}><h2>Labels</h2>
+  return html`<dialog ref=${ref} aria-labelledby="labels-h" onClose=${onNo}><h2 id="labels-h">Labels</h2>
     <${Err} text=${all.error || act.error} />${!all.data && !all.error && html`<p class="soft">Loading…</p>`}
     <div class="stack" style="gap: 4px; max-height: 50vh; overflow: auto">${names.map((n) => html`<label class="row" style="gap: 8px"><input type="checkbox" checked=${on.has(n)}
       onChange=${() => setOn((s) => { const x = new Set(s); if (!x.delete(n)) x.add(n); return x; })} />${n}</label>`)}</div>
@@ -1068,8 +1133,8 @@ function LabelsDialog({ repo, have, path, onDone, onNo }) {
 function MergeDialog({ data, onYes, onNo }) {
   const ref = useRef();
   const [method, setMethod] = useState("squash");
-  useEffect(() => { ref.current.showModal(); }, []);
-  return html`<dialog ref=${ref} onClose=${onNo}><h2>Merge this pull request?</h2>
+  useModal(ref);
+  return html`<dialog ref=${ref} aria-labelledby="merge-h" onClose=${onNo}><h2 id="merge-h">Merge this pull request?</h2>
     <p>${data.repo}#${data.number} at <span class="mono">${(data.headRefOid || "").slice(0, 12)}</span> into ${data.baseRefName}. Checks: ${data.checks}. If it has moved on from that commit, the merge fails.</p>
     <label class="field"><span>How</span><select value=${method} onChange=${(e) => setMethod(e.target.value)}>
       <option value="squash">Squash and merge</option><option value="merge">Merge commit</option><option value="rebase">Rebase and merge</option></select></label>
@@ -1136,19 +1201,38 @@ function GhActions({ kind, data, repo, number, base, behind, onDone, onPanel }) 
   const [confirm, dialog] = useConfirm();
   const act = useAct();
   const box = useRef();
+  const arrow = useRef();
+  const shut = () => { setMenu(false); if (arrow.current) arrow.current.focus(); };
+  // 001 FR-016: the menu opens with focus on its first item; arrows move, Esc closes it back onto its button.
   useEffect(() => {
     if (!menu) return undefined;
+    const first = box.current && box.current.querySelector('.ghmenu [role="menuitem"]');
+    if (first) first.focus();
     const away = (e) => { if (box.current && !box.current.contains(e.target)) setMenu(false); };
-    const esc = (e) => { if (e.key === "Escape") setMenu(false); };
+    const esc = (e) => { if (e.key === "Escape") { e.preventDefault(); shut(); } };
     document.addEventListener("pointerdown", away);
     document.addEventListener("keydown", esc);
     return () => { document.removeEventListener("pointerdown", away); document.removeEventListener("keydown", esc); };
   }, [menu]);
+  // A dialog it opened has closed: focus comes back to the GitHub actions button, not the page.
+  const hadModal = useRef(null);
+  useEffect(() => {
+    if (hadModal.current && !modal && focusLost() && arrow.current) arrow.current.focus();
+    hadModal.current = modal;
+  }, [modal]);
+  const menuKeys = (e) => {
+    const items = [...e.currentTarget.querySelectorAll('[role="menuitem"]')];
+    const at = items.indexOf(document.activeElement);
+    const to = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[e.key];
+    if (to === undefined || !items.length) { if (e.key === "Tab") setMenu(false); return; }
+    e.preventDefault();
+    items[(to + items.length) % items.length].focus();
+  };
   // The view reloads at once and again after a few seconds, as GitHub can take a moment to show the change (FR-038).
   const finish = async (words) => { setSaid(`${words}.`); await onDone(); setTimeout(onDone, 4000); };
   const go = (e) => {
-    setMenu(false);
     if (e.disabled) return;
+    if (menu) shut();
     if (e.href) { window.open(e.href, "_blank", "noopener,noreferrer"); return; }
     if (e.panel) { onPanel(e.panel); return; }
     if (e.merge) { setModal("merge"); return; }
@@ -1171,10 +1255,10 @@ function GhActions({ kind, data, repo, number, base, behind, onDone, onPanel }) 
     ${modal === "merge" && html`<${MergeDialog} data=${{ ...data, repo, number }} onYes=${merge} onNo=${() => setModal(null)} />`}
     ${modal === "labels" && html`<${LabelsDialog} repo=${repo} have=${have} path=${`${base}/labels`} onNo=${() => setModal(null)} onDone=${(w) => { setModal(null); finish(w); }} />`}
     <div class="ghsplit"><button class="gh" disabled=${act.busy || Boolean(main.disabled)} title=${main.disabled || ""} onClick=${() => go(main)}>${main.label}</button>
-      <button class="gh arrow" aria-haspopup="menu" aria-expanded=${menu ? "true" : "false"} aria-label="More actions on GitHub" disabled=${act.busy} onClick=${() => setMenu(!menu)}>
+      <button ref=${arrow} class="gh arrow" aria-haspopup="menu" aria-expanded=${menu ? "true" : "false"} aria-label="More actions on GitHub" disabled=${act.busy} onClick=${() => setMenu(!menu)}>
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 5l4 4 4-4" /></svg></button></div>
     <span class="small soft">On GitHub, as <span class="mono">${HOST_USER || "the host's gh"}</span></span>
-    ${menu && html`<ul role="menu" class="ghmenu" aria-label="Actions on GitHub">${entries.map((e) => html`<li role="none">
+    ${menu && html`<ul role="menu" class="ghmenu" aria-label="Actions on GitHub" onKeyDown=${menuKeys}>${entries.map((e) => html`<li role="none">
       <button role="menuitem" aria-disabled=${e.disabled ? "true" : "false"} onClick=${() => go(e)}><span>${e.label}</span>${e.disabled && html`<span class="why">${e.disabled}</span>`}</button></li>`)}</ul>`}
     <${Err} text=${act.error} />${said && html`<span role="status" class="small">${said}</span>`}</div>`;
 }
@@ -1213,7 +1297,7 @@ function ItemFrame({ kind, repo, refText, title, state, stateCls, gh, details, f
 
 function DetailsFlyout({ title, onClose, children }) {
   const ref = useRef();
-  useEffect(() => { ref.current.showModal(); }, []);
+  useModal(ref);
   return html`<dialog class="flyout" ref=${ref} onClose=${onClose} aria-label=${title}>
     <div class="row" style="justify-content: space-between"><h2>Details</h2><button class="plain" onClick=${() => ref.current.close()}>Close</button></div>
     ${children}</dialog>`;
@@ -1631,7 +1715,7 @@ const ROWS = {
       sub: join([partWords(p), sizeWords(p), p.author && p.author.login, `${p.headRefName} → ${p.baseRefName}`]),
       agent: p.headRefName.startsWith("agent/"), object: "pr", pill: pillState("pr", p), at: p.updatedAt, labels: p.labels.map((l) => l.name), startable: p.state === "OPEN",
       state: p.state !== "OPEN" ? (p.state === "MERGED" ? "Merged" : "Closed") : p.isDraft ? "Draft" : p.checks === "failing" ? "Failing" : changes ? "Changes asked" : p.checks === "pending" ? "Checks" : p.checks === "passing" ? "Ready" : "Open",
-      badge: p.state !== "OPEN" ? "dim" : p.checks === "failing" ? "bad" : changes ? "mark" : "",
+      badge: p.state !== "OPEN" ? "dim" : p.checks === "failing" ? "bad" : "",
       icon: p.state !== "OPEN" ? "pass" : p.checks === "failing" ? "fail" : p.checks === "pending" ? "run" : p.checks === "passing" ? "pass" : "open",
       facts: { failing: p.state === "OPEN" && p.checks === "failing", changesRequested: changes, openThreads: 0, reviews: changes ? 1 : 0 },
     };
@@ -1994,7 +2078,7 @@ function KnowledgeReports() {
 function ResearchFlyout({ k, pins, onPins, onClose }) {
   const ref = useRef();
   const [question, setQuestion] = useState(k.q);
-  useEffect(() => { ref.current.showModal(); }, []);
+  useModal(ref);
   const scope = `${k.domains.map((d) => KN_INDEX[d]).join(" and ")}${k.repos.length ? `, in ${k.repos.join(", ")}` : ", every repository"}${k.open && k.domains.includes("work") ? ", open work items only" : ""}`;
   const plan = () => {
     launch({ action: "knowledge-research", notes: `Question: ${question.trim()}\nScope: ${scope}`.slice(0, 4000), pins: pins.slice(0, 12), from: { view: "Knowledge" } });
@@ -2146,6 +2230,12 @@ function TerminalView({ name, onGone, focusRef, quiet }) {
     });
     const selected = term.onSelectionChange(() => { if (term.hasSelection()) copy(term.getSelection()); });
     term.attachCustomKeyEventHandler((e) => {
+      // 001 FR-016: the terminal takes Tab for itself, so F6 and Shift+F6 leave it for the next or previous control.
+      if (e.key === "F6") {
+        if (e.type === "keydown") focusPast(term.textarea, e.shiftKey ? -1 : 1);
+        e.preventDefault();
+        return false;
+      }
       // Sent as a plain Enter, this would submit Claude's prompt. Ctrl+J is its new line in any terminal, and needs nothing of tmux.
       if (e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
         if (e.type === "keydown" && ws.readyState === WebSocket.OPEN) ws.send(encoder.encode("\n"));
@@ -2189,7 +2279,7 @@ function TerminalView({ name, onGone, focusRef, quiet }) {
   // Keyed, or the note taking the first place would take over the terminal's element. The copy
   // message floats: anything that changes the terminal's height resizes the pane.
   return html`${note && html`<div key="note" class="small soft" style="padding: 6px 16px">${note}</div>`}
-    <div key="term" class="term" ref=${box}></div>
+    <div key="term" class="term" ref=${box} role="group" aria-label="Terminal. F6 or Shift+F6 leaves it." title="F6 or Shift+F6 leaves the terminal"></div>
     ${!typing && !quiet && html`<div key="unfocused" class="small term-copied" role="status">Keys aren't going to the terminal. Click it to type.</div>`}
     ${copied && html`<div key="copied" class="small term-copied" role="status">${copied}</div>`}`;
 }
@@ -2828,7 +2918,7 @@ function LaunchModal({ open, work, asks, reload, onClose, onBehind }) {
   const { data: overview } = useLoad(() => api("overview"), []);
   const act = useAct(reload);
   const [confirm, confirmDialog] = useConfirm();
-  useEffect(() => { dialog.current.showModal(); }, []);
+  useModal(dialog);
   const live = id ? work.items.find((i) => i.id === id) || null : null;
   const action = actions && live ? actions.find((a) => a.id === live.action) : null;
   useEffect(() => { if (live && fresh) setFresh(null); }, [Boolean(live)]);
@@ -3126,7 +3216,7 @@ function NeedsYouModal({ initial, data, asks, onClose }) {
   const [session, setSession] = useState(initial.session || "");
   const [dense, setDense] = useState(false);
   const seen = useRef(new Map()); // id → how it was when this view first showed it
-  useEffect(() => { ref.current.showModal(); }, []);
+  useModal(ref);
   const rows = [...data.items, ...data.grants];
   for (const r of rows) if (!seen.current.has(r.id)) seen.current.set(r.id, r.status);
   // 003 FR-011: what was waiting or standing when you looked, and has settled since; until you close this.
@@ -3173,7 +3263,7 @@ const whenAgo = (seconds) => ago(new Date(seconds * 1000).toISOString());
 function Transcript({ id, name, onClose }) {
   const ref = useRef();
   const { data, error } = useLoad(() => post("agents/past_transcript", { id }), [id]);
-  useEffect(() => { ref.current.showModal(); }, []);
+  useModal(ref);
   return html`<dialog ref=${ref} class="transcript" aria-labelledby="tr-h" onClose=${onClose}>
     <div class="row" style="justify-content: space-between; margin: 0"><h2 id="tr-h" class="mono">${name}</h2><button class="square" aria-label="Close" onClick=${onClose}>×</button></div>
     <${Err} text=${error} />
@@ -3321,7 +3411,7 @@ function MenuButton({ asks, onOpen }) {
 // Esc (001 FR-016).
 function MenuSheet({ here, asks, host, onOut, onClose }) {
   const ref = useRef(null);
-  useEffect(() => { ref.current.showModal(); }, []);
+  useModal(ref);
   const close = () => { if (ref.current && ref.current.open) ref.current.close(); };
   return html`<dialog ref=${ref} class="sheet menu" aria-labelledby="menu-h" onClose=${onClose}>
     <div class="needs-head"><h2 id="menu-h">Menu</h2><button class="square" aria-label="Close the menu" onClick=${close}>×</button></div>
@@ -3576,7 +3666,7 @@ function QueueRow({ r, onChanged }) {
   return html`<article class="stack" style="gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--rule)" aria-label=${`${r.repo}#${r.number}`}>
     <div class="row" style="gap: 8px">
       ${r.order && html`<span class="mono small">${r.order.n} of ${r.order.m}</span>`}
-      ${r.next && html`<span class="badge mark">Next</span>`}
+      ${r.next && html`<span class="badge">Next</span>`}
       ${!open && html`<span class="badge dim">${r.state === "MERGED" ? (r.merged_on ? `Merged ${r.merged_on}` : "Merged") : r.state}</span>`}
       ${r.draft && html`<span class="badge dim">Draft</span>`}
       ${r.blockers.length > 0 && html`<span class="badge bad">Blocked</span>`}
@@ -3625,7 +3715,7 @@ function WorkQueue() {
 // 009 FR-003: the trust labels, in words; a state the page doesn't know reads as no status, never as a fact.
 const TRUST = {
   current: ["CURRENT", "", "Holds now, with evidence."],
-  open: ["OPEN QUESTION", "mark", "Not settled yet."],
+  open: ["OPEN QUESTION", "", "Not settled yet."],
   history: ["HISTORY", "dim", "Was so once; the log keeps it."],
   retracted: ["RETRACTED", "bad", "Shown wrong by a later note."],
   "archive, unreviewed": ["ARCHIVE·UNREVIEWED", "dim", "From an old source nobody has checked."],
@@ -3663,7 +3753,7 @@ function NoteRow({ r }) {
 // 009 FR-005: totals per label and per topic, and the two upkeep actions, for all notes or one topic.
 function KeepNotesUseful({ onClose }) {
   const ref = useRef();
-  useEffect(() => { ref.current.showModal(); }, []);
+  useModal(ref);
   const { data, error } = useLoad(() => api("notes/totals"), []);
   const go = (action, topic) => { launch({ action, notes: topic ? `Topic: ${topic}` : "All notes", from: { view: "Notes" } }); ref.current.close(); };
   const both = (topic) => html`<button onClick=${() => go("notes-compact", topic)}>Compact…</button><button onClick=${() => go("notes-sweep", topic)}>Sweep…</button>`;
@@ -3717,7 +3807,7 @@ function NotesPage() {
       <label class="row small" style="gap: 6px; flex: 1">Look for
         <input type="search" style="flex: 1; min-width: 0" maxlength="500" value=${words} onInput=${(e) => setWords(e.target.value)} /></label>
       <button class="primary" type="submit" disabled=${act.busy || !words.trim() || Boolean(missing)}>${act.busy ? "Searching…" : "Search"}</button>
-      ${(indexing || (status.data && status.data.indexing)) && html`<span class="badge mark" role="status">indexing</span>`}</form>
+      ${(indexing || (status.data && status.data.indexing)) && html`<span class="badge sev-info" role="status">indexing</span>`}</form>
     ${!found && !missing && html`<div class="stack" style="gap: 8px"><p class="small soft">Search by words, then press Search. What each label means:</p><${TrustLegend} /></div>`}
     ${found && found.here && html`<div class="stack" style="gap: 4px">
       <p role="status" class="small">${rows.length ? `${found.says}${more ? `, showing ${rows.length}` : ""}.` : `Nothing matches “${searched}”.`}</p>
@@ -3904,7 +3994,7 @@ function StewardModel({ running, current, open }) {
 // open-or-rail choice of the wide panel alone.
 function StewardSheet({ onClose, children }) {
   const ref = useRef(null);
-  useEffect(() => { ref.current.showModal(); }, []);
+  useModal(ref);
   return html`<dialog ref=${ref} class="sheet steward-sheet" aria-labelledby="dock-h" onClose=${onClose}>${children}</dialog>`;
 }
 
