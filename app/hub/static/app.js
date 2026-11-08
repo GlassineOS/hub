@@ -204,7 +204,7 @@ const Eyebrow = ({ children, soft }) => html`<span class="eyebrow ${soft ? "soft
 function Confirm({ title, text, label, danger, onYes, onNo }) {
   const ref = useRef();
   useModal(ref);
-  return html`<dialog ref=${ref} onClose=${onNo}>
+  return html`<dialog ref=${ref} aria-label=${title} onClose=${onNo}>
     <h2>${title}</h2><p>${text}</p>
     <div class="row">
       <button class=${danger ? "danger" : "primary"} onClick=${onYes}>${label}</button>
@@ -1109,7 +1109,7 @@ function LabelsDialog({ repo, have, path, onDone, onNo }) {
   const add = names.filter((n) => on.has(n) && !have.includes(n));
   const remove = have.filter((n) => !on.has(n));
   const apply = () => act.run(async () => { await post(path, { add, remove }); onDone(`Labels changed${add.length ? `: +${add.join(", +")}` : ""}${remove.length ? `${add.length ? "," : ":"} −${remove.join(", −")}` : ""}`); });
-  return html`<dialog ref=${ref} onClose=${onNo}><h2>Labels</h2>
+  return html`<dialog ref=${ref} aria-labelledby="labels-h" onClose=${onNo}><h2 id="labels-h">Labels</h2>
     <${Err} text=${all.error || act.error} />${!all.data && !all.error && html`<p class="soft">Loading…</p>`}
     <div class="stack" style="gap: 4px; max-height: 50vh; overflow: auto">${names.map((n) => html`<label class="row" style="gap: 8px"><input type="checkbox" checked=${on.has(n)}
       onChange=${() => setOn((s) => { const x = new Set(s); if (!x.delete(n)) x.add(n); return x; })} />${n}</label>`)}</div>
@@ -1120,7 +1120,7 @@ function MergeDialog({ data, onYes, onNo }) {
   const ref = useRef();
   const [method, setMethod] = useState("squash");
   useModal(ref);
-  return html`<dialog ref=${ref} onClose=${onNo}><h2>Merge this pull request?</h2>
+  return html`<dialog ref=${ref} aria-labelledby="merge-h" onClose=${onNo}><h2 id="merge-h">Merge this pull request?</h2>
     <p>${data.repo}#${data.number} at <span class="mono">${(data.headRefOid || "").slice(0, 12)}</span> into ${data.baseRefName}. Checks: ${data.checks}. If it has moved on from that commit, the merge fails.</p>
     <label class="field"><span>How</span><select value=${method} onChange=${(e) => setMethod(e.target.value)}>
       <option value="squash">Squash and merge</option><option value="merge">Merge commit</option><option value="rebase">Rebase and merge</option></select></label>
