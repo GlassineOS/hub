@@ -494,6 +494,15 @@ worded to match a likely query can reach a run about something else. So:
   with where it is. A login could already type into any session through its terminal, so the field adds no reach: it adds a
   queue that waits for the turn to end. The words arrive as your turn, so a session treats them as yours: don't paste an
   outsider's text there unread.
+- Where you are in the hub joins each of your turns in a session (`agent.context`, a login op): the screen, the open item,
+  and the repositories chosen on the page. hubd checks each against the same patterns as elsewhere (a repository name is a
+  name of at most 100 characters, as on GitHub, each once, at most 10), writes the line from the checked values only, and answers with the chips the Steward panel
+  shows, made from the same values (010 FR-004): more than three repositories are told, and shown, only as a count. No tool
+  call or session token sets it. A name in the address is only a name: the line says what you chose, not what it holds.
+  The line is one per session and the last page to write it wins, so the panel shows the chips `agent.state` gives for the
+  line on disk: hubd's own for the line it last wrote, and none when the file is anything else. That file is in the
+  session's folder, so hubd reads it as it reads a session's own files (no link followed, nothing but a regular file, no
+  more than the line's length) and only compares it: what it holds never reaches a page.
 - A session's prompts and questions reach the hub as cards through a hook, which holds a connection to hubd. Only a login can
   answer: a session's token can add a card for itself, and close it, and nothing else. The hook prints what hubd worked out
   from the prompt, never what a page sent, and a card that's closed, or a second answer, changes nothing. A card shows the

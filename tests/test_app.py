@@ -1756,7 +1756,8 @@ def test_launch_is_one_modal_with_five_stages_opened_by_one_event():
     assert 'launch({ action: action.id, covers: [{ kind, repo: row.repo, number: row.number }], from: { view: "Work"' in _component(script, "WorkRow")
     assert 'from: { view: "Work", ref: here }' in _component(script, "LaunchRow")
     assert 'from: { view: "Roadmap" }' in _component(script, "Roadmap") and 'from: { view: "Overview" }' in _component(script, "RepoDetail")
-    assert "from: { view: seen.screen" in _component(script, "Steward")
+    # The Steward panel's ＋ asks the Steward in its chat (010 FR-006); its suggestions open Launch.
+    assert "launch(" not in _component(script, "Steward")
     assert "launch({ id: item.id" in _component(script, "SuggestedSession")
     # The old address lands on the item.
     assert 'route.path === "launch"' in _component(script, "movedRoute")
@@ -2569,3 +2570,108 @@ def test_read_report_is_listed_only_for_a_research_session_and_goes_to_hubd_unde
         hubd_client.CALLER.set("session-token")
         return await github.read_report("r-0123456789ab")
     assert asyncio.run(go())["answer"] == "a"
+
+
+def test_the_page_tells_hubd_the_chosen_repositories_with_the_context():
+    seen = []
+
+    class Hubd(FakeHubd):
+        async def call(self, **request):
+            if not request["op"].startswith("agent."):
+                return await super().call(**request)
+            seen.append(request)
+            return {"ok": True, "sees": [{"kind": "view", "label": "Work"}]}
+    client = TestClient(web.build(Hubd(), None, FakeDocs(), secure_cookie=False, allowed_hosts={"testserver"}))
+    signed_in(client)
+    body = {"name": "steward", "screen": "Work", "repos": ["hub", "docs"], "text": "not here"}
+    assert client.post("/api/agents/context", json=body, headers=ORIGIN).json()["sees"] == [{"kind": "view", "label": "Work"}]
+    context = next(r for r in seen if r["op"] == "agent.context")
+    assert (context["screen"], context["repos"]) == ("Work", ["hub", "docs"]) and "text" not in context
+
+
+def test_the_steward_panel_opens_per_view_and_keeps_its_width():
+    script = _app_js()
+    # 010 FR-002: open beside Overview, Roadmap, Work and a work item; a rail beside Sessions, Knowledge and Notes.
+    assert 'const STEWARD_OPEN = ["Overview", "Roadmap", "Work", "Work item", "Queue"];' in script
+    for view in ("Sessions", "Knowledge", "Notes"):
+        assert f'"{view}"' not in script.split("const STEWARD_OPEN = ")[1].split(";")[0]
+    assert "keptRail" not in script and '"steward-panel"' in script
+    # 010 FR-001: 320 to 760 px, a handle the keyboard moves, the width kept in this browser.
+    assert "const STEWARD_WIDTH = { min: 320, max: 760" in script and '"steward-width"' in script
+    handle = _component(script, "WidthHandle")
+    for text in ('role="separator"', 'tabindex="0"', "aria-valuenow", "ArrowLeft", "ArrowRight", "onPointerMove"):
+        assert text in handle, text
+    css = (Path(__file__).resolve().parents[1] / "app" / "hub" / "static" / "style.css").read_text()
+    assert "width: var(--dock-w, 440px)" in css and ".dock-handle { display: none; }" in css
+
+
+def test_the_steward_panel_shows_what_hubd_says_it_was_told():
+    script = _app_js()
+    panel = _component(script, "Steward")
+    # 010 FR-004: the chips are hubd's reply to the context it wrote, not the page's own guess.
+    assert 'post("agents/context", { name: STEWARD, screen: seen.screen, kind: seen.kind, selection: seen.selection, repos: seen.repos })' in panel
+    assert "r.sees" in panel and "chips.map" in panel
+    assert "seenRepos(moved.query.repo)" in script and "seenRepos(moved.query.repos)" in script
+    # 010 FR-005: the strip counts what Needs you counts for the Steward, and opens it filtered.
+    assert 'r.status === "pending" && r.session === STEWARD' in panel and 'needsYou({ filter: "steward" })' in panel
+    # 010 FR-006: a request in the Steward's chat with your words, not Launch; off while it isn't running.
+    plan = _component(script, "PlanWithSteward")
+    assert 'post("agents/say", { name: STEWARD, text, where })' in plan and "Start the Steward first" in plan
+    assert "launch(" not in plan and "planFromSteward" not in script
+    assert "＋ Plan new work with the Steward" in panel
+    # 010 FR-003: the compact session view, with the model and its select.
+    assert "<${StewardModel}" in panel and 'mode="compact"' in _component(script, "StewardSession")
+
+
+def test_the_steward_panel_is_a_button_at_phone_width():
+    script = _app_js()
+    css = (Path(__file__).resolve().parents[1] / "app" / "hub" / "static" / "style.css").read_text()
+    # 001 FR-008: at phone width a floating button that opens a full sheet, at the same width the stylesheet makes it one.
+    assert 'const PHONE = "(max-width: 1000px)";' in script and "@media (max-width: 1000px) {\n  .dock { position: fixed; inset: 0;" in css
+    panel = _component(script, "Steward")
+    # The per-view choice is the side panel's: on a phone it isn't applied, isn't kept, and the sheet closes with the view.
+    assert "const open = phone ? sheet === view : view in panels ? panels[view] : panelOpen(view);" in panel
+    assert panel.index("if (phone) return setSheet(next ? null : view);") < panel.index("keepPanel(view, !next);")
+    assert "useEffect(() => setSheet(null), [view]);" in panel and 'm.addEventListener("change", changed)' in _component(script, "usePhone")
+
+
+def test_the_steward_chips_follow_the_line_on_disk_not_this_tabs_last_answer():
+    panel = _component(_app_js(), "Steward")
+    # 010 FR-004: another tab, or a phone, can write the line after this one; the chips are hubd's for what's on disk,
+    # read again after each write, and this page's own answer only until then (or while the Steward has no folder).
+    assert "const onDisk = state && state.sees && state !== toldWith.current ? state.sees : null;" in panel
+    assert "const chips = onDisk || (told && told.key === seenKey ? told.chips : null);" in panel
+    assert "toldWith.current = known.current; setTold({ key: seenKey, chips: r.sees || [] }); reload();" in panel
+    # Back on a tab it tells the Steward its place again; a hidden tab writes nothing.
+    assert 'window.addEventListener("focus", again)' in panel and 'document.addEventListener("visibilitychange", again)' in panel
+    assert "if (document.hidden) return undefined;" in panel and "}, [running, seenKey, back]);" in panel
+
+
+def test_the_page_drops_what_hubd_would_refuse_in_the_context():
+    script = _app_js()
+    # The same caps as hubd's: a name as long as GitHub allows, an id as long as an int64.
+    assert "/^\\.?[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$/" in _component(script, "seenRepos")
+    assert "/^[A-Za-z0-9._-]{1,100}$/.test(repo" in _component(script, "seenFrom") and "/^[0-9]{1,20}$/.test(n" in _component(script, "seenFrom")
+    from hubd import agents
+    assert agents._SEEN_REPO_RE.pattern == r"\.?[A-Za-z0-9_][A-Za-z0-9._-]{0,99}" and agents._SELECTION_RE.pattern == r"[A-Za-z0-9._-]{1,100}#[0-9]{1,20}"
+
+
+def test_knowledge_and_the_steward_chips_read_the_chosen_repositories_alike():
+    """Review 5: one parser, so a crafted address can't make the Knowledge page and the chips name different repositories."""
+    script = _app_js()
+    assert "repos: seenRepos(q.repos)," in _component(script, "readKnowledge") and "seenRepos(moved.query.repos)" in _component(script, "seenFrom")
+    if not shutil.which("node"):
+        pytest.skip("node isn't installed")
+    src = "\n".join(re.search(rf"\nconst {name} = .*?;\n", script)[0] for name in ("KN_DOMAINS", "KN_PLANNED", "SEEN_REPOS_MOST"))
+    src += _component(script, "seenRepos") + _component(script, "readKnowledge")
+    crafted = ",".join(["hub", "hub", "-x", "r" * 101, ".github"] + [f"r{i}" for i in range(12)])
+    code = src + f"\nconsole.log(JSON.stringify([readKnowledge({{repos: {json.dumps(crafted)}}}).repos, seenRepos({json.dumps(crafted)})]));"
+    page, chips = json.loads(subprocess.run(["node", "-e", code], capture_output=True, text=True, check=True).stdout)
+    assert page == chips == ["hub", ".github"] + [f"r{i}" for i in range(8)]  # each once, names only, then the first ten
+
+
+def test_home_and_end_on_the_width_handle_go_to_its_min_and_max():
+    handle = _component(_app_js(), "WidthHandle")
+    # Its value is the panel's width, so Home is aria-valuemin (narrowest) and End aria-valuemax (widest).
+    assert "aria-valuemin=${STEWARD_WIDTH.min} aria-valuemax=${STEWARD_WIDTH.max} aria-valuenow=${width}" in handle
+    assert "Home: STEWARD_WIDTH.min, End: STEWARD_WIDTH.max" in handle
