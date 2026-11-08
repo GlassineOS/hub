@@ -3787,19 +3787,31 @@ function keepPanel(view, open) {
 }
 // 010 FR-001: the panel's width, 320 to 760 px, kept per viewer in this browser.
 const STEWARD_WIDTH = { min: 320, max: 760, start: 440, step: 16 };
-const clampWidth = (w) => Math.min(STEWARD_WIDTH.max, Math.max(STEWARD_WIDTH.min, Math.round(Number(w) || STEWARD_WIDTH.start)));
+const clampWidth = (w, max = STEWARD_WIDTH.max) => Math.min(max, Math.max(STEWARD_WIDTH.min, Math.round(Number(w) || STEWARD_WIDTH.start)));
+// Up to 1000 px wide the panel takes at most 45 % of the window (style.css has the same cap), so the widest it can be
+// is that; the handle reports this as its maximum, and the width it reports is the one drawn. Wider, the spec's 760.
+const widthRoom = (inner) => (inner <= 1000 ? Math.max(STEWARD_WIDTH.min, Math.min(STEWARD_WIDTH.max, Math.floor(inner * 0.45))) : STEWARD_WIDTH.max);
+function useWidthRoom() {
+  const [room, setRoom] = useState(() => widthRoom(window.innerWidth));
+  useEffect(() => {
+    const on = () => setRoom(widthRoom(window.innerWidth));
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, []);
+  return room;
+}
 function readWidth() {
   try { return clampWidth(localStorage.getItem("steward-width")); } catch { return STEWARD_WIDTH.start; }
 }
 
-function WidthHandle({ width, onWidth }) {
+function WidthHandle({ width, max, onWidth }) {
   const drag = useRef(null);
-  const set = (w) => onWidth(clampWidth(w));
+  const set = (w) => onWidth(clampWidth(w, max));
   const key = (e) => {
     const step = e.shiftKey ? STEWARD_WIDTH.step * 4 : STEWARD_WIDTH.step;
     // The panel is on the right: Left widens it, Right narrows it. Home and End go to aria-valuemin and aria-valuemax, the
     // panel's narrowest and widest, as a window splitter's do for the pane its value is.
-    const next = { ArrowLeft: width + step, ArrowRight: width - step, Home: STEWARD_WIDTH.min, End: STEWARD_WIDTH.max }[e.key];
+    const next = { ArrowLeft: width + step, ArrowRight: width - step, Home: STEWARD_WIDTH.min, End: max }[e.key];
     if (next === undefined) return;
     e.preventDefault();
     set(next);
@@ -3813,7 +3825,7 @@ function WidthHandle({ width, onWidth }) {
   const move = (e) => { if (drag.current) set(drag.current.w + (drag.current.x - e.clientX)); };
   const up = () => { drag.current = null; };
   return html`<div class="dock-handle" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Steward panel width"
-    aria-valuemin=${STEWARD_WIDTH.min} aria-valuemax=${STEWARD_WIDTH.max} aria-valuenow=${width} aria-valuetext=${`${width} pixels`}
+    aria-valuemin=${STEWARD_WIDTH.min} aria-valuemax=${max} aria-valuenow=${width} aria-valuetext=${`${width} pixels`}
     title="Drag, or use the arrow keys, to resize" onKeyDown=${key} onPointerDown=${down} onPointerMove=${move} onPointerUp=${up} onPointerCancel=${up}></div>`;
 }
 
@@ -3903,6 +3915,8 @@ function Steward({ route, asks }) {
     setPanels({ ...panels, [view]: !next });
   };
   const [width, setWidthState] = useState(readWidth);
+  const room = useWidthRoom();
+  const shown = Math.min(width, room);  // what is drawn, and what the handle reports
   const setWidth = (w) => { setWidthState(w); try { localStorage.setItem("steward-width", String(w)); } catch { /* it only helps */ } };
   const [modelOpen, setModelOpen] = useState(false);
   const [planning, setPlanning] = useState(false);
@@ -3976,8 +3990,8 @@ function Steward({ route, asks }) {
     <${StewardSession} state=${state || { state: "Not started", queued: 0 }} seen=${seen} buttons=${buttons} reload=${reload} asks=${asks} />
     <p class="small soft" style="margin: 0; padding: 0 12px 12px">A configured session like any other: no shell, reads everything, and every write asks you first.</p>`;
   if (phone) return html`${fab}<${StewardSheet} onClose=${() => setRail(true)}><div class="dock">${body}</div><//>`;
-  return html`<aside class="dock" aria-labelledby="dock-h" style=${`--dock-w: ${width}px`}>
-    <${WidthHandle} width=${width} onWidth=${setWidth} />${body}</aside>`;
+  return html`<aside class="dock" aria-labelledby="dock-h" style=${`--dock-w: ${shown}px`}>
+    <${WidthHandle} width=${shown} max=${room} onWidth=${setWidth} />${body}</aside>`;
 }
 
 function App() {

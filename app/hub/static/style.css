@@ -282,8 +282,10 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
 .dock-main { flex: 1 1 0; min-width: 0; }
 .dock, .dock-rail { position: sticky; top: 0; height: 100vh; flex: none; border-left: 1.5px solid var(--ink); background: var(--paper); }
 .dock-rail { width: 64px; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 12px 0; background: var(--sheet); }
-/* Beside a narrow page (761 to about 1000 px) the panel takes at most 45 % of the width, so the view keeps the rest. */
-.dock { width: var(--dock-w, 440px); max-width: 45vw; display: flex; flex-direction: column; }
+.dock { width: var(--dock-w, 440px); display: flex; flex-direction: column; }
+/* Beside a narrow page (761 to 1000 px) the panel takes at most 45 % of the width, so the view keeps the rest. Wider it
+   keeps the 320 to 760 px of 010 FR-001. widthRoom in app.js is the same cap, for the handle. */
+@media (max-width: 1000px) { .dock { max-width: 45vw; } }
 /* 010 FR-001: the left edge resizes the panel; it takes focus, and the arrow keys move it. */
 .dock-handle { position: absolute; top: 0; bottom: 0; left: -6px; z-index: 2; width: 11px; cursor: col-resize; touch-action: none; }
 .dock-handle::after { content: ""; position: absolute; top: 50%; left: 4px; width: 3px; height: 44px; margin-top: -22px; border-radius: 2px; background: var(--ink); opacity: 0.35; }

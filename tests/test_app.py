@@ -2676,8 +2676,26 @@ def test_knowledge_and_the_steward_chips_read_the_chosen_repositories_alike():
 def test_home_and_end_on_the_width_handle_go_to_its_min_and_max():
     handle = _component(_app_js(), "WidthHandle")
     # Its value is the panel's width, so Home is aria-valuemin (narrowest) and End aria-valuemax (widest).
-    assert "aria-valuemin=${STEWARD_WIDTH.min} aria-valuemax=${STEWARD_WIDTH.max} aria-valuenow=${width}" in handle
-    assert "Home: STEWARD_WIDTH.min, End: STEWARD_WIDTH.max" in handle
+    assert "aria-valuemin=${STEWARD_WIDTH.min} aria-valuemax=${max} aria-valuenow=${width}" in handle
+    assert "Home: STEWARD_WIDTH.min, End: max" in handle
+
+
+def test_the_width_handle_reports_the_width_that_is_drawn():
+    """Review 47: the 45 % cap is for windows up to 1000 px only, and the handle's maximum and value are what is drawn."""
+    script, css = _app_js(), _style_css()
+    assert "@media (max-width: 1000px) { .dock { max-width: 45vw; } }" in css
+    assert re.search(r"^\.dock \{[^}]*max-width", css, re.M) is None, "the cap is only inside the width query"
+    steward = _component(script, "Steward")
+    assert "const shown = Math.min(width, room);" in steward and "--dock-w: ${shown}px" in steward
+    assert "<${WidthHandle} width=${shown} max=${room}" in steward
+    if not shutil.which("node"):
+        pytest.skip("node isn't installed")
+    src = "const STEWARD_WIDTH = { min: 320, max: 760, start: 440, step: 16 };\n"
+    src += "\n".join(re.search(rf"\nconst {name} = .*?;\n", script, re.S)[0] for name in ("clampWidth", "widthRoom"))
+    code = src + "\nconsole.log(JSON.stringify([[1440, 1001, 1000, 800, 761].map(widthRoom), clampWidth(700, widthRoom(800)), clampWidth(100, widthRoom(800)), clampWidth(700)]));"
+    rooms, narrow, least, wide = json.loads(subprocess.run(["node", "-e", code], capture_output=True, text=True, check=True).stdout)
+    # 1440 and 1001 px keep the spec's 760; up to 1000 px it's 45 % of the window, never under 320.
+    assert rooms == [760, 760, 450, 360, 342] and (narrow, least, wide) == (360, 320, 700)
 def _phone_block(css):
     start = css.index("@media (max-width: 760px) {")
     depth, i = 0, css.index("{", start)
@@ -2693,7 +2711,8 @@ def test_one_phone_block_and_no_wide_fixed_widths_in_it():
     than 360 px outside the boxes that scroll on their own."""
     css = _style_css()
     assert css.count("@media (max-width: 760px)") == 1
-    assert "max-width: 1000px" not in css and "max-width: 720px" not in css, "the phone rules are in the one block"
+    # The only rule left at 1000 px is the Steward panel's cap beside a narrow page (761 to 1000 px).
+    assert css.count("@media (max-width: 1000px)") == 1 and "max-width: 720px" not in css, "the phone rules are in the one block"
     block = _phone_block(css)
     scroll_boxes = (".board", ".diffbox", ".log", ".term", ".ask-code", ".ask-lines", ".steplog")
     for rule in re.findall(r"([^{}]+)\{([^{}]*)\}", block[block.index("{") + 1:]):
