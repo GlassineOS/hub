@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sessions tabs</title>
+<script src="./support.js"></script>
+<script src="data/fixtures.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<nav aria-label="Sessions" style="display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1.5px solid #111111; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #111111">
+  <sc-for list="{{tabs}}" as="t" hint-placeholder-count="3">
+    <a href="{{t.href}}" aria-current="{{t.current}}" style="{{t.style}}">{{t.label}}<sc-if value="{{t.hasCount}}" hint-placeholder-val="{{true}}"><span style="{{t.countStyle}}">{{t.count}}</span></sc-if></a>
+  </sc-for>
+</nav>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"active":{"editor":"enum","options":["running","history"],"default":"running"},"$preview":{"width":900,"height":52}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const H = window.HUB;
+    const a = this.props.active || 'running';
+    const live = Object.values(H.sessions).filter((s) => s.state !== 'DONE').length;
+    const T = [['running', 'Running', 'Sessions.dc.html', live, false], ['history', 'History & cleanup', 'History.dc.html', 0, false]];
+    return { tabs: T.map(([id, label, href, n, hi]) => ({ label, href, current: id === a ? 'page' : 'false', hasCount: n > 0, count: String(n),
+      countStyle: 'margin-left: 8px; font-family: \'IBM Plex Mono\', monospace; font-size: 13px; padding: 1px 7px; border: 1.5px solid #111111; border-radius: 999px; background: ' + (hi ? '#ffd86b' : '#ffffff'),
+      style: 'display: flex; align-items: center; min-height: 48px; padding: 0 16px; color: #111111; text-decoration: none; font-size: 16px; margin-bottom: -1.5px; ' + (id === a ? 'border-bottom: 3px solid #2747b8; font-weight: 600' : 'border-bottom: 3px solid transparent') })) };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Research a question</title>
+<script src="./support.js"></script>
+<script src="data/fixtures.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Kalam&amp;display=swap">
+<style>body{margin:0;background:#ffffff}</style>
+</helmet>
+<div style="padding: 32px; display: flex; flex-direction: column; gap: 36px; max-width: 1184px; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15px; line-height: 1.5; color: #111111">
+  <header style="display: flex; flex-direction: column; gap: 6px">
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.08em">FLOW · ONE LAUNCH COMPONENT, FOUR STAGES</span>
+    <h1 style="margin: 0; font-size: 28px; font-weight: 600">Research a question from Knowledge</h1>
+    <p style="margin: 0; max-width: 80ch; font-size: 15.5px">Started from Knowledge with the search text as the question, the selected domains as scope and the pinned results as context. A read-only Researcher reads further than the index and returns a cited report, which is saved back into Knowledge so later searches and sessions find it.</p>
+  </header>
+  <section style="display: flex; flex-direction: column; gap: 10px; background: transparent">
+    <div style="display: flex; align-items: baseline; gap: 12px"><span style="display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex: none; border: 1.5px solid #2747b8; border-radius: 999px; font-family: Kalam, cursive; font-size: 19px; color: #2747b8">1</span><h2 style="margin: 0; font-size: 19px; font-weight: 600">Brief</h2><span style="font-family: Kalam, cursive; font-size: 17px; color: #2747b8">question, scope and pins carried over from the search</span></div>
+    <dc-import name="Launch" layer="inline" entry="new" action="research" describe="{{q}}" scope="docs, work items, code" pins="{{pins}}" context="Knowledge" stage="brief" hint-size="100%,820px"></dc-import>
+  </section>
+  <section style="display: flex; flex-direction: column; gap: 10px; background: transparent">
+    <div style="display: flex; align-items: baseline; gap: 12px"><span style="display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex: none; border: 1.5px solid #2747b8; border-radius: 999px; font-family: Kalam, cursive; font-size: 19px; color: #2747b8">2</span><h2 style="margin: 0; font-size: 19px; font-weight: 600">Plan</h2><span style="font-family: Kalam, cursive; font-size: 17px; color: #2747b8">hub.search across domains, no checkout</span></div>
+    <dc-import name="Launch" layer="inline" entry="new" action="research" describe="{{q}}" scope="docs, work items, code" pins="{{pins}}" context="Knowledge" stage="plan" hint-size="100%,820px"></dc-import>
+  </section>
+  <section style="display: flex; flex-direction: column; gap: 10px; background: transparent">
+    <div style="display: flex; align-items: baseline; gap: 12px"><span style="display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex: none; border: 1.5px solid #2747b8; border-radius: 999px; font-family: Kalam, cursive; font-size: 19px; color: #2747b8">3</span><h2 style="margin: 0; font-size: 19px; font-weight: 600">Run</h2><span style="font-family: Kalam, cursive; font-size: 17px; color: #2747b8">it may ask how far to go</span></div>
+    <dc-import name="Launch" layer="inline" entry="new" action="research" describe="{{q}}" scope="docs, work items, code" pins="{{pins}}" context="Knowledge" stage="run" hint-size="100%,820px"></dc-import>
+  </section>
+  <section style="display: flex; flex-direction: column; gap: 10px; background: transparent">
+    <div style="display: flex; align-items: baseline; gap: 12px"><span style="display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex: none; border: 1.5px solid #2747b8; border-radius: 999px; font-family: Kalam, cursive; font-size: 19px; color: #2747b8">4</span><h2 style="margin: 0; font-size: 19px; font-weight: 600">Result</h2><span style="font-family: Kalam, cursive; font-size: 17px; color: #2747b8">answer, sources, what it could not settle</span></div>
+    <dc-import name="Launch" layer="inline" entry="new" action="research" describe="{{q}}" scope="docs, work items, code" pins="{{pins}}" context="Knowledge" stage="result" hint-size="100%,820px"></dc-import>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1248,"height":3700}}'>
+class Component extends DCLogic { renderVals() { return { q: window.HUB.knowledge.defaultQuery, pins: ['docs#91', 'guides/recovery/edl.md#enter-edl-mode'] }; } }
+</script>
+</body>
+</html>

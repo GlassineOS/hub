@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Session view</title>
+<script src="./support.js"></script>
+<script src="data/fixtures.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Kalam&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<section aria-label="Session {{s.name}}" style="{{v.frameStyle}}; background: transparent">
+  <sc-if value="{{v.showHead}}" hint-placeholder-val="{{true}}">
+  <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: {{v.headPad}}; border-bottom: 1.5px solid #111111; background: {{v.headBg}}">
+    <dc-import name="PersonaBadge" persona="{{v.persona}}" size="m" hint-size="34px,34px"></dc-import>
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 15px; font-weight: 600">{{s.name}}</span>
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.08em; padding: 0 6px; border: 1.5px {{v.badgeBorder}} #111111; border-radius: 6px; background: {{v.badgeBg}}">{{s.state}}</span>
+    <span style="flex: 1 1 160px; font-size: 13.5px; color: #4a4a4a">{{v.subline}}</span>
+    <sc-if value="{{v.canBackground}}" hint-placeholder-val="{{false}}">
+      <button type="button" onClick="{{v.background}}" style="min-height: 40px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff; color: #111111; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer">Send to background</button>
+    </sc-if>
+    <sc-if value="{{v.showOpen}}" hint-placeholder-val="{{true}}">
+      <a href="Sessions.dc.html" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff; color: #111111; text-decoration: none; font-size: 13.5px; font-weight: 600">Open in Sessions</a>
+    </sc-if>
+  </div>
+  </sc-if>
+  <sc-if value="{{v.hasCovers}}" hint-placeholder-val="{{true}}">
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 14px; border-bottom: 1px solid #d0d0d0">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.08em; color: #4a4a4a">COVERS</span>
+      <sc-for list="{{v.covers}}" as="c" hint-placeholder-count="2">
+        <dc-import name="ItemPill" item-ref="{{c.ref}}" tone="{{c.tone}}" compact="{{v.compactPills}}" max-title="24ch" hint-size="240px,32px"></dc-import>
+      </sc-for>
+    </div>
+  </sc-if>
+  <sc-if value="{{v.hasRelated}}" hint-placeholder-val="{{false}}">
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 14px; border-bottom: 1px solid #d0d0d0; background: #ffffff">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.08em; color: #4a4a4a">ALSO ON THESE ITEMS</span>
+      <sc-for list="{{v.related}}" as="rl" hint-placeholder-count="1">
+        <sc-if value="{{rl.canSwitch}}" hint-placeholder-val="{{true}}">
+          <button type="button" onClick="{{rl.go}}" title="Switch to {{rl.sid}}" style="{{rl.style}}"><dc-import name="PersonaBadge" persona="{{rl.persona}}" size="s" hint-size="26px,26px"></dc-import><span style="display: flex; flex-direction: column; align-items: flex-start; line-height: 1.2"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; font-weight: 600">{{rl.sid}}</span><span style="font-size: 11.5px; color: #4a4a4a">{{rl.what}}</span></span><span aria-hidden="true" style="font-size: 13px">⇄</span></button>
+        </sc-if>
+        <sc-if value="{{rl.isLink}}" hint-placeholder-val="{{false}}">
+          <a href="Sessions.dc.html" style="{{rl.style}}; text-decoration: none"><dc-import name="PersonaBadge" persona="{{rl.persona}}" size="s" hint-size="26px,26px"></dc-import><span style="display: flex; flex-direction: column; line-height: 1.2"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; font-weight: 600">{{rl.sid}}</span><span style="font-size: 11.5px; color: #4a4a4a">{{rl.what}}</span></span></a>
+        </sc-if>
+      </sc-for>
+    </div>
+  </sc-if>
+  <sc-if value="{{v.hasProg}}" hint-placeholder-val="{{false}}">
+    <div role="progressbar" aria-label="Progress" aria-valuenow="{{v.progNum}}" aria-valuemin="0" aria-valuemax="100" style="height: 6px; background: #f2f2f2; border-bottom: 1px solid #d0d0d0"><div style="height: 100%; width: {{v.prog}}; background: #111111"></div></div>
+  </sc-if>
+  <sc-if value="{{v.hasAsks}}" hint-placeholder-val="{{true}}">
+    <div style="display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border-bottom: 1px solid #d0d0d0; background: #f2f2f2">
+      <sc-for list="{{v.asks}}" as="a" hint-placeholder-count="1">
+        <dc-import name="Interaction" iid="{{a.iid}}" item="{{a.item}}" compact="{{yes}}" on-resolve="{{v.onAsk}}" hint-size="100%,320px"></dc-import>
+      </sc-for>
+    </div>
+  </sc-if>
+  <div role="log" aria-label="Terminal of {{s.name}}" style="{{v.termStyle}}">
+    <sc-for list="{{v.lines}}" as="l" hint-placeholder-count="6"><span style="{{l.style}}">{{l.text}}</span></sc-for>
+    <span style="white-space: pre"><span style="color: #9db2ff">{{v.prompt}}</span> <span style="display: inline-block; width: 8px; height: 16px; background: #eeeeee; vertical-align: text-bottom"></span></span>
+  </div>
+  <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 14px; border-top: 1.5px solid #111111; background: #f2f2f2">
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.08em">SEND</span>
+    <sc-for list="{{v.msgs}}" as="m" hint-placeholder-count="3">
+      <button type="button" onClick="{{m.send}}" title="{{m.text}}" style="min-height: 36px; padding: 0 10px; border: 1.5px solid #111111; border-radius: 999px; background: #ffffff; color: #111111; font: inherit; font-size: 13px; cursor: pointer">{{m.label}}</button>
+    </sc-for>
+    <button type="button" onClick="{{v.interrupt}}" style="min-height: 36px; padding: 0 10px; border: 1.5px solid #111111; border-radius: 999px; background: #ffd9b8; color: #111111; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer">Esc</button>
+    <label style="flex: 1 1 160px; display: flex; min-width: 0"><span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Type into {{s.name}}</span>
+      <input type="text" placeholder="{{v.placeholder}}" style="flex: 1; min-width: 0; min-height: 36px; padding: 0 10px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff; color: #111111; font: inherit; font-size: 13.5px"></label>
+  </div>
+  <sc-if value="{{v.showManifest}}" hint-placeholder-val="{{true}}">
+    <details style="padding: 4px 14px 10px; border-top: 1px solid #d0d0d0">
+      <summary style="min-height: 36px; display: flex; align-items: center; cursor: pointer; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">SESSION SPEC</summary>
+      <dl style="margin: 4px 0 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 14px; font-size: 13.5px">
+        <sc-for list="{{v.manifest}}" as="f" hint-placeholder-count="5">
+          <dt style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.08em; color: #4a4a4a; padding-top: 2px">{{f.k}}</dt>
+          <dd style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; overflow-wrap: anywhere">{{f.v}}</dd>
+        </sc-for>
+      </dl>
+    </details>
+  </sc-if>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"sid":{"editor":"enum","options":["kernel-lut","docs-edl","investigate-1184","arch-kernel","steward","maintainer"],"default":"kernel-lut"},"size":{"editor":"enum","options":["full","embedded","compact"],"default":"embedded"},"live":{"editor":null},"onAsk":{"editor":null},"onBackground":{"editor":null},"onSwitch":{"editor":null},"hideAsks":{"editor":"boolean","default":false},"$preview":{"width":760,"height":720}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { sent: [], done: {} }; }
+  renderVals() {
+    const H = window.HUB || { sessions: {}, interactions: [], models: [] };
+    const P = this.props;
+    const size = P.size || 'embedded';
+    const L = P.live;
+    const sid = L ? L.name : (P.sid || 'kernel-lut');
+    const base = L || H.sessions[sid] || {};
+    const s = { ...base, name: sid };
+    const modelName = ((H.models || []).find((m) => m[0] === s.model) || [null, ''])[1];
+    const LS = (k) => 'white-space: pre-wrap; ' + (k === 'tool' ? 'color: #9db2ff' : k === 'dim' ? 'color: #bbbbbb; font-style: italic' : k === 'find' ? 'color: #121212; background: #ffd9b8; padding: 0 6px; align-self: flex-start' : k === 'ask' ? 'color: #121212; background: #ffd86b; padding: 0 6px; align-self: flex-start' : k === 'you' ? 'color: #121212; background: #eeeeee; padding: 0 6px; align-self: flex-start; font-weight: 600' : k === 'done' ? 'font-weight: 600' : 'color: #eeeeee');
+    const lines = (s.lines || []).concat(this.state.sent.map((x) => x === '⎋' ? ['dim', '⎋ interrupted from hub'] : ['you', '› ' + x])).map(([k, t]) => ({ text: t, style: LS(k) }));
+    const asks = L ? (L.ask ? [{ iid: '', item: L.ask }] : []) : H.interactions.filter((x) => x.session === sid && (x.kind === 'permission' || x.kind === 'question') && !this.state.done[x.id]).map((x) => ({ iid: x.id, item: x }));
+    const covers = (s.covers || []).map((c) => ({ ref: c, tone: 'plain' })).concat((s.prs || []).map((p) => ({ ref: p, tone: 'pr' })));
+    const waiting = s.state === 'WAITING';
+    const termH = size === 'full' ? 420 : size === 'compact' ? 200 : 280;
+    const M = s.steward ? [['Status of 0.3', 'Give me a five-line status of 0.3.'], ['What needs me?', 'What is waiting on me, most urgent first?']]
+      : [['Progress?', 'Summarise what you have done and what is left, in five lines.'], ['Cite sources', 'List the docs passages you relied on, by path.'], ['Wrap up', 'Wrap up: commit, push your branch and summarise.']];
+    const manifest = [['PERSONA', s.persona], ['MODEL', s.model || '—'], ['MODE', s.mode || '—'], ['COVERS', (s.covers || []).join(', ') || (s.repo ? 'repo ' + s.repo : '—')], ['BRANCH', s.branch || (s.cwd ? 'detached checkout' : '—')], ['FOLDER', s.cwd || '—'], ['STARTED FROM', s.origin || '—'], ['TMUX', 'glassine-hub · ' + sid]];
+    if ((s.covers || []).length > 1 && s.prs) manifest.push(['PR WILL SAY', s.covers.map((c) => 'Closes ' + c).join(' · ')]);
+    const pe = H.personas || {}, fams = H.families || {};
+    const persona = s.plain ? 'Shell' : (s.persona || 'Engineer');
+    const fam = fams[(pe[persona] || {}).family] || { tint: '#f2f2f2', label: '' };
+    const mine = (s.covers || []).concat(s.prs || []);
+    const related = L ? [] : Object.entries(H.sessions).filter(([id, o]) => id !== sid && !o.plain && (o.covers || []).concat(o.prs || []).some((r) => mine.indexOf(r) >= 0)).map(([id, o]) => {
+      const shared = (o.covers || []).concat(o.prs || []).filter((r) => mine.indexOf(r) >= 0);
+      const f2 = fams[(pe[o.persona] || {}).family] || { tint: '#ffffff', label: '' };
+      return { sid: id, persona: o.persona, what: o.persona + ' · ' + f2.label + ' ' + shared.join(', ') + (o.state === 'DONE' ? ' · finished' : o.state === 'WAITING' ? ' · waits' : ''),
+        canSwitch: !!P.onSwitch, isLink: !P.onSwitch, go: () => { if (P.onSwitch) P.onSwitch(id); },
+        style: 'display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 3px 10px 3px 4px; border: 1.5px ' + (o.state === 'RUNNING' ? 'dashed' : 'solid') + ' #111111; border-radius: 999px; background: ' + f2.tint + '; color: #111111; font: inherit; cursor: pointer' };
+    });
+    return {
+      yes: true, s,
+      v: {
+        showHead: size !== 'compact', persona, headBg: fam.tint, hasRelated: related.length > 0 && size !== 'compact', related,
+        frameStyle: 'display: flex; flex-direction: column; background: #ffffff; color: #111111; font-family: \'IBM Plex Sans\', system-ui, sans-serif; font-size: 15px; line-height: 1.5; border: 1.5px solid #111111; border-radius: ' + (size === 'compact' ? '0' : '16px') + '; overflow: hidden' + (size === 'compact' ? '; border-width: 0; height: 100%; box-sizing: border-box' : '; box-shadow: 0 3px 0 #b4b4b4'),
+        headPad: size === 'compact' ? '8px 14px' : '10px 16px',
+        avatarStyle: 'display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; flex: none; border-radius: 999px; background: #ffffff; ' + (s.steward ? 'border: 1.5px solid #2747b8; font-family: Kalam, cursive; font-size: 18px; color: #2747b8' : 'border: 1.5px solid #111111; font-family: \'IBM Plex Mono\', monospace; font-size: 13px; font-weight: 600'),
+        initial: s.steward ? 'S' : (s.persona || '?')[0],
+        badgeBg: waiting ? '#ffd86b' : s.state === 'DONE' ? '#e2e2e2' : '#ffffff', badgeBorder: s.state === 'RUNNING' ? 'dashed' : 'solid',
+        subline: s.plain ? 'plain shell · ' + s.cwd : s.persona + (fam.label ? ' (' + fam.label + ')' : '') + (modelName ? ' · ' + modelName : '') + (L && L.elapsed ? ' · ' + L.elapsed : '') + (L && L.eta ? ' · usually ' + L.eta : '') + (!L && s.origin ? ' · from ' + s.origin : ''),
+        canBackground: !!P.onBackground, background: () => { if (P.onBackground) P.onBackground(); },
+        showOpen: size !== 'full' && !L,
+        hasCovers: covers.length > 0 && size !== 'compact', covers, compactPills: size !== 'full' && covers.length > 2,
+        hasProg: !!(L && L.prog), prog: (L && L.prog) || '0%', progNum: L ? parseInt(L.prog, 10) || 0 : 0,
+        hasAsks: asks.length > 0 && !P.hideAsks, asks, onAsk: (id, st) => { this.setState({ done: { ...this.state.done, [id]: true } }); if (P.onAsk) P.onAsk(id, st); },
+        termStyle: 'background: #121212; color: #eeeeee; font-family: \'IBM Plex Mono\', monospace; font-size: ' + (size === 'compact' ? '12.5px' : '13.5px') + '; line-height: 1.7; padding: 12px 16px; ' + (size === 'compact' ? 'flex: 1 1 0; min-height: 120px; overflow-y: auto' : 'min-height: ' + termH + 'px') + '; display: flex; flex-direction: column; overflow-x: auto',
+        lines, prompt: s.plain ? '$' : '❯',
+        msgs: (s.plain ? [] : M).map(([label, text]) => ({ label, text, send: () => this.setState({ sent: this.state.sent.concat([text]) }) })),
+        interrupt: () => this.setState({ sent: this.state.sent.concat(['⎋']) }),
+        placeholder: s.steward ? 'Ask the Steward…' : 'Type into the session',
+        showManifest: size !== 'compact' && !s.plain, manifest: manifest.map(([k, v]) => ({ k, v }))
+      }
+    };
+  }
+}
+</script>
+</body>
+</html>

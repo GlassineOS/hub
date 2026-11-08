@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Launch</title>
+<script src="./support.js"></script>
+<script src="data/fixtures.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Kalam&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div style="display: contents">
+<sc-if value="{{showToast}}" hint-placeholder-val="{{false}}">
+  <div role="status" style="position: fixed; right: 24px; bottom: 24px; z-index: 60; display: flex; align-items: center; gap: 12px; max-width: 460px; padding: 12px 14px; background: #ffffff; border: 1px solid #d0d0d0; border-radius: 16px; box-shadow: 0 3px 0 #b4b4b4, 0 10px 30px rgba(0, 0, 0, 0.2); font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; line-height: 1.45; color: #111111">
+    <svg width="20" height="20" viewBox="0 0 16 16" aria-hidden="true" style="flex: none"><circle cx="8" cy="8" r="6" fill="none" stroke="#111111" stroke-width="1.5" stroke-dasharray="3 2.5"></circle></svg>
+    <span style="flex: 1"><span style="font-family: 'IBM Plex Mono', monospace; font-weight: 600">{{runName}}</span> runs in the background. Its result shows up in <a href="NeedsYou.dc.html" style="font-weight: 600">Needs you</a>.</span>
+    <button type="button" onClick="{{reopen}}" style="min-height: 40px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff; color: #111111; font: inherit; font-weight: 600; cursor: pointer">Reopen</button>
+  </div>
+</sc-if>
+
+<sc-if value="{{isOpen}}" hint-placeholder-val="{{true}}">
+<div style="{{wrapStyle}}">
+<section role="{{dialogRole}}" aria-modal="{{ariaModal}}" aria-labelledby="ln-h" style="width: 100%; max-width: 1120px; background: #ffffff; border: 1px solid #d0d0d0; border-radius: 16px; box-shadow: 0 3px 0 #b4b4b4, 0 16px 40px rgba(0, 0, 0, 0.25); display: flex; flex-direction: column; overflow: hidden">
+
+  <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 14px 20px; border-bottom: 1.5px solid #111111; background: {{headBg}}">
+    <sc-if value="{{byAgent}}" hint-placeholder-val="{{false}}">
+      <span aria-hidden="true" style="display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; flex: none; border: 1.5px solid #2747b8; border-radius: 999px; background: #ffffff; font-family: Kalam, cursive; font-size: 21px; color: #2747b8">{{agentInitial}}</span>
+    </sc-if>
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 600; letter-spacing: 0.08em; padding: 2px 8px; border: 1.5px solid #111111; border-radius: 6px; background: #ffffff">LAUNCH</span>
+    <h2 id="ln-h" style="margin: 0; font-size: 20px; font-weight: 600">{{title}}</h2>
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; padding: 1px 10px; border: 1px solid #111111; border-radius: 999px; background: #ffffff">from {{ctx}}</span>
+    <span style="flex: 1"></span>
+    <sc-if value="{{canBackground}}" hint-placeholder-val="{{false}}">
+      <button type="button" onClick="{{background}}" style="display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; font-weight: 600; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#111111" stroke-width="2" aria-hidden="true"><path d="M5 19h14M12 5v10M8 11l4 4 4-4"></path></svg>Send to background</button>
+    </sc-if>
+    <button type="button" onClick="{{close}}" aria-label="Close" style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; cursor: pointer"><svg width="16" height="16" viewBox="0 0 16 16" stroke="#111111" stroke-width="1.8" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9"></path></svg></button>
+  </div>
+
+  <div style="display: flex; flex-wrap: wrap; align-items: stretch; min-height: 560px">
+    <nav aria-label="Stages" style="flex: 1 1 220px; max-width: 260px; box-sizing: border-box; padding: 18px 16px; background: #f2f2f2; border-right: 1.5px solid #111111">
+      <ol style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px">
+        <sc-for list="{{steps}}" as="s" hint-placeholder-count="4">
+          <li>
+            <button type="button" onClick="{{s.go}}" disabled="{{s.locked}}" aria-current="{{s.current}}" style="{{s.style}}">
+              <span aria-hidden="true" style="{{s.dot}}">{{s.mark}}</span>
+              <span style="display: flex; flex-direction: column; min-width: 0; text-align: left">
+                <span style="font-weight: 600; font-size: 14.5px">{{s.name}}</span>
+                <span style="font-size: 12.5px; line-height: 1.35; color: #4a4a4a; overflow-wrap: anywhere">{{s.sub}}</span>
+              </span>
+            </button>
+          </li>
+        </sc-for>
+      </ol>
+      <sc-if value="{{hasRailNote}}" hint-placeholder-val="{{false}}"><p style="margin: 16px 0 0; padding-top: 12px; border-top: 1px dotted #111111; font-size: 12.5px; line-height: 1.45; color: #4a4a4a">{{railNote}}</p></sc-if>
+    </nav>
+
+    <div style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+
+      <sc-if value="{{isBrief}}" hint-placeholder-val="{{true}}">
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 16px; padding: 18px 20px">
+          <sc-if value="{{byAgent}}" hint-placeholder-val="{{false}}">
+            <div style="display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; background: #f2f2f2; border-radius: 12px">
+              <span style="font-family: Kalam, cursive; font-size: 20px; line-height: 1.3; color: #2747b8; flex: none">why</span>
+              <span style="font-size: 15px; line-height: 1.5">{{why}}</span>
+            </div>
+          </sc-if>
+          <sc-for list="{{actionGroups}}" as="g" hint-placeholder-count="2">
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">{{g.label}}</span>
+              <div role="radiogroup" aria-label="{{g.label}}" style="display: flex; flex-wrap: wrap; gap: 6px">
+                <sc-for list="{{g.items}}" as="a" hint-placeholder-count="4">
+                  <button type="button" role="radio" aria-checked="{{a.checked}}" onClick="{{a.pick}}" style="{{a.style}}">{{a.label}} <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.08em; opacity: 0.85">{{a.result}}</span></button>
+                </sc-for>
+              </div>
+            </div>
+          </sc-for>
+
+          <sc-if value="{{usesCovers}}" hint-placeholder-val="{{true}}">
+            <dc-import name="ItemPicker" value="{{covers}}" label="COVERS" hint="{{coverHint}}" on-change="{{onCovers}}" hint-size="100%,120px"></dc-import>
+          </sc-if>
+          <sc-if value="{{usesRepo}}" hint-placeholder-val="{{false}}">
+            <dc-import name="RepoPicker" value="{{repo}}" label="REPOSITORY" on-change="{{onRepo}}" hint-size="100%,60px"></dc-import>
+          </sc-if>
+          <sc-if value="{{usesScope}}" hint-placeholder-val="{{false}}">
+            <label style="display: flex; flex-direction: column; gap: 4px; font-size: 14px; font-weight: 500">Scope
+              <input type="text" value="{{scopeText}}" onChange="{{onScope}}" style="min-height: 44px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font-family: 'IBM Plex Mono', monospace; font-size: 13.5px; font-weight: 400; box-sizing: border-box"></label>
+          </sc-if>
+          <sc-if value="{{usesDescribe}}" hint-placeholder-val="{{false}}">
+            <label style="display: flex; flex-direction: column; gap: 4px; font-size: 14px; font-weight: 500">{{describeLabel}}
+              <textarea rows="3" value="{{describeText}}" onChange="{{onDescribe}}" style="padding: 10px 12px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; font-weight: 400; resize: vertical"></textarea></label>
+          </sc-if>
+          <label style="display: flex; flex-direction: column; gap: 4px; font-size: 14px; font-weight: 500">{{notesLabel}} <span style="font-weight: 400; font-size: 12.5px; color: #4a4a4a">optional · goes into the planner’s prompt</span>
+            <textarea rows="3" value="{{notesText}}" onChange="{{onNotes}}" placeholder="e.g. the error paths matter most; keep the diff small" style="padding: 10px 12px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; font-weight: 400; resize: vertical"></textarea></label>
+          <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center">
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">PINNED</span>
+            <sc-for list="{{pins}}" as="pn" hint-placeholder-count="2"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; padding: 1px 10px; border: 1.5px solid #111111; border-radius: 999px; background: {{pn.bg}}">{{pn.t}}</span></sc-for>
+            <button type="button" style="min-height: 32px; padding: 0 10px; border: 1.5px dashed #111111; border-radius: 999px; background: transparent; color: #111111; font: inherit; font-size: 13px; cursor: pointer">+ pin</button>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: flex-start">
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <span id="ln-pm" style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">PLANNER</span>
+              <div role="radiogroup" aria-labelledby="ln-pm" style="display: flex; border: 1.5px solid #111111; border-radius: 12px; overflow: hidden">
+                <sc-for list="{{pmodels}}" as="m" hint-placeholder-count="3"><button type="button" role="radio" aria-checked="{{m.checked}}" onClick="{{m.pick}}" style="{{m.style}}">{{m.name}}</button></sc-for>
+              </div>
+            </div>
+            <sc-if value="{{usesDrivers}}" hint-placeholder-val="{{false}}">
+              <div style="display: flex; flex-direction: column; gap: 6px">
+                <span id="ln-drv" style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">DRAFTS GO TO</span>
+                <div role="radiogroup" aria-labelledby="ln-drv" style="display: flex; flex-wrap: wrap; border: 1.5px solid #111111; border-radius: 12px; overflow: hidden">
+                  <sc-for list="{{drivers}}" as="dv" hint-placeholder-count="2"><button type="button" role="radio" aria-checked="{{dv.checked}}" onClick="{{dv.pick}}" style="{{dv.style}}">{{dv.label}}</button></sc-for>
+                </div>
+                <span style="font-size: 12.5px; color: #4a4a4a; max-width: 46ch">{{driverHint}}</span>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isPlanning}}" hint-placeholder-val="{{false}}">
+        <div role="status" style="flex: 1; display: flex; flex-direction: column; gap: 16px; padding: 24px 20px">
+          <div style="display: flex; align-items: center; gap: 12px">
+            <svg width="24" height="24" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="#111111" stroke-width="1.5" stroke-dasharray="3 2.5"></circle></svg>
+            <span style="display: flex; flex-direction: column"><span style="font-size: 18px; font-weight: 600">The planner is writing the spec</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: #4a4a4a">claude -p · {{pmodelName}} · read-only hub tools · usually under a minute</span></span>
+          </div>
+          <ol style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px">
+            <sc-for list="{{planSteps}}" as="ps" hint-placeholder-count="4"><li style="{{ps.style}}"><span aria-hidden="true" style="width: 18px; flex: none">{{ps.mark}}</span><span>{{ps.t}}</span></li></sc-for>
+          </ol>
+          <p style="margin: 0; font-size: 13.5px; color: #4a4a4a">Nothing runs yet. You review the spec before any session starts.</p>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isPlan}}" hint-placeholder-val="{{false}}">
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 16px; padding: 18px 20px">
+          <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px">
+            <h3 style="margin: 0; font-size: 19px; font-weight: 600">Review the plan</h3>
+            <span style="font-size: 13.5px; color: #4a4a4a">written by the planner ({{pmodelName}}) in 48 s · nothing has run yet</span>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 18px">
+            <dl style="flex: 1 1 300px; margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 14px; font-size: 14px; align-content: start">
+              <sc-for list="{{specRows}}" as="sr" hint-placeholder-count="6">
+                <dt style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; letter-spacing: 0.08em; color: #4a4a4a; padding-top: 2px">{{sr.k}}</dt>
+                <dd style="margin: 0; overflow-wrap: anywhere; white-space: pre-line">{{sr.v}}</dd>
+              </sc-for>
+            </dl>
+            <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 8px">
+              <span id="ln-am" style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">AGENT MODEL</span>
+              <div role="radiogroup" aria-labelledby="ln-am" style="display: flex; flex-wrap: wrap; border: 1.5px solid #111111; border-radius: 12px; overflow: hidden; align-self: flex-start">
+                <sc-for list="{{models}}" as="m" hint-placeholder-count="4"><button type="button" role="radio" aria-checked="{{m.checked}}" onClick="{{m.pick}}" style="{{m.style}}">{{m.name}}</button></sc-for>
+              </div>
+              <span style="font-size: 12.5px; color: #4a4a4a">{{modelNote}}</span>
+              <span style="font-size: 13px; padding: 8px 10px; background: #f2f2f2; border-radius: 8px">Ceiling: {{def.ceiling}}</span>
+            </div>
+          </div>
+          <details style="border: 1.5px solid #111111; border-radius: 12px; padding: 0 14px">
+            <summary style="min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 600">Edit spec <span style="font-weight: 400; font-size: 13px; color: #4a4a4a; margin-left: 8px">mode, hub tools, skills — what “Advanced mode” used to be</span></summary>
+            <div style="display: flex; flex-direction: column; gap: 10px; padding: 4px 0 14px">
+              <label style="display: flex; align-items: center; gap: 10px; font-size: 14px">Permission mode
+                <select style="min-height: 40px; padding: 0 10px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff; color: #111111; font: inherit"><option>{{def.mode}}</option><option>plan · read-only</option><option>default · asks before edits</option><option>accept edits</option></select></label>
+              <sc-for list="{{toolRows}}" as="t" hint-placeholder-count="4">
+                <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 6px 0; border-bottom: 1px solid #d0d0d0">
+                  <span style="flex: 1 1 240px; font-size: 14px">{{t.group}}</span>
+                  <div role="radiogroup" aria-label="{{t.group}}" style="display: flex; border: 1.5px solid #111111; border-radius: 10px; overflow: hidden">
+                    <sc-for list="{{t.modes}}" as="tm" hint-placeholder-count="3"><button type="button" role="radio" aria-checked="{{tm.checked}}" onClick="{{tm.pick}}" style="{{tm.style}}">{{tm.label}}</button></sc-for>
+                  </div>
+                </div>
+              </sc-for>
+              <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">SKILLS</span>
+                <sc-for list="{{skills}}" as="sk" hint-placeholder-count="3"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; padding: 1px 8px; border: 1.5px solid #111111; border-radius: 6px">{{sk.n}}</span></sc-for></div>
+              <span style="font-size: 12.5px; color: #4a4a4a">hubd still clamps the spec to the action’s ceiling.</span>
+            </div>
+          </details>
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">CONTEXT · KNOWLEDGE SEARCH “{{query}}”</span>
+            <sc-for list="{{passages}}" as="pa" hint-placeholder-count="3">
+              <div style="display: flex; gap: 10px; align-items: baseline; padding: 6px 10px; background: #f2f2f2; border-radius: 6px">
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4a4a4a">{{pa.score}}</span>
+                <span style="display: flex; flex-direction: column; min-width: 0"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; font-weight: 600; overflow-wrap: anywhere">{{pa.path}}</span><span style="font-size: 13px; color: #4a4a4a">{{pa.why}}</span></span>
+              </div>
+            </sc-for>
+          </div>
+          <label style="display: flex; flex-direction: column; gap: 4px">
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">FIRST PROMPT · editable</span>
+            <textarea rows="5" value="{{promptText}}" onChange="{{onPrompt}}" style="padding: 10px 12px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.55; resize: vertical"></textarea></label>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isRun}}" hint-placeholder-val="{{false}}">
+        <div style="flex: 1; display: flex; flex-direction: column; padding: 14px 16px">
+          <dc-import name="SessionView" live="{{live}}" size="embedded" on-ask="{{onMidAsk}}" hint-size="100%,520px"></dc-import>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isResult}}" hint-placeholder-val="{{false}}">
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 12px; padding: 18px 20px">
+          <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px">
+            <h3 style="margin: 0; font-size: 19px; font-weight: 600">{{resultTitle}}</h3>
+            <span style="flex: 1; font-size: 13.5px; color: #4a4a4a">from {{runName}} · {{resultSub}}</span>
+          </div>
+
+          <sc-if value="{{rDrafts}}" hint-placeholder-val="{{true}}">
+            <div style="display: flex; flex-direction: column; gap: 10px">
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px">{{pickedCount}} of {{draftCount}} selected</span>
+              <sc-for list="{{drafts}}" as="d" hint-placeholder-count="3">
+                <div style="{{d.style}}">
+                  <button type="button" role="checkbox" aria-checked="{{d.checked}}" aria-label="Select draft: {{d.title}}" onClick="{{d.toggle}}" style="{{d.box}}"><sc-if value="{{d.on}}" hint-placeholder-val="{{true}}"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#ffffff" stroke-width="2" aria-hidden="true"><path d="M3 7.2l2.6 2.6L11 4.4"></path></svg></sc-if></button>
+                  <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px">
+                    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px">
+                      <sc-if value="{{d.hasSev}}" hint-placeholder-val="{{true}}"><span style="{{d.sevStyle}}">{{d.sev}}</span></sc-if>
+                      <span style="font-weight: 600; font-size: 15px; line-height: 1.35">{{d.title}}</span>
+                      <sc-if value="{{d.filed}}" hint-placeholder-val="{{false}}"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; padding: 0 6px; border: 1.5px solid #111111; border-radius: 6px; background: #e2e2e2">{{d.filedLabel}}</span></sc-if>
+                    </div>
+                    <span style="font-size: 13.5px; line-height: 1.45; color: #4a4a4a">{{d.body}}</span>
+                    <span style="font-size: 12.5px">→ <span style="font-family: 'IBM Plex Mono', monospace">GlassineOS/{{d.target}}</span> · <span style="font-family: 'IBM Plex Mono', monospace">{{d.labels}}</span><sc-if value="{{d.hasPart}}" hint-placeholder-val="{{true}}"> · body says <span style="font-family: 'IBM Plex Mono', monospace">Part of {{d.parent}}</span></sc-if></span>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{rPr}}" hint-placeholder-val="{{false}}">
+            <div style="display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border: 1.5px solid #111111; border-radius: 12px">
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">DRAFT PULL REQUEST · {{prBranch}} → main · {{prSize}}</span>
+              <span style="font-size: 17px; font-weight: 600">{{prTitle}}</span>
+              <pre style="margin: 0; padding: 10px 12px; background: #f2f2f2; border-radius: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.6; white-space: pre-wrap">{{prBody}}</pre>
+              <div style="display: flex; flex-wrap: wrap; gap: 6px">
+                <sc-for list="{{prChecks}}" as="pc" hint-placeholder-count="3"><span style="{{pc.style}}">{{pc.label}}</span></sc-for>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{rComment}}" hint-placeholder-val="{{false}}">
+            <div style="display: flex; flex-direction: column; gap: 10px">
+              <label style="display: flex; flex-direction: column; gap: 4px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">SUMMARY COMMENT · editable</span>
+                <textarea rows="3" style="padding: 10px 12px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; resize: vertical">{{commentSummary}}</textarea></label>
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">INLINE NOTES</span>
+              <sc-for list="{{commentNotes}}" as="cn" hint-placeholder-count="3">
+                <div style="display: flex; gap: 12px; align-items: baseline; padding: 8px 12px; border: 1.5px solid #111111; border-radius: 10px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600">{{cn.where}}</span><span style="font-size: 14px">{{cn.text}}</span></div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{rLabels}}" hint-placeholder-val="{{false}}">
+            <div style="display: flex; flex-direction: column; border: 1.5px solid #111111; border-radius: 12px; overflow: hidden">
+              <sc-for list="{{labelRows}}" as="lr" hint-placeholder-count="4">
+                <div style="display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid #d0d0d0">
+                  <button type="button" role="checkbox" aria-checked="{{lr.checked}}" aria-label="{{lr.aria}}" onClick="{{lr.toggle}}" style="{{lr.box}}"><sc-if value="{{lr.on}}" hint-placeholder-val="{{true}}"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#ffffff" stroke-width="2" aria-hidden="true"><path d="M3 7.2l2.6 2.6L11 4.4"></path></svg></sc-if></button>
+                  <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13.5px; font-weight: 600; width: 110px">{{lr.ref}}</span>
+                  <span style="font-size: 14px; flex: 1">{{lr.what}} <span style="font-family: 'IBM Plex Mono', monospace">{{lr.label}}</span></span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{rFindings}}" hint-placeholder-val="{{false}}">
+            <div style="display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border: 1.5px solid #111111; border-radius: 12px">
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">CAUSE</span><span style="font-size: 15px">{{findSummary}}</span>
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">SMALLEST FIX</span><span style="font-size: 15px">{{findFix}}</span>
+            </div>
+          </sc-if>
+          <sc-if value="{{rNotes}}" hint-placeholder-val="{{false}}">
+            <div style="display: flex; flex-direction: column; gap: 10px">
+              <sc-for list="{{noteOps}}" as="no" hint-placeholder-count="4">
+                <div style="{{no.style}}">
+                  <button type="button" role="checkbox" aria-checked="{{no.checked}}" aria-label="Include: {{no.target}}" onClick="{{no.toggle}}" style="{{no.box}}"><sc-if value="{{no.on}}" hint-placeholder-val="{{true}}"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#ffffff" stroke-width="2" aria-hidden="true"><path d="M3 7.2l2.6 2.6L11 4.4"></path></svg></sc-if></button>
+                  <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px">
+                    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px"><span style="{{no.opStyle}}">{{no.op}}</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; overflow-wrap: anywhere">{{no.target}}</span></div>
+                    <span style="font-size: 13.5px; color: #4a4a4a">Now: {{no.before}}</span>
+                    <span style="font-size: 14.5px">After: {{no.after}}</span>
+                    <span style="font-size: 12.5px; font-family: 'IBM Plex Mono', monospace; color: #4a4a4a; overflow-wrap: anywhere">evidence · {{no.evidence}}</span>
+                  </div>
+                </div>
+              </sc-for>
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em; padding-top: 4px">EXACTLY WHAT RUNS · {{noteCount}} SELECTED</span>
+              <pre style="margin: 0; padding: 10px 12px; background: #121212; color: #eeeeee; border-radius: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere">{{noteCmds}}</pre>
+              <span style="font-size: 12.5px; color: #4a4a4a">Nothing is deleted: merged and superseded claims stay as history with a pointer.</span>
+            </div>
+          </sc-if>
+          <sc-if value="{{rReport}}" hint-placeholder-val="{{false}}">
+            <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+              <div style="flex: 999 1 380px; display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border: 1.5px solid #111111; border-radius: 12px">
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em">ANSWER</span>
+                <sc-for list="{{reportAnswer}}" as="ra" hint-placeholder-count="2"><p style="margin: 0; font-size: 15.5px; line-height: 1.6">{{ra.t}}</p></sc-for>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em; padding-top: 4px">COULD NOT SETTLE</span>
+                <sc-for list="{{reportGaps}}" as="rg" hint-placeholder-count="2"><span style="font-size: 14.5px; padding-left: 12px; border-left: 1.5px dashed #111111">{{rg.t}}</span></sc-for>
+                <div style="display: flex; flex-wrap: wrap; gap: 8px; padding-top: 6px">
+                  <sc-for list="{{reportFollow}}" as="rf" hint-placeholder-count="2"><button type="button" onClick="{{rf.go}}" style="min-height: 40px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff; color: #111111; font: inherit; font-size: 14px; cursor: pointer">{{rf.label}} →</button></sc-for>
+                </div>
+              </div>
+              <ol aria-label="Sources" style="flex: 1 1 260px; margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px">
+                <sc-for list="{{reportSources}}" as="rs" hint-placeholder-count="4">
+                  <li style="display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; background: #f2f2f2; border-radius: 8px">
+                    <span style="display: flex; gap: 8px; align-items: baseline"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; padding: 0 5px; border: 1.5px solid #111111; border-radius: 4px; background: #ffffff">{{rs.k}}</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; font-weight: 600; overflow-wrap: anywhere">{{rs.ref}}</span></span>
+                    <span style="font-size: 13px; color: #4a4a4a">{{rs.why}}</span>
+                  </li>
+                </sc-for>
+              </ol>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 14px 20px; border-top: 1.5px solid #111111; background: #ffffff">
+        <sc-for list="{{actions}}" as="ac" hint-placeholder-count="2"><button type="button" onClick="{{ac.go}}" style="{{ac.style}}">{{ac.label}}</button></sc-for>
+        <span role="status" style="flex: 1 1 240px; font-size: 13.5px">{{statusText}}</span>
+        <button type="button" onClick="{{close}}" style="min-height: 44px; padding: 0 12px; border: 0; background: transparent; color: #111111; font: inherit; text-decoration: underline; cursor: pointer">{{closeLabel}}</button>
+      </div>
+    </div>
+  </div>
+</section>
+</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"open":{"editor":"boolean","default":true},"layer":{"editor":"enum","options":["fixed","absolute","inline"],"default":"fixed"},"entry":{"editor":"enum","options":["new","item","suggested","results"],"default":"item"},"stage":{"editor":"enum","options":["brief","planning","plan","run","result"],"default":"brief"},"action":{"editor":"enum","options":["review","address","fix","implement","triage","investigate","research","issue","sec","arch","road","docs","deps","compact","sweep"],"default":"implement"},"covers":{"editor":null},"repo":{"editor":null},"context":{"editor":null},"by":{"editor":"enum","options":["you","steward"],"default":"you"},"why":{"editor":null},"notes":{"editor":null},"describe":{"editor":null},"scope":{"editor":null},"pins":{"editor":null},"onClose":{"editor":null},"onStarted":{"editor":null},"onDone":{"editor":null},"$preview":{"width":1440,"height":1240}}'>
+class Component extends DCLogic {
+  constructor(p) {
+    super(p);
+    const entry = p.entry || 'item';
+    const st = entry === 'results' ? 'result' : (p.stage || 'brief');
+    this.state = { stage: st, action: null, covers: null, repo: null, model: null, pmodel: null, driver: null, notes: null, describe: null, scope: null, prompt: null,
+      picked: {}, handled: null, n: st === 'run' ? 6 : 0, ask: st === 'result' ? 'answered' : null, plan: st === 'planning' ? 2 : 0, bg: false, hidden: false, tools: {} };
+  }
+  componentDidMount() { if (this.props.layer !== 'inline' && this.state.stage === 'run') this.tick(); }
+  componentWillUnmount() { clearInterval(this._iv); clearTimeout(this._pt); }
+  tick() {
+    clearInterval(this._iv);
+    this._iv = setInterval(() => {
+      const S = this.state; const total = this._total || 12;
+      if (S.stage !== 'run') { clearInterval(this._iv); return; }
+      if (S.n === 6 && S.ask !== 'answered') return;
+      if (S.n >= total) { clearInterval(this._iv); this.setState({ stage: 'result' }); return; }
+      this.setState({ n: S.n + 1 });
+    }, 650);
+  }
+  renderVals() {
+    const H = window.HUB;
+    const S = this.state, P = this.props;
+    const entry = P.entry || 'item';
+    const by = P.by || 'you', byAgent = by !== 'you', bySteward = by === 'steward';
+    const covers = S.covers || P.covers || (entry === 'item' ? ['epd#9'] : []);
+    const prim = covers[0];
+    const primItem = prim ? H.items[prim] : null;
+    const kind = primItem ? primItem.kind : 'new';
+    const ITEM_ACTIONS = { pr: ['review', 'address', 'fix'], issue: ['implement', 'triage'], run: ['investigate'], roadmap: ['road'], new: [] };
+    const NEW = ['research', 'issue', 'sec', 'arch', 'road', 'docs', 'deps', 'compact', 'sweep'];
+    const action = S.action || P.action || (entry === 'new' ? 'sec' : (ITEM_ACTIONS[kind] || ['implement'])[0]);
+    const def = H.actions[action];
+    const resultType = def.result;
+    const repo = S.repo || P.repo || (prim ? (primItem && primItem.repo) || prim.split('#')[0].split(' ')[0] : 'hub');
+    const model = S.model || def.model;
+    const modelName = H.models.find((m) => m[0] === model)[1];
+    const pmodel = S.pmodel || 'claude-opus-5-5';
+    const pmodelName = H.plannerModels.find((m) => m[0] === pmodel)[1];
+    const driver = S.driver || (bySteward ? 'steward' : 'me');
+    const ctx = P.context || (prim ? 'Work · ' + prim : 'Overview');
+    const notesText = S.notes !== null ? S.notes : (P.notes || '');
+    const usesCovers = def.for.indexOf('new') < 0 || action === 'road' && kind === 'roadmap';
+    const isResearch = action === 'research';
+    const isNotes = action === 'compact' || action === 'sweep';
+    const notesScope = S.scope !== null ? S.scope : (P.scope || 'all notes');
+    const usesRepo = !usesCovers && action !== 'road' && !isResearch && !isNotes;
+    const usesScope = action === 'sec' || action === 'arch' || action === 'docs' || isResearch || isNotes;
+    const usesDescribe = action === 'issue' || isResearch || (action === 'road' && !usesCovers);
+    const question = S.describe !== null ? S.describe : (P.describe || '');
+    const slug = isNotes ? (notesScope.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'all') : isResearch ? (question.toLowerCase().replace(/[^a-z0-9 ]/g, '').split(' ').filter((w) => w.length > 3).slice(0, 3).join('-') || 'question') : usesCovers && covers.length ? covers.map((c) => c.replace(/[^a-z0-9]+/gi, '-')).join('-').replace(/-+/g, '-').toLowerCase() : repo;
+    const runName = ({ review: 'review-', address: 'address-', fix: 'fix-', implement: 'impl-', triage: 'triage-', investigate: 'investigate-', issue: 'issue-', sec: 'audit-', arch: 'arch-', road: 'road-', docs: 'docs-gap-', deps: 'deps-', research: 'research-', compact: 'compact-', sweep: 'sweep-' }[action]) + slug;
+    const stage = S.stage;
+    const order = ['brief', 'planning', 'plan', 'run', 'result'];
+    const idx = order.indexOf(stage);
+    const started = idx >= 3;
+    const pill = (on) => 'min-height: 40px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 999px; font: inherit; font-size: 14px; cursor: pointer; ' + (on ? 'background: #111111; color: #ffffff; font-weight: 600' : 'background: #ffffff; color: #111111');
+    const seg = (on) => 'min-height: 44px; padding: 0 14px; border: 0; border-right: 1px solid #d0d0d0; font: inherit; font-size: 14px; cursor: pointer; ' + (on ? 'background: #111111; color: #ffffff; font-weight: 600' : 'background: #ffffff; color: #111111');
+    const RES = { drafts: 'DRAFTS', pr: 'PR', comment: 'COMMENT', labels: 'LABELS', findings: 'FINDINGS', report: 'REPORT', notes: 'NOTE CHANGES' };
+    const mkA = (id) => ({ label: H.actions[id].label, result: '→ ' + RES[H.actions[id].result], checked: action === id ? 'true' : 'false', style: pill(action === id), pick: () => this.setState({ action: id, model: null, prompt: null }) });
+    const groups = [];
+    if (prim && (ITEM_ACTIONS[kind] || []).length) groups.push({ label: 'FOR ' + prim.toUpperCase(), items: ITEM_ACTIONS[kind].map(mkA) });
+    groups.push({ label: prim ? 'OR NEW WORK FROM THIS' : 'NEW WORK', items: NEW.map(mkA) });
+    const closesLines = covers.filter((c) => (H.items[c] || {}).kind === 'issue').map((c) => 'Closes ' + c);
+    const Q = def.query + (usesCovers ? ' ' + covers.join(' ') : ' ' + repo);
+    const PASS = H.passages[action] || [];
+    const drafts0 = (H.results.drafts[action] || []);
+    const firstPrompt = {
+      review: 'Review ' + prim + ' for correctness, tests and fit with what it is part of. One summary comment; inline notes only for blockers.',
+      address: 'On ' + ((primItem && primItem.branch) || 'its branch').split(' →')[0] + ', address the open review threads on ' + prim + '. One fixup commit per thread; draft a reply for each.',
+      fix: 'Make the failing checks on ' + prim + ' pass with the smallest change; push to its branch.',
+      implement: 'Implement ' + covers.join(' and ') + ' on agent/' + runName + '. One commit per issue. Open one draft PR whose body says ' + closesLines.join(' and ') + '.',
+      triage: 'Label ' + covers.join(', ') + ' and add a “Part of …” line where it belongs to a strategic issue. Propose; don’t apply.',
+      investigate: 'Find why ' + prim + ' failed. The failed log is attached. Report the cause and the smallest fix.',
+      issue: 'Write one issue for GlassineOS/' + repo + ' from the description. Check for duplicates first. Draft only.',
+      sec: 'Audit GlassineOS/' + repo + ' as an attacker on the loopback interface. One finding per draft issue, with severity and evidence. Read-only.',
+      arch: 'Review the structure of GlassineOS/' + repo + ' against decisions/. Draft issues for concrete fixes and decision records for open choices.',
+      road: 'Draft a strategic issue for hub, the issues each repo needs (each ending “Part of” the new item), and its board column.',
+      docs: 'List what GlassineOS/' + repo + ' ships that the docs don’t cover. One draft issue per gap.',
+      compact: 'Compact ' + notesScope + '. Merge duplicates, supersede outdated claims, distil diary and transcript clusters into claims, answer open questions the evidence settles, and give every unlabelled row a status it can support. Never delete. Cite evidence for every change. Propose the notes commands; do not run them.',
+      sweep: 'Compare the current claims in ' + notesScope + ' with the published docs. Draft one docs issue per finding: docs repeating a retracted claim first, then docs contradicting a current claim, then current claims no page covers, then open questions as known unknowns.',
+      research: 'Answer the question below from the knowledge indexes (' + (S.scope !== null ? S.scope : (P.scope || 'docs, work items, code')) + '). Search, then read what you find. Cite every claim by path or ref; list what you could not settle.\n\nQuestion: ' + question,
+      deps: 'Rank outdated and vulnerable dependencies of GlassineOS/' + repo + '. One draft per upgrade group.' }[action] + (notesText ? '\n\nNotes: ' + notesText : '');
+    const promptText = S.prompt !== null ? S.prompt : firstPrompt;
+    const checkout = isNotes ? (action === 'compact' ? 'no checkout · the notes workspace, through the notes command' : 'no checkout · notes find and the docs index') : isResearch ? 'no checkout · reads through hub.search and hub.read_file' : def.mode.indexOf('read-only') >= 0 ? 'detached, read-only · ' + repo + '@main' : (action === 'address' || action === 'fix') ? 'the PR’s branch · ' + ((primItem && primItem.branch) || '').split(' →')[0] : 'new branch · agent/' + runName;
+    const specRows = [['PERSONA', def.persona], ['MODE', def.mode], ['CHECKOUT', checkout], ['HUB TOOLS', isNotes ? (action === 'compact' ? 'notes find · show · merge · supersede · answer · status · add (the batch asks you) · hub.search' : 'notes find · hub.search(docs) · no writes') : def.mode.indexOf('read-only') >= 0 ? (isResearch ? 'hub.search across domains · read files, threads, runs · no writes' : 'read issues, PRs, runs, knowledge search · no writes') : 'read · comment on covered items · open PR (ask)'], ['COVERS', usesCovers ? covers.join(', ') : 'repo ' + repo], ['RESULT', { drafts: 'drafts you file', pr: 'a draft PR', comment: 'a review comment you post', labels: 'label changes you apply', findings: 'cause and smallest fix', report: 'a cited report, saved to Knowledge', notes: 'note changes you apply' }[resultType]], ['SESSION', runName + ' · usually ' + def.eta]];
+    if (resultType === 'pr' && closesLines.length) specRows.splice(5, 0, ['PR WILL SAY', closesLines.join('\n')]);
+    const ask = { id: 'mq', kind: 'question', session: runName, waited: 'now', timeoutLeft: '9:30', timeoutPct: 95, header: 'SCOPE',
+      question: action === 'sec' ? 'deploy/ has install scripts that run as root, outside the scope you set. Include them?' : action === 'implement' ? 'epd#11’s fix also changes the error path epd#9 touches. One commit or two?' : 'This turned up more than expected. Draft everything, or the five most important?',
+      options: action === 'implement' ? [{ label: 'Two commits, one per issue', desc: 'Easier to review and revert.', rec: true }, { label: 'One commit', desc: 'Smaller history.' }] : [{ label: action === 'sec' ? 'Include deploy/' : 'Five most important', desc: 'Recommended.', rec: true }, { label: action === 'sec' ? 'Stay in scope' : 'Everything', desc: 'Takes longer.' }] };
+    const script = [['dim', '# hub started ' + runName + ' · ' + def.persona + ' · ' + modelName], ['tool', '● Read the spec and ' + PASS.length + ' attached passages'], ['tool', '● hub.search("' + Q + '")'], ['tool', usesCovers ? '● hub.get_issue(' + covers.join(') · hub.get_issue(') + ')' : '● Glob ' + repo + '/** → 118 files'], ['out', '● Reading the code it touches'], ['out', '● First change drafted'],
+      ['out', '● got your answer — continuing'], ['out', resultType === 'pr' ? '● Commit 1/2 · refs ' + (covers[0] || '') : '◆ ' + ((drafts0[0] || [])[1] || 'first finding')], ['out', resultType === 'pr' ? '● Commit 2/2 · refs ' + (covers[1] || covers[0] || '') : '◆ ' + ((drafts0[1] || [])[1] || 'second finding')], ['tool', resultType === 'pr' ? '● Open draft PR (asks you)' : '● Writing the result'], ['done', '✓ done · result ready']];
+    this._total = script.length;
+    const n = stage === 'result' ? script.length : S.n;
+    const asking = stage === 'run' && n >= 6 && S.ask !== 'answered';
+    const elapsed = stage === 'result' ? Math.round(script.length * 2.4) + ' min' : 'running ' + Math.max(1, Math.round(n * 2.4)) + ' min';
+    const live = { persona: def.persona, model, state: stage === 'result' ? 'DONE' : asking ? 'WAITING' : 'RUNNING', covers: usesCovers ? covers : [], repo, mode: def.mode, origin: ctx, branch: checkout,
+      lines: script.slice(0, n), ask: asking ? ask : null, elapsed, eta: def.eta, prog: Math.round(n / script.length * 100) + '%', name: runName };
+    const list = drafts0.map(([sev, title, body, target, labels, parent], i) => {
+      const on = S.picked[action + i] === undefined ? sev !== 'INFO' : S.picked[action + i];
+      return { sev, hasSev: !!sev, title, body, target: target || repo, labels, parent, hasPart: !!parent, on, checked: on ? 'true' : 'false', filed: !!S.handled, filedLabel: S.handled === 'steward' ? 'WITH THE STEWARD' : 'FILED',
+        sevStyle: 'font-family: \'IBM Plex Mono\', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; padding: 1px 7px; border-radius: 6px; background: #ffffff; ' + (sev === 'HIGH' ? 'border: 3px double #111111' : sev === 'MEDIUM' ? 'border: 2.5px solid #111111' : sev === 'LOW' ? 'border: 1.5px solid #111111' : 'border: 1.5px dashed #111111'),
+        box: 'display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; flex: none; border: 1.5px solid #111111; border-radius: 4px; padding: 0; cursor: pointer; background: ' + (on ? '#2747b8' : '#ffffff'),
+        style: 'display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; ' + (on ? 'border: 1.5px solid #111111' : 'border: 1.5px dashed #111111'),
+        toggle: () => this.setState({ picked: { ...this.state.picked, [action + i]: !on } }) };
+    });
+    const picked = list.filter((d) => d.on);
+    const labelRows = H.results.labels.map(([ref, what, label], i) => { const on = S.picked['l' + i] === undefined ? true : S.picked['l' + i]; return { ref, what, label, on, checked: on ? 'true' : 'false', aria: ref + ' ' + what + ' ' + label,
+      box: 'display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; flex: none; border: 1.5px solid #111111; border-radius: 4px; padding: 0; cursor: pointer; background: ' + (on ? '#2747b8' : '#ffffff'), toggle: () => this.setState({ picked: { ...this.state.picked, ['l' + i]: !on } }) }; });
+    const OPS = { merge: 'MERGE', distil: 'DISTIL', answer: 'ANSWER', supersede: 'SUPERSEDE', status: 'STATUS', retract: 'RETRACT', flag: 'NEEDS YOU' };
+    const noteOps = H.results.notes.map(([op, target, before, after, evidence], i) => { const on = S.picked['n' + i] === undefined ? true : S.picked['n' + i]; return { op: OPS[op], target, before, after, evidence, on, flag: op === 'flag', cmd: H.results.notesCmds[i], checked: on ? 'true' : 'false',
+      opStyle: 'font-family: \'IBM Plex Mono\', monospace; font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; padding: 1px 6px; border-radius: 4px; ' + (op === 'flag' ? 'border: 1.5px solid #111111; background: #ffd86b' : op === 'status' || op === 'retract' ? 'border: 3px double #111111' : 'border: 1.5px solid #111111'),
+      box: 'display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; flex: none; border: 1.5px solid #111111; border-radius: 4px; padding: 0; cursor: pointer; background: ' + (on ? '#2747b8' : '#ffffff'),
+      style: 'display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; ' + (on ? 'border: 1.5px solid #111111' : 'border: 1.5px dashed #b4b4b4'),
+      toggle: () => this.setState({ picked: { ...this.state.picked, ['n' + i]: !on } }) }; });
+    const go = (s) => this.setState({ stage: s });
+    const runPlanner = () => { clearTimeout(this._pt); this.setState({ stage: 'planning', plan: 0 }); const step = (k) => { this._pt = setTimeout(() => { if (this.state.stage !== 'planning') return; if (k >= 4) { this.setState({ stage: 'plan' }); return; } this.setState({ plan: k }); step(k + 1); }, 550); }; step(1); };
+    const startRun = () => { this.setState({ stage: 'run', n: 1, ask: null }); if (P.onStarted) P.onStarted(runName); setTimeout(() => this.tick(), 0); };
+    const finish = (how, text) => { this.setState({ handled: how }); if (P.onDone) P.onDone(text); };
+    const btn = (primary) => 'min-height: 44px; padding: 0 16px; border: 1.5px solid #111111; border-radius: 12px; font: inherit; font-weight: 600; cursor: pointer; ' + (primary ? 'background: #2747b8; color: #ffffff; box-shadow: 0 3px 0 #b4b4b4' : 'background: #ffffff; color: #111111');
+    const A = (label, fn, primary) => ({ label, go: fn, style: btn(primary) });
+    let actions = [];
+    if (stage === 'brief') actions = [A('Run the planner', runPlanner, true)];
+    else if (stage === 'planning') actions = [A('Stop planner', () => go('brief'), false)];
+    else if (stage === 'plan') actions = [A('Start session', startRun, true), A('Re-plan', runPlanner, false), A('Back to brief', () => go('brief'), false)];
+    else if (stage === 'run') actions = [A('Send to background', () => this.setState({ bg: true }), true), A('Stop session', () => { clearInterval(this._iv); this.setState({ stage: 'result' }); }, false)];
+    else if (!S.handled) {
+      if (resultType === 'drafts') actions = [A(driver === 'steward' ? 'Send ' + picked.length + ' to the Steward' : 'File ' + picked.length + ' in GitHub', () => finish(driver === 'steward' ? 'steward' : 'filed', 'filed ' + picked.length), true)];
+      else if (resultType === 'pr') actions = [A('Open the draft PR', () => finish('pr', 'opened the draft PR'), true), A('Resume the session', () => go('run'), false)];
+      else if (resultType === 'comment') actions = [A('Post review comment', () => finish('posted', 'posted the review comment'), true), A('Resume the session', () => go('run'), false)];
+      else if (resultType === 'labels') actions = [A('Apply ' + labelRows.filter((l) => l.on).length + ' changes', () => finish('applied', 'applied label changes'), true)];
+      else if (resultType === 'notes') actions = [A(driver === 'steward' ? 'Send ' + noteOps.filter((o) => o.on).length + ' changes to the Steward' : 'Apply ' + noteOps.filter((o) => o.on && !o.flag).length + ' changes', () => finish(driver === 'steward' ? 'steward' : 'applied', 'applied note changes'), true), A('Sweep these for docs', () => this.setState({ action: 'sweep', stage: 'brief', handled: null }), false)];
+      else if (resultType === 'report') actions = [A('Save report', () => finish('saved', 'saved the report'), true), A('Ask a follow-up', () => this.setState({ stage: 'brief', handled: null, describe: 'Follow-up: ' + question }), false)];
+      else actions = [A('Start a fix session', () => this.setState({ action: 'fix', stage: 'brief', handled: null }), true), A('Resume the session', () => go('run'), false)];
+    }
+    const RT = { notes: ['Note changes', H.results.notes.length + ' proposed · nothing changed yet'], report: ['Report', H.results.report.sources.length + ' sources · not saved yet'], drafts: ['Drafts', list.length + ' drafts · nothing filed yet'], pr: ['Draft pull request', 'opened as a draft only when you say so'], comment: ['Review comment', 'nothing posted yet'], labels: ['Label changes', 'nothing applied yet'], findings: ['Findings', 'no changes made'] }[resultType];
+    const STEPS = [
+      ['brief', 'Brief', def.label + ' · ' + (usesCovers ? covers.join(', ') : repo)],
+      ['plan', 'Plan', idx < 1 ? 'planner ' + pmodelName + ' writes a spec' : stage === 'planning' ? 'planner running…' : idx === 2 ? 'waiting for you' : 'approved · ' + modelName],
+      ['run', 'Run', idx < 3 ? def.persona + ' · usually ' + def.eta : stage === 'run' ? (asking ? 'asks you something' : elapsed) : 'finished · ' + elapsed],
+      ['result', 'Result', idx < 4 ? RT[0].toLowerCase() + ' · lands here, or in Needs you' : S.handled ? 'handled' : RT[1]]
+    ];
+    const pos = { brief: 0, plan: 2, run: 3, result: 4 };
+    const steps = STEPS.map(([id, name, sub], i) => {
+      const isCur = id === stage || (id === 'plan' && stage === 'planning');
+      const done = pos[id] < idx && !isCur; const canGo = !started && done;
+      return { name, sub, current: isCur ? 'step' : 'false', locked: !canGo && !isCur, mark: done ? '✓' : String(i + 1), go: () => { if (canGo) go(id); },
+        dot: 'display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex: none; border-radius: 999px; font-family: Kalam, cursive; font-size: 17px; ' + (isCur ? 'background: #2747b8; color: #ffffff; border: 1.5px solid #2747b8' : done ? 'background: #ffffff; color: #111111; border: 1.5px solid #111111; font-family: \'IBM Plex Mono\', monospace; font-size: 13px' : 'background: transparent; color: #4a4a4a; border: 1.5px dashed #4a4a4a'),
+        style: 'display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 10px; border: 1.5px solid ' + (isCur ? '#111111' : 'transparent') + '; border-radius: 12px; font: inherit; color: #111111; cursor: ' + (canGo ? 'pointer' : 'default') + '; background: ' + (isCur ? '#ffffff; box-shadow: 0 3px 0 #b4b4b4' : 'transparent') };
+    });
+    const PLAN = ['Reading ' + (usesCovers ? covers.join(', ') : 'the repo map of ' + repo), 'hub.search("' + Q + '") → ' + (PASS.length + 3) + ' passages', 'Choosing persona, checkout and tools', 'Writing the spec'];
+    const layer = P.layer || 'fixed';
+    const font = ' font-family: \'IBM Plex Sans\', system-ui, sans-serif; font-size: 15px; line-height: 1.5; color: #111111';
+    const TG = [['read', 'Read: issues, PRs, runs, docs search'], ['comment', 'Comment on covered items'], ['pr', 'Open a PR from its own branch'], ['destr', 'Merge, close, dispatch']];
+    const toolDefault = { read: 'allow', comment: def.mode.indexOf('read-only') >= 0 ? 'off' : 'allow', pr: def.mode.indexOf('read-only') >= 0 ? 'off' : 'ask', destr: 'off' };
+    return {
+      isOpen: (P.open ?? true) && !S.hidden && !S.bg, showToast: S.bg && !S.hidden, runName, reopen: () => this.setState({ bg: false }),
+      wrapStyle: layer === 'inline' ? font : (layer === 'absolute' ? 'position: absolute;' : 'position: fixed; overflow-y: auto;') + ' inset: 0; z-index: 50; background: rgba(17, 17, 17, 0.5); display: flex; justify-content: center; align-items: flex-start; padding: 32px 16px; box-sizing: border-box;' + font,
+      dialogRole: layer === 'inline' ? 'region' : 'dialog', ariaModal: layer === 'inline' ? 'false' : 'true',
+      byAgent, agentInitial: bySteward ? 'S' : by[0], headBg: '#f2f2f2',
+      title: isNotes ? def.label + ' · ' + notesScope : isResearch ? 'Research · “' + (question.length > 60 ? question.slice(0, 57) + '…' : question || 'a question') + '”' : def.label + (usesCovers && covers.length ? ' ' + covers.join(' + ') : ' · ' + repo), ctx,
+      why: P.why || '', def,
+      canBackground: layer !== 'inline' && (stage === 'planning' || stage === 'run'), background: () => this.setState({ bg: true }),
+      steps, railNote: started ? 'Closing this doesn’t stop the session.' : '', hasRailNote: started,
+      isBrief: stage === 'brief', isPlanning: stage === 'planning', isPlan: stage === 'plan', isRun: stage === 'run', isResult: stage === 'result',
+      actionGroups: groups, usesCovers, covers, onCovers: (v) => this.setState({ covers: v }), onRepo: (v) => this.setState({ repo: v }),
+      coverHint: resultType === 'pr' ? 'Its PR will say “Closes …” for every issue here. Each one shows this session in Work.' : 'Each item here shows this session in Work.',
+      usesRepo, repo,
+      usesScope, scopeText: S.scope !== null ? S.scope : (isNotes ? (P.scope || 'all notes') : isResearch ? (P.scope || 'docs, work items, code') : action === 'sec' ? 'hubd/ app/ deploy/' : '(whole repository)'), onScope: (ev) => this.setState({ scope: ev.target.value }),
+      usesDescribe, describeLabel: isResearch ? 'Question' : action === 'road' ? 'What should exist, and why' : 'What’s wrong or wanted', describeText: question, onDescribe: (ev) => this.setState({ describe: ev.target.value }),
+      notesLabel: byAgent ? 'Notes — ' + (bySteward ? 'the Steward' : by) + ' proposed these; edit freely' : 'Notes for the planner', notesText, onNotes: (ev) => this.setState({ notes: ev.target.value }),
+      pins: [{ t: 'from ' + ctx, bg: '#f2f2f2' }].concat((P.pins && P.pins.length ? P.pins : PASS.slice(0, 1).map((p) => p[0])).map((t) => ({ t, bg: '#ffffff' }))),
+      pmodels: H.plannerModels.map(([id, name]) => ({ name, checked: pmodel === id ? 'true' : 'false', style: seg(pmodel === id), pick: () => this.setState({ pmodel: id }) })), pmodelName,
+      usesDrivers: resultType === 'drafts' || resultType === 'notes',
+      drivers: [['me', 'Me · I hand it off'], ['steward', 'The Steward · refines & dispatches']].map(([id, label]) => ({ label, checked: driver === id ? 'true' : 'false', style: seg(driver === id), pick: () => this.setState({ driver: id }) })),
+      driverHint: driver === 'steward' ? 'The Steward refines the drafts and can start the work; anything that writes asks you first.' : 'You hand the drafts off yourself: file them, or launch sessions from them.',
+      planSteps: PLAN.map((t, i) => ({ t, mark: i < S.plan ? '✓' : i === S.plan ? '›' : '·', style: 'display: flex; gap: 8px; font-family: \'IBM Plex Mono\', monospace; font-size: 13px; color: ' + (i <= S.plan ? '#111111' : '#4a4a4a') })),
+      specRows: specRows.map(([k, v]) => ({ k, v })),
+      models: H.models.map(([id, name]) => ({ name: name + (id === def.model ? ' ·' : ''), checked: model === id ? 'true' : 'false', style: seg(model === id), pick: () => this.setState({ model: id }) })),
+      modelNote: model === def.model ? modelName + ' — the planner’s pick.' : modelName + ' — your choice; the planner suggested ' + H.models.find((m) => m[0] === def.model)[1] + '.',
+      toolRows: TG.map(([id, group]) => { const cur = S.tools[id] || toolDefault[id]; return { group, modes: ['off', 'ask', 'allow'].map((m) => ({ label: m[0].toUpperCase() + m.slice(1), checked: cur === m ? 'true' : 'false', pick: () => this.setState({ tools: { ...this.state.tools, [id]: m } }), style: 'min-height: 36px; min-width: 52px; padding: 0 8px; border: 0; font: inherit; font-size: 13px; cursor: pointer; ' + (cur === m ? 'background: #111111; color: #ffffff; font-weight: 600' : 'background: #ffffff; color: #111111') })) }; }),
+      skills: (action === 'sec' ? ['threat-model', 'audit-report'] : action === 'implement' || action === 'address' ? ['checkpatch', 'hub-repo-map'] : ['hub-repo-map']).map((n) => ({ n })),
+      query: Q, passages: PASS.map(([path, score, why]) => ({ path, score, why })),
+      promptText, onPrompt: (ev) => this.setState({ prompt: ev.target.value }),
+      live, onMidAsk: () => this.setState({ ask: 'answered' }),
+      resultTitle: RT[0], resultSub: 'finished after ' + elapsed.replace('running ', '') + ' · ' + RT[1],
+      rDrafts: resultType === 'drafts', rPr: resultType === 'pr', rComment: resultType === 'comment', rLabels: resultType === 'labels', rFindings: resultType === 'findings', rReport: resultType === 'report', rNotes: resultType === 'notes', noteOps, noteCmds: noteOps.filter((o) => o.on).map((o) => o.cmd).join('\n'), noteCount: String(noteOps.filter((o) => o.on).length),
+      reportAnswer: H.results.report.answer.map((t) => ({ t })), reportSources: H.results.report.sources.map(([k, ref, why]) => ({ k, ref, why })), reportGaps: H.results.report.gaps.map((t) => ({ t })),
+      reportFollow: H.results.report.followups.map(([a, label]) => ({ label, go: () => this.setState({ action: a, stage: 'brief', handled: null, notes: 'From the research report: ' + question }) })),
+      drafts: list, draftCount: String(list.length), pickedCount: String(picked.length),
+      prTitle: action === 'implement' ? H.results.pr.title : 'Address review on ' + prim, prBranch: action === 'implement' ? 'agent/' + runName : ((primItem && primItem.branch) || '').split(' →')[0], prSize: H.results.pr.size,
+      prBody: (action === 'implement' ? 'Implements ' + covers.join(' and ') + '.' : 'Fixups for the open review threads.') + (closesLines.length ? '\n\n' + closesLines.join('\n') : ''),
+      prChecks: H.results.pr.checks.map(([l, s]) => ({ label: (s === 'p' ? '✓ ' : '◌ ') + l, style: 'font-family: \'IBM Plex Mono\', monospace; font-size: 12px; padding: 1px 8px; border: 1.5px ' + (s === 'p' ? 'solid' : 'dashed') + ' #111111; border-radius: 6px' })),
+      commentSummary: H.results.comment.summary, commentNotes: H.results.comment.notes.map(([where, text]) => ({ where, text })),
+      labelRows, findSummary: H.results.findings.summary, findFix: H.results.findings.fix,
+      actions,
+      statusText: stage === 'brief' ? 'The planner (' + pmodelName + ') writes a spec first. Nothing runs until you approve it.' : stage === 'planning' ? 'Planning… you can send this to the background.' : stage === 'plan' ? 'Starting opens a real Claude session in tmux, usually for ' + def.eta + '.' : stage === 'run' ? (asking ? 'The session is waiting for your answer above.' : 'Send it to the background and the result lands in Sessions › Needs you.') : S.handled ? 'Done · ' + ({ filed: 'filed in GitHub.', steward: 'the Steward has them; writes will ask you.', pr: 'draft PR opened; it closes ' + covers.join(' and ') + ' when merged.', posted: 'comment posted.', saved: 'saved to Knowledge › Research; sessions can find it with hub.search.', applied: 'changes applied.' }[S.handled] || '') : 'Nothing is filed or posted until you choose.',
+      closeLabel: started && stage !== 'result' ? 'Close · keeps running' : stage === 'result' ? 'Done' : 'Cancel',
+      close: () => { clearTimeout(this._pt); if (P.onClose) P.onClose(); else this.setState({ hidden: true }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

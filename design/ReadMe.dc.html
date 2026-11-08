@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Read me</title>
+<script src="./support.js"></script>
+<script src="data/fixtures.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Kalam&amp;display=swap">
+<style>body{margin:0;background:#ffffff} a{color:#2747b8} td,th{text-align:left;vertical-align:top;padding:8px 12px;border-bottom:1px solid #d0d0d0} th{font-family:'IBM Plex Mono',monospace;font-size:11.5px;font-weight:600;letter-spacing:0.08em;border-bottom:1.5px solid #111111}</style>
+</helmet>
+<div style="box-sizing: border-box; width: 100%; max-width: 1440px; padding: 48px 56px 64px; display: flex; flex-direction: column; gap: 40px; background: #ffffff; color: #111111; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15.5px; line-height: 1.55">
+
+  <header style="display: flex; flex-direction: column; gap: 10px; max-width: 900px">
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.08em">READ ME · FOR PEOPLE AND IMPLEMENTING AGENTS</span>
+    <h1 style="margin: 0; font-size: 40px; font-weight: 600; line-height: 1.15">GlassineOS hub — four building blocks, every screen made of them</h1>
+    <p style="margin: 0; font-size: 17px">The hub is a local web app over <span style="font-family: 'IBM Plex Mono', monospace">hubd</span> that tracks the project in GitHub and runs Claude Code sessions in tmux. Every screen here is assembled from the same few components and reads one mock data set, <span style="font-family: 'IBM Plex Mono', monospace">data/fixtures.js</span>. If two boards disagree, the component is right and the board is a bug.</p>
+  </header>
+
+  <section aria-labelledby="h-pages" style="display: flex; flex-direction: column; gap: 12px; background: transparent">
+    <h2 id="h-pages" style="margin: 0; font-size: 22px; font-weight: 600">How this canvas is organised</h2>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px">
+      <sc-for list="{{pages}}" as="p" hint-placeholder-count="4">
+        <div style="display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border: 1.5px solid #111111; border-radius: 12px; background: {{p.bg}}">
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.08em">{{p.name}}</span>
+          <span style="font-size: 14.5px">{{p.what}}</span>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-blocks" style="display: flex; flex-direction: column; gap: 12px; background: transparent">
+    <h2 id="h-blocks" style="margin: 0; font-size: 22px; font-weight: 600">The four building blocks</h2>
+    <table style="border-collapse: collapse; font-size: 14.5px">
+      <thead><tr><th>BLOCK</th><th>WHAT IT IS</th><th>COMPONENT</th><th>WHERE IT APPEARS</th></tr></thead>
+      <tbody>
+        <sc-for list="{{blocks}}" as="b" hint-placeholder-count="4">
+          <tr><td style="font-weight: 600; white-space: nowrap">{{b.name}}</td><td>{{b.what}}</td><td style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; white-space: nowrap">{{b.file}}</td><td>{{b.where}}</td></tr>
+        </sc-for>
+      </tbody>
+    </table>
+    <p style="margin: 0; font-size: 14.5px">Chrome around them: <span style="font-family: 'IBM Plex Mono', monospace">Header</span> (nav, Sessions badge = number of open interactions, ＋ New work), <span style="font-family: 'IBM Plex Mono', monospace">Steward</span> (sidebar: its interactions as a filtered Feed, its terminal as a compact SessionView), <span style="font-family: 'IBM Plex Mono', monospace">SessionsTabs</span>. Inputs: <span style="font-family: 'IBM Plex Mono', monospace">ItemPill</span> (an item anywhere: kind, ref, title, link), <span style="font-family: 'IBM Plex Mono', monospace">ItemPicker</span> (search issues and PRs by meaning or GitHub syntax, picks become pills), <span style="font-family: 'IBM Plex Mono', monospace">PersonaBadge</span> and <span style="font-family: 'IBM Plex Mono', monospace">SessionChip</span> (who a session is, everywhere a session appears), <span style="font-family: 'IBM Plex Mono', monospace">RepoPicker</span> (type-to-filter, recent and failing first, layer chips, single or multi).</p>
+    <p style="margin: 0; padding: 12px 16px; border: 1.5px solid #111111; border-radius: 12px; background: #f2f2f2; font-size: 14.5px"><span style="font-weight: 600">Scale rule.</span> The project has {{repoCount}} repositories and will have more. Nothing may list every repository as buttons or pills: choosing one goes through RepoPicker, choosing items through ItemPicker, and lists of repositories (Overview) are dense rows, sorted by what needs attention, five per layer until expanded, with a filter.</p>
+    <pre style="margin: 0; padding: 14px 16px; background: #f2f2f2; border-radius: 12px; font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.7; white-space: pre-wrap">Interaction  ← imports nothing
+SessionView  → Interaction                  (a session’s own prompts, inline)
+Launch       → SessionView                  (Run stage embeds the real session)
+Feed         → Interaction, Launch          (suggestion / results cards open Launch)
+Header       → Launch                       (＋ New work)
+Steward      → Feed, SessionView, Launch
+screens      → Header, Steward, + the blocks they show</pre>
+  </section>
+
+  <section aria-labelledby="h-launch" style="display: flex; flex-direction: column; gap: 12px; background: transparent">
+    <h2 id="h-launch" style="margin: 0; font-size: 22px; font-weight: 600">Launch: one flow for every agent</h2>
+    <p style="margin: 0; max-width: 90ch">Every session that is not a plain shell starts here, from wherever you are: a row in Work, an item page, a roadmap card, a repo card, ＋ New work, the Steward, or a suggestion card. The entry only changes what is prefilled.</p>
+    <ol style="margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px">
+      <sc-for list="{{stages}}" as="s" hint-placeholder-count="4">
+        <li style="display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border: 1.5px solid #111111; border-radius: 12px">
+          <span style="display: flex; align-items: center; gap: 8px"><span style="display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 1.5px solid #2747b8; border-radius: 999px; font-family: Kalam, cursive; font-size: 17px; color: #2747b8">{{s.n}}</span><span style="font-weight: 600; font-size: 16px">{{s.name}}</span></span>
+          <span style="font-size: 14px">{{s.what}}</span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4a4a4a">{{s.tech}}</span>
+        </li>
+      </sc-for>
+    </ol>
+    <table style="border-collapse: collapse; font-size: 14px">
+      <thead><tr><th>ACTION</th><th>FOR</th><th>PERSONA · DEFAULT MODEL</th><th>MODE</th><th>RESULT STAGE SHOWS</th><th>CEILING (HUBD CLAMPS THE SPEC)</th></tr></thead>
+      <tbody>
+        <sc-for list="{{actions}}" as="a" hint-placeholder-count="12">
+          <tr><td style="font-weight: 600">{{a.label}}</td><td style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px">{{a.for}}</td><td>{{a.persona}} · {{a.model}}</td><td style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px">{{a.mode}}</td><td>{{a.result}}</td><td>{{a.ceiling}}</td></tr>
+        </sc-for>
+      </tbody>
+    </table>
+  </section>
+
+  <section aria-labelledby="h-states" style="display: flex; flex-direction: column; gap: 12px; background: transparent">
+    <h2 id="h-states" style="margin: 0; font-size: 22px; font-weight: 600">States</h2>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 12px">
+      <sc-for list="{{machines}}" as="m" hint-placeholder-count="3">
+        <div style="display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border: 1.5px solid #111111; border-radius: 12px">
+          <span style="font-weight: 600">{{m.name}}</span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.7; white-space: pre-wrap">{{m.flow}}</span>
+          <span style="font-size: 13.5px; color: #4a4a4a">{{m.note}}</span>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-data" style="display: flex; flex-direction: column; gap: 12px; background: transparent">
+    <h2 id="h-data" style="margin: 0; font-size: 22px; font-weight: 600">Data: <span style="font-family: 'IBM Plex Mono', monospace; font-size: 19px">window.HUB</span></h2>
+    <table style="border-collapse: collapse; font-size: 14px">
+      <thead><tr><th>KEY</th><th>SHAPE</th><th>IN THE REAL APP</th><th>NOW IN FIXTURES</th></tr></thead>
+      <tbody>
+        <sc-for list="{{data}}" as="d" hint-placeholder-count="10">
+          <tr><td style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600">{{d.k}}</td><td style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px">{{d.shape}}</td><td>{{d.src}}</td><td style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px">{{d.n}}</td></tr>
+        </sc-for>
+      </tbody>
+    </table>
+    <p style="margin: 0; max-width: 90ch">The one relation that matters: a session <span style="font-weight: 600">covers</span> one or more items — chosen with the item picker, no item is special — and may own PRs. Work shows every covering session on each row; a PR from a session that covers several issues says <span style="font-family: 'IBM Plex Mono', monospace">Closes …</span> for each. Parent links are a <span style="font-family: 'IBM Plex Mono', monospace">Part of GlassineOS/hub#N</span> line in the child’s body, never a GitHub sub-issue link.</p>
+  </section>
+
+  <section aria-labelledby="h-cap" style="display: flex; flex-direction: column; gap: 12px; background: transparent">
+    <h2 id="h-cap" style="margin: 0; font-size: 22px; font-weight: 600">What exists, what is proposed</h2>
+    <table style="border-collapse: collapse; font-size: 14px">
+      <thead><tr><th>CAPABILITY</th><th>STATUS</th><th>NOTES</th></tr></thead>
+      <tbody>
+        <sc-for list="{{caps}}" as="c" hint-placeholder-count="12">
+          <tr><td style="font-weight: 500">{{c.what}}</td><td><span style="{{c.style}}">{{c.status}}</span></td><td>{{c.note}}</td></tr>
+        </sc-for>
+      </tbody>
+    </table>
+  </section>
+
+  <section aria-labelledby="h-rules" style="display: flex; flex-direction: column; gap: 12px; background: transparent">
+    <h2 id="h-rules" style="margin: 0; font-size: 22px; font-weight: 600">Visual rules (Interleaf White)</h2>
+    <ul style="margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; max-width: 100ch">
+      <li>Ink <span style="font-family: 'IBM Plex Mono', monospace">#111111</span> on paper; 1.5 px keylines; keycap shadow <span style="font-family: 'IBM Plex Mono', monospace">0 3px 0 #b4b4b4</span> on things you press.</li>
+      <li>Pen blue <span style="font-family: 'IBM Plex Mono', monospace">#2747b8</span> = the one primary action per area, and anything the Steward says (Kalam hand).</li>
+      <li>Highlighter yellow <span style="font-family: 'IBM Plex Mono', monospace">#ffd86b</span> means one thing: waiting for you — the Needs you count, WAITS on sessions, blocking prompts. Search matches use grey, open questions pen blue, toolbars white.</li>
+      <li>Buttons: blue starts an agent; the black split button with the commit symbol is something you do yourself on GitHub, with the most relevant action inline and the rest behind the arrow.</li>
+      <li>Type: section headings are sentence-case sans; monospace is for refs, paths, code and commands only. Help text stays out of the screens unless it prevents a mistake.</li>
+      <li>No side columns that fall below the content: secondary panels (Details on an item, Research &amp; indexes, Keep notes useful) are flyouts; the Sessions list can narrow to icons.</li>
+      <li>Surfaces: screens sit on the grey sheet #f2f2f2 and cards are white paper on it. Ink outlines are for things you can act on; containers use a light rule. The pressed-key shadow marks the one primary action in an area; row actions stay quiet until you hover the row.</li>
+      <li>Severity and failure by outline, never colour alone: double = HIGH / failed, heavy = MEDIUM / blocked, solid = LOW, dashed = INFO / running / draft.</li>
+      <li>Trust in Notes is a word first, then an outline: CURRENT solid ink · OPEN QUESTION yellow · HISTORY grey · RETRACTED double outline and “don’t rely on this” · ARCHIVE · UNREVIEWED dashed, italic · NO STATUS orange and heavy, so it never passes as a fact.</li>
+      <li>Phone (≤ 760 px): the header folds into New + Menu, the Steward becomes a floating button and a full-screen sheet, side columns stack under the content, gutters are 16 px. The rules live in Header’s and Steward’s helmet styles, so every screen inherits them.</li>
+      <li>Personas: an icon on a family tint — build blue #d6e2ff, review violet #eadcff, investigate orange #ffd9b8, write green #d4efdc, organise grey #e2e2e2; the Steward keeps its pen-blue hand-drawn S. The icon tells personas within a family apart, and the persona’s name is always there in text, so colour is never the only cue. A session’s header takes its family tint.</li>
+      <li>Sessions on the same item point at each other: “Also on these items” in the session header, “⇄ also on …” in the Sessions list, persona tabs on the item page. One click switches between, say, the implementer and the reviewer.</li>
+      <li>Terminals are night paper <span style="font-family: 'IBM Plex Mono', monospace">#121212</span>: tool calls pen-blue, your messages on paper chips, questions on yellow.</li>
+    </ul>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":4600}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const H = window.HUB;
+    const RES = { drafts: 'drafts to file (Me · or the Steward)', pr: 'a draft PR, “Closes …” per covered issue', comment: 'a review comment to post', labels: 'label changes to apply', findings: 'cause and smallest fix', report: 'a cited report, saved to Knowledge', notes: 'note changes with evidence and the exact notes commands' };
+    const model = (id) => H.models.find((m) => m[0] === id)[1];
+    const STAT = { exists: ['EXISTS', 'border: 1.5px solid #111111; background: #e2e2e2'], verified: ['VERIFIED 2026-11-02', 'border: 1.5px solid #111111; background: #ffd86b'], proposed: ['PROPOSED', 'border: 1.5px dashed #111111; background: #ffffff'], review: ['NEEDS REVIEW', 'border: 3px double #111111; background: #ffffff'] };
+    const caps = [
+      ['Login (PAM), hubd on 127.0.0.1, app in docker', 'exists', 'Unchanged.'],
+      ['Repos by layer from config/repos.toml, Unplaced', 'exists', 'Overview groups by these five layers.'],
+      ['gh allowlist proxy; issues, PRs, runs, project board', 'exists', 'Work, Work item and Roadmap read through it.'],
+      ['tmux -L glassine-hub sessions, attach in the browser', 'exists', 'SessionView is the terminal plus hub chrome.'],
+      ['Tool server (27 MCP tools) for every session', 'exists', 'Planner gets read-only tools; sessions get what the spec allows.'],
+      ['notes find: word search over notes, old docs, diaries, memory files, transcripts', 'exists', 'The Notes page is its read-only view. Agents read and write notes with the notes command.'],
+      ['Compaction and docs sweep, started by hand (all notes or one topic)', 'proposed', 'Compact proposes merge, supersede, distil, answer and status changes; never deletes. Sweep drafts docs issues from current claims.'],
+      ['Notes page with trust labels and every tool state', 'proposed', 'Words only, button-run, 20 then up to 100 rows; never part of hub.search.'],
+      ['Your own GitHub actions: merge, mark ready, update branch, close/reopen, labels, assign; re-run/cancel runs; new issue; run workflow', 'exists', 'One black split button per item (GhActions). Diff and run log are shown on the item page. Agents never merge, close or cancel.'],
+      ['Docs semantic search, index states', 'exists', 'Planner shows its query and passages in Plan.'],
+      ['Vector index of ingested work items (issues, PRs, threads)', 'exists', 'Knowledge searches it together with docs; rows link to the item.'],
+      ['Code search (main branch, chunked by symbol)', 'proposed', 'Shown in Knowledge as PLANNED; results there are illustrative.'],
+      ['hub.search: one tool over every domain, for sessions too', 'proposed', 'Replaces docs_search; takes domains, repo and open-only filters.'],
+      ['Research sessions with saved, indexed reports', 'proposed', 'Result type “report”; reports become a searchable domain.'],
+      ['Permission prompts and AskUserQuestion relayed to hub', 'verified', 'First answer wins: hub or terminal. Timeout approves nothing.'],
+      ['Launch: claude -p planner writes the spec, you review it', 'proposed', 'Spec is JSON; hubd clamps it to the action’s ceiling.'],
+      ['Sessions covering several items; PR closes each', 'proposed', 'A covers list on the session record; Work joins on it.'],
+      ['hub.suggest_session for any session (the Steward uses it)', 'proposed', 'Writes a suggestion card; never starts anything itself.'],
+      ['Results as cards in Needs you, reopening Launch', 'proposed', 'Session writes its result file; hub shows it when the session ends.'],
+      ['Resume via claude --resume, recreating a removed worktree', 'review', 'Transcripts are keyed by folder: the path must match exactly.'],
+      ['Workspace cleanup under ~/hub-worktrees only', 'proposed', 'git refuses dirty trees and unmerged branches; hub shows the exact commands.'],
+      ['Changing the Steward’s model', 'review', 'Probably restarts the Steward with --resume on the new model; confirm that context carries over.']
+    ].map(([what, st, note]) => ({ what, note, status: STAT[st][0], style: 'font-family: \'IBM Plex Mono\', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; padding: 1px 7px; border-radius: 6px; white-space: nowrap; ' + STAT[st][1] }));
+    return {
+      repoCount: String(H.repos.length),
+      pages: [
+        ['READ ME', 'This board. Start here.', '#f2f2f2'], ['SCREENS', 'Eight full pages, all live: Overview, Roadmap, Work, Work item (a PR, an issue, a run), Knowledge, Notes (every state), the Needs you modal, Sessions › Running · History, and the key screens at phone width (390 px).', '#ffffff'],
+        ['COMPONENTS', 'The blocks on their own, each with its props as tweaks. Change one and every screen changes.', '#ffffff'], ['FLOWS', 'Launch pinned to each stage for two journeys, and every interaction kind and state.', '#ffffff']
+      ].map(([name, what, bg]) => ({ name, what, bg })),
+      blocks: [
+        ['Item', 'An issue, PR, workflow run or roadmap item, keyed by its ref (kernel#212, build-image #1184).', 'WorkItem.dc.html', 'Work rows, Work item page, Roadmap cards, covers chips everywhere.'],
+        ['Launch', 'The only way an agent starts: Brief → Plan → Run → Result, in one modal that can go to the background.', 'Launch.dc.html', '＋ New work, item buttons, repo and roadmap cards, Knowledge › Research it, Steward, suggestion and results cards.'],
+        ['Session', 'A Claude Code (or plain) tmux session with persona, model, mode, covers and its terminal.', 'SessionView.dc.html', 'Full in Sessions, embedded on the item it covers and in Launch › Run, compact in the Steward.'],
+        ['Interaction', 'Something a session waits on or offers you: permission, question, suggestion, results.', 'Interaction.dc.html + Feed.dc.html + Inbox.dc.html', 'The Needs you modal (header button on every screen; the Steward’s strip opens it filtered to the Steward), inline in the session that asked, item pages.']
+      ].map(([name, what, file, where]) => ({ name, what, file, where })),
+      stages: [
+        ['1', 'Brief', 'Pick the action, what it covers or which repo, notes and pins for the planner, planner model, where drafts go.', 'cheap · reversible'],
+        ['2', 'Plan', 'A throwaway planner writes the spec. You see persona, checkout, tools, docs passages and the first prompt; change the agent model here.', 'claude -p · read-only hub tools'],
+        ['3', 'Run', 'The real session, embedded. Its prompts appear inline. Send to background at any time.', 'tmux -L glassine-hub · claude'],
+        ['4', 'Result', 'Typed by the action: drafts, PR, comment, labels or findings. Nothing is filed or posted until you choose.', 'arrives in Needs you if backgrounded']
+      ].map(([n, name, what, tech]) => ({ n, name, what, tech })),
+      actions: Object.values(H.actions).map((a) => ({ label: a.label, for: a.for.join(', '), persona: a.persona, model: model(a.model), mode: a.mode, result: RES[a.result], ceiling: a.ceiling })),
+      machines: [
+        { name: 'Launch stage', flow: 'brief → planning → plan → run → result\n        ↖ re-plan ↙        ↘ background (toast) → Needs you', note: 'Brief and Plan can be revisited until Run starts. After that, closing never stops the session.' },
+        { name: 'Session state', flow: 'RUNNING ⇄ WAITING → DONE\nATTACHED (plain shell)\nview: embedded | background', note: 'WAITING means at least one interaction is open. Background only changes where it is shown.' },
+        { name: 'Interaction status', flow: 'pending → allowed | always | denied | terminal | timeout\npending → answered            (question)\npending → started | dismissed (suggestion, results)', note: 'Badge on Sessions = all pending interactions. The Steward rail counts only its own.' }
+      ],
+      data: [
+        ['layers, repos, unplaced', '{name, layer, issues, prs, runs, last, release, commit}', 'repos.toml + gh', String(H.repos.length) + ' repos'],
+        ['items', '{ref: {kind, title, state, group, partOf, …}}', 'gh issues, PRs, runs, project', String(Object.keys(H.items).length) + ' items'],
+        ['threads', '{ref: [{who, where, text, open}]}', 'gh PR review threads', String(Object.values(H.threads).reduce((n, t) => n + t.length, 0)) + ' threads'],
+        ['sessions', '{id: {persona, model, state, covers[], prs[], origin, lines[]}}', 'hubd session registry + tmux', String(Object.keys(H.sessions).length) + ' sessions'],
+        ['interactions', '[{id, kind, session, …}]', 'hook relay + suggest_session + result files', String(H.interactions.length) + ' open'],
+        ['actions', '{id: {label, persona, model, mode, result, for[], ceiling}}', 'hub config (actions.toml)', String(Object.keys(H.actions).length) + ' actions'],
+        ['models, plannerModels', '[[id, name]]', 'hub config', H.models.map((m) => m[1]).join(', ')],
+        ['knowledge', '{domains[], corpus[], reports[]}', 'hub.search over the docs, work-item and code indexes', String(H.knowledge.corpus.length) + ' hits · ' + String(H.knowledge.reports.length) + ' reports'],
+        ['results, passages', 'per action', 'session result file; hub.search', 'mock only'],
+        ['history, worktrees', 'rows', 'transcripts in ~/.claude; git worktree list', String(H.history.length) + ' · ' + String(H.worktrees.length)]
+      ].map(([k, shape, src, n]) => ({ k, shape, src, n })),
+      caps
+    };
+  }
+}
+</script>
+</body>
+</html>

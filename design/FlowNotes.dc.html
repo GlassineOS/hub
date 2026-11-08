@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Compact notes, then sweep for docs</title>
+<script src="./support.js"></script>
+<script src="data/fixtures.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Kalam&amp;display=swap">
+<style>body{margin:0;background:#ffffff}</style>
+</helmet>
+<div style="padding: 32px; display: flex; flex-direction: column; gap: 36px; max-width: 1184px; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15px; line-height: 1.5; color: #111111">
+  <header style="display: flex; flex-direction: column; gap: 6px">
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.08em">FLOW · ONE LAUNCH COMPONENT, FOUR STAGES</span>
+    <h1 style="margin: 0; font-size: 28px; font-weight: 600">Compact notes/epd/, then sweep it for docs</h1>
+    <p style="margin: 0; max-width: 80ch; font-size: 15.5px">Both start by hand from Notes › Keep notes useful, for all notes or one topic. The Archivist proposes note changes with evidence and the exact notes commands; nothing is deleted. Once applied, “Sweep these for docs” opens the same Launch for the Docs writer, which reads only current claims and drafts docs issues, retracted-in-docs first.</p>
+  </header>
+  <section style="display: flex; flex-direction: column; gap: 10px; background: transparent">
+    <div style="display: flex; align-items: baseline; gap: 12px"><span style="display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex: none; border: 1.5px solid #2747b8; border-radius: 999px; font-family: Kalam, cursive; font-size: 19px; color: #2747b8">1</span><h2 style="margin: 0; font-size: 19px; font-weight: 600">Compact · Brief</h2><span style="font-family: Kalam, cursive; font-size: 17px; color: #2747b8">scope notes/epd/, 31 changes since last time</span></div>
+    <dc-import name="Launch" layer="inline" entry="new" action="compact" scope="notes/epd/" context="Notes" stage="brief" hint-size="100%,820px"></dc-import>
+  </section>
+  <section style="display: flex; flex-direction: column; gap: 10px; background: transparent">
+    <div style="display: flex; align-items: baseline; gap: 12px"><span style="display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex: none; border: 1.5px solid #2747b8; border-radius: 999px; font-family: Kalam, cursive; font-size: 19px; color: #2747b8">2</span><h2 style="margin: 0; font-size: 19px; font-weight: 600">Compact · Result</h2><span style="font-family: Kalam, cursive; font-size: 17px; color: #2747b8">merge, distil, answer, supersede, status, flag</span></div>
+    <dc-import name="Launch" layer="inline" entry="new" action="compact" scope="notes/epd/" context="Notes" stage="result" hint-size="100%,1100px"></dc-import>
+  </section>
+  <section style="display: flex; flex-direction: column; gap: 10px; background: transparent">
+    <div style="display: flex; align-items: baseline; gap: 12px"><span style="display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex: none; border: 1.5px solid #2747b8; border-radius: 999px; font-family: Kalam, cursive; font-size: 19px; color: #2747b8">3</span><h2 style="margin: 0; font-size: 19px; font-weight: 600">Sweep · Plan</h2><span style="font-family: Kalam, cursive; font-size: 17px; color: #2747b8">read-only, current claims vs the docs index</span></div>
+    <dc-import name="Launch" layer="inline" entry="new" action="sweep" scope="notes/epd/" context="Notes" stage="plan" hint-size="100%,820px"></dc-import>
+  </section>
+  <section style="display: flex; flex-direction: column; gap: 10px; background: transparent">
+    <div style="display: flex; align-items: baseline; gap: 12px"><span style="display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex: none; border: 1.5px solid #2747b8; border-radius: 999px; font-family: Kalam, cursive; font-size: 19px; color: #2747b8">4</span><h2 style="margin: 0; font-size: 19px; font-weight: 600">Sweep · Result</h2><span style="font-family: Kalam, cursive; font-size: 17px; color: #2747b8">four drafts, worst first</span></div>
+    <dc-import name="Launch" layer="inline" entry="new" action="sweep" scope="notes/epd/" context="Notes" stage="result" hint-size="100%,900px"></dc-import>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1248,"height":4000}}'>
+class Component extends DCLogic { renderVals() { return {}; } }
+</script>
+</body>
+</html>

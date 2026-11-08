@@ -1,0 +1,636 @@
+{
+ "v": 3,
+ "createdOnFiles": {
+  "v": 1,
+  "at": "2026-11-01T11:50:00Z"
+ },
+ "title": "Project Command Center",
+ "launch": {
+  "view": "canvas",
+  "page": "readme"
+ },
+ "pages": [
+  {
+   "id": "readme",
+   "name": "Read me"
+  },
+  {
+   "id": "screens",
+   "name": "Screens"
+  },
+  {
+   "id": "components",
+   "name": "Components"
+  },
+  {
+   "id": "flows",
+   "name": "Flows"
+  }
+ ],
+ "boards": {
+  "Main.dc.html": {
+   "x": 0,
+   "y": 0,
+   "w": 1440,
+   "h": 2200,
+   "title": "Overview",
+   "page": "screens",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "Roadmap.dc.html": {
+   "x": 1520,
+   "y": 0,
+   "w": 1440,
+   "h": 1520,
+   "title": "Roadmap",
+   "page": "screens",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "Work.dc.html": {
+   "x": 3040,
+   "y": 0,
+   "w": 1440,
+   "h": 1540,
+   "title": "Work · issues, all repositories",
+   "page": "screens",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "WorkItem.dc.html": {
+   "x": 0,
+   "y": 2620,
+   "w": 1440,
+   "h": 2180,
+   "title": "Work item · PR kernel#212 (review threads, its session embedded)",
+   "page": "screens",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "WorkItemIssue.dc.html": {
+   "x": 1520,
+   "y": 2620,
+   "w": 1440,
+   "h": 1520,
+   "title": "Work item · issue epd#9 (no session yet, the Steward’s suggestion)",
+   "page": "screens",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "WorkItemRun.dc.html": {
+   "x": 3040,
+   "y": 2620,
+   "w": 1440,
+   "h": 1540,
+   "title": "Work item · run build-image #1184",
+   "page": "screens",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "NeedsYou.dc.html": {
+   "x": 0,
+   "y": 5220,
+   "w": 1440,
+   "h": 1100,
+   "title": "Needs you · one modal, opened from the header on any screen",
+   "page": "screens",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "Sessions.dc.html": {
+   "x": 1520,
+   "y": 5220,
+   "w": 1440,
+   "h": 1630,
+   "title": "Sessions › Running",
+   "page": "screens",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "History.dc.html": {
+   "x": 3040,
+   "y": 5220,
+   "w": 1440,
+   "h": 1760,
+   "title": "Sessions › History & cleanup",
+   "page": "screens",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "ReadMe.dc.html": {
+   "x": 0,
+   "y": 0,
+   "w": 1440,
+   "h": 4600,
+   "title": "Read me",
+   "page": "readme",
+   "expand": "fill"
+  },
+  "Launch.dc.html": {
+   "x": 0,
+   "y": 0,
+   "w": 1440,
+   "h": 1240,
+   "title": "Launch · Brief → Plan → Run → Result",
+   "page": "components",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "Interaction.dc.html": {
+   "x": 1520,
+   "y": 0,
+   "w": 560,
+   "h": 560,
+   "title": "Interaction · permission, question, suggestion, results",
+   "page": "components",
+   "is_interactive": true
+  },
+  "SessionView.dc.html": {
+   "x": 2160,
+   "y": 0,
+   "w": 760,
+   "h": 720,
+   "title": "SessionView · full, embedded, compact",
+   "page": "components",
+   "is_interactive": true
+  },
+  "Feed.dc.html": {
+   "x": 3000,
+   "y": 0,
+   "w": 640,
+   "h": 2600,
+   "title": "Feed · interactions grouped",
+   "page": "components",
+   "is_interactive": true
+  },
+  "Steward.dc.html": {
+   "x": 3720,
+   "y": 0,
+   "w": 400,
+   "h": 1200,
+   "title": "Steward · sidebar",
+   "page": "components",
+   "is_interactive": true
+  },
+  "Header.dc.html": {
+   "x": 0,
+   "y": 1360,
+   "w": 1440,
+   "h": 72,
+   "title": "Header",
+   "page": "components",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "SessionsTabs.dc.html": {
+   "x": 0,
+   "y": 1552,
+   "w": 900,
+   "h": 52,
+   "title": "SessionsTabs",
+   "page": "components",
+   "is_interactive": true
+  },
+  "FlowImplement.dc.html": {
+   "x": 0,
+   "y": 0,
+   "w": 1248,
+   "h": 3700,
+   "title": "Flow · implement epd#9 + epd#11 from the Steward’s suggestion",
+   "page": "flows",
+   "is_interactive": true
+  },
+  "FlowAudit.dc.html": {
+   "x": 1328,
+   "y": 0,
+   "w": 1248,
+   "h": 3700,
+   "title": "Flow · security audit of hub, backgrounded",
+   "page": "flows",
+   "is_interactive": true
+  },
+  "FlowInteractions.dc.html": {
+   "x": 2656,
+   "y": 0,
+   "w": 1440,
+   "h": 2960,
+   "title": "Flow · every interaction kind and state",
+   "page": "flows",
+   "is_interactive": true
+  },
+  "Knowledge.dc.html": {
+   "x": 4560,
+   "y": 0,
+   "w": 1440,
+   "h": 1890,
+   "title": "Knowledge · search everything, research it",
+   "page": "screens",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "FlowResearch.dc.html": {
+   "x": 4176,
+   "y": 0,
+   "w": 1248,
+   "h": 3700,
+   "title": "Flow · research a question from Knowledge",
+   "page": "flows",
+   "is_interactive": true
+  },
+  "ItemPill.dc.html": {
+   "x": 0,
+   "y": 1760,
+   "w": 420,
+   "h": 48,
+   "title": "ItemPill · an item anywhere",
+   "page": "components"
+  },
+  "ItemPicker.dc.html": {
+   "x": 500,
+   "y": 1760,
+   "w": 720,
+   "h": 520,
+   "title": "ItemPicker · covers by search, smart pills",
+   "page": "components",
+   "is_interactive": true
+  },
+  "RepoPicker.dc.html": {
+   "x": 1300,
+   "y": 1760,
+   "w": 520,
+   "h": 520,
+   "title": "RepoPicker · scales to dozens of repositories",
+   "page": "components",
+   "is_interactive": true
+  },
+  "Notes.dc.html": {
+   "x": 0,
+   "y": 9170,
+   "w": 1440,
+   "h": 2010,
+   "title": "Notes · results, every status",
+   "page": "screens",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "NotesEmpty.dc.html": {
+   "x": 1520,
+   "y": 9170,
+   "w": 1440,
+   "h": 900,
+   "title": "Notes · before any search",
+   "page": "screens",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "NotesNone.dc.html": {
+   "x": 0,
+   "y": 11790,
+   "w": 1440,
+   "h": 900,
+   "title": "Notes · no results",
+   "page": "screens",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "NotesMore.dc.html": {
+   "x": 1520,
+   "y": 11790,
+   "w": 1440,
+   "h": 2600,
+   "title": "Notes · more than shown",
+   "page": "screens",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "NotesLimit.dc.html": {
+   "x": 3040,
+   "y": 11790,
+   "w": 1440,
+   "h": 2200,
+   "title": "Notes · 100-row limit",
+   "page": "screens",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "NotesMissing.dc.html": {
+   "x": 4560,
+   "y": 11790,
+   "w": 1440,
+   "h": 800,
+   "title": "Notes · not set up",
+   "page": "screens",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "NotesFailed.dc.html": {
+   "x": 6080,
+   "y": 11790,
+   "w": 1440,
+   "h": 900,
+   "title": "Notes · tool refused",
+   "page": "screens",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "PhoneNotes.dc.html": {
+   "x": 0,
+   "y": 14810,
+   "w": 390,
+   "h": 3600,
+   "title": "Phone · Notes results",
+   "page": "screens",
+   "is_interactive": true
+  },
+  "PhoneOverview.dc.html": {
+   "x": 470,
+   "y": 14810,
+   "w": 390,
+   "h": 2600,
+   "title": "Phone · Overview",
+   "page": "screens",
+   "is_interactive": true
+  },
+  "PhoneWorkItem.dc.html": {
+   "x": 940,
+   "y": 14810,
+   "w": 390,
+   "h": 3200,
+   "title": "Phone · Work item kernel#212",
+   "page": "screens",
+   "is_interactive": true
+  },
+  "PhoneMenu.dc.html": {
+   "x": 1410,
+   "y": 14810,
+   "w": 390,
+   "h": 844,
+   "title": "Phone · menu open",
+   "page": "screens",
+   "is_interactive": true
+  },
+  "PhoneSteward.dc.html": {
+   "x": 1880,
+   "y": 14810,
+   "w": 390,
+   "h": 844,
+   "title": "Phone · Steward open",
+   "page": "screens",
+   "is_interactive": true
+  },
+  "PhoneLaunch.dc.html": {
+   "x": 2350,
+   "y": 14810,
+   "w": 390,
+   "h": 1800,
+   "title": "Phone · Launch, plan stage",
+   "page": "screens",
+   "is_interactive": true
+  },
+  "FlowNotes.dc.html": {
+   "x": 5504,
+   "y": 0,
+   "w": 1248,
+   "h": 4000,
+   "title": "Flow · compact notes, then sweep for docs",
+   "page": "flows",
+   "is_interactive": true
+  },
+  "NotesIndexing.dc.html": {
+   "x": 3040,
+   "y": 9170,
+   "w": 1440,
+   "h": 2200,
+   "title": "Notes · indexer running (badge)",
+   "page": "screens",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "PersonaBadge.dc.html": {
+   "x": 2500,
+   "y": 1760,
+   "w": 260,
+   "h": 56,
+   "title": "PersonaBadge · icon on a family tint",
+   "page": "components"
+  },
+  "SessionChip.dc.html": {
+   "x": 2500,
+   "y": 1900,
+   "w": 260,
+   "h": 36,
+   "title": "SessionChip · a session anywhere",
+   "page": "components"
+  },
+  "Inbox.dc.html": {
+   "x": 4200,
+   "y": 0,
+   "w": 1000,
+   "h": 1100,
+   "title": "Inbox · the Needs you modal",
+   "page": "components",
+   "is_interactive": true
+  },
+  "WorkNewIssue.dc.html": {
+   "x": 6080,
+   "y": 0,
+   "w": 1440,
+   "h": 1540,
+   "title": "Work · New issue (your own action, black)",
+   "page": "screens",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "WorkRunWorkflow.dc.html": {
+   "x": 7600,
+   "y": 0,
+   "w": 1440,
+   "h": 1540,
+   "title": "Work · Run workflow",
+   "page": "screens",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "WorkItemFiles.dc.html": {
+   "x": 4560,
+   "y": 2620,
+   "w": 1440,
+   "h": 1800,
+   "title": "Work item · PR, Files changed",
+   "page": "screens",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "GhActions.dc.html": {
+   "x": 4560,
+   "y": 1360,
+   "w": 520,
+   "h": 560,
+   "title": "GhActions · your own GitHub actions, one split button",
+   "page": "components",
+   "is_interactive": true
+  }
+ },
+ "order": [
+  "Main.dc.html",
+  "Roadmap.dc.html",
+  "Work.dc.html",
+  "Knowledge.dc.html",
+  "WorkItem.dc.html",
+  "WorkItemIssue.dc.html",
+  "WorkItemRun.dc.html",
+  "NeedsYou.dc.html",
+  "Sessions.dc.html",
+  "History.dc.html",
+  "ReadMe.dc.html",
+  "Launch.dc.html",
+  "Interaction.dc.html",
+  "SessionView.dc.html",
+  "Feed.dc.html",
+  "Steward.dc.html",
+  "Header.dc.html",
+  "SessionsTabs.dc.html",
+  "FlowImplement.dc.html",
+  "FlowAudit.dc.html",
+  "FlowInteractions.dc.html",
+  "FlowResearch.dc.html",
+  "ItemPill.dc.html",
+  "ItemPicker.dc.html",
+  "RepoPicker.dc.html",
+  "Notes.dc.html",
+  "NotesEmpty.dc.html",
+  "NotesIndexing.dc.html",
+  "NotesNone.dc.html",
+  "NotesMore.dc.html",
+  "NotesLimit.dc.html",
+  "NotesMissing.dc.html",
+  "NotesFailed.dc.html",
+  "PhoneNotes.dc.html",
+  "PhoneOverview.dc.html",
+  "PhoneWorkItem.dc.html",
+  "PhoneMenu.dc.html",
+  "PhoneSteward.dc.html",
+  "PhoneLaunch.dc.html",
+  "FlowNotes.dc.html",
+  "PersonaBadge.dc.html",
+  "SessionChip.dc.html",
+  "Inbox.dc.html",
+  "WorkNewIssue.dc.html",
+  "WorkRunWorkflow.dc.html",
+  "WorkItemFiles.dc.html",
+  "GhActions.dc.html"
+ ],
+ "notes": {
+  "s1": {
+   "x": 0,
+   "y": -300,
+   "text": "Screens — the five tabs",
+   "kind": "title1",
+   "maxW": 9040,
+   "page": "screens"
+  },
+  "s2": {
+   "x": 0,
+   "y": 2320,
+   "text": "Work item — one page for PRs, issues and runs",
+   "kind": "title1",
+   "maxW": 4400,
+   "page": "screens"
+  },
+  "s3": {
+   "x": 0,
+   "y": 4920,
+   "text": "Sessions — Needs you, Running, History",
+   "kind": "title1",
+   "maxW": 4400,
+   "page": "screens"
+  },
+  "s4": {
+   "x": 4560,
+   "y": 2620,
+   "w": 520,
+   "fill": "orange",
+   "size": "m",
+   "page": "screens",
+   "text": "Every screen = Header + its content + Steward sidebar. All numbers, refs and sessions come from data/fixtures.js, so the Needs you count (9), the Steward’s count (4), Work rows and Needs you always agree.\n\nEvery Launch button on these screens opens the same Launch component; only its prefill differs."
+  },
+  "c1": {
+   "x": 0,
+   "y": -300,
+   "text": "Components — change one, every screen changes",
+   "kind": "title1",
+   "maxW": 4120,
+   "page": "components"
+  },
+  "c2": {
+   "x": 1520,
+   "y": 680,
+   "w": 520,
+   "fill": "blue",
+   "size": "m",
+   "page": "components",
+   "text": "Each component’s props are its tweaks (Launch: entry, stage, action, covers, by; Interaction: iid, status; SessionView: sid, size). Import order: Interaction ← SessionView ← Launch ← Feed / Header / Steward."
+  },
+  "f1": {
+   "x": 0,
+   "y": -300,
+   "text": "Flows — the same components, pinned to a stage",
+   "kind": "title1",
+   "maxW": 6752,
+   "page": "flows"
+  },
+  "c3": {
+   "x": 1900,
+   "y": 1760,
+   "w": 520,
+   "fill": "orange",
+   "size": "m",
+   "page": "components",
+   "text": "Scale rule: no screen lists every repository as pills or buttons. Repo choices go through RepoPicker (type to filter, recent and failing first, layer chips, single or multi). Items go through ItemPicker: by meaning on the work-item index, or GitHub search as soon as you type a qualifier (repo:, is:, label:) or a ref."
+  },
+  "s5": {
+   "x": 0,
+   "y": 8870,
+   "text": "Notes — what the project has learned, and how far to trust it",
+   "kind": "title1",
+   "maxW": 5920,
+   "page": "screens"
+  },
+  "s6": {
+   "x": 0,
+   "y": 14510,
+   "text": "Phone — the same screens at 390 px",
+   "kind": "title1",
+   "maxW": 3200,
+   "page": "screens"
+  },
+  "s7": {
+   "x": 6080,
+   "y": 9170,
+   "w": 520,
+   "fill": "orange",
+   "size": "m",
+   "page": "screens",
+   "text": "Notes is the read-only view of notes find. Agents — the Steward included — read and add to the same notes with the notes command, so the Steward stays on this page.\n\nKeep notes useful (right column) starts compaction and the docs sweep by hand, for all notes or one topic.\n\nIt stays a separate tab from Knowledge on purpose: words only, run with a button; the index updates itself in the background, shown by a small badge, 20 rows then up to 100, and the search is not kept in the address.\n\nDiary rows past the first dozen are filler to show the 40- and 340-row states."
+  },
+  "c4": {
+   "x": 2840,
+   "y": 1760,
+   "w": 480,
+   "fill": "blue",
+   "size": "m",
+   "page": "components",
+   "text": "Persona families: build (blue), review (violet), investigate (orange), write (green), organise (grey). The icon tells personas apart within a family; the name is always in text.\n\nSessions that share an item link to each other: header row “Also on these items”, ⇄ in the Sessions list, persona tabs on the item page."
+  },
+  "c5": {
+   "x": 5160,
+   "y": 1360,
+   "w": 480,
+   "fill": "gray",
+   "size": "m",
+   "page": "components",
+   "text": "Two kinds of button, never mixed:\n• Blue = start an agent (Launch).\n• Black split button with the commit symbol = something you do yourself on GitHub. The most relevant action is inline; the arrow lists the rest. Disabled items say why (e.g. Merge: checks running · not approved). Merge and Close confirm."
+  }
+ }
+}

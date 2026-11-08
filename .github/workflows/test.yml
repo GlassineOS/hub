@@ -37,3 +37,39 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: docker build -t glassine-hub .
+  boards:
+    # The design boards render with no error or unsupported feature, in Alpine with ui's pinned Chromium and without
+    # network. A pull request runs this when it can change a board; main and manual runs always do.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - name: scope
+        id: scope
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            if git diff --name-only HEAD^1 HEAD | grep -qE '^(design/|Makefile$|\.github/workflows/test\.yml$)'; then run=yes; else run=no; fi
+          elif [ "$GITHUB_REF" = refs/heads/main ] || [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            run=yes
+          else
+            run=no
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "boards: $run"
+      - name: Alpine with the pinned Chromium
+        if: steps.scope.outputs.run == 'yes'
+        run: |
+          UI=$(make -s boards-ui)
+          echo "UI=$UI" >> "$GITHUB_ENV"
+          docker build -t boards --build-arg CHROMIUM="$(cat "$UI/tools/chromium.pin")" - <<'EOF'
+          FROM alpine:3.24
+          ARG CHROMIUM
+          RUN apk add --no-cache "chromium=$CHROMIUM" nodejs npm font-dejavu make
+          EOF
+          docker run --rm -v "$UI:$UI" -w "$UI" boards npm ci --ignore-scripts --no-audit --no-fund
+      - name: boards-check, no network
+        if: steps.scope.outputs.run == 'yes'
+        run: |
+          docker run --rm --network none -v "$UI:$UI" -v "$PWD:$PWD" -w "$PWD" -e CHROMIUM=/usr/bin/chromium-browser boards \
+            make boards-check IN_ALPINE= UI="$UI"

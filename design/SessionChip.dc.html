@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Session chip</title>
+<script src="./support.js"></script>
+<script src="data/fixtures.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Kalam&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<a href="Sessions.dc.html" title="{{tip}}" aria-label="{{tip}}" style="{{wrap}}">
+  <span aria-hidden="true" style="display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; flex: none; border-radius: 999px; background: #ffffff; border: 1px solid #111111">
+    <sc-if value="{{isSteward}}" hint-placeholder-val="{{false}}"><span style="font-family: Kalam, cursive; font-size: 13px; line-height: 1; color: #2747b8">S</span></sc-if>
+    <sc-if value="{{hasIcon}}" hint-placeholder-val="{{true}}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#111111" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="{{icon}}"></path></svg></sc-if>
+  </span>
+  <span aria-hidden="true" style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; white-space: nowrap">{{sid}}</span>
+  <sc-if value="{{waiting}}" hint-placeholder-val="{{false}}"><span aria-hidden="true" style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.06em; padding: 0 5px; border: 1px solid #111111; border-radius: 999px; background: #ffd86b">WAITS</span></sc-if>
+</a>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"sid":{"editor":"enum","options":["kernel-lut","review-kernel-212","docs-edl","review-docs-88","investigate-1184","audit-hub","arch-kernel","steward"],"default":"kernel-lut"},"$preview":{"width":260,"height":36}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const H = window.HUB;
+    const sid = this.props.sid || 'kernel-lut';
+    const s = H.sessions[sid] || { persona: 'Engineer', state: '' };
+    const pe = H.personas[s.persona] || H.personas.Engineer;
+    const fam = H.families[pe.family];
+    return { sid, icon: pe.icon, hasIcon: !!pe.icon, isSteward: pe.family === 'steward', waiting: s.state === 'WAITING',
+      tip: sid + ' · ' + s.persona + ' (' + fam.label + ')' + (s.state ? ' · ' + s.state.toLowerCase() : ''),
+      wrap: 'display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 8px 0 4px; border: 1.5px ' + (s.state === 'RUNNING' ? 'dashed' : 'solid') + ' #111111; border-radius: 999px; text-decoration: none; color: #111111; background: ' + fam.tint };
+  }
+}
+</script>
+</body>
+</html>

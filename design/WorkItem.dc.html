@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Work item</title>
+<script src="./support.js"></script>
+<script src="data/fixtures.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Kalam&amp;display=swap">
+<style>body{margin:0;background:#ffffff} a{color:#2747b8} a:focus-visible,button:focus-visible,textarea:focus-visible{outline:2px solid #2747b8;outline-offset:2px}</style>
+</helmet>
+<div style="position: relative; min-height: 100vh; display: flex; flex-direction: column; background: #ffffff; color: #111111; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15px; line-height: 1.5">
+  <dc-import style="position: static" name="Header" active="work" layer="absolute" hint-size="100%,66px"></dc-import>
+  <div style="flex: 1; display: flex; align-items: stretch">
+    <main style="flex: 1; min-width: 0; padding: 16px 28px 48px; box-sizing: border-box; display: flex; flex-direction: column; gap: 18px">
+      <nav aria-label="Breadcrumb" style="font-family: 'IBM Plex Mono', monospace; font-size: 13px"><a href="Work.dc.html">Work</a> › GlassineOS/{{repo}} › {{ref}}</nav>
+      <div style="position: relative; display: flex; flex-direction: column; gap: 6px">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px">
+          <span style="{{badge}}">{{it.state}}</span>
+          <h1 style="margin: 0; font-size: 26px; font-weight: 600; line-height: 1.25">{{it.title}}</h1>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 15px; color: #4a4a4a">{{ref}}</span>
+          <span style="flex: 1"></span>
+          <dc-import name="GhActions" kind="{{ghKind}}" item-ref="{{ref}}" on-launch="{{ghLaunch}}" hint-size="200px,44px"></dc-import>
+          <button type="button" onClick="{{toggleDetails}}" aria-expanded="{{detailsExpanded}}" aria-controls="wi-details" style="display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; background: {{detailsBg}}; color: #111111; font: inherit; font-size: 14px; cursor: pointer">Details<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#111111" stroke-width="1.8" aria-hidden="true"><path d="{{detailsChev}}"></path></svg></button>
+        </div>
+        <p style="margin: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13.5px; color: #4a4a4a">
+          <sc-for list="{{facts}}" as="fc" hint-placeholder-count="4"><span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.08em">{{fc.k}}</span> <span style="color: #111111">{{fc.v}}</span></span></sc-for>
+        </p>
+        <sc-if value="{{showDetails}}" hint-placeholder-val="{{false}}">
+          <div id="wi-details" role="dialog" aria-label="Details of {{ref}}" style="position: absolute; top: 48px; right: 0; z-index: 25; width: 420px; max-width: 92vw; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px; padding: 14px 16px; border: 1px solid #d0d0d0; border-radius: 16px; background: #ffffff; box-shadow: 0 3px 0 #b4b4b4, 0 14px 32px rgba(0, 0, 0, 0.18)">
+            <div style="display: flex; align-items: center; gap: 8px"><span style="flex: 1; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.08em">DETAILS</span><button type="button" onClick="{{toggleDetails}}" aria-label="Close details" style="display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff; cursor: pointer"><svg width="10" height="10" viewBox="0 0 12 12" stroke="#111111" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6"></path></svg></button></div>
+            <dl style="margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 12px; font-size: 14px">
+              <sc-for list="{{meta}}" as="m" hint-placeholder-count="5">
+                <dt style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.08em; color: #4a4a4a; padding-top: 2px">{{m.k}}</dt>
+                <dd style="margin: 0; overflow-wrap: anywhere">{{m.v}}</dd>
+              </sc-for>
+            </dl>
+            <sc-if value="{{hasFiles}}" hint-placeholder-val="{{true}}">
+              <div style="display: flex; flex-direction: column; gap: 4px; border-top: 1px dotted #111111; padding-top: 10px">
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.08em">FILES</span>
+                <sc-for list="{{files}}" as="f" hint-placeholder-count="3"><span style="display: flex; gap: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 12px"><span style="flex: 1; min-width: 0; overflow-wrap: anywhere">{{f.p}}</span><span>{{f.d}}</span></span></sc-for>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+      </div>
+
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 10px 14px; border: 1px solid #d0d0d0; border-radius: 16px; background: #ffffff">
+        <span style="font-size: 14px; font-weight: 600">Launch on <span style="font-family: 'IBM Plex Mono', monospace">{{ref}}</span></span>
+        <sc-for list="{{acts}}" as="a" hint-placeholder-count="3"><button type="button" onClick="{{a.go}}" style="{{a.style}}">{{a.label}}</button></sc-for>
+        <span style="flex: 1"></span>
+        <button type="button" onClick="{{newFrom}}" style="min-height: 44px; padding: 0 14px; border: 1.5px dashed #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; cursor: pointer">New work from this…</button>
+      </div>
+
+      <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start">
+        <div style="flex: 999 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
+          <p style="margin: 0; font-size: 16px; line-height: 1.6; max-width: 72ch">{{it.body}}</p>
+
+          <sc-if value="{{hasChecks}}" hint-placeholder-val="{{true}}">
+            <section aria-labelledby="h-checks" style="display: flex; flex-direction: column; gap: 6px; background: transparent">
+              <h2 id="h-checks" style="margin: 0; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15.5px; font-weight: 600">Checks</h2>
+              <div style="display: flex; flex-wrap: wrap; gap: 6px"><sc-for list="{{checks}}" as="c" hint-placeholder-count="4"><span style="{{c.style}}">{{c.label}}</span></sc-for></div>
+            </section>
+          </sc-if>
+
+          <sc-if value="{{isPr}}" hint-placeholder-val="{{true}}">
+            <div role="tablist" aria-label="Pull request" style="display: flex; gap: 4px; border-bottom: 1px solid #d0d0d0">
+              <sc-for list="{{prTabs}}" as="pt" hint-placeholder-count="2"><button type="button" role="tab" aria-selected="{{pt.sel}}" onClick="{{pt.pick}}" style="{{pt.style}}">{{pt.label}} <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: #4a4a4a">{{pt.n}}</span></button></sc-for>
+            </div>
+          </sc-if>
+          <sc-if value="{{tabConv}}" hint-placeholder-val="{{true}}">
+          <sc-if value="{{hasThreads}}" hint-placeholder-val="{{true}}">
+            <section aria-labelledby="h-threads" style="display: flex; flex-direction: column; gap: 10px; background: transparent">
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px">
+                <h2 id="h-threads" style="margin: 0; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15.5px; font-weight: 600">Review · {{openThreads}} open</h2>
+                
+              </div>
+              <sc-for list="{{threads}}" as="t" hint-placeholder-count="3">
+                <div style="{{t.style}}">
+                  <sc-if value="{{t.open}}" hint-placeholder-val="{{true}}">
+                    <button type="button" role="checkbox" aria-checked="{{t.checked}}" aria-label="Hand thread {{t.where}} to Address review" onClick="{{t.toggle}}" style="{{t.box}}"><sc-if value="{{t.on}}" hint-placeholder-val="{{true}}"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#ffffff" stroke-width="2" aria-hidden="true"><path d="M3 7.2l2.6 2.6L11 4.4"></path></svg></sc-if></button>
+                  </sc-if>
+                  <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                    <span style="font-size: 13px"><span style="font-weight: 600">{{t.who}}</span> on <span style="font-family: 'IBM Plex Mono', monospace">{{t.where}}</span></span>
+                    <span style="font-size: 15px">{{t.text}}</span>
+                    <sc-if value="{{t.hasFix}}" hint-placeholder-val="{{true}}"><span style="font-family: Kalam, cursive; font-size: 16px; color: #2747b8">{{t.fix}}</span></sc-if>
+                  </div>
+                  <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.08em">{{t.status}}</span>
+                </div>
+              </sc-for>
+              <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+                <button type="button" onClick="{{addressPicked}}" style="min-height: 44px; padding: 0 16px; border: 1.5px solid #111111; border-radius: 12px; background: #2747b8; color: #ffffff; font: inherit; font-weight: 600; cursor: pointer; box-shadow: 0 3px 0 #b4b4b4">{{addressLabel}}</button>
+                
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 6px; padding-top: 6px">
+                <label for="cmt" style="font-weight: 500">Comment on {{ref}}</label>
+                <textarea id="cmt" rows="3" placeholder="Write a comment, or let Claude draft one" style="padding: 10px 12px; border: 1.5px solid #111111; border-radius: 12px; font: inherit; resize: vertical"></textarea>
+                <div style="display: flex; flex-wrap: wrap; gap: 8px">
+                  <button type="button" style="min-height: 44px; padding: 0 16px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; font-weight: 600; cursor: pointer">Post</button>
+                  <button type="button" onClick="{{draftReview}}" style="min-height: 44px; padding: 0 16px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; cursor: pointer">Draft with Claude · Review → comment</button>
+                </div>
+              </div>
+            </section>
+          </sc-if>
+          </sc-if>
+          <sc-if value="{{tabFiles}}" hint-placeholder-val="{{false}}">
+            <section aria-label="Files changed" style="display: flex; flex-direction: column; gap: 10px; background: transparent">
+              <sc-for list="{{diff}}" as="df" hint-placeholder-count="3">
+                <div style="display: flex; flex-direction: column; border: 1px solid #d0d0d0; border-radius: 12px; overflow: hidden; background: #ffffff">
+                  <button type="button" onClick="{{df.toggle}}" aria-expanded="{{df.expanded}}" style="display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 14px; border: 0; background: #ffffff; color: #111111; font: inherit; text-align: left; cursor: pointer">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#111111" stroke-width="1.8" aria-hidden="true"><path d="{{df.chev}}"></path></svg>
+                    <span style="flex: 1; min-width: 0; font-family: 'IBM Plex Mono', monospace; font-size: 13px; overflow-wrap: anywhere">{{df.file}}</span>
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px">+{{df.add}} −{{df.del}}</span>
+                  </button>
+                  <sc-if value="{{df.open}}" hint-placeholder-val="{{false}}">
+                    <div style="border-top: 1px solid #d0d0d0; font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.6; overflow-x: auto">
+                      <sc-for list="{{df.hunks}}" as="hk" hint-placeholder-count="1">
+                        <div style="padding: 4px 14px; background: #f2f2f2; color: #4a4a4a; white-space: pre">{{hk.head}}</div>
+                        <sc-for list="{{hk.lines}}" as="ln" hint-placeholder-count="6">
+                          <div style="{{ln.style}}"><span style="display: inline-block; width: 44px; color: #4a4a4a; text-align: right; padding-right: 10px; user-select: none">{{ln.n}}</span><span style="display: inline-block; width: 16px">{{ln.sign}}</span>{{ln.text}}</div>
+                          <sc-if value="{{ln.hasNote}}" hint-placeholder-val="{{false}}"><div style="margin: 4px 14px 8px 70px; padding: 8px 12px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; white-space: normal"><span style="font-weight: 600">{{ln.noteWho}}</span> · {{ln.noteText}}</div></sc-if>
+                        </sc-for>
+                      </sc-for>
+                      <sc-if value="{{df.noHunks}}" hint-placeholder-val="{{false}}"><div style="padding: 10px 14px; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; color: #4a4a4a">Large file — load the diff</div></sc-if>
+                    </div>
+                  </sc-if>
+                </div>
+              </sc-for>
+            </section>
+          </sc-if>
+          <sc-if value="{{hasLog}}" hint-placeholder-val="{{false}}">
+            <details open style="border: 1px solid #d0d0d0; border-radius: 12px; overflow: hidden; background: #ffffff">
+              <summary style="min-height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 14px; cursor: pointer; font-weight: 600">Log · {{logStep}}<span style="font-weight: 400; font-size: 13px; color: #4a4a4a">the failed step</span></summary>
+              <pre style="margin: 0; padding: 12px 16px; background: #121212; color: #eeeeee; font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere"><sc-for list="{{logLines}}" as="lg" hint-placeholder-count="5"><span style="{{lg.style}}">{{lg.t}}
+</span></sc-for></pre>
+            </details>
+          </sc-if>
+
+          <section aria-labelledby="h-sess" style="display: flex; flex-direction: column; gap: 10px; background: transparent">
+            <h2 id="h-sess" style="margin: 0; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15.5px; font-weight: 600">Sessions on {{ref}} · {{sessCount}}</h2>
+            <sc-if value="{{multi}}" hint-placeholder-val="{{true}}">
+              <div role="tablist" aria-label="Sessions on {{ref}}" style="display: flex; flex-wrap: wrap; gap: 6px">
+                <sc-for list="{{tabs}}" as="tb" hint-placeholder-count="2">
+                  <button type="button" role="tab" aria-selected="{{tb.sel}}" onClick="{{tb.pick}}" style="{{tb.style}}"><dc-import name="PersonaBadge" persona="{{tb.persona}}" size="s" hint-size="26px,26px"></dc-import><span style="display: flex; flex-direction: column; align-items: flex-start; line-height: 1.2"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600">{{tb.sid}}</span><span style="font-size: 12px; color: #4a4a4a">{{tb.what}}</span></span></button>
+                </sc-for>
+              </div>
+            </sc-if>
+            <sc-for list="{{sessions}}" as="s" hint-placeholder-count="1">
+              <dc-import name="SessionView" sid="{{s.sid}}" size="embedded" on-background="{{s.bg}}" on-switch="{{pickTab}}" hint-size="100%,560px"></dc-import>
+            </sc-for>
+            <sc-if value="{{hasBackgrounded}}" hint-placeholder-val="{{false}}"><p role="status" style="margin: 0; padding: 10px 14px; border: 1.5px dashed #111111; border-radius: 12px; font-size: 14px">{{bgText}} <a href="Sessions.dc.html">Sessions › Running</a></p></sc-if>
+            <sc-if value="{{noSessions}}" hint-placeholder-val="{{false}}">
+              <p style="margin: 0; font-size: 14px; color: #4a4a4a">No session covers {{ref}} yet.</p>
+            </sc-if>
+            <sc-if value="{{hasSuggest}}" hint-placeholder-val="{{false}}">
+              <dc-import name="Interaction" iid="{{suggestId}}" on-open="{{openSuggest}}" hint-size="100%,300px"></dc-import>
+            </sc-if>
+          </section>
+        </div>
+
+      </div>
+    </main>
+    <dc-import style="display: flex; flex: none; position: static" name="Steward" context="{{ctx}}" layer="absolute" hint-size="400px,100%"></dc-import>
+  </div>
+  <sc-if value="{{launching}}" hint-placeholder-val="{{false}}">
+    <dc-import style="position: static" name="Launch" layer="absolute" entry="{{L.entry}}" action="{{L.action}}" covers="{{L.covers}}" notes="{{L.notes}}" by="{{L.by}}" why="{{L.why}}" context="{{ctx}}" on-close="{{closeLaunch}}" hint-size="100%,900px"></dc-import>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"details":{"editor":"boolean","default":false},"prTab":{"editor":"enum","options":["conv","files"],"default":"conv"},"itemRef":{"editor":"enum","options":["kernel#212","epd#9","build-image #1184","hub#47"],"default":"kernel#212"},"$preview":{"width":1440,"height":1500}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { pick: {}, bg: {}, L: null, tab: null, details: !!p.details, prTab: p.prTab || 'conv', openFiles: { 0: true } }; }
+  renderVals() {
+    const H = window.HUB, S = this.state, P = this.props;
+    const ref = P.itemRef || 'kernel#212';
+    const raw = H.items[ref];
+    const it = { ...raw, state: raw.state || ['PLANNED', 'IN PROGRESS', 'IN REVIEW', 'DONE'][raw.status], body: raw.body || 'Strategic issue in GlassineOS/hub. Its progress is the issues in other repositories whose bodies say “Part of ' + ref + '”.' };
+    const repo = it.repo || ref.split('#')[0];
+    const IA = { pr: ['review', 'address', 'fix'], issue: ['implement', 'triage'], run: ['investigate'], roadmap: ['road', 'docs'] };
+    const best = it.state === 'REVIEWED' ? 'address' : it.state === 'FAILING' ? 'fix' : IA[it.kind][0];
+    const open = (action, extra) => this.setState({ L: Object.assign({ entry: 'item', action, covers: [ref], notes: '', by: 'you', why: '' }, extra || {}) });
+    const TH = (H.threads || {})[ref] || [];
+    const threads = TH.map((t) => { const on = S.pick[t.id] === undefined ? t.open : S.pick[t.id]; return { ...t, hasFix: !!t.fix, on, checked: on ? 'true' : 'false', status: t.open ? 'OPEN' : 'RESOLVED',
+      toggle: () => this.setState({ pick: { ...this.state.pick, [t.id]: !on } }),
+      box: 'display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; flex: none; border: 1.5px solid #111111; border-radius: 4px; padding: 0; cursor: pointer; background: ' + (on ? '#2747b8' : '#ffffff'),
+      style: 'display: flex; gap: 12px; align-items: flex-start; padding: 10px 14px; border-radius: 12px; background: #ffffff; ' + (t.open ? 'border: 1.5px solid #111111' : 'border: 1.5px dashed #b4b4b4; color: #4a4a4a') }; });
+    const picked = threads.filter((t) => t.open && t.on);
+    const sess = Object.entries(H.sessions).filter(([, s]) => (s.covers || []).indexOf(ref) >= 0 || (s.prs || []).indexOf(ref) >= 0);
+    const live = sess.filter(([id, s]) => !S.bg[id]);
+    const order = live.slice().sort((a, b) => (a[1].state === 'DONE') - (b[1].state === 'DONE'));
+    const cur = order.find(([id]) => id === S.tab) || order[0];
+    const shown = cur ? [cur] : [];
+    const sugg = H.interactions.find((x) => x.kind === 'suggestion' && (x.covers || []).indexOf(ref) >= 0);
+    const meta = [];
+    if (it.partOf) meta.push(['PART OF', it.partOf + ' · ' + ((H.items[it.partOf] || {}).title || '')]);
+    if (it.branch) meta.push(['BRANCH', it.branch]);
+    if (it.size) meta.push(['SIZE', it.size]);
+    if (it.author) meta.push(['AUTHOR', it.author]);
+    if (it.labels) meta.push(['LABELS', it.labels.join(', ') || 'none']);
+    if (it.assignee) meta.push(['ASSIGNEE', it.assignee]);
+    if (it.trigger) meta.push(['TRIGGER', it.trigger]);
+    if (it.runner) meta.push(['RUNNER', it.runner]);
+    if (it.target) meta.push(['TARGET', it.target]);
+    if (it.linked) meta.push(['REPOS', it.linked.map(([r, d, n]) => r + ' ' + d + '/' + n).join(' · ')]);
+    meta.push(['UPDATED', it.age ? it.age + ' ago' : '—']);
+    return {
+      it, ref, repo, refUpper: ref.toUpperCase(),
+      badge: 'font-family: \'IBM Plex Mono\', monospace; font-size: 12px; font-weight: 500; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 6px; ' + (it.state === 'FAILED' || it.state === 'FAILING' ? 'border: 3px double #111111' : 'border: 1.5px solid #111111'),
+      acts: IA[it.kind].map((a) => ({ label: H.actions[a].label, go: () => open(a, a === 'address' ? { notes: picked.map((t) => t.where + ': ' + t.text).join('\n') } : {}),
+        style: 'min-height: 44px; padding: 0 16px; border-radius: 12px; font: inherit; font-weight: 600; cursor: pointer; ' + (a === best ? 'border: 1.5px solid #111111; background: #2747b8; color: #ffffff; box-shadow: 0 3px 0 #b4b4b4' : 'border: 1.5px solid #111111; background: #ffffff; color: #111111') })),
+      newFrom: () => open(it.kind === 'roadmap' ? 'road' : 'issue', { entry: 'item' }),
+      hasChecks: !!(it.checks && it.checks.length), checks: (it.checks || []).map(([l, s, d]) => ({ label: (s === 'p' ? '✓ ' : s === 'f' ? '✕ ' : '◌ ') + l + ' · ' + d, style: 'font-family: \'IBM Plex Mono\', monospace; font-size: 12.5px; padding: 2px 8px; border-radius: 6px; ' + (s === 'f' ? 'border: 3px double #111111; background: #ffd9b8' : s === 'r' ? 'border: 1.5px dashed #111111' : 'border: 1.5px solid #111111') })),
+      hasThreads: threads.length > 0, threads, openThreads: String(TH.filter((t) => t.open).length),
+      addressLabel: 'Address ' + picked.length + ' thread' + (picked.length === 1 ? '' : 's') + '…',
+      addressPicked: () => open('address', { notes: picked.map((t) => t.where + ': ' + t.text).join('\n') }),
+      draftReview: () => open('review', { notes: 'Draft a reply comment; keep it short.' }),
+      sessions: shown.map(([id]) => ({ sid: id, bg: () => this.setState({ bg: { ...this.state.bg, [id]: true } }) })), sessCount: String(sess.length), multi: order.length > 1, pickTab: (id) => this.setState({ tab: id }),
+      tabs: order.map(([id, o]) => { const on = cur && cur[0] === id; const f = H.families[(H.personas[o.persona] || {}).family] || { tint: '#ffffff', label: '' }; return { sid: id, persona: o.persona, sel: on ? 'true' : 'false', what: o.persona + ' · ' + f.label + (o.state === 'DONE' ? ' · finished' : o.state === 'WAITING' ? ' · waits for you' : ' · running'), pick: () => this.setState({ tab: id }),
+        style: 'display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 4px 14px 4px 6px; border-radius: 12px; color: #111111; font: inherit; cursor: pointer; background: ' + f.tint + '; border: ' + (on ? '2.5px solid #111111; box-shadow: 0 3px 0 #b4b4b4' : '1.5px solid #d0d0d0') }; }),
+      hasBackgrounded: live.length < sess.length, bgText: (sess.length - live.length) + ' sent to the background — still running in',
+      noSessions: sess.length === 0, hasSuggest: !!sugg && sess.length === 0, suggestId: sugg ? sugg.id : 'i3',
+      openSuggest: (x) => open(x.action, { entry: 'suggested', covers: x.covers, notes: x.notes || '', by: 'steward', why: x.why || '' }),
+      meta: meta.map(([k, v]) => ({ k, v })),
+      ghKind: it.kind === 'roadmap' ? 'issue' : it.kind, ghLaunch: (a) => open(a, { entry: 'item' }),
+      isPr: it.kind === 'pr', tabConv: it.kind !== 'pr' || S.prTab === 'conv', tabFiles: it.kind === 'pr' && S.prTab === 'files',
+      prTabs: [['conv', 'Conversation', String((H.threads[ref] || []).length)], ['files', 'Files changed', String(((H.diffs || {})[ref] || []).length)]].map(([id, label, n]) => ({ label, n, sel: S.prTab === id ? 'true' : 'false', pick: () => this.setState({ prTab: id }),
+        style: 'min-height: 44px; padding: 0 14px; border: 0; margin-bottom: -1px; border-bottom: 3px solid ' + (S.prTab === id ? '#111111' : 'transparent') + '; background: transparent; color: #111111; font: inherit; font-weight: ' + (S.prTab === id ? '600' : '400') + '; cursor: pointer' })),
+      diff: ((H.diffs || {})[ref] || []).map((d, i) => { const op = !!S.openFiles[i]; return { file: d.file, add: String(d.add), del: String(d.del), open: op, expanded: op ? 'true' : 'false', chev: op ? 'M2.5 4.5l3.5 4 3.5-4' : 'M4.5 2.5l4 3.5-4 3.5', noHunks: !d.hunks.length,
+        toggle: () => this.setState({ openFiles: { ...this.state.openFiles, [i]: !op } }),
+        hunks: d.hunks.map(([head, lines]) => ({ head, lines: lines.map(([sg, n, text]) => { const th = (H.threads[ref] || []).find((t) => t.id === d.thread && t.where.endsWith(':' + n)); return { sign: sg === ' ' ? '' : sg, n: String(n), text, hasNote: !!th, noteWho: th ? th.who : '', noteText: th ? th.text : '',
+          style: 'white-space: pre; padding: 0 14px 0 0; background: ' + (sg === '+' ? '#e3f4e8' : sg === '-' ? '#ffe7d3' : '#ffffff') }; }) })) }; }),
+      hasLog: !!((H.logs || {})[ref]), logStep: ((it.checks || []).find((c) => c[1] === 'f') || ['—'])[0],
+      logLines: ((H.logs || {})[ref] || []).map((t) => ({ t, style: /error|Error/.test(t) ? 'color: #ffd9b8; font-weight: 600' : /^##\[group\]/.test(t) ? 'color: #9db2ff' : '' })),
+      facts: meta.filter(([k]) => ['PART OF', 'BRANCH', 'SIZE', 'LABELS', 'TRIGGER', 'RUNNER', 'TARGET', 'UPDATED'].indexOf(k) >= 0).slice(0, 5).map(([k, v]) => ({ k, v: k === 'PART OF' ? v.split(' · ')[0] : v })),
+      showDetails: S.details, detailsExpanded: S.details ? 'true' : 'false', toggleDetails: () => this.setState({ details: !this.state.details }), detailsChev: S.details ? 'M2.5 8l3.5-4 3.5 4' : 'M2.5 4.5l3.5 4 3.5-4', detailsBg: S.details ? '#f2f2f2' : '#ffffff',
+      hasFiles: !!(it.files && it.files.length), files: (it.files || []).map(([p, a, d]) => ({ p, d: '+' + a + ' −' + d })),
+      ctx: 'Work · ' + ref,
+      launching: !!S.L, L: S.L || { entry: 'item', action: best, covers: [ref], notes: '', by: 'you', why: '' }, closeLaunch: () => this.setState({ L: null })
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Needs you</title>
+<script src="./support.js"></script>
+<script src="data/fixtures.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Kalam&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div style="{{wrapStyle}}">
+  <section role="dialog" aria-modal="true" aria-labelledby="ib-h" style="position: sticky; top: 32px; width: 100%; max-width: 860px; max-height: calc(100vh - 64px); display: flex; flex-direction: column; background: #f2f2f2; border: 1.5px solid #111111; border-radius: 16px; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.25); overflow: hidden">
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 14px 20px; border-bottom: 1px solid #d0d0d0; background: #ffffff">
+      <h2 id="ib-h" style="margin: 0; display: flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 600">Needs you <span style="display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 26px; padding: 0 7px; border: 1.5px solid #111111; border-radius: 999px; background: #ffd86b; font-family: 'IBM Plex Mono', monospace; font-size: 13px; box-sizing: border-box">{{count}}</span></h2>
+      <div role="group" aria-label="From" style="display: flex; flex-wrap: wrap; gap: 6px">
+        <sc-for list="{{filters}}" as="f" hint-placeholder-count="3"><button type="button" aria-pressed="{{f.pressed}}" onClick="{{f.pick}}" style="{{f.style}}">{{f.label}}</button></sc-for>
+      </div>
+      <span style="flex: 1"></span>
+      <button type="button" onClick="{{close}}" aria-label="Close Needs you" style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; cursor: pointer"><svg width="16" height="16" viewBox="0 0 16 16" stroke="#111111" stroke-width="1.8" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9"></path></svg></button>
+    </div>
+    <div style="flex: 1; min-height: 0; overflow-y: auto; padding: 18px 20px 24px">
+      <sc-if value="{{fAll}}" hint-placeholder-val="{{true}}"><dc-import style="position: static" name="Feed" filter="all" layer="{{layer}}" hint-size="100%,1600px"></dc-import></sc-if>
+      <sc-if value="{{fSteward}}" hint-placeholder-val="{{false}}"><dc-import style="position: static" name="Feed" filter="steward" layer="{{layer}}" hint-size="100%,900px"></dc-import></sc-if>
+      <sc-if value="{{fWorkers}}" hint-placeholder-val="{{false}}"><dc-import style="position: static" name="Feed" filter="workers" layer="{{layer}}" hint-size="100%,1200px"></dc-import></sc-if>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"filter":{"editor":"enum","options":["all","steward","workers"],"default":"all"},"layer":{"editor":"enum","options":["fixed","absolute","inline"],"default":"fixed"},"onClose":{"editor":null},"$preview":{"width":1000,"height":1100}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { f: p.filter || 'all' }; }
+  renderVals() {
+    const H = window.HUB, P = this.props, f = this.state.f;
+    const n = (t) => H.interactions.filter(t).length;
+    const layer = P.layer || 'fixed';
+    const F = [['all', 'All · ' + H.interactions.length], ['steward', 'The Steward · ' + n((x) => x.session === 'steward')], ['workers', 'Other sessions · ' + n((x) => x.session !== 'steward')]];
+    return {
+      count: String(H.interactions.length), layer: layer === 'inline' ? 'absolute' : layer,
+      wrapStyle: (layer === 'inline' ? 'position: relative; padding: 32px;' : (layer === 'absolute' ? 'position: absolute;' : 'position: fixed;') + ' inset: 0; z-index: 48; background: rgba(17, 17, 17, 0.45); padding: 32px 16px;') + ' display: flex; justify-content: center; align-items: flex-start; box-sizing: border-box; font-family: \'IBM Plex Sans\', system-ui, sans-serif; font-size: 15px; line-height: 1.5; color: #111111',
+      fAll: f === 'all', fSteward: f === 'steward', fWorkers: f === 'workers',
+      filters: F.map(([id, label]) => ({ label, pressed: f === id ? 'true' : 'false', pick: () => this.setState({ f: id }),
+        style: 'min-height: 40px; padding: 0 14px; border: 1.5px solid #111111; border-radius: 999px; font: inherit; font-size: 14px; cursor: pointer; ' + (f === id ? 'background: #111111; color: #ffffff; font-weight: 600' : 'background: #ffffff; color: #111111') })),
+      close: () => { if (P.onClose) P.onClose(); }
+    };
+  }
+}
+</script>
+</body>
+</html>

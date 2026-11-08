@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Roadmap</title>
+<script src="./support.js"></script>
+<script src="data/fixtures.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Kalam&amp;display=swap">
+<style>body{margin:0;background:#ffffff} a{color:#111111} a:focus-visible,button:focus-visible{outline:2px solid #2747b8;outline-offset:2px}</style>
+</helmet>
+<div style="position: relative; min-height: 100vh; display: flex; flex-direction: column; background: #ffffff; color: #111111; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15px; line-height: 1.5">
+  <dc-import style="position: static" name="Header" active="roadmap" layer="absolute" hint-size="100%,66px"></dc-import>
+  <div style="flex: 1; display: flex; align-items: stretch">
+    <main style="flex: 1; min-width: 0; padding: 20px 28px 48px; box-sizing: border-box; display: flex; flex-direction: column; gap: 18px">
+      <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px">
+        <h1 style="margin: 0; font-size: 26px; font-weight: 600">Roadmap</h1>
+        <span style="font-size: 14.5px; color: #4a4a4a">Strategic issues in GlassineOS/hub, on its project board. Progress counts the issues whose bodies say “Part of …”.</span>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; align-items: start">
+        <sc-for list="{{cols}}" as="c" hint-placeholder-count="4">
+          <section aria-label="{{c.label}}" style="display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 16px; background: #f2f2f2">
+            <h2 style="margin: 0; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15.5px; font-weight: 600">{{c.label}} · {{c.count}}</h2>
+            <sc-for list="{{c.cards}}" as="k" hint-placeholder-count="2">
+              <article style="display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff">
+                <a href="WorkItem.dc.html" style="display: flex; flex-direction: column; text-decoration: none"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: #4a4a4a">{{k.ref}} · {{k.target}}</span><span style="font-size: 16px; font-weight: 600; line-height: 1.35">{{k.title}}</span></a>
+                <sc-for list="{{k.bars}}" as="b" hint-placeholder-count="2">
+                  <div style="display: flex; align-items: center; gap: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 12px">
+                    <span style="width: 92px; flex: none; overflow-wrap: anywhere">{{b.repo}}</span>
+                    <span role="img" aria-label="{{b.aria}}" style="flex: 1; height: 8px; border: 1px solid #111111; border-radius: 999px; overflow: hidden; background: #ffffff"><span style="display: block; height: 100%; width: {{b.w}}; background: #111111"></span></span>
+                    <span>{{b.n}}</span>
+                  </div>
+                </sc-for>
+                <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px">
+                  <span style="font-size: 12.5px; color: #4a4a4a; flex: 1">{{k.who}}</span>
+                  <sc-if value="{{k.hasSess}}" hint-placeholder-val="{{false}}"><dc-import name="SessionChip" sid="{{k.sess}}" hint-size="160px,30px"></dc-import></sc-if>
+                  <button type="button" onClick="{{k.launch}}" style="min-height: 40px; padding: 0 12px; border: 1.5px solid #111111; border-radius: 10px; background: #ffffff; color: #111111; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer">Plan issues…</button>
+                </div>
+              </article>
+            </sc-for>
+          </section>
+        </sc-for>
+      </div>
+    </main>
+    <dc-import style="display: flex; flex: none; position: static" name="Steward" context="Roadmap" layer="absolute" hint-size="400px,100%"></dc-import>
+  </div>
+  <sc-if value="{{launching}}" hint-placeholder-val="{{false}}">
+    <dc-import style="position: static" name="Launch" layer="absolute" entry="item" action="road" covers="{{L.covers}}" context="{{L.context}}" on-close="{{closeLaunch}}" hint-size="100%,900px"></dc-import>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1100}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { L: null }; }
+  renderVals() {
+    const H = window.HUB;
+    const rm = Object.entries(H.items).filter(([, it]) => it.kind === 'roadmap');
+    const sessOn = (ref) => Object.entries(H.sessions).find(([, s]) => (s.covers || []).indexOf(ref) >= 0);
+    const cols = ['Planned', 'In progress', 'In review', 'Done'].map((label, i) => {
+      const cards = rm.filter(([, it]) => it.status === i).map(([ref, it]) => { const s = sessOn(ref); return { ref, title: it.title, target: it.target, who: it.who === 'unassigned' ? 'unassigned' : 'with ' + it.who,
+        hasSess: !!s, sess: s ? s[0] : '',
+        bars: it.linked.map(([repo, d, n]) => ({ repo, n: d + '/' + n, w: Math.round(d / n * 100) + '%', aria: repo + ': ' + d + ' of ' + n + ' issues closed' })),
+        launch: () => this.setState({ L: { covers: [ref], context: 'Roadmap · ' + ref } }) }; });
+      return { label, cards, count: String(cards.length) };
+    });
+    return { cols, launching: !!this.state.L, L: this.state.L || { covers: [], context: '' }, closeLaunch: () => this.setState({ L: null }) };
+  }
+}
+</script>
+</body>
+</html>

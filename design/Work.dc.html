@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Work</title>
+<script src="./support.js"></script>
+<script src="data/fixtures.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Kalam&amp;display=swap">
+<style>body{margin:0;background:#ffffff} a{color:#111111} a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #2747b8;outline-offset:2px}</style>
+</helmet>
+<div style="position: relative; min-height: 100vh; display: flex; flex-direction: column; background: #ffffff; color: #111111; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15px; line-height: 1.5">
+  <dc-import style="position: static" name="Header" active="work" layer="absolute" hint-size="100%,66px"></dc-import>
+  <div style="flex: 1; display: flex; align-items: stretch">
+    <main style="flex: 1; min-width: 0; padding: 18px 28px 48px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px">
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px">
+        <div style="flex: 0 1 380px; min-width: 260px"><dc-import name="RepoPicker" value="{{repo}}" allow-all="{{yes}}" label="" float="{{yes}}" on-change="{{pickRepo}}" hint-size="100%,50px"></dc-import></div>
+        <div role="tablist" aria-label="Kind" style="display: flex; border: 1.5px solid #111111; border-radius: 12px; overflow: hidden">
+          <sc-for list="{{kinds}}" as="k" hint-placeholder-count="3"><button type="button" role="tab" aria-selected="{{k.sel}}" onClick="{{k.pick}}" style="{{k.style}}">{{k.label}} <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px">{{k.n}}</span></button></sc-for>
+        </div>
+        <span style="flex: 1"></span>
+        <dc-import name="GhActions" kind="work" repo="{{ghRepo}}" show="{{ghShow}}" on-launch="{{ghLaunch}}" hint-size="180px,44px"></dc-import>
+        
+      </div>
+      <sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+        <section style="display: flex; flex-direction: column; border: 1px solid #d0d0d0; border-radius: 16px; overflow: hidden">
+          <h2 style="margin: 0; padding: 8px 16px; border-bottom: 1px solid #d0d0d0; background: #ffffff; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15.5px; font-weight: 600">{{g.label}} · {{g.count}}</h2>
+          <sc-for list="{{g.rows}}" as="r" hint-placeholder-count="3">
+            <div class="row-hover" style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 16px; border-bottom: 1px solid #d0d0d0">
+              <span aria-hidden="true" style="{{r.icon}}"></span>
+              <a href="WorkItem.dc.html" style="flex: 1 1 360px; min-width: 0; display: flex; flex-direction: column; text-decoration: none">
+                <span style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13.5px; font-weight: 600">{{r.ref}}</span><span style="font-size: 15.5px; font-weight: 500">{{r.title}}</span></span>
+                <span style="font-size: 13px; color: #4a4a4a">{{r.sub}}</span>
+              </a>
+              <span style="{{r.badge}}">{{r.state}}</span>
+              <sc-for list="{{r.sessions}}" as="s" hint-placeholder-count="1"><dc-import name="SessionChip" sid="{{s.sid}}" hint-size="160px,30px"></dc-import></sc-for>
+              <button type="button" onClick="{{r.launch}}" class="row-act" style="min-width: 128px; min-height: 44px; padding: 0 14px; border: 1.5px solid #111111; border-radius: 12px; background: #ffffff; color: #111111; font: inherit; font-weight: 600; cursor: pointer">{{r.action}}</button>
+            </div>
+          </sc-for>
+        </section>
+      </sc-for>
+    </main>
+    <dc-import style="display: flex; flex: none; position: static" name="Steward" context="{{ctx}}" layer="absolute" hint-size="400px,100%"></dc-import>
+  </div>
+  <sc-if value="{{launching}}" hint-placeholder-val="{{false}}">
+    <dc-import style="position: static" name="Launch" layer="absolute" entry="item" action="{{L.action}}" covers="{{L.covers}}" context="{{L.context}}" on-close="{{closeLaunch}}" hint-size="100%,900px"></dc-import>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"gh":{"editor":"enum","options":["none","menu","new-issue","run-workflow"],"default":"none"},"repo":{"editor":"text","default":"all"},"kind":{"editor":"enum","options":["pr","issue","run"],"default":"issue"},"$preview":{"width":1440,"height":1100}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { repo: p.repo || 'all', kind: p.kind || 'issue', L: null }; }
+  renderVals() {
+    const H = window.HUB, S = this.state;
+    const ACT = { pr: 'review', issue: 'implement', run: 'investigate' };
+    const repoOf = (ref, it) => it.repo || ref.split('#')[0];
+    const all = Object.entries(H.items).filter(([, it]) => it.kind !== 'roadmap');
+    const inRepo = all.filter(([ref, it]) => S.repo === 'all' || repoOf(ref, it) === S.repo);
+    const rows = inRepo.filter(([, it]) => it.kind === S.kind);
+    const order = []; rows.forEach(([, it]) => { if (order.indexOf(it.group) < 0) order.push(it.group); });
+    const sessFor = (ref) => Object.entries(H.sessions).filter(([, s]) => (s.covers || []).indexOf(ref) >= 0 || (s.prs || []).indexOf(ref) >= 0);
+    const ICON = { o: 'border: 1.5px solid #111111; background: #ffffff', p: 'border: 1.5px solid #111111; background: #111111', f: 'border: 3px double #111111; background: #ffd9b8', r: 'border: 1.5px dashed #111111; background: #ffffff' };
+    const mk = ([ref, it]) => {
+      const act = it.state === 'FAILING' ? 'fix' : it.state === 'REVIEWED' ? 'address' : (it.group === 'UNTRIAGED' ? 'triage' : ACT[it.kind]);
+      const ss = sessFor(ref);
+      return { ref, title: it.title, state: it.state,
+        sub: [it.partOf ? 'Part of ' + it.partOf : null, it.kind === 'pr' ? it.size + ' · ' + it.author : null, it.kind === 'run' ? it.trigger + ' · ' + it.duration : null, it.age + ' ago'].filter(Boolean).join(' · '),
+        icon: 'width: 14px; height: 14px; flex: none; border-radius: ' + (it.kind === 'run' ? '3px' : '999px') + '; box-sizing: border-box; ' + (ICON[it.icon] || ICON.o),
+        badge: 'font-family: \'IBM Plex Mono\', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.08em; padding: 1px 7px; border-radius: 6px; ' + (it.state === 'FAILING' || it.state === 'FAILED' ? 'border: 3px double #111111' : it.state === 'BLOCKED' ? 'border: 2.5px solid #111111' : it.state === 'RUNNING' || it.state === 'DRAFT' ? 'border: 1.5px dashed #111111' : 'border: 1.5px solid #111111'),
+        sessions: ss.map(([id, s]) => ({ sid: id, label: '▸ ' + id, style: 'font-family: \'IBM Plex Mono\', monospace; font-size: 12px; padding: 2px 8px; border: 1.5px solid #111111; border-radius: 999px; text-decoration: none; color: #111111; background: ' + (s.state === 'WAITING' ? '#ffd86b' : '#ffffff') })),
+        action: H.actions[act].label + (act === 'implement' || act === 'review' ? '…' : ''), launch: () => this.setState({ L: { action: act, covers: [ref], context: 'Work · ' + ref } }) };
+    };
+    const groups = order.map((g) => { const r = rows.filter(([, it]) => it.group === g).map(mk); return { label: g.charAt(0) + g.slice(1).toLowerCase(), count: String(r.length), rows: r }; });
+    const repos = ['all'].concat(H.repos.map((r) => r.name));
+    return {
+      pickRepo: (v) => this.setState({ repo: v }), repo: S.repo, yes: true,
+      kinds: [['pr', 'Pull requests'], ['issue', 'Issues'], ['run', 'Runs']].map(([id, label]) => ({ label, n: String(inRepo.filter(([, it]) => it.kind === id).length), sel: S.kind === id ? 'true' : 'false', pick: () => this.setState({ kind: id }),
+        style: 'min-height: 44px; padding: 0 14px; border: 0; border-right: 1px solid #d0d0d0; font: inherit; font-size: 14.5px; cursor: pointer; ' + (S.kind === id ? 'background: #111111; color: #ffffff; font-weight: 600' : 'background: #ffffff; color: #111111') })),
+      ghRepo: S.repo === 'all' ? 'image-builder' : S.repo, ghShow: this.props.gh || 'none', ghLaunch: () => this.setState({ L: { action: 'issue', covers: [], context: 'Work' } }),
+      groups, ctx: 'Work · ' + (S.repo === 'all' ? 'all repositories' : S.repo),
+      launching: !!S.L, L: S.L || { action: 'implement', covers: [], context: '' }, closeLaunch: () => this.setState({ L: null })
+    };
+  }
+}
+</script>
+</body>
+</html>
