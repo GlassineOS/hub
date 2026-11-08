@@ -3174,6 +3174,17 @@ def test_esc_while_tmux_pastes_and_refuses_isnt_put_back_or_a_crash(tmp_path, mo
     asyncio.run(go())
 
 
+def test_a_session_from_before_the_notes_search_doesnt_get_it_on_resume(tmp_path):
+    """A resume reads the action as it is now but adds no tool to a non-Steward session, and the Steward's action has no notes
+    search: so no resumed session gains it. It takes a new session (SECURITY.md, Notes)."""
+    a = agents(tmp_path)
+    assert "notes_find" in LIBRARY.action("new-issue")["hub_tools"]
+    old = {"action": "new-issue", "tools": ["Read"], "hub_tools": ["get_issue", "submit_drafts"]}
+    assert a._current_config(old)["hub_tools"] == ["get_issue", "submit_drafts"]
+    singleton = {"action": "project-steward", "tools": [], "hub_tools": ["overview"]}  # the Steward's list is rebuilt from its action
+    assert "notes_find" not in steward(tmp_path)._current_config(singleton)["hub_tools"]
+
+
 def test_a_review_session_from_before_results_loses_review_pr_on_resume_and_gains_nothing(tmp_path):
     """A running session keeps its frozen list (tests/test_app.py), but a resume reads the action
     as it is now, which has no review_pr, and adds no tool a non-Steward session didn't have. Such a session can still

@@ -320,7 +320,9 @@ host only, and much of what they hold never passed the safety scan. The app's co
   load one that lists it and doesn't fit, so a new action that can post doesn't pick it up by being new. Today that is
   `notes-compact`, `notes-sweep`, `knowledge-research` and the `new-*` drafters. hubd takes it from such a session's own token,
   from a full session's, and from the general token a hub shell holds. Full sessions and shells could read the files anyway.
-  The page's own search (`notes.find`, `notes.status`, `notes.totals`) stays behind the login check.
+  The page's own search (`notes.find`, `notes.status`, `notes.totals`) stays behind the login check. A session started
+  before the tool was on its action's list keeps the list it started with, and a resume doesn't add to it (only the Steward's
+  list is rebuilt from its action, and that has no `notes_find`): it takes a new session.
 - **A locked session gets the notes and not the archive.** The tool also indexes the sources set for this host: the old tree's
   docs and diaries, memory and transcripts, which never passed the safety scan and hold what tools were asked and what they
   answered. It has no filter, so `Notes.find` drops those rows (`archive, unreviewed`, and any state it doesn't know) from the
