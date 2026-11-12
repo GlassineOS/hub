@@ -2463,7 +2463,7 @@ function DesignView({ query }) {
   useEffect(() => {
     const c = canvas.current;
     if (!c) return undefined;
-    let moved = null, waiting = false;
+    let moved = null, waiting = false, pressed = false;
     const at = (e) => designPoint(e.clientX, e.clientY, c.getBoundingClientRect(), frameRef.current || { width: c.width, height: c.height });
     const mouse = (type) => (e) => {
       const p = at(e);
@@ -2477,8 +2477,12 @@ function DesignView({ query }) {
       }
       if (moved) { input(moved); moved = null; }
       e.preventDefault();
+      pressed = type === "mousePressed";
       input(m);
     };
+    // A button let go outside the picture still ends the press there, or the board would stay held down.
+    const outside = (e) => { if (pressed && e.target !== c) { pressed = false; const p = at(e); input({ op: "mouse", type: "mouseReleased", x: p.x, y: p.y, button: DESIGN_BUTTONS[e.button] || "left", buttons: e.buttons, clickCount: 1, modifiers: designModifiers(e) }); } };
+    window.addEventListener("mouseup", outside, true);
     const wheel = (e) => {
       e.preventDefault();
       const p = at(e);
@@ -2497,7 +2501,7 @@ function DesignView({ query }) {
       ["wheel", wheel], ["contextmenu", (e) => e.preventDefault()],
       ["touchstart", touch("touchStart")], ["touchmove", touch("touchMove")], ["touchend", touch("touchEnd")], ["touchcancel", touch("touchCancel")]];
     for (const [k, f] of handlers) c.addEventListener(k, f, { passive: false });
-    return () => { for (const [k, f] of handlers) c.removeEventListener(k, f); };
+    return () => { for (const [k, f] of handlers) c.removeEventListener(k, f); window.removeEventListener("mouseup", outside, true); };
   }, [v !== null]);
   // Keys reach the board only while the picture has focus (FR-019).
   const lastEsc = useRef(0);
@@ -4061,7 +4065,7 @@ const NAV = [["overview", "Overview"], ["roadmap", "Roadmap"], ["work", "Work"],
 // --- the Steward ---------------------------------------------------------------------------------
 const STEWARD = "steward";
 const SEEN_KIND = { issues: "issue", prs: "pull request", actions: "run" };
-const SEEN_SCREEN = { overview: "Overview", roadmap: "Roadmap", work: "Work", knowledge: "Knowledge", notes: "Notes", shells: "Sessions" };
+const SEEN_SCREEN = { overview: "Overview", roadmap: "Roadmap", work: "Work", knowledge: "Knowledge", notes: "Notes", shells: "Sessions", design: "Sessions" };
 const STATE_BADGE = { "Waiting for you": "mark", Stopped: "dim", "Not started": "dim" };
 
 // Old addresses and where they live now. Work's tabs had their own pages once; Docs held the notes as a tab;

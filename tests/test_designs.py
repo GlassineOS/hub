@@ -624,24 +624,30 @@ def test_the_hub_pins_its_ui_release_in_one_place():
 
 
 # --- the real renderer (optional) ----------------------------------------------------------------------------
-SMOKE_UI = os.environ.get("HUB_DESIGN_SMOKE_UI")
+SMOKE = os.environ.get("HUB_DESIGN_SMOKE") == "1"
 
 
-@pytest.mark.skipif(not SMOKE_UI or shutil.which("docker") is None or subprocess.run(["docker", "info"], capture_output=True).returncode != 0,
-                    reason="set HUB_DESIGN_SMOKE_UI to a GlassineOS/ui checkout with tools/boards stream, with Docker running")
+def _docker_up() -> bool:
+    return shutil.which("docker") is not None and subprocess.run(["docker", "info"], capture_output=True).returncode == 0
+
+
+@pytest.mark.skipif(not SMOKE or not _docker_up(), reason="HUB_DESIGN_SMOKE=1 with Docker running: fetches GlassineOS/ui at app/ui.ref and runs its renderer")
 def test_the_real_renderer(tmp_path):
-    """One real design view: GlassineOS/ui's stream in its network-less container. Prints the latencies it saw."""
-    ui = Path(SMOKE_UI).resolve()
+    """One real design view on GlassineOS/ui at the pinned release, in its network-less container. Prints the latencies it saw.
+    HUB_DESIGN_SMOKE_CACHE keeps the fetched checkout between runs."""
+    tools = Tools(Path(os.environ.get("HUB_DESIGN_SMOKE_CACHE") or tmp_path / "cache"), Path(__file__).resolve().parents[1] / "app" / "ui.ref")
+    ui = asyncio.run(tools.ensure())
     agents = FakeAgents(tmp_path)
     wt = tmp_path / "work" / "design-1" / "ui"
     wt.parent.mkdir(parents=True)
-    shutil.copytree(ui / "designs", wt / "designs")
     shutil.copytree(ui / "web", wt / "web")
     shutil.copytree(ui / "interleaf", wt / "interleaf")
-    agents.records["design-1"] = {"action": "design", "repo": "hub", "ended": False, "worktree": wt}
-    agents.tokens["t"] = "design-1"
-    d = Designs(agents, Tools(tmp_path / "cache", tmp_path / "ui.ref", root=ui))
-    board = next(b for b in designs_module.boards(wt / "designs" / "hub") if "/" not in b)
+    shutil.copytree(ui / "boards" / "samples", wt / "designs" / "samples")
+    agents.records["design-1"] = {"action": "design", "repo": "samples", "ended": False, "worktree": wt}
+    d = Designs(agents, tools)
+
+    def ours() -> list[str]:
+        return subprocess.run(["docker", "ps", "-q", "--filter", f"volume={ui}"], capture_output=True, text=True).stdout.split()
 
     async def go():
         sessions = auth.Sessions()
@@ -654,29 +660,42 @@ def test_the_real_renderer(tmp_path):
             v = await Viewer.open(path, sessions.create(), "design-1")
             await until(lambda: v.pictures, 240)
             first = time.monotonic() - t0
-            await d.session_open("design-1", {"board": board, "scheme": "eink"})
-            await until(lambda: (v.last.get("state") or {}).get("board") == board, 60)
-            n = len(v.pictures)
-            t1 = time.monotonic()
-            await v.send({"t": "input", "input": {"op": "mouse", "type": "mouseMoved", "x": 5, "y": 5}})
-            await v.send({"t": "frame"})
-            await until(lambda: len(v.pictures) > n, 30)
-            click = time.monotonic() - t1
-            target = wt / "designs" / "hub" / board
-            n = len(v.pictures)
-            t2 = time.monotonic()
-            target.write_text(target.read_text().replace("</body>", "<!-- changed --></body>"))
-            await until(lambda: len(v.pictures) > n, 30)
-            save = time.monotonic() - t2
-            print(f"\nfirst picture {first:.1f} s, command to picture {click * 1000:.0f} ms, save to picture {save * 1000:.0f} ms")
+            # FR-018: the renderer's container has no network
+            modes = [subprocess.run(["docker", "inspect", "--format", "{{.HostConfig.NetworkMode}}", c], capture_output=True, text=True).stdout.strip() for c in ours()]
+            assert modes and set(modes) == {"none"}, modes
+            await d.session_open("design-1", {"board": "Form.dc.html"})
+            await until(lambda: (v.last.get("state") or {}).get("board") == "Form.dc.html" and v.pictures[-1][1:3] == (480, 420), 60)
+            await asyncio.sleep(1)
+
+            async def changed(since: bytes, timeout=10):
+                start = time.monotonic()
+                await until(lambda: v.pictures[-1][3] != since, timeout)
+                return time.monotonic() - start
+            base = v.pictures[-1][3]
+            await v.send({"t": "input", "input": {"op": "mouse", "type": "mousePressed", "x": 120, "y": 72, "button": "left", "clickCount": 1}})
+            await v.send({"t": "input", "input": {"op": "mouse", "type": "mouseReleased", "x": 120, "y": 72, "button": "left", "clickCount": 1}})
+            click = await changed(base)  # the input takes focus: its outline
+            await asyncio.sleep(0.5)
+            base = v.pictures[-1][3]
+            await v.send({"t": "input", "input": {"op": "key", "type": "keyDown", "key": "h", "code": "KeyH", "keyCode": 72, "text": "h"}})
+            key = await changed(base)
+            await v.send({"t": "input", "input": {"op": "key", "type": "keyUp", "key": "h", "code": "KeyH", "keyCode": 72}})
+            await asyncio.sleep(0.5)
+            board = wt / "designs" / "samples" / "Form.dc.html"
+            base = v.pictures[-1][3]
+            board.write_text(board.read_text().replace(">Name<", ">Your name<"))
+            save = await changed(base)
+            print(f"\nfirst picture {first:.1f} s, click to picture {click * 1000:.0f} ms, key to picture {key * 1000:.0f} ms, save to changed picture {save * 1000:.0f} ms")
             assert save < 2.0  # SC-002
+            assert click < 0.5  # SC-003, here on the host
             await v.close()
-            await d.stop("design-1")
-            left = subprocess.run(["docker", "ps", "-q", "--filter", f"volume={ui}"], capture_output=True, text=True).stdout.split()
-            assert left == [], "a renderer container was left running"
+            # a renderer whose client died (as when hubd is killed) is what reap() is for
+            d.views["design-1"].proc.kill()
+            await d.reap()
+            assert ours() == [], "a renderer container was left running"
         finally:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
             for name in d.running():
                 await d.stop(name)
-    asyncio.run(asyncio.wait_for(go(), 400))
+    asyncio.run(asyncio.wait_for(go(), 600))
