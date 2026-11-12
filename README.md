@@ -258,15 +258,22 @@ The tool server always stays on loopback.
 ## Development
 
 ```sh
-pip install -e ".[dev]" && app/fetch-vendor.sh
+pip install -e ".[dev]" && app/fetch-vendor.sh && app/fetch-ui.sh
 make check
 ```
+
+The page's look is Interleaf's web form from [GlassineOS/ui](https://github.com/GlassineOS/ui) (its
+`web/`: the tokens, the component styles and the fonts), at the release named in `app/ui.ref`.
+`app/fetch-ui.sh` puts it in `app/hub/static/vendor/interleaf/`, and the image build does the same, so
+the hub serves it from its own origin. A pull request that changes `app/ui.ref` moves the hub to another
+version. The page follows the browser's light or dark preference with the White voice's Paper and Night
+themes.
 
 `tests/dev_hubd.py` is a `hubd` with a fixed password for trying the app. It accepts any
 user with that password, so never use it as the real daemon.
 
 ## License
 
-GPL-2.0-or-later (`LICENSE`). The IBM Plex and Kalam fonts are under the SIL Open Font License
-(`app/hub/static/fonts/`). The Spec Kit files in `.specify/` and `.claude/skills/speckit-*` come from
+GPL-2.0-or-later (`LICENSE`). The fonts come with the web form, under the SIL Open Font License (see
+GlassineOS/ui). The Spec Kit files in `.specify/` and `.claude/skills/speckit-*` come from
 [github/spec-kit](https://github.com/github/spec-kit) under the MIT license (`.specify/LICENSE-spec-kit`).

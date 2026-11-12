@@ -6,6 +6,13 @@ WORKDIR /b
 COPY app/fetch-vendor.sh app/fetch-vendor.sh
 RUN mkdir -p app/hub/static && app/fetch-vendor.sh
 
+# Interleaf's web form at the version in app/ui.ref: the hub's colours, fonts and greys.
+FROM alpine:3.24 AS ui
+RUN apk add --no-cache git
+WORKDIR /b
+COPY app/ui.ref app/fetch-ui.sh app/
+RUN app/fetch-ui.sh
+
 FROM python:3.13-slim
 ENV PIP_ROOT_USER_ACTION=ignore PIP_NO_CACHE_DIR=1 PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends git ca-certificates >/dev/null \
@@ -23,6 +30,7 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends git ca-
 WORKDIR /srv/hub
 COPY app/hub app/hub
 COPY --from=vendor /b/app/hub/static/vendor app/hub/static/vendor
+COPY --from=ui /b/app/hub/static/vendor/interleaf app/hub/static/vendor/interleaf
 COPY config config
 ENV HUB_CONFIG=/srv/hub/config/repos.toml HUB_CACHE=/cache HOME=/tmp PYTHONPATH=/srv/hub/app
 EXPOSE 9094 9095
