@@ -21,10 +21,11 @@ from . import tools as tools_module
 from . import knowledge
 from .docsearch import DocSearch
 from .github import BadRequest, GitHub
-from .hubd_client import FRAME_DATA, FRAME_EXIT, FRAME_RESIZE, HEADER, Hubd, HubdError
+from .hubd_client import FRAME_DATA, FRAME_EXIT, FRAME_JSON, FRAME_PNG, FRAME_RESIZE, HEADER, Hubd, HubdError
 
 log = logging.getLogger("hub.web")
 COOKIE = "hub_session"
+MAX_DESIGN_MESSAGE = 16 * 1024  # a viewer's input or choice; hubd checks each field
 STATIC = Path(__file__).parent / "static"
 CSP = ("default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; "
        "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
@@ -492,6 +493,65 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
             except (RuntimeError, WebSocketDisconnect):
                 pass
 
+    async def design_view(ws: WebSocket) -> None:
+        """011 FR-016: a terminal's rules. The page gets pictures and words; a board's code never reaches it (FR-012)."""
+        token = ws.cookies.get(COOKIE)
+        if not _same_origin(ws.headers) or not token:
+            await ws.close(4403)
+            return
+        try:
+            reader, writer = await hubd.attach(token, ws.path_params["name"], op="design.attach")
+        except HubdError as e:
+            await ws.accept()
+            await ws.close(4401 if e.denied else 4404, str(e)[:100])
+            return
+        await ws.accept()
+
+        async def from_host():
+            while True:
+                kind, length = HEADER.unpack(await reader.readexactly(HEADER.size))
+                payload = await reader.readexactly(length)
+                if kind == FRAME_PNG:
+                    await ws.send_bytes(payload)
+                elif kind == FRAME_JSON:
+                    await ws.send_text(payload.decode())
+                elif kind == FRAME_EXIT:
+                    return
+
+        async def from_browser():
+            while True:
+                message = await ws.receive()
+                if message["type"] == "websocket.disconnect":
+                    return
+                text = message.get("text")
+                if not text or len(text) > MAX_DESIGN_MESSAGE:
+                    continue
+                try:
+                    if not isinstance(json.loads(text), dict):
+                        continue
+                except ValueError:
+                    continue
+                data = text.encode()
+                writer.write(HEADER.pack(FRAME_JSON, len(data)) + data)
+                await writer.drain()
+
+        tasks = [asyncio.create_task(from_host()), asyncio.create_task(from_browser())]
+        try:
+            await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            for t in tasks:
+                t.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            try:
+                writer.write(HEADER.pack(FRAME_EXIT, 0))
+            except (ConnectionError, RuntimeError):
+                pass
+            writer.close()
+            try:
+                await ws.close()
+            except (RuntimeError, WebSocketDisconnect):
+                pass
+
     routes = [
         Route("/api/login", login, methods=["POST"]),
         Route("/api/logout", api(logout), methods=["POST"]),
@@ -558,6 +618,7 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         Route("/api/shells", api(shell_new), methods=["POST"]),
         Route("/api/shells/{name}", api(shell_kill), methods=["DELETE"]),
         WebSocketRoute("/api/shells/{name}/attach", attach),
+        WebSocketRoute("/api/designs/{name}/view", design_view),
         Mount("/", StaticFiles(directory=STATIC, html=True)),
     ]
     async def headers(request, call_next):

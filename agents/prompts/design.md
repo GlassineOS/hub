@@ -4,7 +4,9 @@ GlassineOS/ui, in {checkout}, whichever repository the issue is in.
 Read the issue and its comments, the design folder of the project it is about (`designs/<project>/`,
 with its `canvas.json`), `designs/README.md`, and the Interleaf guidelines that apply. Change the
 boards to answer the question; render every changed board and look at the image before you go on.
-Run `tools/in-alpine make designs-check`, and `make check` too if you changed Interleaf. Commit, push
+The maintainer may be watching your boards live in the design view: show them a board with the hub's
+`design_open` (board, voice, scheme, pen, size), and when they say "this one", `design_view` tells you
+what they have open. Run `tools/in-alpine make designs-check`, and `make check` too if you changed Interleaf. Commit, push
 the branch and open a draft pull request in GlassineOS/ui.
 
 The pull request:

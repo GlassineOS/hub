@@ -9,6 +9,7 @@ import re
 import struct
 
 FRAME_DATA, FRAME_RESIZE, FRAME_EXIT = 0, 1, 2
+FRAME_JSON, FRAME_PNG = 3, 4  # a design view: a JSON object either way, and pictures from hubd (hubd/designs.py)
 HEADER = struct.Struct(">BI")
 LIMIT = 64 * 1024 * 1024
 # The tool token of the agent this request is for: hubd takes who it is from that, not from the app.
@@ -21,6 +22,8 @@ INSTANCE = contextvars.ContextVar("hub_instance", default=None)
 ALL_REPOS = contextvars.ContextVar("hub_all_repos", default=False)
 # What the calling session may call, if it's held to a list: what it gets to see.
 SEES = contextvars.ContextVar("hub_sees", default=None)
+# Whether the calling session is a design session: only it sees the design view's tools.
+DESIGN = contextvars.ContextVar("hub_design", default=False)
 
 
 class HubdError(Exception):
@@ -99,9 +102,12 @@ class Hubd:
             raise GhError(reply["stderr"].strip() or f"gh exited with {reply['code']}")
         return body["data"]
 
-    async def attach(self, token: str, name: str) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
-        reader, writer = await asyncio.open_unix_connection(self.path, limit=LIMIT)
-        writer.write(json.dumps({"op": "shell.attach", "token": token, "name": name}).encode() + b"\n")
+    async def attach(self, token: str, name: str, op: str = "shell.attach") -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+        try:
+            reader, writer = await asyncio.open_unix_connection(self.path, limit=LIMIT)
+        except OSError as e:
+            raise HubdError(f"hubd is not reachable: {e}", unreachable=True) from e
+        writer.write(json.dumps({"op": op, "token": token, "name": name}).encode() + b"\n")
         await writer.drain()
         reply = json.loads(await reader.readline() or b"{}")
         if not reply.get("ok"):
