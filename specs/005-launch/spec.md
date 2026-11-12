@@ -78,7 +78,8 @@ that spec's name and number, as in "App frame (001) FR-011".
   confirms it and links to the session, and later asks and the result arrive in Needs
   you.
 - **FR-009**: A covered item list may span repositories; the session's worktree is created
-  in the repository of the first item, and the others are listed as covered.
+  in the repository of the first item, and the others are listed as covered. The design action is the
+  exception (Design sessions (011) FR-003).
 - **FR-010**: Every Launch is recorded (who, when, from where, action, items, model,
   plan) and the record is shown as the session's origin.
 - **FR-011**: Launch refuses to start when an action's ceiling forbids the item kind (for
@@ -95,6 +96,7 @@ that spec's name and number, as in "App frame (001) FR-011".
   | address | Kernel engineer (the repository's engineer) | pr | PR |
   | fix | CI fixer | pr | PR, run |
   | implement | Engineer | pr | issue |
+  | design | Designer | pr | issue |
   | triage | Triage | labels | issue |
   | investigate | CI investigator | findings | run |
   | issue | Issue writer | drafts | new |
