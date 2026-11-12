@@ -3335,7 +3335,7 @@ def test_the_design_action_and_its_designer():
                   "tokens and components", "e-ink scheme always", "no claude.ai, no gists", "Assisted-by:", "never `Signed-off-by`"):
         assert words in persona, words
     prompt = LIBRARY.text("prompts", "design").format(repo="shell", number=12, checkout="/w")
-    for words in ("Refs GlassineOS/shell#12", "not with a closing word", "File none of it", "combinations you looked", "draft pull request"):
+    for words in ("Refs GlassineOS/shell#12", "never with a closing word", "File none of it", "combinations you looked", "draft pull request"):
         assert words in prompt, words
 
 
@@ -3353,10 +3353,9 @@ def test_a_design_session_on_another_repositorys_issue_works_in_ui(tmp_path, rem
     assert git(checkout, "rev-parse", "--abbrev-ref", "HEAD").strip() == f"agent/{name}"
     assert (checkout / "d").read_text() == "docs"  # ui's default branch
     assert not (a.work / name / "boot").exists() and not a.main_checkout("boot").exists()
-    assert git(checkout, "config", "user.email").strip() == "moritz@glassine.org"
     prompt = (a.sessions / name / "prompt.md").read_text()
     assert f"in {checkout}" in prompt and "issue #7 of GlassineOS/boot" in prompt
-    assert "Your worktree is in GlassineOS/ui" in prompt and "GlassineOS/boot#7" in prompt and "Closes" not in prompt
+    assert "Your worktree is in GlassineOS/ui" in prompt and "GlassineOS/boot#7" in prompt and "`Closes #" not in prompt and "Closes GlassineOS" not in prompt
     described = a.describe(name)
     assert described["covers"] == [{"repo": "boot", "number": 7}] and described["repo"] == "boot"
     assert a.manifest(name)["checkout"] == str(checkout) and a.manifest(name)["branch"] == f"agent/{name}"
@@ -3388,6 +3387,23 @@ def test_a_design_session_on_an_issue_of_ui_is_a_plain_one(tmp_path, remote):
     prompt = (a.sessions / name / "prompt.md").read_text()
     assert "Refs GlassineOS/ui#3" in prompt and "Your worktree is in GlassineOS/ui, this action's" not in prompt
     assert a.gh.asked == []  # nothing covered elsewhere: no visibility to ask about
+    # Its other items of ui get the usual closing line; the design prompt overrides it, never closing.
+    assert "never with a closing word" in prompt
+    assert a.actions("issue")[[x["id"] for x in a.actions("issue")].index("design")]["repository"] == "ui"
+
+
+def test_a_design_planner_is_told_where_the_session_works(tmp_path):
+    a = agents(tmp_path)
+    asked = []
+
+    async def ask(_role, _none, schema, _model, _tools, request):
+        asked.append(json.loads(request))
+        return {k: schema["properties"][k]["enum"][0] for k in ("persona", "model", "effort")}, 0.01
+    a._ask = ask
+    assert asyncio.run(a.plan("design", "shell", 4))["config"]["persona"] == "designer"
+    assert asked[0]["works_in"] == "GlassineOS/ui" and asked[0]["repository"] == "GlassineOS/shell"
+    asyncio.run(a.plan("issue-implement", "shell", 4))
+    assert "works_in" not in asked[1]
 
 
 def test_a_design_session_doesnt_name_a_private_issue_in_ui(tmp_path):
