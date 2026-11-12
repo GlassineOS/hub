@@ -118,3 +118,25 @@ def test_a_note_on_a_removed_line_sits_under_that_line():
           under({{ line: null, side: "LEFT" }}),
         ];""")
     assert got == [[["del", 11, None]], [["add", None, 11]], [["ctx", 12, 12]], [], []]
+
+
+def test_the_theme_follows_the_browser_scheme():
+    """001 FR-014: theme.js picks White Night while the browser prefers dark, White Paper otherwise, and follows a change."""
+    theme = (APP.parent / "theme.js").read_text()
+    script = """
+        const listeners = [], media = { matches: true, addEventListener(type, f) { listeners.push([type, f]); } };
+        globalThis.window = { matchMedia: (q) => { seen.push(q); return media; } };
+        globalThis.document = { documentElement: { dataset: {} } };
+        const seen = [], picked = [];
+    """ + theme + """
+        picked.push(document.documentElement.dataset.theme);
+        media.matches = false; listeners.forEach(([type, f]) => type === "change" && f());
+        picked.push(document.documentElement.dataset.theme);
+        console.log(JSON.stringify({ seen, picked, listeners: listeners.length }));
+    """
+    out = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=30, check=True).stdout
+    assert json.loads(out) == {"seen": ["(prefers-color-scheme: dark)"], "picked": ["white-night", "white-paper"], "listeners": 1}
+    # Without matchMedia the page still gets a theme.
+    bare = "globalThis.window = {}; globalThis.document = { documentElement: { dataset: {} } };" + theme + \
+        "console.log(JSON.stringify(document.documentElement.dataset.theme));"
+    assert json.loads(subprocess.run([NODE, "-e", bare], capture_output=True, text=True, timeout=30, check=True).stdout) == "white-paper"

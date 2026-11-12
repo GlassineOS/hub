@@ -13,7 +13,10 @@ The project dashboard, tool server and host shells (see `README.md`, threat mode
   to undo or visible to outsiders the `HARD` annotation. Shells stay out of the tool server.
 - Text a user or agent supplies reaches `gh` through stdin or a validated argument, never
   as a flag it could choose. The UI shows state in words too: colour is never the only signal.
-- Browser libraries are pinned in `app/fetch-vendor.sh` and not committed. Fonts are self-hosted.
+- Browser libraries are pinned in `app/fetch-vendor.sh` and not committed. The look is Interleaf's web
+  form (GlassineOS/ui `web/`: tokens, component styles, fonts) at the release in `app/ui.ref`, fetched by
+  `app/fetch-ui.sh` and served from the hub itself; `style.css` holds layout and only the colours the web
+  form has no token for. Bump the version with a change to `app/ui.ref`.
 - Commits carry an `Assisted-by:` or `Co-Authored-By:` trailer. Never add
   `Signed-off-by`. Run `.glassine/org/scripts/safety-scan.sh --staged` before committing.
 - Specs: Spec Kit 1.1.0 with the org preset (`.specify/`, setup in

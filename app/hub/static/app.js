@@ -239,7 +239,7 @@ function StateIcon({ kind, label }) {
   const a = label ? { role: "img", "aria-label": label } : { "aria-hidden": "true" };
   const ink = "currentColor";
   if (kind === "fail") {
-    return html`<svg width="16" height="16" viewBox="0 0 16 16" ...${a}><rect x="2" y="2" width="12" height="12" rx="2" fill="var(--signal)" stroke=${ink} stroke-width="1.5" /><path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="var(--paper)" stroke-width="1.5" /></svg>`;
+    return html`<svg width="16" height="16" viewBox="0 0 16 16" ...${a}><rect x="2" y="2" width="12" height="12" rx="2" fill="var(--accent-2)" stroke=${ink} stroke-width="1.5" /><path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="var(--paper)" stroke-width="1.5" /></svg>`;
   }
   if (kind === "run") return html`<svg width="16" height="16" viewBox="0 0 16 16" ...${a}><circle cx="8" cy="8" r="6" fill="none" stroke=${ink} stroke-width="1.5" stroke-dasharray="3 2.5" /></svg>`;
   if (kind === "pass") return html`<svg width="16" height="16" viewBox="0 0 16 16" ...${a}><circle cx="8" cy="8" r="6" fill="none" stroke=${ink} stroke-width="1.5" /><path d="M5 8.2l2 2 4-4.2" fill="none" stroke=${ink} stroke-width="1.5" /></svg>`;
@@ -1469,13 +1469,13 @@ function FailedStep({ repo, id }) {
   return html`<div class="stack" style="gap: 8px">
     ${d.job ? html`<p style="font-weight: 600; overflow-wrap: anywhere">Failed: ${d.job}${d.step ? html` › ${d.step}` : ""}</p>
       <span class="small soft">${count(d.lines.length, "line")}${errors ? `, ${count(errors, "error line")} marked` : ""}</span>
-      ${d.lines.length ? html`<ol class="steplog" aria-label="Log of the failed step">${d.lines.map((l) => html`<li class=${l.error ? "err" : ""} value=${l.n}>${l.error && html`<span class="sr">error: </span>`}${l.text}</li>`)}</ol>`
+      ${d.lines.length ? html`<ol class="steplog" data-theme="white-night" aria-label="Log of the failed step">${d.lines.map((l) => html`<li class=${l.error ? "err" : ""} value=${l.n}>${l.error && html`<span class="sr">error: </span>`}${l.text}</li>`)}</ol>`
         : html`<p class="small soft">GitHub kept no log for this step.</p>`}`
       : html`<p class="soft">No job failed in this run.</p>`}
     <${Err} text=${logs.error} />
     <div class="row">${d.log_url && html`<a href=${d.log_url} target="_blank" rel="noreferrer noopener">The job on GitHub</a>`}
       <button class="plain" disabled=${logs.busy} onClick=${() => logs.run(async () => setFull(full === null ? await api(`runs/${repo}/${id}/log?all=1`) : null))}>${full === null ? "Full log here" : "Hide the full log"}</button></div>
-    ${full !== null && html`<div class="log">${full}</div>`}</div>`;
+    ${full !== null && html`<div class="log" data-theme="white-night">${full}</div>`}</div>`;
 }
 
 const defs = (pairs) => html`<dl class="defs">${pairs.filter(([, v]) => v !== null && v !== undefined && v !== "").map(([k, v]) => html`<dt>${k}</dt><dd>${v}</dd>`)}</dl>`;
@@ -2183,8 +2183,12 @@ function clipboardPayload(data) {
 }
 
 // `quiet`: beside a page you're using, so it takes the keyboard only when you click it.
-// Terminals are on night paper (#121212), the --night token, in both themes.
-const nightPaper = () => (getComputedStyle(document.documentElement).getPropertyValue("--night").trim() || "#121212");
+// Terminals are on night paper in both schemes: their element carries data-theme="white-night",
+// and xterm takes its colours and font from that element's tokens.
+const terminalLook = (el) => {
+  const cs = getComputedStyle(el), token = (name) => cs.getPropertyValue(name).trim();
+  return { fontFamily: token("--font-mono"), theme: { background: token("--paper"), foreground: token("--ink"), cursor: token("--ink") } };
+};
 
 function TerminalView({ name, onGone, focusRef, quiet }) {
   const box = useRef();
@@ -2192,10 +2196,7 @@ function TerminalView({ name, onGone, focusRef, quiet }) {
   const [copied, setCopied] = useState("");
   const [typing, setTyping] = useState(true);
   useEffect(() => {
-    const term = new Terminal({
-      cursorBlink: !reducedMotion(), fontFamily: '"IBM Plex Mono", ui-monospace, monospace', fontSize: 14, scrollback: 5000,
-      theme: { background: nightPaper(), foreground: "#eeeeee", cursor: "#eeeeee" },
-    });
+    const term = new Terminal({ cursorBlink: !reducedMotion(), fontSize: 14, scrollback: 5000, ...terminalLook(box.current) });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(box.current);
@@ -2279,7 +2280,7 @@ function TerminalView({ name, onGone, focusRef, quiet }) {
   // Keyed, or the note taking the first place would take over the terminal's element. The copy
   // message floats: anything that changes the terminal's height resizes the pane.
   return html`${note && html`<div key="note" class="small soft" style="padding: 6px 16px">${note}</div>`}
-    <div key="term" class="term" ref=${box} role="group" aria-label="Terminal. F6 or Shift+F6 leaves it." title="F6 or Shift+F6 leaves the terminal"></div>
+    <div key="term" class="term" data-theme="white-night" ref=${box} role="group" aria-label="Terminal. F6 or Shift+F6 leaves it." title="F6 or Shift+F6 leaves the terminal"></div>
     ${!typing && !quiet && html`<div key="unfocused" class="small term-copied" role="status">Keys aren't going to the terminal. Click it to type.</div>`}
     ${copied && html`<div key="copied" class="small term-copied" role="status">${copied}</div>`}`;
 }
@@ -2471,7 +2472,7 @@ function SessionView({ session, mode = "full", asks, here, seen, buttons, queued
       <button class="plain" onClick=${() => focus.current && focus.current()}>Jump to prompt</button></div>`}
     ${a && a.ended && onResume && html`<div role="status" class="waitbar ended"><span>Claude has ended in this session.</span>
       <button class="plain" disabled=${act.busy} onClick=${onResume}>Resume…</button></div>`}
-    <div class=${compact ? "dock-term" : "svterm"}><${TerminalView} key=${name} name=${name} quiet=${compact} focusRef=${focus} onGone=${onGone || (() => {})} /></div>
+    <div class=${compact ? "dock-term" : "svterm"} data-theme=${compact ? undefined : "white-night"}><${TerminalView} key=${name} name=${name} quiet=${compact} focusRef=${focus} onGone=${onGone || (() => {})} /></div>
     ${a && html`<div class="svsend ${compact ? "compact" : ""}">
       <div class="row" style="gap: 6px">
         ${offered.map((b) => html`<button class="dock-msg" disabled=${act.busy || !live} title=${b.text.replaceAll("{selection}", thisItem)} onClick=${() => press(b)}>${b.label}</button>`)}
@@ -2506,18 +2507,18 @@ const hasView = (tool, input) => tool in TOOL_VIEWS && typeof input[TOOL_VIEWS[t
 function AskContent({ ask }) {
   const input = ask.input;
   if (ask.too_long) return html`<p class="small">This is too long to show on a card, so it can only be allowed in the terminal.</p>`;
-  if (!hasView(ask.tool, input)) return html`<pre class="ask-code">${JSON.stringify(input, null, 2)}</pre>`;
+  if (!hasView(ask.tool, input)) return html`<pre class="ask-code" data-theme="white-night">${JSON.stringify(input, null, 2)}</pre>`;
   const rest = Object.fromEntries(Object.entries(input).filter(([k]) => !TOOL_VIEWS[ask.tool].includes(k)));
-  return html`<${AskView} ask=${ask} />${Object.keys(rest).length > 0 && html`<div class="stack" style="gap: 4px"><${Eyebrow} soft>Also set<//><pre class="ask-code">${JSON.stringify(rest, null, 2)}</pre></div>`}`;
+  return html`<${AskView} ask=${ask} />${Object.keys(rest).length > 0 && html`<div class="stack" style="gap: 4px"><${Eyebrow} soft>Also set<//><pre class="ask-code" data-theme="white-night">${JSON.stringify(rest, null, 2)}</pre></div>`}`;
 }
 
 function AskView({ ask }) {
   const input = ask.input;
-  if (ask.tool === MESSAGE_TOOL) return html`<div class="stack" style="gap: 4px"><span class="small">To <span class="mono">${input.name}</span>, as its next turn:</span><pre class="ask-code" style="white-space: pre-wrap">${input.text}</pre></div>`;
-  if (ask.tool === "Bash") return html`<pre class="ask-code"><span class="ask-prompt">$ </span>${input.command}</pre>`;
+  if (ask.tool === MESSAGE_TOOL) return html`<div class="stack" style="gap: 4px"><span class="small">To <span class="mono">${input.name}</span>, as its next turn:</span><pre class="ask-code" data-theme="white-night" style="white-space: pre-wrap">${input.text}</pre></div>`;
+  if (ask.tool === "Bash") return html`<pre class="ask-code" data-theme="white-night"><span class="ask-prompt">$ </span>${input.command}</pre>`;
   if (ask.tool === "Edit" || ask.tool === "Write") {
     const lines = ask.tool === "Write" ? askLines(input.content, "+") : [...askLines(input.old_string, "−"), ...askLines(input.new_string, "+")];
-    return html`<div class="ask-diff"><span class="ask-path">${input.file_path}</span>
+    return html`<div class="ask-diff" data-theme="white-night"><span class="ask-path">${input.file_path}</span>
       <div class="ask-lines">${lines.map((l) => html`<span class=${l.sign === "+" ? "add" : "del"}>${l.sign} ${l.line}</span>`)}</div></div>`;
   }
   return html`<div class="ask-plan"><${Md} text=${input.plan} /></div>`;
@@ -3560,7 +3561,7 @@ function Login({ onIn }) {
 }
 
 const Logo = () => html`<a class="logo" href="#/overview">
-  <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="3" width="18" height="22" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="11" y="7" width="18" height="22" rx="2" fill="var(--mark)" stroke="var(--pen)" stroke-width="1.5" /></svg>
+  <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="3" width="18" height="22" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" /><rect x="11" y="7" width="18" height="22" rx="2" fill="var(--highlight)" stroke="var(--pen)" stroke-width="1.5" /></svg>
   <span><span class="eyebrow">GlassineOS Hub</span><small>GlassineOS/hub</small></span></a>`;
 
 // How much of the sessions' usage allowance is used (001 FR-006): words and a bar, "low" from 80 %. hubd reads it
