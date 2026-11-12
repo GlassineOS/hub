@@ -425,6 +425,35 @@ def test_a_starting_session_isnt_removed(world):
     assert run(a.cleanup_remove([name]))["removed"] == []
 
 
+def test_a_design_session_is_restored_in_ui(world):
+    """011 FR-003: its worktree comes back in ui, on its own branch, though the issue is boot's."""
+    a, gh, tmp = world
+    ui = tmp / "remote" / "ui"
+    ui.mkdir()
+    git(ui, "init", "-q", "-b", "main")
+    (ui / "board").write_text("b")
+    git(ui, "add", "board"); git(ui, "commit", "-qm", "base")
+
+    async def visibility(argv, *_a, **_k):
+        if "/pulls?" in argv[-1]:
+            return await FakeGh.run(gh, argv)
+        return {"code": 0, "stdout": json.dumps({"private": False}), "stderr": ""}
+    a.gh = type("Gh", (), {"run": staticmethod(visibility)})()
+    name = run(a.start({**a.defaults("design", "boot", 3), "name": "d"}))["name"]
+    session_id = a.session_id_of(name)
+    transcript(tmp, session_id, ("user", "x"))
+    into = a.work / name / "ui"
+    (into / "board").write_text("changed")
+    git(into, "commit", "-qam", "a board")
+    a.shells.live.discard(name)
+    assert run(a.past())[0]["worktree"] == "kept"
+    run(a.forget(name, discard=True))
+    assert not into.exists() and run(a.past())[0]["worktree"] == "removed"
+    assert run(a.resume_past(session_id))["name"] == name
+    assert git(into, "rev-parse", "--abbrev-ref", "HEAD").strip() == f"agent/{name}"
+    assert (into / "board").read_text() == "changed" and not (a.work / name / "boot").exists()
+
+
 def test_a_session_being_removed_cant_be_restored(world):
     a, _gh, tmp = world
     name = full_session(a)

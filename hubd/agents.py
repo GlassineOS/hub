@@ -215,6 +215,12 @@ def _full(action: dict) -> bool:
     return action.get("access") == "full"
 
 
+def _home(config: dict, action: dict) -> str | None:
+    """The repository a session's worktree and pull request are in: the first item's (005 FR-009), unless the action names
+    its own, as design does with GlassineOS/ui (011 FR-003)."""
+    return action.get("repository") or config.get("repo")
+
+
 def _may_search_notes(action: dict) -> bool:
     """Who gets the notes search among locked actions: one that only reads, and so can't carry a note out. No shell and no
     tool that writes or posts (`comment_issue`, `comment_pr`, `create_issue` ...), nothing that asks first, and not plan_work,
@@ -341,6 +347,13 @@ class Library:
             if NOTES_TOOL in action.get("hub_tools", ()) and not _may_search_notes(action):  # listed by hand, on an action that can post
                 raise LibraryError(f"actions/{action['id']}.toml: {NOTES_TOOL} is for a locked action that only reads: no shell, no write "
                                    "or post tool, no plan_work, nothing that asks first")
+            home = action.get("repository")
+            if home is not None and not (isinstance(home, str) and _REPO_RE.fullmatch(home) and ".." not in home and home.lstrip(".") != "work"
+                                         and _full(action) and action.get("checkout") == "new-branch"
+                                         and action["object"] not in (*NO_REPO_OBJECTS, "repo")):
+                # Its worktree is a new branch there whatever the item's repository: only a full session on an item opens one.
+                raise LibraryError(f"actions/{action['id']}.toml: repository is a repository name, for a full session on an item "
+                                   "with checkout new-branch")
             verb = action.get("verb")
             if verb is None:
                 continue
@@ -449,8 +462,10 @@ def validate(library: Library, config) -> dict:
             raise AgentError(f"also_repos must be a list of at most {MAX_ALSO} different repositories")
         if len({n.lstrip(".") for n in also}) != len(also):
             raise AgentError("also_repos names one folder twice")
+        home = _home(config, action)
         for name in also:
-            if not isinstance(name, str) or not _REPO_RE.fullmatch(name) or ".." in name or name == repo or name.lstrip(".") == "work":
+            if (not isinstance(name, str) or not _REPO_RE.fullmatch(name) or ".." in name or name.lstrip(".") == (home or "").lstrip(".")
+                    or name.lstrip(".") == "work"):
                 raise AgentError(f"not a repository to add: {name}")
     query = config.get("docs_query", "")
     if not isinstance(query, str) or len(query) > 300:
@@ -801,6 +816,8 @@ class Agents:
                   "object": action["object"], "number": number,
                   "notes_from_the_person": base["notes"], "pinned_by_the_person": base["pins"],
                   "personas": {p: self.library.text("personas", p) for p in action["personas"]}}
+        if action.get("repository"):  # 011 FR-003: the session works there, whichever repository the item is in
+            fields["works_in"] = f"{ORG}/{action['repository']}"
         if base["also_numbers"]:
             fields["also_numbers"] = base["also_numbers"]
         if len(base["covers"]) > 1:
@@ -933,12 +950,12 @@ class Agents:
         return self.workspace if repo == WORKSPACE_REPO else self.workspace / repo.lstrip(".")
 
     def _checkouts(self, name: str, config: dict, action: dict) -> list[tuple[str, Path]]:
-        """Each repository a session gets, and where. The first is the object's."""
+        """Each repository a session gets, and where. The first is the object's, or the action's own repository (_home)."""
         if not action.get("checkout"):
             return []
         # A pull request under review may be an outsider's tree: not in the workspace, which you trust.
         base = self.sessions / name / "checkout" if action["checkout"] in _DETACHED else self.work / name
-        return [(r, base / r.lstrip(".")) for r in [config["repo"], *config.get("also_repos", [])]]
+        return [(r, base / r.lstrip(".")) for r in [_home(config, action), *config.get("also_repos", [])]]
 
     async def _main(self, repo: str) -> Path:
         """The workspace's checkout of a repository, cloned if it isn't there yet."""
@@ -1096,7 +1113,10 @@ class Agents:
         else:
             # The number stays, or two pull requests of a long-named repository would look alike.
             tail = f"-{config['number']}" if config["number"] else ""
-            head = re.sub(r"[^A-Za-z0-9_-]", "-", (f"{action['id']}-{config['repo']}" if config["repo"] else action["id"]).lstrip("."))
+            # The branch is agent/<name>, pushed to the worktree's repository. When that isn't the item's, the item's
+            # repository stays out of the name: it may be private while that one is public.
+            named = config["repo"] if config["repo"] and _home(config, action) == config["repo"] else None
+            head = re.sub(r"[^A-Za-z0-9_-]", "-", (f"{action['id']}-{named}" if named else action["id"]).lstrip("."))
             stem = head[:MAX_NAME - len(tail)] + tail
         name, n = stem, 2
         while name in taken:
@@ -1104,11 +1124,12 @@ class Agents:
             name, n = stem[:MAX_NAME - len(suffix)] + suffix, n + 1
         return name
 
-    async def _unnamed_here(self, config: dict) -> set[str]:
-        """Covered repositories that the first one's pull request mustn't name: unless GitHub says that one is private, every
-        other that GitHub doesn't say is public. Whatever GitHub doesn't answer counts against naming."""
-        others = {c["repo"] for c in config.get("covers", ())[1:] if c["repo"] != config["repo"]}
-        if not others or await self._private_says(config["repo"]) is True:
+    async def _unnamed_here(self, config: dict, action: dict | None = None) -> set[str]:
+        """Covered repositories that the session's pull request (in _home's repository) mustn't name: unless GitHub says that
+        one is private, every other that GitHub doesn't say is public. Whatever GitHub doesn't answer counts against naming."""
+        home = _home(config, action or {})
+        others = {c["repo"] for c in config.get("covers", ()) if c["repo"] != home}
+        if not others or await self._private_says(home) is True:
             return set()
         return {repo for repo in others if await self._private_says(repo) is not False}
 
@@ -1137,20 +1158,32 @@ class Agents:
             prompt += (f"\n\nThe pull request's branch, {beside['branch']}, is checked out in {beside['held']}, so you're on {beside['own']}, "
                        "which tracks it. A plain `git push` updates the pull request; don't name a branch. Someone may be working there "
                        "too: if the push is refused, pull, and if that doesn't settle it, tell me. Never force it.")
-        if config.get("also_numbers"):
+        home = _home(config, action)
+        fixed = bool(config["repo"]) and home != config["repo"]  # 011 FR-003: the worktree is the action's repository, not the item's
+        if config.get("also_numbers") and not fixed:
             refs = ", ".join(f"#{n}" for n in config["also_numbers"])
             prompt += (f"\n\nThis session also covers {refs} of GlassineOS/{config['repo']}. Read each with its comments; "
                        "the same rule about their text applies. One pull request closes them all, with a `Closes #N` line for "
                        "each. If one turns out not to belong with the rest, leave it open and say so.")
-        elsewhere = [c for c in config.get("covers", ())[1:] if c["repo"] != config["repo"]]
-        if elsewhere:  # 005 FR-009: the worktree is the first item's
+        covers = config.get("covers", ())
+        elsewhere = [c for c in (covers if fixed else covers[1:]) if c["repo"] != home]
+        if elsewhere and fixed:  # 011 FR-003: every item is outside the worktree's repository, the first one too
+            refs = ", ".join(f"GlassineOS/{c['repo']}#{c['number']}" for c in elsewhere)
+            prompt += (f"\n\nYour worktree is in GlassineOS/{home}, this action's repository, whichever repository its items are in. "
+                       f"The items are elsewhere: {refs}. Read each with its comments; the same rule about their text applies. They get "
+                       "no checkout of their own unless one is named below.")
+        elif elsewhere:  # 005 FR-009: the worktree is the first item's
             refs = ", ".join(f"GlassineOS/{c['repo']}#{c['number']}" for c in elsewhere)
             prompt += (f"\n\nThis session also covers items in other repositories: {refs}. Read each with its comments; the same rule "
                        f"about their text applies. Your worktree is in GlassineOS/{config['repo']}, the first item's; these are listed "
                        "as covered and get no checkout of their own unless one is named below.")
+        if elsewhere:
             hidden = sorted({c["repo"] for c in elsewhere}) if unnamed is None else sorted(unnamed)
             named = [c for c in elsewhere if c["repo"] not in hidden]
-            if named:
+            if named and fixed:
+                prompt += (" Your pull request names each as `GlassineOS/<repo>#N`: "
+                           + ", ".join(f"GlassineOS/{c['repo']}#{c['number']}" for c in named) + ".")
+            elif named:
                 prompt += (" A pull request closes an issue of another repository with a `Closes GlassineOS/<repo>#N` line, for "
                            + ", ".join(f"GlassineOS/{c['repo']}#{c['number']}" for c in named) + ".")
             if hidden:
@@ -1390,7 +1423,7 @@ class Agents:
             # An agent without a shell can't ask git which commit it's looking at.
             commit = (await self._git("rev-parse", "--short", "HEAD", cwd=checkout)).strip() if checkout else None
             script = self._script(config, action, directory, checkout, session_id, mcp, checkouts[1:], commit, beside,
-                                  await self._unnamed_here(config))
+                                  await self._unnamed_here(config, action))
             await self._probe_sandbox(directory, config, action)
             self._session_token(directory, config, _full(action), session_id)
             # A full session starts where you would: the workspace's rules and memory are there.
@@ -1936,13 +1969,13 @@ class Agents:
         return list(found[1]) if found and found[2] == record.get("session_id") else []
 
     def _pr_repos(self, record: dict) -> list[str]:
-        """Where a session pushes agent/<name>: what was checked out for it, the first item's repository and also_repos.
-        A covered item in another repository has no checkout, so no branch of the session's is there to find."""
+        """Where a session pushes agent/<name>: what was checked out for it, the first item's repository (or the action's own,
+        _home) and also_repos. A covered item in another repository has no checkout, so no branch of the session's is there to find."""
         config = record["config"]
         action = self.library.actions.get(config.get("action")) or {}
         if record.get("object") == "pr" or action.get("checkout") != "new-branch" or not config.get("repo"):
             return []
-        return list(dict.fromkeys([config["repo"], *config.get("also_repos", ())]))
+        return list(dict.fromkeys([_home(config, action), *config.get("also_repos", ())]))
 
     async def refresh_prs(self, names, wait: float = PRS_WAIT) -> None:
         """Looks the branches up on GitHub, at most once a minute a session. A failed look keeps what was found before.
@@ -2030,8 +2063,9 @@ class Agents:
             found.append(self.sessions / name / "checkout")
         record = self.sessions / name / "session.json"
         try:
-            first = (json.loads(record.read_text())["config"]["repo"] or "").lstrip(".")
-        except (OSError, ValueError, KeyError):
+            config = json.loads(record.read_text())["config"]
+            first = (_home(config, self.library.actions.get(config.get("action")) or {}) or "").lstrip(".")
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
             return found
         return sorted(found, key=lambda c: c.name != first)
 
