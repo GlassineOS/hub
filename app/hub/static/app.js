@@ -2343,6 +2343,232 @@ function NewShell({ initial, groups, onDone, onCancel }) {
 
 const shortModel = (m) => (m ? m[0].toUpperCase() + m.slice(1) : "");
 
+// --- the design view (011 FR-010–FR-019) ---------------------------------------------------------------
+// A live picture of a browser on the host, on the renderer's preview of a design session's worktree. This page only
+// draws the PNG frames hubd relays and sends back clicks, touches, the wheel and keys: a board's code runs in that
+// host browser, never here (FR-012). Nothing from the renderer is put into the page as markup.
+const DESIGN_ESC_TWICE = 800; // ms between the two Escs that leave the picture
+// The scale a frame is drawn at (FR-013): 100 % when it fits or when asked for, else what fits the box.
+function designScale(frame, box, actual) {
+  if (!frame || !frame.width || !frame.height || actual) return 1;
+  const across = box.width > 0 ? box.width / frame.width : 1;
+  const down = box.height > 0 ? box.height / frame.height : 1;
+  return Math.min(1, across, down);
+}
+// A pointer on the drawn picture, in the frame's own pixels, which are what the renderer takes.
+function designPoint(clientX, clientY, rect, frame) {
+  const x = rect.width ? ((clientX - rect.left) * frame.width) / rect.width : 0;
+  const y = rect.height ? ((clientY - rect.top) * frame.height) / rect.height : 0;
+  return { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 };
+}
+// The browser protocol's modifier bits: Alt 1, Ctrl 2, Meta 4, Shift 8.
+function designModifiers(e) {
+  return (e.altKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.metaKey ? 4 : 0) | (e.shiftKey ? 8 : 0);
+}
+const DESIGN_BUTTONS = ["left", "middle", "right", "back", "forward"];
+// A key on the focused picture, as the renderer's key input: a key that types sends its text, the others go raw.
+function designKey(e) {
+  const base = { key: e.key, code: e.code, modifiers: designModifiers(e) };
+  if (typeof e.keyCode === "number" && e.keyCode > 0 && e.keyCode < 256) base.keyCode = e.keyCode;
+  if (e.type === "keyup") return { op: "key", type: "keyUp", ...base };
+  const typed = e.key === "Enter" ? "\r" : e.key.length === 1 && !e.ctrlKey && !e.metaKey ? e.key : null;
+  return typed === null ? { op: "key", type: "rawKeyDown", ...base } : { op: "key", type: "keyDown", ...base, text: typed };
+}
+// Whether a keydown on the picture leaves it (FR-019): F6 or Shift+F6 as from the terminal, or Esc twice in a row, which
+// goes back to the view's own controls. The first Esc still goes to the board. Returns the step to move focus by (0:
+// stay) and when the last Esc was.
+function designLeave(e, lastEsc, now) {
+  if (e.key === "F6") return { step: e.shiftKey ? -1 : 1, lastEsc: 0 };
+  if (e.key !== "Escape" || e.repeat) return { step: 0, lastEsc: 0 };
+  if (lastEsc && now - lastEsc <= DESIGN_ESC_TWICE) return { step: -1, lastEsc: 0 };
+  return { step: 0, lastEsc: now };
+}
+// A binary message from hubd: seq, width and height (big endian) ahead of the PNG.
+function designPicture(buffer) {
+  const head = new DataView(buffer, 0, 12);
+  return { seq: head.getUint32(0), width: head.getUint32(4), height: head.getUint32(8), png: new Uint8Array(buffer, 12) };
+}
+// What a board's or state's name says, for a picker: the file without its extension.
+function boardLabel(file) {
+  return String(file || "").replace(/\.dc\.html$/, "");
+}
+function designNow(v) {
+  const s = v.state || {};
+  if (s.view === "canvas") return `Canvas${s.page ? `, page ${s.page}` : ""}`;
+  if (s.board) return `${boardLabel(s.board)}${s.voice ? ` · ${s.voice}` : ""}${s.scheme ? ` · ${s.scheme}` : ""}${s.pen != null ? ` · pen ${s.pen}` : ""}${s.width ? ` · ${s.width}×${s.height}` : ""}`;
+  return s.view === "other" ? "Another page" : "Starting";
+}
+
+function DesignView({ query }) {
+  const name = query.name || "";
+  const [v, setV] = useState(null); // hubd's last word on the view: status, project, boards, follow, state…
+  const [notes, setNotes] = useState([]);
+  const [closed, setClosed] = useState("");
+  const [frame, setFrame] = useState(null); // {width, height} of the last picture
+  const [actual, setActual] = useState(false); // the 100 % toggle
+  const [box, setBox] = useState({ width: 0, height: 0 });
+  const [focused, setFocused] = useState(false);
+  const [pick, setPick] = useState({ voice: "", scheme: "", pen: "" });
+  const canvas = useRef(null);
+  const holder = useRef(null);
+  const ws = useRef(null);
+  const frameRef = useRef(null);
+  const send = (m) => { if (ws.current && ws.current.readyState === WebSocket.OPEN) ws.current.send(JSON.stringify(m)); };
+  const input = (i) => send({ t: "input", input: i });
+  useEffect(() => {
+    if (!name) return undefined;
+    const scheme = location.protocol === "https:" ? "wss" : "ws";
+    const socket = new WebSocket(`${scheme}://${location.host}/api/designs/${encodeURIComponent(name)}/view`);
+    socket.binaryType = "arraybuffer";
+    ws.current = socket;
+    let drawing = Promise.resolve();
+    socket.onmessage = (e) => {
+      if (typeof e.data === "string") {
+        let m;
+        try { m = JSON.parse(e.data); } catch { return; }
+        if (m.t === "view") setV(m);
+        else if (m.t === "note" && typeof m.text === "string") setNotes((n) => [...n.slice(-3), m.text]);
+        return;
+      }
+      const p = designPicture(e.data);
+      // Pictures are drawn in order, each as a bitmap from PNG bytes: never as an element the page would parse.
+      drawing = drawing.then(async () => {
+        const bitmap = await createImageBitmap(new Blob([p.png], { type: "image/png" }));
+        const c = canvas.current;
+        if (!c) return;
+        if (c.width !== bitmap.width || c.height !== bitmap.height) { c.width = bitmap.width; c.height = bitmap.height; }
+        c.getContext("2d").drawImage(bitmap, 0, 0);
+        bitmap.close();
+        const f = frameRef.current;
+        if (!f || f.width !== p.width || f.height !== p.height) { frameRef.current = { width: p.width, height: p.height }; setFrame(frameRef.current); }
+      }).catch(() => {});
+    };
+    socket.onclose = (e) => setClosed(e.code === 4404 || e.code === 4401 ? e.reason || "There's no design view for this session." : "Disconnected. Open the design view again to reconnect.");
+    return () => { socket.onclose = null; socket.close(); ws.current = null; };
+  }, [name]);
+  // The room the picture has: the holder's width, and the window's height less a margin (the page scrolls to it).
+  useEffect(() => {
+    const el = holder.current;
+    if (!el) return undefined;
+    const measure = () => {
+      setBox({ width: el.clientWidth, height: Math.max(320, window.innerHeight - 96) });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    window.addEventListener("resize", measure);
+    return () => { observer.disconnect(); window.removeEventListener("resize", measure); };
+  }, [v !== null]);
+  // The pointer, the wheel and touch, in the frame's pixels. Moves wait for the next animation frame, one at a time.
+  useEffect(() => {
+    const c = canvas.current;
+    if (!c) return undefined;
+    let moved = null, waiting = false;
+    const at = (e) => designPoint(e.clientX, e.clientY, c.getBoundingClientRect(), frameRef.current || { width: c.width, height: c.height });
+    const mouse = (type) => (e) => {
+      const p = at(e);
+      if (type === "mousePressed") c.focus({ preventScroll: true }); // a scroll now would move the picture under the pointer
+      const m = { op: "mouse", type, x: p.x, y: p.y, buttons: e.buttons, modifiers: designModifiers(e) };
+      if (type !== "mouseMoved") { m.button = DESIGN_BUTTONS[e.button] || "left"; m.clickCount = Math.min(3, Math.max(1, e.detail || 1)); }
+      if (type === "mouseMoved") {
+        moved = m;
+        if (!waiting) { waiting = true; requestAnimationFrame(() => { waiting = false; if (moved) input(moved); moved = null; }); }
+        return;
+      }
+      if (moved) { input(moved); moved = null; }
+      e.preventDefault();
+      input(m);
+    };
+    const wheel = (e) => {
+      e.preventDefault();
+      const p = at(e);
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+      input({ op: "wheel", x: p.x, y: p.y, deltaX: e.deltaX * unit, deltaY: e.deltaY * unit, modifiers: designModifiers(e) });
+    };
+    const touch = (type) => (e) => {
+      e.preventDefault();
+      if (type === "touchStart") c.focus({ preventScroll: true });
+      const points = [...e.touches].slice(0, 10).map((t) => ({ ...at(t), id: t.identifier % 1000 }));
+      // The protocol's end has no points: a finger lifted while others stay is a move of the ones left.
+      const kind = (type === "touchEnd" || type === "touchCancel") && points.length ? "touchMove" : type;
+      input({ op: "touch", type: kind, points: kind === "touchEnd" || kind === "touchCancel" ? [] : points, modifiers: designModifiers(e) });
+    };
+    const handlers = [["mousedown", mouse("mousePressed")], ["mouseup", mouse("mouseReleased")], ["mousemove", mouse("mouseMoved")],
+      ["wheel", wheel], ["contextmenu", (e) => e.preventDefault()],
+      ["touchstart", touch("touchStart")], ["touchmove", touch("touchMove")], ["touchend", touch("touchEnd")], ["touchcancel", touch("touchCancel")]];
+    for (const [k, f] of handlers) c.addEventListener(k, f, { passive: false });
+    return () => { for (const [k, f] of handlers) c.removeEventListener(k, f); };
+  }, [v !== null]);
+  // Keys reach the board only while the picture has focus (FR-019).
+  const lastEsc = useRef(0);
+  const onKey = (e) => {
+    if (e.type === "keydown") {
+      const leave = designLeave(e, lastEsc.current, Date.now());
+      lastEsc.current = leave.lastEsc;
+      if (leave.step) { e.preventDefault(); focusPast(canvas.current, leave.step); return; }
+    }
+    e.preventDefault();
+    input(designKey(e));
+  };
+  if (!name) return html`<main class="page"><p>No session named.</p></main>`;
+  const back = html`<a class="button plain" href=${hash("shells", { tab: "all", name })}>Back to the session</a>`;
+  if (!v) return html`<main class="page close"><div class="row">${back}</div><p role="status" class="soft">${closed || "Connecting to the design view…"}</p></main>`;
+  const scale = designScale(frame, box, actual);
+  const shown = frame ? { width: Math.round(frame.width * scale), height: Math.round(frame.height * scale) } : null;
+  const s = v.state || {};
+  const opened = (over) => {
+    const board = over.board !== undefined ? over.board : s.board;
+    if (!board) return;
+    const m = { t: "open", board };
+    for (const k of ["voice", "scheme", "pen"]) {
+      const val = over[k] !== undefined ? over[k] : pick[k] || s[k];
+      if (val !== "" && val != null) m[k] = k === "pen" ? Number(val) : val;
+    }
+    send(m);
+  };
+  const choose = (k) => (e) => { const val = e.target.value; setPick({ ...pick, [k]: val }); opened({ [k]: val }); };
+  const sug = v.suggestion;
+  const running = v.status === "running" || v.status === "starting";
+  return html`<main class="page close design" aria-labelledby="h-design">
+    <div class="row" style="justify-content: space-between">
+      <span class="stack" style="gap: 2px"><h1 id="h-design" class="design-title">Design view</h1>
+        <span class="mono small soft" style="overflow-wrap: anywhere">${name} · ${v.project}${v.ended ? " · the session has ended" : ""}</span></span>
+      <span class="row">${back}</span></div>
+    ${closed && html`<div class="notice"><span>${closed}</span></div>`}
+    ${v.status === "full" && html`<div class="notice" role="alert"><span>${v.message}</span>
+      ${(v.running || []).map((n) => html`<button onClick=${() => send({ t: "stop_other", name: n })}>Stop ${n}</button>`)}</div>`}
+    ${v.status === "crashed" && html`<div class="notice" role="alert"><span>The renderer stopped. The session isn't affected.${v.message ? ` ${v.message}` : ""}</span>
+      <button class="primary" onClick=${() => send({ t: "restart" })}>Restart</button></div>`}
+    ${v.status === "stopped" && html`<div class="notice quiet"><span>The renderer is stopped.</span><button onClick=${() => send({ t: "start" })}>Start it</button></div>`}
+    ${v.status === "gone" && html`<div class="notice"><span>${v.message}</span></div>`}
+    ${sug && html`<div class="notice quiet" role="status"><span>The session suggests ${boardLabel(sug.board)}${sug.voice ? ` · ${sug.voice}` : ""}${sug.scheme ? ` · ${sug.scheme}` : ""}${sug.pen != null ? ` · pen ${sug.pen}` : ""}${sug.project !== v.project ? ` in ${sug.project}` : ""}.</span>
+      <button onClick=${() => send({ t: "take" })}>Show it</button></div>`}
+    <div class="design-bar" role="toolbar" aria-label="Design view controls">
+      <label class="field"><span>Project</span><select value=${v.project} onChange=${(e) => send({ t: "project", name: e.target.value })}>
+        ${(v.projects || []).map((p) => html`<option value=${p}>${p}</option>`)}</select></label>
+      <label class="field"><span>Board</span><select value=${s.view === "canvas" ? "" : s.board || ""} onChange=${(e) => (e.target.value ? opened({ board: e.target.value }) : send({ t: "canvas" }))}>
+        <option value="">The canvas</option>${(v.boards || []).map((b) => html`<option value=${b}>${boardLabel(b)}</option>`)}</select></label>
+      ${[["voice", "Voice", v.voices], ["scheme", "Scheme", v.schemes], ["pen", "Pen", v.pens]].map(([k, label, list]) => html`<label class="field"><span>${label}</span>
+        <select disabled=${!s.board} value=${String(pick[k] || (s[k] != null ? s[k] : ""))} onChange=${choose(k)}><option value="">the board's</option>
+          ${(list || []).map((x) => html`<option value=${String(x)}>${String(x)}</option>`)}</select></label>`)}
+      <label class="row small design-follow"><input type="checkbox" checked=${v.follow} onChange=${(e) => send({ t: "follow", on: e.target.checked })} /> Follow the session</label>
+      <span class="row small"><span role="status">Zoom ${Math.round(scale * 100)} %</span>
+        <button class="plain" aria-pressed=${actual ? "true" : "false"} onClick=${() => setActual(!actual)}>${actual ? "Fit" : "100 %"}</button></span>
+      <button class="plain" onClick=${() => canvas.current && canvas.current.focus()}>Use the picture</button>
+      ${running && html`<button class="plain" onClick=${() => send({ t: "restart" })}>Restart renderer</button>`}
+    </div>
+    <p class="small soft" role="status">${designNow(v)} · ${count(v.viewers, "viewer")}${v.follow ? " · following the session" : " · not following"}${scale < 1 ? " · e-ink is judged at 100 %" : ""}</p>
+    ${notes.length > 0 && html`<ul class="small soft">${notes.map((n) => html`<li>${n}</li>`)}</ul>`}
+    <div class="design-picture" ref=${holder} style=${actual ? `max-height: ${box.height}px` : ""}>
+      <canvas ref=${canvas} tabindex="0" class="design-canvas" style=${shown ? `width: ${shown.width}px; height: ${shown.height}px` : "width: 0; height: 0"}
+        aria-label="The boards, live. Keys go to the board while this has focus; Esc twice or F6 leaves it."
+        onKeyDown=${onKey} onKeyUp=${onKey} onFocus=${() => setFocused(true)} onBlur=${() => setFocused(false)}></canvas>
+      ${!frame && html`<p class="soft" role="status">${running ? "Waiting for the first picture…" : ""}</p>`}
+    </div>
+    <p class="small soft" role="status">${focused ? "Keys go to the board. Esc twice or F6 leaves the picture." : "Click the picture or use the picture to type into a board."}</p>
+  </main>`;
+}
+
 // --- SessionView (004 FR-001–FR-011) --------------------------------------------------------------
 // The state in words: the badge beside it is a second sign, never the only one.
 function sessionWords(session) {
@@ -2444,6 +2670,7 @@ function SessionView({ session, mode = "full", asks, here, seen, buttons, queued
       if (onEnded) onEnded(r);
     }),
   );
+  const designing = Boolean(a && a.action === "design"); // 011 FR-010: a design session has a design view, at every size
   const embeddedNow = mode === "embedded" || (a && a.view && a.view.mode === "embedded");
   const family = a && FAMILY_WORD[a.family] ? a.family : a ? "unknown" : "shell";
   const head = !compact && html`<header class="svhead ${family}">
@@ -2455,6 +2682,7 @@ function SessionView({ session, mode = "full", asks, here, seen, buttons, queued
     <span class="badge ${words === "Waiting for you" ? "mark" : a && a.ended ? "dim" : ""}">${words}</span>
     <span class="row" style="gap: 6px">
       ${a && embeddedNow && html`<button class="plain" disabled=${act.busy} onClick=${() => place("background")}>Send to background</button>`}
+      ${designing && html`<a class="button plain" href=${hash("design", { name })}>Design view</a>`}
       ${!full && html`<a class="button plain" href=${hash("shells", { name })}>Open in Sessions</a>`}
       ${full && onClose && html`<button class="plain" onClick=${onClose}>Detach</button>`}
       <button class="plain" disabled=${act.busy} onClick=${stop}>${a ? "Stop…" : "End…"}</button></span></header>`;
@@ -2476,6 +2704,7 @@ function SessionView({ session, mode = "full", asks, here, seen, buttons, queued
     ${a && html`<div class="svsend ${compact ? "compact" : ""}">
       <div class="row" style="gap: 6px">
         ${offered.map((b) => html`<button class="dock-msg" disabled=${act.busy || !live} title=${b.text.replaceAll("{selection}", thisItem)} onClick=${() => press(b)}>${b.label}</button>`)}
+        ${compact && designing && html`<a class="button plain" href=${hash("design", { name })}>Design view</a>`}
         <button class="dock-msg" title="Stops the turn, and anything queued for after it" disabled=${act.busy || !live} onClick=${() => act.run(async () => { await post("agents/interrupt", { name }); setNote("Sent Esc."); })}>Esc</button>
         <span role="status" class="small soft">${queued > 0 ? `${count(queued, "message")} queued until the turn ends, with the prompt empty. If it has ended, clear what's typed there. After Esc in the terminal, press Esc here too.` : note.startsWith("Queued") ? "" : note}</span></div>
       <${MessageField} key=${name} name=${name} where=${where} off=${a.ended ? "Claude has ended in this session: resume it to write to it." : ""} /></div>`}
@@ -4170,7 +4399,7 @@ function Hub({ host: first, route, onOut }) {
   // Links from before Work was one page, the Docs and Device pages, and the items a card points to.
   const { path, query, moved, to } = movedRoute(route);
   useEffect(() => { if (moved) history.replaceState(null, "", to || hash(path)); }, [route.path, route.query.tab]);
-  const views = { overview: Overview, roadmap: Roadmap, work: Work, knowledge: Knowledge, notes: NotesPage, shells: Sessions };
+  const views = { overview: Overview, roadmap: Roadmap, work: Work, knowledge: Knowledge, notes: NotesPage, shells: Sessions, design: DesignView };
   const View = views[path] || Overview;
   const here = path;
   const unreachable = Boolean(hostPoll.error || listed.error);

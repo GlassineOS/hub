@@ -59,6 +59,13 @@ claude mcp add --scope user --transport http glassine-hub http://127.0.0.1:9095/
     --header 'Authorization: Bearer ${GLASSINE_HUB_MCP_TOKEN}'
 ```
 
+A design session (the `design` action, in a worktree of GlassineOS/ui) has a **design view**: Design view in its
+session view shows its boards live, rendered on the host by GlassineOS/ui's `tools/boards stream` from a checkout at
+the release in `app/ui.ref` (kept in `~/.cache/glassine-hub/ui/`), in a container without network. Docker is needed
+for it. Viewers can click, type and scroll in the picture; keys go to it only while it has focus, and Esc twice or F6
+leaves it. The session shows a board with the `design_open` tool and reads what is open with `design_view`; turning
+Follow off keeps its opens as suggestions. At most three renderers run at once.
+
 ## The work store
 
 Views and agent tools read issues, pull requests, comments and runs from one SQLite file,
