@@ -1105,7 +1105,7 @@ def test_the_header_has_six_views_needs_you_new_work_and_the_meter():
     assert 'data-waits=${state === "blocking" ? "" : undefined}' in button and "aria-label=${needsLabel(asks)}" in button
     css = (Path(__file__).resolve().parents[1] / "app" / "hub" / "static" / "style.css").read_text()
     assert '.needs-open[data-waits]' in css and '.top .needs-open[data-state="none"]' in css
-    assert ".top nav a[aria-current] { background: var(--mark)" not in css, "yellow is only for what waits for you"
+    assert ".top nav a[aria-current] { background: var(--highlight)" not in css, "yellow is only for what waits for you"
     hub = _component(script, "Hub")
     assert "<${NeedsButton} asks=${asks} />" in hub and 'const newWork = () => launch({ from: { view: SEEN_SCREEN[here] || "Overview" } });' in hub
     assert 'class="primary new-work" onClick=${newWork}>＋ New work</button>' in hub
@@ -1398,23 +1398,56 @@ def _component(script, name):
     return script[start:start + 1 + following.start()] if following else script[start:]
 
 
-def test_family_tints_pen_and_mark_are_tokens_defined_once():
-    """A static check (002 FR-012, 001 FR-011, 001 FR-013): each colour is one token, and nothing else writes the value."""
-    css, script = _style_css(), _app_js()
-    for token, value in (("--family-build", "#d6e2ff"), ("--family-review", "#eadcff"), ("--mark-2", "#ffd9b8"),
-                         ("--family-write", "#d4efdc"), ("--mark-3", "#e2e2e2"), ("--pen", "#2747b8"), ("--mark", "#ffd86b")):
-        assert css.lower().count(value) == 1, value
-        assert re.search(rf"{token}:\s*{value}", css, re.I), token
-        assert value not in script.lower(), f"{value} is written into app.js instead of using its token"
+HUB_COLOURS = {"#d6e2ff", "#eadcff", "#d4efdc", "#22355f", "#3d2c5c", "#1f4630", "#1a7f37"}
+
+
+def test_the_look_comes_from_the_pinned_web_form():
+    """A static check (002 FR-012, 001 FR-011, 001 FR-013, 001 FR-014): Interleaf's web form, at the version in app/ui.ref,
+    gives every colour, font and grey; the hub defines only the colours it has no token for, each once."""
+    root = Path(__file__).resolve().parents[1]
+    static = root / "app" / "hub" / "static"
+    assert re.fullmatch(r"v\d+\.\d+\.\d+\n", (root / "app" / "ui.ref").read_text()), "a release tag of GlassineOS/ui"
+    assert "app/ui.ref" in (root / "app" / "fetch-ui.sh").read_text() and "app/fetch-ui.sh" in (root / "Dockerfile").read_text()
+    page = (static / "index.html").read_text()
+    head = page[:page.index("</head>")]
+    # The theme is chosen before the first paint: a classic script (no module, no defer) before the styles.
+    order = [head.index(x) for x in ('<script src="theme.js"></script>', 'href="vendor/interleaf/tokens.css"',
+                                     'href="vendor/interleaf/bundle.css"', 'href="style.css"')]
+    assert order == sorted(order)
+    css = _style_css()
+    assert "@font-face" not in css and "@import" not in css and "prefers-color-scheme" not in css
+    assert not (static / "fonts").exists(), "the fonts come with the web form"
+    # No Interleaf token is defined here (a later definition would override the web form's), only the hub's own.
+    assert set(re.findall(r"(--[a-z0-9-]+)\s*:", css)) == {
+        "--family-build", "--family-review", "--family-investigate", "--family-write", "--family-organise", "--added"}
+    hexes = re.findall(r"#[0-9a-f]{3,8}\b", css.lower())
+    assert set(hexes) == HUB_COLOURS and len(hexes) == len(HUB_COLOURS), "each hub colour once, no copy of a web form value"
+    script = _app_js().lower()
+    assert not any(value in script for value in HUB_COLOURS) and not re.search(r"#[0-9a-f]{6}\b", script)
     for family in ("investigate", "organise"):
-        assert re.search(rf"--family-{family}:\s*var\(--mark-[23]\)", css)
+        assert re.search(rf"--family-{family}:\s*var\(--highlight-[23]\)", css)
     for family in ("build", "review", "investigate", "write", "organise"):
         assert f".pbadge.{family} {{ background: var(--family-{family}); }}" in css
-    # Night paper for terminals and logs (001 FR-014); the dark block gives the light tints dark values.
-    assert "--night: #121212" in css and ".term { background: var(--night)" in css
-    dark = css[css.index("@media (prefers-color-scheme: dark)"):]
-    dark = dark[:dark.index("\n}")]
-    assert all(f"--family-{f}:" in dark for f in ("build", "review", "write"))
+    # The hub's tokens sit on every themed element, so a nested theme (night paper) gets its own values.
+    assert ":root, [data-theme] {\n  --family-build: #d6e2ff;" in css
+    night = re.search(r'\n\[data-theme="white-night"\] \{ --family-[^}]*\}', css).group(0)
+    assert all(f"--family-{f}:" in night for f in ("build", "review", "write"))
+
+
+def test_night_surfaces_carry_the_night_theme():
+    """001 FR-014: terminals, logs and tool calls are on night paper in both schemes, by the web form's White Night
+    on the element itself; their rules use the ordinary tokens."""
+    script, css = _app_js(), _style_css()
+    for cls in ("term", "svterm", "log", "steplog", "ask-code", "ask-diff"):
+        assert "background: var(--paper)" in re.search(rf"\n\.{cls} \{{[^}}]*\}}", css).group(0), cls
+    assert script.count('<pre class="ask-code" data-theme="white-night"') == script.count('<pre class="ask-code"') == 4
+    for markup in ('<div key="term" class="term" data-theme="white-night"', '<ol class="steplog" data-theme="white-night"',
+                   '<div class="log" data-theme="white-night">', '<div class="ask-diff" data-theme="white-night">',
+                   'data-theme=${compact ? undefined : "white-night"}'):
+        assert markup in script, markup
+    assert "...terminalLook(box.current)" in _component(script, "TerminalView")
+    look = script[script.index("const terminalLook"):script.index("function TerminalView(")]
+    assert all(f'token("{t}")' in look for t in ("--paper", "--ink", "--font-mono"))
 
 
 def test_severity_is_an_outline_and_pills_never_fill_by_state():
@@ -1447,8 +1480,8 @@ def test_yellow_marks_only_a_session_that_waits():
     """A static check (002 FR-017, 001 FR-011): a chip is yellow only under [data-waits], set only when it waits."""
     css, script = _style_css(), _app_js()
     chip_rules = [line for line in css.splitlines() if line.startswith(".sesschip")]
-    assert [line for line in chip_rules if "var(--mark)" in line] == [
-        ".sesschip[data-waits], .sesschip[data-waits]:hover:not(:disabled) { background: var(--mark); font-weight: 600; }"]
+    assert [line for line in chip_rules if "var(--highlight)" in line] == [
+        ".sesschip[data-waits], .sesschip[data-waits]:hover:not(:disabled) { background: var(--highlight); font-weight: 600; }"]
     chip = _component(script, "SessionChip")
     assert '"data-waits": waits ? "" : undefined' in chip and "aria-label" in chip
     assert "${pending} waiting" in chip and "state.toUpperCase()" in chip
@@ -1594,9 +1627,7 @@ def test_one_session_view_everywhere():
     assert "<${SessionsOn} " in _component(script, "WorkLists")
     assert '<${SessionView} key=${current.name} session=${current} mode="embedded"' in _component(script, "SessionsOn")
     assert "function Manifest(" not in script and "<${Manifest}" not in script and ".manifest" not in css
-    assert "background: var(--night)" in re.search(r"\n\.term \{[^}]*\}", css).group(0)
-    assert "background: var(--night)" in re.search(r"\n\.svterm \{[^}]*\}", css).group(0)
-    assert 'getPropertyValue("--night")' in script and "background: nightPaper()" in _component(script, "TerminalView")
+    assert 'data-theme="white-night"' in _component(script, "TerminalView"), "night paper: test_night_surfaces_carry_the_night_theme"
     # Stop: a Confirm first, then the DELETE, never the DELETE on its own.
     stop = view[view.index("const stop = () => confirm("):]
     stop = stop[:stop.index("\n  );")]
@@ -2772,10 +2803,10 @@ def _rules(css):
 
 
 def test_yellow_marks_only_what_waits_for_the_maintainer():
-    """001 FR-011: yellow (--mark) is used only by rules for what waits for the maintainer; selections, tags, bars,
+    """001 FR-011: yellow (--highlight) is used only by rules for what waits for the maintainer; selections, tags, bars,
     notices and search marks use outlines or paper. 003 FR-012: of the cards, only blocking asks have a yellow head."""
     css, script = _style_css(), _app_js()
-    yellow = sorted(sel for sel, body in _rules(css) if re.search(r"var\(--mark\)", body))
+    yellow = sorted(sel for sel, body in _rules(css) if re.search(r"var\(--highlight\)", body))
     assert yellow == sorted([
         ".badge.mark",  # "Waiting for you" only, below
         "button.stat.blocking",
