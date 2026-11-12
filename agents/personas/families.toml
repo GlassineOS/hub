@@ -24,6 +24,11 @@ name = "CI fixer"
 initials = "CF"
 family = "build"
 
+[designer]
+name = "Designer"
+initials = "DE"
+family = "build"
+
 [docs-writer]
 name = "Docs writer"
 initials = "DW"
