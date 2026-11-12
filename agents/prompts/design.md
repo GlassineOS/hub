@@ -8,7 +8,8 @@ Run `tools/in-alpine make designs-check`, and `make check` too if you changed In
 the branch and open a draft pull request in GlassineOS/ui.
 
 The pull request:
-- links the issue as `Refs GlassineOS/{repo}#{number}`, not with a closing word: a merged design is
+- links the issue as `Refs GlassineOS/{repo}#{number}`, and every other item it covers the same way,
+  never with a closing word (`Closes`, `Fixes`), even where a line below says a pull request closes one: a merged design is
   accepted, and the work in the program follows (unless you're told below not to name that
   repository: then leave the link out and say in your last message which issue it answers);
 - names each changed board (its path) and the question it answers;

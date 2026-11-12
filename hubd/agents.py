@@ -683,7 +683,7 @@ class Agents:
         offered = [a for a in self.library.actions.values() if kind == a["object"] or (kind is None and a["object"] != "repo")]
         return [{**{k: a[k] for k in ("id", "object", "title", "summary", "ceiling", "result")}, "when": a.get("when"),
                  "full": _full(a), "plan": a.get("plan", True), "models": a["models"], "needs": a.get("needs"),
-                 "verb": a.get("verb"), "result_words": RESULTS[a["result"]],
+                 "verb": a.get("verb"), "result_words": RESULTS[a["result"]], "repository": a.get("repository"),
                  "family": self.library.family(a["personas"][0])["family"],
                  "persona_name": self.library.family(a["personas"][0])["name"],
                  "persona": a["personas"][0], "initials": self.library.family(a["personas"][0])["initials"]}

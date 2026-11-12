@@ -2813,7 +2813,8 @@ function LaunchBrief({ seed, actions, templates, groups, onPlanned, onCancel, bu
         ${covers.length > 0 && html`<div class="row" style="gap: 6px">${covers.map((c, i) => html`<${ItemPill} key=${ref(c)} ...${c} removable onRemove=${() => setCovers(covers.filter((_, j) => j !== i))} />`)}</div>`}
         ${covers.length < MAX_COVERS && html`<${ItemPicker} repos=${allRepos} kind=${action.object} many label=${`Add ${OBJECT_WORDS[action.object]}`}
           exclude=${covers.map(ref)} onPick=${(item) => setCovers((now) => (now.some((c) => ref(c) === ref(item)) || now.length >= MAX_COVERS ? now : [...now, coverOf({ ...item, kind: item.kind || action.object })]))} />`}
-        ${covers.length > 1 && html`<span class="small soft">The session's checkout is in ${covers[0].repo}, the first item's repository; the others are listed as covered.</span>`}</div>`
+        ${action.repository ? html`<span class="small soft">The session's checkout is a new branch of GlassineOS/${action.repository}, whichever repository the items are in; they are listed as covered.</span>`
+          : covers.length > 1 && html`<span class="small soft">The session's checkout is in ${covers[0].repo}, the first item's repository; the others are listed as covered.</span>`}</div>`
       : noRepo ? html`<div class="small"><${Eyebrow}>About<//> ${action.object === "knowledge" ? "a question: no repository and no checkout. The notes below are the question and its scope."
         : "the shared notes: no repository and no checkout. The notes below name the topic."}</div>`
       : action.repo ? html`<div class="small"><${Eyebrow}>In<//> <span class="mono">GlassineOS/${action.repo}</span> · org board</div>`
