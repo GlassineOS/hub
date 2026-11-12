@@ -133,7 +133,8 @@ A session hands in one result: a new hand-in replaces one still waiting, and is 
 - **report** (`knowledge-research`): an answer with what couldn't be settled, its sources and follow-ups, kept for Knowledge (never
   committed anywhere). Follow up pins a kept report by its id; the research session started with that pin reads it with
   `read_report`, and no session reads a report it wasn't started with.
-- **pr** (`issue-implement`, `pr-address-review`, `pr-fix-checks`): the pull request the hub finds for the session, nothing to apply.
+- **pr** (`issue-implement`, `design`, `pr-address-review`, `pr-fix-checks`): the pull request the hub finds for the session, nothing to apply.
+  A `design` session's pull request is in GlassineOS/ui, where its worktree is, whichever repository its issue is in (the action's `repository`).
 - **drafts** stay as above, through `submit_drafts`.
 
 Applying writes only through the tools the producing action names for its result (`result_tools` in its file: `review_pr`

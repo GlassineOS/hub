@@ -85,6 +85,13 @@ def _edit(path, old, new):
     (lambda r: _edit(r / "actions" / "pr-explain.toml", 'result = "none"\n', ""), "result None"),
     (lambda r: _edit(r / "actions" / "pr-explain.toml", 'personas = ["reviewer"]', 'personas = ["ghost"]'),
      "names persona ghost"),
+    # 011 FR-003: only a full session on an item gets its worktree in a repository of the action's choosing.
+    (lambda r: _edit(r / "actions" / "pr-explain.toml", 'result = "none"', 'result = "none"\nrepository = "ui"'),
+     "repository is a repository name, for a full session"),
+    (lambda r: _edit(r / "actions" / "design.toml", 'repository = "ui"', 'repository = "../ui"'),
+     "repository is a repository name, for a full session"),
+    (lambda r: _edit(r / "actions" / "design.toml", 'repository = "ui"', 'repository = 7'),
+     "repository is a repository name, for a full session"),
 ])
 def test_the_library_refuses_personas_and_actions_that_dont_fit(tmp_path, change, words):
     from hubd.agents import LibraryError
@@ -118,7 +125,7 @@ def test_every_persona_has_a_family_and_every_action_a_result():
                      "implement": "issue-implement", "triage": "issue-triage", "investigate": "run-diagnose",
                      "issue": "new-issue", "sec": "new-security-audit", "arch": "new-architecture-audit",
                      "road": "new-roadmap-item", "docs": "new-docs-sweep", "deps": "new-dependency-review",
-                     "research": "knowledge-research"}
+                     "research": "knowledge-research", "design": "design"}
     assert verbs[("run", "fix")] == "run-fix"  # fix on a run, beside fix on a pull request
     # The rest stay in the library, under "More…". Those that post or open a PR say so.
     handed = {"pr-security-audit": "comment", "issue-docs": "pr", "notes-compact": "notes", "notes-sweep": "drafts"}  # the last two open from Notes
@@ -3295,3 +3302,121 @@ def test_notes_actions_have_no_repository_and_no_planner():
 def test_no_session_starts_a_notes_upkeep_session(tmp_path):
     with pytest.raises(AgentError, match="plan_work"):  # you do, from Notes
         Agents.check_spawn(type("A", (), {"library": LIBRARY})(), {"action": "notes-compact"})
+
+
+# --- design sessions (011) -----------------------------------------------------------------------
+class DesignGh:
+    """What GitHub says of each repository's visibility, and a branch's pull requests in ui; and what was asked."""
+    def __init__(self, private=None, prs=()):
+        self.private, self.prs, self.asked = private or {}, list(prs), []
+
+    async def run(self, argv, timeout=None):
+        self.asked.append(argv)
+        path = argv[1]
+        if "/pulls?" in path:
+            return {"code": 0, "stdout": json.dumps(self.prs if path.startswith("repos/GlassineOS/ui/") else []), "stderr": ""}
+        said = self.private.get(path.rsplit("/", 1)[1])
+        if said is None:
+            return {"code": 1, "stdout": "", "stderr": "HTTP 502"}
+        return {"code": 0, "stdout": json.dumps({"private": said}), "stderr": ""}
+
+
+def test_the_design_action_and_its_designer():
+    """011 FR-001, FR-002, FR-004: the Designer persona, the design action for issues, with a pull request in ui."""
+    action = LIBRARY.action("design")
+    assert (action["object"], action["verb"], action["result"], action["personas"]) == ("issue", "design", "pr", ["designer"])
+    assert (action["access"], action["checkout"], action["repository"], action["permission_mode"]) == ("full", "new-branch", "ui", "auto")
+    assert "GlassineOS/ui" in action["ceiling"] and "without asking" in action["ceiling"]
+    assert LIBRARY.family("designer") == {"name": "Designer", "initials": "DE", "family": "build"}
+    initials = [e["initials"] for e in LIBRARY.families.values()]
+    assert len(initials) == len(set(initials))
+    persona = LIBRARY.text("personas", "designer")
+    for words in ("tools/in-alpine tools/boards shot", "tools/in-alpine make designs-check", "designs/<project>/", "proposal",
+                  "tokens and components", "e-ink scheme always", "no claude.ai, no gists", "Assisted-by:", "never `Signed-off-by`"):
+        assert words in persona, words
+    prompt = LIBRARY.text("prompts", "design").format(repo="shell", number=12, checkout="/w")
+    for words in ("Refs GlassineOS/shell#12", "never with a closing word", "File none of it", "combinations you looked", "draft pull request"):
+        assert words in prompt, words
+
+
+def test_a_design_session_on_another_repositorys_issue_works_in_ui(tmp_path, remote):
+    """011 FR-003: the worktree is a new branch of GlassineOS/ui, whichever repository the issue is in; boot isn't checked out."""
+    second_repo(remote, "ui")
+    a = full(tmp_path, remote, DesignGh({"ui": False, "boot": False}))
+    config = a.defaults("design", "boot", 7)
+    preview = a.preview(config)
+    assert [Path(c).name for c in preview["checkouts"]] == ["ui"] and preview["worktree"] == f"new branch agent/{preview['name']}"
+    started = asyncio.run(a.start(config))
+    name = started["name"]
+    assert name == "design-7"  # the branch goes to ui: the item's repository stays out of its name
+    checkout = a.work / name / "ui"
+    assert git(checkout, "rev-parse", "--abbrev-ref", "HEAD").strip() == f"agent/{name}"
+    assert (checkout / "d").read_text() == "docs"  # ui's default branch
+    assert not (a.work / name / "boot").exists() and not a.main_checkout("boot").exists()
+    prompt = (a.sessions / name / "prompt.md").read_text()
+    assert f"in {checkout}" in prompt and "issue #7 of GlassineOS/boot" in prompt
+    assert "Your worktree is in GlassineOS/ui" in prompt and "GlassineOS/boot#7" in prompt and "`Closes #" not in prompt and "Closes GlassineOS" not in prompt
+    described = a.describe(name)
+    assert described["covers"] == [{"repo": "boot", "number": 7}] and described["repo"] == "boot"
+    assert a.manifest(name)["checkout"] == str(checkout) and a.manifest(name)["branch"] == f"agent/{name}"
+
+
+def test_a_design_sessions_pull_request_is_looked_up_in_ui(tmp_path):
+    """011 FR-003: its pull request is in ui; what it covers is still the issue in its own repository."""
+    a = agents(tmp_path)
+    a.gh = DesignGh(prs=[{"number": 12, "state": "open", "head": {"sha": "c" * 40}}])
+    config = validate(LIBRARY, a.defaults("design", "shell", 4))
+    _session_file(a, "design-4", config, full=True)
+    assert a._pr_repos({"object": "issue", "config": config}) == ["ui"]
+    asyncio.run(a.refresh_prs(["design-4"]))
+    assert [argv[1].split("?")[0] for argv in a.gh.asked] == ["repos/GlassineOS/ui/pulls"]
+    seen = a.describe("design-4")
+    assert seen["prs"] == [{"repo": "ui", "number": 12, "state": "OPEN"}] and seen["covers"] == [{"repo": "shell", "number": 4}]
+    # With a repository of its own beside it: both, ui first. ui itself can't be added again.
+    both = validate(LIBRARY, {**a.defaults("design", "shell", 4), "also_repos": ["shell"]})
+    assert a._pr_repos({"object": "issue", "config": both}) == ["ui", "shell"]
+    with pytest.raises(AgentError, match="not a repository to add"):
+        validate(LIBRARY, {**a.defaults("design", "shell", 4), "also_repos": ["ui"]})
+
+
+def test_a_design_session_on_an_issue_of_ui_is_a_plain_one(tmp_path, remote):
+    second_repo(remote, "ui")
+    a = full(tmp_path, remote, DesignGh({"ui": False}))
+    name = asyncio.run(a.start(a.defaults("design", "ui", 3)))["name"]
+    assert name == "design-ui-3" and (a.work / name / "ui" / ".git").exists()
+    prompt = (a.sessions / name / "prompt.md").read_text()
+    assert "Refs GlassineOS/ui#3" in prompt and "Your worktree is in GlassineOS/ui, this action's" not in prompt
+    assert a.gh.asked == []  # nothing covered elsewhere: no visibility to ask about
+    # Its other items of ui get the usual closing line; the design prompt overrides it, never closing.
+    assert "never with a closing word" in prompt
+    assert a.actions("issue")[[x["id"] for x in a.actions("issue")].index("design")]["repository"] == "ui"
+
+
+def test_a_design_planner_is_told_where_the_session_works(tmp_path):
+    a = agents(tmp_path)
+    asked = []
+
+    async def ask(_role, _none, schema, _model, _tools, request):
+        asked.append(json.loads(request))
+        return {k: schema["properties"][k]["enum"][0] for k in ("persona", "model", "effort")}, 0.01
+    a._ask = ask
+    assert asyncio.run(a.plan("design", "shell", 4))["config"]["persona"] == "designer"
+    assert asked[0]["works_in"] == "GlassineOS/ui" and asked[0]["repository"] == "GlassineOS/shell"
+    asyncio.run(a.plan("issue-implement", "shell", 4))
+    assert "works_in" not in asked[1]
+
+
+def test_a_design_session_doesnt_name_a_private_issue_in_ui(tmp_path):
+    """ui is public: an issue of a private repository (or one GitHub doesn't answer for) stays out of the pull request."""
+    a = agents(tmp_path)
+    action = LIBRARY.action("design")
+    config = validate(LIBRARY, a.defaults("design", "boot", 9))
+    for private, unnamed in (({"ui": False, "boot": True}, {"boot"}), ({"ui": False, "boot": None}, {"boot"}),
+                             ({"ui": False, "boot": False}, set()), ({"ui": True, "boot": True}, set())):
+        a.gh = DesignGh(private)
+        assert asyncio.run(a._unnamed_here(config, action)) == unnamed, private
+    assert "don't name them" in a._prompt(config, action, tmp_path, unnamed={"boot"})
+    assert "Your pull request names each as `GlassineOS/<repo>#N`: GlassineOS/boot#9" in a._prompt(config, action, tmp_path, unnamed=set())
+    # Other actions keep the first item's repository as theirs: it's never asked about.
+    implement = validate(LIBRARY, a.defaults("issue-implement", "boot", 9))
+    assert asyncio.run(a._unnamed_here(implement, LIBRARY.action("issue-implement"))) == set()

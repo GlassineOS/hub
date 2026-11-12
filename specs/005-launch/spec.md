@@ -45,7 +45,8 @@ five stages to Start.
 - The action's ceiling forbids the item kind (for example "implement" on a run): Launch
   refuses and says why.
 - The covered items span repositories: the worktree is in the first item's repository,
-  and the others are listed as covered.
+  and the others are listed as covered. A design session's worktree is in GlassineOS/ui instead,
+  and every item is listed as covered (Design sessions (011) FR-003).
 - The maintainer leaves Launch after planning: it goes on in the background, and its asks
   and result arrive in Needs you.
 
