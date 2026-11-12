@@ -15,6 +15,9 @@
   --added: #1a7f37;
 }
 [data-theme="white-night"] { --family-build: #22355f; --family-review: #3d2c5c; --family-write: #1f4630; }
+/* The page's own ink and paper, on :root only: a nested theme doesn't change them, so a toast that
+   floats over the page from inside a terminal keeps the page's colours. */
+:root { --page-ink: var(--ink); --page-paper: var(--paper); }
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; }
 body { background: var(--paper); color: var(--ink); font: 400 15px/1.5 var(--font-plex); }
@@ -297,7 +300,7 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
 .dock-msg { min-height: 36px; padding: 0 10px; font-size: 13px; box-shadow: none; }
 .msgfield textarea { min-height: 56px; }
 
-.term-copied { position: fixed; right: 24px; bottom: 24px; z-index: 20; padding: 6px 12px; background: var(--ink); color: var(--paper); border-radius: 8px; }
+.term-copied { position: fixed; right: 24px; bottom: 24px; z-index: 20; padding: 6px 12px; background: var(--page-ink); color: var(--page-paper); border-radius: 8px; }
 
 /* --- what sessions ask ------------------------------------------------------------------------- */
 .ask-tally { margin-left: 8px; padding: 1px 7px; border: 1.5px solid var(--ink); border-radius: 999px; font: 400 13px var(--font-mono); }

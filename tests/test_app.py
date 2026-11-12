@@ -1419,7 +1419,11 @@ def test_the_look_comes_from_the_pinned_web_form():
     assert not (static / "fonts").exists(), "the fonts come with the web form"
     # No Interleaf token is defined here (a later definition would override the web form's), only the hub's own.
     assert set(re.findall(r"(--[a-z0-9-]+)\s*:", css)) == {
-        "--family-build", "--family-review", "--family-investigate", "--family-write", "--family-organise", "--added"}
+        "--family-build", "--family-review", "--family-investigate", "--family-write", "--family-organise", "--added",
+        "--page-ink", "--page-paper"}
+    # Resolved once, on :root: a toast from inside a night terminal keeps the page's colours.
+    assert ":root { --page-ink: var(--ink); --page-paper: var(--paper); }" in css
+    assert "background: var(--page-ink); color: var(--page-paper)" in re.search(r"\n\.term-copied \{[^}]*\}", css).group(0)
     hexes = re.findall(r"#[0-9a-f]{3,8}\b", css.lower())
     assert set(hexes) == HUB_COLOURS and len(hexes) == len(HUB_COLOURS), "each hub colour once, no copy of a web form value"
     script = _app_js().lower()
