@@ -1,6 +1,6 @@
 # Specs
 
-The hub web app is specified in ten specs. Each says what a part of the app is for and what it
+The hub web app is specified in eleven specs. Each says what a part of the app is for and what it
 must do, without naming how it is built. Requirements are cited as `NNN FR-xxx`, for example
 `004 FR-008`. Plans, research and task lists are working notes for one build and are not kept
 here; pull requests record how each part was built.
@@ -17,5 +17,6 @@ here; pull requests record how each part was built.
 | [008 Knowledge](008-knowledge/spec.md) | Searching the documentation and work, and starting research. | 001–003, 005 |
 | [009 Notes](009-notes/spec.md) | Searching and keeping up the notes sessions leave. | 001, 002, 005 |
 | [010 Steward](010-steward/spec.md) | The Steward panel beside every view. | 001–005 |
+| [011 Design sessions](011-design-sessions/spec.md) | The Designer persona working on the boards in GlassineOS/ui, and the live view of those boards. | 001, 004, 005 |
 
 The order of the pull requests that build these specs is tracked in GlassineOS/hub#39.
