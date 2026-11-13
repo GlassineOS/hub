@@ -58,12 +58,7 @@ def version_of(text: str) -> str:
 def definition_for(action: dict) -> str:
     """The definition text a session of this action runs on: one final state whose grant is the action's own fields."""
     keys = [f.name for f in dataclasses.fields(Grant)]
-    fields_ = {k: tuple(action[k]) if isinstance(action[k], list) else action[k] for k in keys if k in action}
-    # The token's capability names (apps.CAPABILITIES) and the grant's (machine.GITHUB) aren't one list yet: a name only
-    # the token knows stays out of the instance's grant until they are.
-    if "github" in fields_:
-        fields_["github"] = tuple(c for c in fields_["github"] if c in machine.GITHUB)
-    grant = Grant(**fields_)
+    grant = Grant(**{k: tuple(action[k]) if isinstance(action[k], list) else action[k] for k in keys if k in action})
     state = machine.State(ONE_STATE, personas=tuple(action.get("personas", ())), final=True, grant=grant)
     return machine.emit(Definition(action["id"], ONE_STATE, {ONE_STATE: state}))
 
