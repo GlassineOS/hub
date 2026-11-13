@@ -16,6 +16,7 @@ summary = "A full session on a new branch of GlassineOS/ui: changes the design b
 ceiling = "A full Claude Code with your rights, on its own new branch of GlassineOS/ui: it runs the board renderer and checks (Docker) without asking."
 order = 4
 verb = "design"
+when_held = "ask"
 models = ["opus", "sonnet"]
 efforts = ["high", "xhigh", "medium"]
 prompt = '''

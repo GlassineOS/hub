@@ -53,12 +53,14 @@ def test_library_is_complete():
             assert LIBRARY.text("personas", persona)
         assert not {"Write", "Edit", "Agent"} & set(action["grant"].tools)
         # A plain shell would walk around the tool server and the host's policy. These get the sandbox.
-        assert ("Bash" in action["grant"].tools) == (action["id"] in ("pr-review", "pr-security-audit", "implement", "implementor", "engineer", "qa-audit", "design-check"))
+        assert ("Bash" in action["grant"].tools) == (action["id"] in ("pr-review", "pr-security-audit", "implement", "implementor", "implementor-pr", "engineer", "qa-audit", "design-check"))
         assert "merge_pr" not in action["grant"].hub_tools
         if action["grant"].access == "full":
             assert action["grant"].checkout in ("pr-branch", "new-branch") and action["grant"].permission_mode == "auto"
         elif action["id"] in ("implement", "implementor", "engineer"):  # sandboxed on its own branch, which it pushes with its own token (012 FR-031)
             assert action["grant"].checkout == "new-branch" and "push" in action["grant"].github
+        elif action["id"] == "implementor-pr":  # from review, where nothing pushes until a move to fix, which you confirm
+            assert action["grant"].checkout == "new-branch" and "push" not in action["grant"].github
         else:
             assert action["grant"].access == "locked" and action["grant"].checkout in ("pr", "default", False)
 
@@ -124,13 +126,13 @@ def test_every_persona_has_a_family_and_every_action_a_result():
         assert action["result"] in RESULTS and action["models"]  # the first model is the default (005 FR-013)
     verbs = {(a["object"], a["verb"]): a["id"] for a in LIBRARY.actions.values() if a.get("verb")}
     assert {v: i for (_o, v), i in verbs.items() if i != "run-fix"} == {"review": "pr-review", "address": "pr-address-review", "fix": "pr-fix-checks",
-                     "implement": "issue-implement", "triage": "issue-triage", "investigate": "run-diagnose",
+                     "triage": "issue-triage", "investigate": "run-diagnose",
                      "issue": "new-issue", "sec": "new-security-audit", "arch": "new-architecture-audit",
                      "road": "new-roadmap-item", "docs": "new-docs-sweep", "deps": "new-dependency-review",
                      "research": "knowledge-research", "design": "design"}
     assert verbs[("run", "fix")] == "run-fix"  # fix on a run, beside fix on a pull request
     # The rest stay in the library, under "More…". Those that post or open a PR say so.
-    handed = {"pr-security-audit": "comment", "issue-docs": "pr", "implement": "pr", "notes-compact": "notes", "notes-sweep": "drafts",
+    handed = {"pr-security-audit": "comment", "issue-docs": "pr", "implement": "pr", "issue-implement": "pr", "implementor-pr": "pr", "notes-compact": "notes", "notes-sweep": "drafts",
               "implementor": "pr", "engineer": "pr", "qa-audit": "findings", "design-check": "findings", "workflow-review": "findings"}  # the last two open from Notes
     assert all(a["result"] == handed.get(a["id"], "none") for a in LIBRARY.actions.values() if not a.get("verb"))
     assert LIBRARY.action("pr-fix-checks")["personas"] == ["ci-fixer", "engineer"]
@@ -222,7 +224,7 @@ def test_a_full_actions_planner_has_no_work_search_and_no_notes_search(tmp_path)
     """A full session's brief comes from its planner, so the planner has neither search: both can bring in an outsider's text."""
     a = agents(tmp_path, planned(persona="engineer"))
     try:
-        asyncio.run(a.plan("issue-implement", "boot", 5))
+        asyncio.run(a.plan("issue-docs", "boot", 5))
     except AgentError:
         pass  # this test's plan may not suit the action; the arguments are what it's about
     args = (tmp_path / "args").read_text().splitlines()
@@ -830,7 +832,7 @@ def test_locked_review_of_a_fork_is_still_fine(tmp_path, remote_branch):
 
 def test_issue_session_gets_a_new_branch_from_the_default(tmp_path, remote):
     a = full(tmp_path, remote)
-    started = asyncio.run(a.start(a.defaults("issue-implement", "boot", 7)))
+    started = asyncio.run(a.start(a.defaults("issue-docs", "boot", 7)))
     checkout = a.work / started["name"] / "boot"
     assert git(checkout, "rev-parse", "--abbrev-ref", "HEAD").strip() == f"agent/{started['name']}"
     assert (checkout / "a").read_text() == "base"
@@ -1003,13 +1005,13 @@ def test_something_in_the_way_is_refused(tmp_path, remote):
     a = full(tmp_path, remote)
     a.main_checkout("boot").mkdir(parents=True)
     with pytest.raises(AgentError, match="in the way"):
-        asyncio.run(a.start(a.defaults("issue-implement", "boot", 7)))
+        asyncio.run(a.start(a.defaults("issue-docs", "boot", 7)))
 
 
 def test_a_session_can_span_repositories(tmp_path, remote):
     second_repo(remote)
     a = full(tmp_path, remote)
-    config = {**a.defaults("issue-implement", "boot", 7), "also_repos": ["docs"]}
+    config = {**a.defaults("issue-docs", "boot", 7), "also_repos": ["docs"]}
     preview = a.preview(config)
     assert [Path(c).name for c in preview["checkouts"]] == ["boot", "docs"] and preview["cwd"] == str(a.workspace)
     name = asyncio.run(a.start(config))["name"]
@@ -1029,14 +1031,14 @@ def test_a_session_can_span_repositories(tmp_path, remote):
 
 def test_a_cloned_main_checkout_has_the_identity(tmp_path, remote):
     a = full(tmp_path, remote)
-    asyncio.run(a.start(a.defaults("issue-implement", "boot", 7)))
+    asyncio.run(a.start(a.defaults("issue-docs", "boot", 7)))
     assert git(a.main_checkout("boot"), "config", "--local", "user.email").strip() == "moritz@glassine.org"
 
 
 def test_dot_github_gets_a_folder_without_the_dot(tmp_path, remote):
     second_repo(remote, ".github")
     a = full(tmp_path, remote)
-    name = asyncio.run(a.start({**a.defaults("issue-implement", "boot", 7), "also_repos": [".github"]}))["name"]
+    name = asyncio.run(a.start({**a.defaults("issue-docs", "boot", 7), "also_repos": [".github"]}))["name"]
     assert (a.workspace / "github" / ".git").is_dir() and (a.work / name / "github" / "d").exists()
     assert not (a.workspace / ".github").exists()
     assert asyncio.run(a.forget(name)) is None
@@ -1046,7 +1048,7 @@ def test_dot_github_gets_a_folder_without_the_dot(tmp_path, remote):
 def test_bad_extra_repositories_are_refused(tmp_path, remote, also):
     a = full(tmp_path, remote)
     with pytest.raises(AgentError):
-        asyncio.run(a.start({**a.defaults("issue-implement", "boot", 7), "also_repos": also}))
+        asyncio.run(a.start({**a.defaults("issue-docs", "boot", 7), "also_repos": also}))
 
 
 def test_only_full_sessions_span_repositories(tmp_path, remote):
@@ -1057,14 +1059,14 @@ def test_only_full_sessions_span_repositories(tmp_path, remote):
 
 def test_a_task_of_someone_elses_name_isnt_reused(tmp_path, remote):
     a = full(tmp_path, remote)
-    (a.work / "issue-implement-boot-7").mkdir(parents=True)
-    assert asyncio.run(a.start(a.defaults("issue-implement", "boot", 7)))["name"] == "issue-implement-boot-7-2"
+    (a.work / "issue-docs-boot-7").mkdir(parents=True)
+    assert asyncio.run(a.start(a.defaults("issue-docs", "boot", 7)))["name"] == "issue-docs-boot-7-2"
 
 
 def test_workspace_status_says_what_is_where(tmp_path, remote):
     a = full(tmp_path, remote)
     assert asyncio.run(a.workspace_status())["main"] == []
-    name = asyncio.run(a.start(a.defaults("issue-implement", "boot", 7)))["name"]
+    name = asyncio.run(a.start(a.defaults("issue-docs", "boot", 7)))["name"]
     (a.work / "by-hand").mkdir()
     (a.work / name / "boot" / "x").write_text("new")
     report = asyncio.run(a.workspace_status())
@@ -1103,7 +1105,7 @@ def test_one_click_without_a_planner(tmp_path, remote_branch):
     assert "planner_cost_usd" not in asyncio.run(a.run("pr-session", "boot", 5))
 
 
-@pytest.mark.parametrize("action", ["issue-implement", "pr-review"])
+@pytest.mark.parametrize("action", ["issue-docs", "pr-review"])
 def test_the_planner_doesnt_choose_tools(action):
     schema = LIBRARY.schema(LIBRARY.action(action))
     assert set(schema["required"]) == set(schema["properties"]) == {"persona", "model", "effort", "brief", "docs", "docs_query", "steps"}
@@ -1318,7 +1320,7 @@ def test_actions_carry_their_verb_result_and_persona_family(tmp_path):
     rows = {x["id"]: x for kind in (None, "repo") for x in a.actions(kind)}
     # every shipped action loads and is offered somewhere, but those only a workflow starts
     assert set(rows) == {i for i, x in LIBRARY.actions.items() if not x.get("managed_only")}
-    assert {i for i, x in LIBRARY.actions.items() if x.get("managed_only")} == {"engineer", "qa-audit", "design-check", "workflow-review"}
+    assert {i for i, x in LIBRARY.actions.items() if x.get("managed_only")} == {"engineer", "qa-audit", "design-check", "workflow-review", "implement", "issue-implement"}
     review = rows["pr-review"]
     assert (review["verb"], review["result"], review["family"], review["persona_name"]) == ("review", "comment", "review", "Code reviewer")
     assert review["result_words"] == RESULTS["comment"]
@@ -2178,7 +2180,7 @@ def test_a_summary_reads_only_started_sessions_and_only_what_they_said(tmp_path,
 def test_the_steward_is_told_real_actions_in_the_right_groups():
     text = LIBRARY.text("personas", "steward")
     locked, full = text.split("These are full sessions")
-    named = lambda name, words: re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", words) is not None  # noqa: E731: implement isn't issue-implement
+    named = lambda name, words: re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", words) is not None  # noqa: E731: implement isn't issue-docs
     for action in LIBRARY.actions.values():
         if named(action["id"], text):
             assert named(action["id"], locked) == (action["grant"].access != "full"), action["id"]
@@ -2193,7 +2195,7 @@ def _hook_settings(tmp_path, action_id):
 
 
 def test_a_full_session_asks_alongside_its_terminal_prompt(tmp_path):
-    hooks = _hook_settings(tmp_path, "issue-implement")
+    hooks = _hook_settings(tmp_path, "issue-docs")
     [ask] = hooks["PermissionRequest"]
     assert "ask_hook.py" in ask["hooks"][0]["command"] and ask["hooks"][0]["timeout"] > 600
     assert "tool-token" in ask["hooks"][0]["command"]
@@ -2214,7 +2216,7 @@ def test_every_locked_action_can_ask_and_no_more(tmp_path):
         asks = [e for e in hooks["PreToolUse"] if "ask_hook" in e["hooks"][0]["command"]]
         assert asks[0]["matcher"] == "AskUserQuestion"
         # and what its state asks first: implement's merge_pr, a card that is the merge decision
-        assert [e["matcher"] for e in asks[1:]] == (["mcp__glassine-hub__merge_pr"] if action["id"] in ("implement", "implementor") else [])
+        assert [e["matcher"] for e in asks[1:]] == (["mcp__glassine-hub__merge_pr"] if action["id"] in ("implement", "implementor", "implementor-pr") else [])
         assert a.ask_wait(action) == (FOREVER if action["id"] == "project-steward" else WAIT)
 
 
@@ -2240,7 +2242,7 @@ def test_the_steward_asks_through_pre_tool_use_and_waits_for_you(tmp_path):
 
 def test_without_a_socket_no_session_gets_the_hook(tmp_path):
     a = Agents(LIBRARY, None, tmp_path)
-    action = LIBRARY.action("issue-implement")
+    action = LIBRARY.action("issue-docs")
     assert "PermissionRequest" not in a._hooks(tmp_path, {"tools": action["grant"].tools}, action)["hooks"]
 
 
@@ -2431,16 +2433,16 @@ def test_a_partial_review_clone_of_a_private_repository_gets_its_history(tmp_pat
 
 def test_a_full_session_can_cover_several_issues(tmp_path):
     a = agents(tmp_path)
-    action = LIBRARY.action("issue-implement")
-    config = agents_module.with_also(a.defaults("issue-implement", "boot", 9), [11, 14])
+    action = LIBRARY.action("issue-docs")
+    config = agents_module.with_also(a.defaults("issue-docs", "boot", 9), [11, 14])
     assert validate(LIBRARY, config)["also_numbers"] == [11, 14]
     prompt = a._prompt(config, action, tmp_path)
     assert "also covers #11, #14 of GlassineOS/boot" in prompt and "`Closes #N`" in prompt
-    assert "also covers" not in a._prompt(a.defaults("issue-implement", "boot", 9), action, tmp_path)
+    assert "also covers" not in a._prompt(a.defaults("issue-docs", "boot", 9), action, tmp_path)
 
 
 def implement(**over):
-    return {**good(action="issue-implement", persona="engineer", model="opus", tools=[], hub_tools=[], number=9, brief=""), **over}
+    return {**good(action="issue-docs", persona="engineer", model="opus", tools=[], hub_tools=[], number=9, brief=""), **over}
 
 
 def test_covers_name_the_items_and_the_first_is_the_sessions_own():
@@ -2488,7 +2490,7 @@ def test_only_a_full_session_with_a_checkout_covers_other_repositories():
     with pytest.raises(AgentError, match="one item"):
         validate(LIBRARY, {**good(), "covers": [{"repo": "boot", "number": 5}, {"repo": "kernel", "number": 2}]})
     for checkout in (False, "default"):  # only a session that opens a pull request of its own closes items elsewhere
-        no_branch = {**LIBRARY.action("issue-implement"), "grant": replace(LIBRARY.action("issue-implement")["grant"], checkout=checkout)}
+        no_branch = {**LIBRARY.action("issue-docs"), "grant": replace(LIBRARY.action("issue-docs")["grant"], checkout=checkout)}
         with pytest.raises(AgentError, match="pull request of its own"):
             agents_module._covers(no_branch, {"covers": [{"repo": "boot", "number": 9}, {"repo": "kernel", "number": 2}]}, "boot", 9)
     with pytest.raises(AgentError, match="isn't about items"):
@@ -2497,14 +2499,14 @@ def test_only_a_full_session_with_a_checkout_covers_other_repositories():
 
 def test_the_prompt_names_covered_items_in_other_repositories(tmp_path):
     a = agents(tmp_path)
-    action = LIBRARY.action("issue-implement")
-    config = validate(LIBRARY, {**a.defaults("issue-implement", "boot", 9), "covers": [{"repo": "boot", "number": 9}, {"repo": "kernel", "number": 204}]})
+    action = LIBRARY.action("issue-docs")
+    config = validate(LIBRARY, {**a.defaults("issue-docs", "boot", 9), "covers": [{"repo": "boot", "number": 9}, {"repo": "kernel", "number": 204}]})
     # Not asked of GitHub (a preview): the item is named as covered, never as a line for the pull request.
     prompt = a._prompt(config, action, tmp_path)
     assert "GlassineOS/kernel#204" in prompt and "worktree is in GlassineOS/boot, the first item's" in prompt
     assert "`Closes GlassineOS/<repo>#N`" not in prompt and "don't name them" in prompt
     assert "also covers #" not in prompt  # nothing else of boot
-    assert "other repositories" not in a._prompt(a.defaults("issue-implement", "boot", 9), action, tmp_path)
+    assert "other repositories" not in a._prompt(a.defaults("issue-docs", "boot", 9), action, tmp_path)
     # Both public: the Closes line. kernel private (or unknown): kept out of the pull request.
     assert "`Closes GlassineOS/<repo>#N` line, for GlassineOS/kernel#204" in a._prompt(config, action, tmp_path, unnamed=set())
     assert "don't name them" in a._prompt(config, action, tmp_path, unnamed={"kernel"})
@@ -2525,7 +2527,7 @@ class RepoGh:
 def test_a_pull_request_names_only_what_may_be_named_in_it(tmp_path):
     """#29 review: from a public repository, a covered item of a private one (or one GitHub doesn't answer for) isn't named."""
     a = agents(tmp_path)
-    config = validate(LIBRARY, {**a.defaults("issue-implement", "boot", 9),
+    config = validate(LIBRARY, {**a.defaults("issue-docs", "boot", 9),
                                 "covers": [{"repo": "boot", "number": 9}, {"repo": "kernel", "number": 2}, {"repo": "docs", "number": 3}]})
     for private, unnamed in (({"boot": False, "kernel": True, "docs": False}, {"kernel"}),
                              ({"boot": False, "kernel": None, "docs": False}, {"kernel"}),
@@ -2546,7 +2548,7 @@ def _session_file(a, name, config, **more):
 
 def test_an_old_record_describes_what_it_covers(tmp_path):
     a = agents(tmp_path)
-    old = {"repo": "boot", "number": 9, "also_numbers": [11], "model": "opus", "effort": "high", "persona": "engineer", "action": "issue-implement"}
+    old = {"repo": "boot", "number": 9, "also_numbers": [11], "model": "opus", "effort": "high", "persona": "engineer", "action": "issue-docs"}
     _session_file(a, "old-one", old, full=True)
     seen = a.describe("old-one")
     assert seen["covers"] == [{"repo": "boot", "number": 9}, {"repo": "boot", "number": 11}] and seen["also_numbers"] == [11]
@@ -2592,7 +2594,7 @@ def test_a_session_on_its_own_branch_shows_its_pull_requests(tmp_path):
     a = agents(tmp_path)
     a.gh = PullsGh([{"number": 31, "state": "closed", "merged_at": "2026-11-01T00:00:00Z", "head": {"sha": "a" * 40}},
                     {"number": 40, "state": "open", "head": {"sha": "b" * 40}}])
-    config = validate(LIBRARY, {**a.defaults("issue-implement", "boot", 9), "covers": [{"repo": "boot", "number": 9}, {"repo": "kernel", "number": 2}],
+    config = validate(LIBRARY, {**a.defaults("issue-docs", "boot", 9), "covers": [{"repo": "boot", "number": 9}, {"repo": "kernel", "number": 2}],
                                 "also_repos": ["docs"]})
     _session_file(a, "impl", config, full=True)
     asyncio.run(a.refresh_prs(["impl", "no-such-session"]))
@@ -2633,7 +2635,7 @@ def test_a_slow_repository_holds_up_a_list_once_and_the_others_still_answer(tmp_
     async def go():
         a = agents(tmp_path)
         a.gh = SlowGh()
-        config = validate(LIBRARY, {**a.defaults("issue-implement", "boot", 9), "also_repos": ["kernel", "docs"]})
+        config = validate(LIBRARY, {**a.defaults("issue-docs", "boot", 9), "also_repos": ["kernel", "docs"]})
         _session_file(a, "impl", config, full=True)
         _session_file(a, "other", {**config, "also_repos": ["docs"]}, full=True)
         await a.refresh_prs(["impl"], wait=0.05)
@@ -2660,7 +2662,7 @@ def test_a_session_with_no_branch_of_its_own_asks_github_nothing(tmp_path):
 
 @pytest.mark.parametrize("numbers", [[9], [0], [-1], ["11"], [True], [11, 11], list(range(20, 40)), "11"])
 def test_what_a_session_also_covers_is_checked(numbers):
-    config = {**good(action="issue-implement", persona="engineer", model="opus", tools=[], hub_tools=[], number=9), "also_numbers": numbers}
+    config = {**good(action="issue-docs", persona="engineer", model="opus", tools=[], hub_tools=[], number=9), "also_numbers": numbers}
     with pytest.raises(AgentError):
         validate(LIBRARY, config)
 
@@ -2881,7 +2883,7 @@ def test_messages_sent_together_cant_pass_the_queue_limit(tmp_path):
 def test_ignored_files_keep_a_full_session_and_a_discard_has_to_name_them(tmp_path, remote):
     a = agents(tmp_path, clone_base=remote)
     a.shells = FakeShells()
-    name = asyncio.run(a.start(good(action="issue-implement", number=5, persona="engineer", tools=[], hub_tools=[], model="opus")))["name"]
+    name = asyncio.run(a.start(good(action="issue-docs", number=5, persona="engineer", tools=[], hub_tools=[], model="opus")))["name"]
     checkout = a.work / name / "boot"
     subprocess.run(["git", "config", "--worktree", "core.excludesFile", str(tmp_path / "excludes")], cwd=checkout, check=True)
     (tmp_path / "excludes").write_text("out/\n")
@@ -3395,7 +3397,7 @@ def test_a_design_session_has_a_design_view_on_its_ui_worktree_until_it_goes(tmp
 def test_another_session_has_no_design_view(tmp_path, remote_branch):
     from hubd.designs import Designs, Tools
     a = full(tmp_path, remote_branch)
-    name = asyncio.run(a.start(a.defaults("issue-implement", "boot", 7)))["name"]
+    name = asyncio.run(a.start(a.defaults("issue-docs", "boot", 7)))["name"]
     token = (a.sessions / name / "tool-token").read_text().strip()
     assert a.scope(token)["design"] is False
     assert Designs(a, Tools(tmp_path / "c", tmp_path / "r", root=tmp_path)).worktree(name) is None
@@ -3442,7 +3444,7 @@ def test_a_design_planner_is_told_where_the_session_works(tmp_path):
     a._ask = ask
     assert asyncio.run(a.plan("design", "shell", 4))["config"]["persona"] == "designer"
     assert asked[0]["works_in"] == "GlassineOS/ui" and asked[0]["repository"] == "GlassineOS/shell"
-    asyncio.run(a.plan("issue-implement", "shell", 4))
+    asyncio.run(a.plan("issue-docs", "shell", 4))
     assert "works_in" not in asked[1]
 
 
@@ -3458,8 +3460,8 @@ def test_a_design_session_doesnt_name_a_private_issue_in_ui(tmp_path):
     assert "don't name them" in a._prompt(config, action, tmp_path, unnamed={"boot"})
     assert "Your pull request names each as `GlassineOS/<repo>#N`: GlassineOS/boot#9" in a._prompt(config, action, tmp_path, unnamed=set())
     # Other actions keep the first item's repository as theirs: it's never asked about.
-    implement = validate(LIBRARY, a.defaults("issue-implement", "boot", 9))
-    assert asyncio.run(a._unnamed_here(implement, LIBRARY.action("issue-implement"))) == set()
+    implement = validate(LIBRARY, a.defaults("issue-docs", "boot", 9))
+    assert asyncio.run(a._unnamed_here(implement, LIBRARY.action("issue-docs"))) == set()
 
 
 # --- GitHub tokens scoped to a session's launch ---------------------------------------------------
@@ -3476,12 +3478,15 @@ class FakeApps:
 
 
 def github_library(tmp_path, caps='["read", "pr.review"]'):
-    return Library(_library_copy(tmp_path, lambda r: _edit(r / "workflows" / "pr-review.toml", 'checkout = "pr"', f'checkout = "pr"\ngithub = {caps}')))
+    def change(r):  # a review that may post on the pull request itself asks a holding instance's owner (FR-104)
+        _edit(r / "workflows" / "pr-review.toml", 'checkout = "pr"', f'checkout = "pr"\ngithub = {caps}')
+        _edit(r / "workflows" / "pr-review.toml", 'when_held = "beside"', 'when_held = "ask"')
+    return Library(_library_copy(tmp_path, change))
 
 
 def test_the_library_refuses_github_on_full_or_shell_less_actions_and_unknown_names(tmp_path):
     from hubd.agents import LibraryError
-    for action, old, words in (("issue-implement", 'access = "full"', "for a locked action with Bash"),
+    for action, old, words in (("issue-docs", 'access = "full"', "for a locked action with Bash"),
                                ("pr-explain", 'checkout = "pr"', "for a locked action with Bash"),
                                ("pr-review", 'checkout = "pr"', "grant.github: 'secrets.write' isn't allowed here")):
         caps = '["secrets.write"]' if action == "pr-review" else '["read"]'
@@ -3491,7 +3496,7 @@ def test_the_library_refuses_github_on_full_or_shell_less_actions_and_unknown_na
 
 
 def full_defaults():
-    action = LIBRARY.action("issue-implement")
+    action = LIBRARY.action("issue-docs")
     return {"action": action["id"], "repo": "boot", "number": 3, "persona": action["personas"][0], "model": action["models"][0],
             "effort": action["efforts"][0], "tools": list(action["grant"].tools), "hub_tools": list(action["grant"].hub_tools), "brief": ""}
 
@@ -3552,8 +3557,8 @@ def test_a_full_session_gets_no_token(tmp_path):
     fake = FakeApps()
     a = Agents(LIBRARY, FakeShells(), tmp_path / "state", claude=fake_claude(tmp_path, {}), mcp_url="http://x/mcp",
                agent_token="SECRET", apps=fake)
-    action = LIBRARY.action("issue-implement")
-    config = {**a.defaults("issue-implement", "boot", 3), "tools": action["grant"].tools}
+    action = LIBRARY.action("issue-docs")
+    config = {**a.defaults("issue-docs", "boot", 3), "tools": action["grant"].tools}
     assert "github" not in config
     directory = tmp_path / "s"
     directory.mkdir()

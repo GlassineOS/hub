@@ -16,6 +16,7 @@ ceiling = "Branch + draft PR. Your rights, on its own branch."
 order = 2
 verb = "fix"
 when = "failing"
+when_held = "ask"
 models = ["opus", "sonnet"]
 efforts = ["high", "xhigh", "medium"]
 prompt = '''

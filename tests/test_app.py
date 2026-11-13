@@ -612,8 +612,8 @@ def test_suggest_session_hands_covers_to_hubd(github, hubd):
         calls.append(request)
         return {"ok": True, "id": "w1"}
     hubd.call = call
-    asyncio.run(github.suggest_session("issue-implement", "epd", 9, "why", covers=["kernel#204"]))
-    asyncio.run(github.suggest_session("issue-implement", "epd", 9, "why", also_numbers=[11]))
+    asyncio.run(github.suggest_session("issue-docs", "epd", 9, "why", covers=["kernel#204"]))
+    asyncio.run(github.suggest_session("issue-docs", "epd", 9, "why", also_numbers=[11]))
     assert calls[0]["op"] == "work.suggest" and calls[0]["covers"] == ["kernel#204"]
     assert "covers" not in calls[1] and calls[1]["also_numbers"] == [11]
 
@@ -1786,7 +1786,7 @@ def test_results_and_the_background_go_through_to_hubd_for_a_login():
     assert client.post("/api/results/r-0123456789ab/dismiss", json={}).status_code == 403  # same origin only
     assert client.post("/api/new-work/0123456789ab/background", json={"on": True}, headers=ORIGIN).status_code == 200
     assert seen[-1] == {"op": "work.background", "token": "good", "id": "0123456789ab", "on": True}
-    body = {"action": "issue-implement", "covers": [{"kind": "issue", "repo": "kernel", "number": 204}], "from": {"view": "Work"}, "background": False}
+    body = {"action": "issue-docs", "covers": [{"kind": "issue", "repo": "kernel", "number": 204}], "from": {"view": "Work"}, "background": False}
     assert client.post("/api/new-work", json=body, headers=ORIGIN).status_code == 200
     assert {k: seen[-1][k] for k in ("op", "covers", "from", "background")} == {"op": "work.start", **{k: body[k] for k in ("covers", "from", "background")}}
 
@@ -2066,7 +2066,7 @@ def test_work_groups_rows_by_what_they_need():
              ("actions", run(), False, "Recent", "investigate")]
     offered = {"prs": [{"id": "pr-review", "verb": "review"}, {"id": "pr-fix-checks", "verb": "fix", "when": "failing"},
                        {"id": "pr-address-review", "verb": "address", "needs": "review"}],
-               "issues": [{"id": "issue-triage", "verb": "triage"}, {"id": "issue-implement", "verb": "implement"}],
+               "issues": [{"id": "issue-triage", "verb": "triage"}, {"id": "issue-docs", "verb": "implement"}],
                "actions": [{"id": "run-diagnose", "verb": "investigate"}, {"id": "run-fix", "verb": "fix", "when": "failing"}]}
     kinds = {"prs": "pr", "issues": "issue", "actions": "run"}
     code = "".join(f"""{{const r = ROWS[{json.dumps(tab)}]({json.dumps(row)}); const s = {"{agent: {waiting: false}}" if in_session else "undefined"};

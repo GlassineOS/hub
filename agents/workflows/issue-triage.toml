@@ -16,6 +16,7 @@ summary = "Looks for duplicates and answers, comments on the issue and hands in 
 ceiling = "Comments, and proposes labels you apply. Never closes, merges or writes code."
 order = 1
 verb = "triage"
+when_held = "ask"
 models = ["sonnet", "opus"]
 efforts = ["low", "medium", "high"]
 prompt = '''

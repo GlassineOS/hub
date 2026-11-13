@@ -14,6 +14,7 @@ summary = "Checks whether it's ready: checks, linked issues, changelog. Reports 
 ceiling = "Read only."
 order = 2
 when = "not-failing"
+when_held = "beside"
 models = ["sonnet", "opus"]
 efforts = ["low", "medium", "high"]
 prompt = '''

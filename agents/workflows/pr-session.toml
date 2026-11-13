@@ -14,6 +14,7 @@ label = "Open a session"
 summary = "A full session on the pull request's branch, with the pull request read. Then it's yours."
 ceiling = "A full Claude Code with your rights, on this pull request's branch. Refuses forks."
 order = 9
+when_held = "hide"
 models = ["opus", "sonnet"]
 efforts = ["high", "xhigh", "medium"]
 prompt = '''

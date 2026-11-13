@@ -15,6 +15,7 @@ label = "Compact notes"
 summary = "Reads a topic's notes and proposes merges, distillations, answers and supersedes, each with the exact notes command."
 ceiling = "Read-only. Proposes note operations; you apply them; nothing is deleted."
 order = 20
+when_held = "beside"
 models = ["sonnet", "opus", "haiku"]
 efforts = ["high", "xhigh", "medium"]
 prompt = '''

@@ -124,6 +124,7 @@ def test_a_second_start_names_its_id_and_shares_its_workflows_launch(tmp_path):
     (lambda r: _edit(r / "workflows" / "pr-explain.toml", "Explain the diff of pull request #{number}", "Explain {repo.__class__}"), "isn't one of"),
     (lambda r: _edit(r / "workflows" / "pr-explain.toml", "Explain the diff of pull request #{number}", "Explain {"), "a brace doesn't close"),
     (lambda r: _edit(r / "workflows" / "pr-explain.toml", "order = 3", 'order = 3\nstate = "nowhere"'), "'nowhere' isn't a state"),
+    (lambda r: _edit(r / "workflows" / "pr-explain.toml", "order = 3", 'order = 3\nlead = true'), "is the lead start for a pr already|leads for a pr"),
 ])
 def test_the_library_refuses_rights_out_of_place_and_a_broken_workflow(tmp_path, change, error):
     root = _copy(tmp_path)

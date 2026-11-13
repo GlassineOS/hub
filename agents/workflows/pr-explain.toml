@@ -13,6 +13,7 @@ label = "Explain the diff"
 summary = "Explains the change file by file, and what could break. Reports in the session."
 ceiling = "Read only."
 order = 3
+when_held = "beside"
 models = ["sonnet", "opus"]
 efforts = ["low", "medium", "high"]
 prompt = '''

@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from starts_util import library_root
 from hubd import agents as agents_module
 from hubd import auth, judge as judgelib, machine, machinerun, summary
 from hubd.agents import IDLE_FILE, OUTCOMES_FILE, Agents, Library
@@ -127,7 +128,7 @@ def hub(tmp_path, monkeypatch):
     claude.write_text("#!/bin/sh\nexit 0\n")  # a stand-in: the terminal is fake, so nothing ever runs it
     claude.chmod(0o755)
     gh, apps, shells = FakeGh(), FakeApps(), FakeShells()
-    a = Agents(Library(REPO / "agents"), shells, tmp_path / "state", gh=gh, claude=str(claude), mcp_url="u", agent_token="shared",
+    a = Agents(Library(library_root(tmp_path, "implement")), shells, tmp_path / "state", gh=gh, claude=str(claude), mcp_url="u", agent_token="shared",
                clone_base=f"file://{tmp_path / 'remote'}/", apps=apps, workspace=tmp_path / "ws", socket=tmp_path / "hubd.sock",
                environment={"CLAUDE_CONFIG_DIR": str(tmp_path / "claude-config")})
     feed, judge = Feed(":memory:"), Judge()

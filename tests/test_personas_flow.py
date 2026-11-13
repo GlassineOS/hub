@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from starts_util import start_again
 from hubd import agents as agents_module
 from hubd import judge as judgelib
 from hubd import machine, machinestore, summary
@@ -423,7 +424,7 @@ def test_approve_steward_reaches_the_steward_session(team):
 # --- the Workflow author's drafts (FR-062) ---------------------------------------------------------------------------
 
 def _implement_text(edit=None) -> str:
-    text = (REPO / "agents" / "workflows" / "implement.toml").read_text()
+    text = start_again((REPO / "agents" / "workflows" / "implement.toml").read_text(), "implement")  # as the team's library has it
     return edit(text) if edit else text
 
 
