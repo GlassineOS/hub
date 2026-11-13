@@ -352,6 +352,11 @@ class GitHub:
         reply = await self.hubd.call(op="decision.end_go", agent_token=CALLER.get(), id=decision_id, why=why)
         return {"words": reply["words"]}
 
+    # --- workflows: a session asks to move, and its machine decides ----------------------------
+    async def request_move(self, to) -> dict:
+        reply = await self.hubd.call(op="session.request_move", agent_token=CALLER.get(), to=to)
+        return {k: reply[k] for k in ("moved", "why", "waits", "needs_confirm", "state") if reply.get(k) is not None}
+
     # --- the work store's own answers -------------------------------------------
     def work_status(self) -> dict:
         return self.sync.status() if self.sync else {"enabled": False}

@@ -162,7 +162,7 @@ def test_a_new_version_without_the_current_state_waits_for_a_move_by_hand():
     move(inst, "fix", "hand", now=1)
     gone = _with(_with(IMPLEMENT, '[state.fix]\nparent = "work"\n[state.fix.grant]\npermission_mode = "acceptEdits"\ngithub = ["push"]\n'
                        '[[state.fix.exit]]\nto = "review"\ndecided_by = "judge"\nwhen = "Every finding has a fixup commit or a reply"\n'
-                       'requires = ["pr.checks == pass"]\non = ["turn.end"]\n', ''),
+                       'requires = ["pr.checks == pass", "pr.open"]\non = ["turn.end"]\n', ''),
                  'to = "fix"\ndecided_by = "facts"\nrequires = ["managed.reviewer.verdict == fail", "rounds.review < 3"]',
                  'to = "escalated"\ndecided_by = "facts"\nrequires = ["managed.reviewer.verdict == fail", "rounds.review < 3"]')
     assert "fix" not in machine.parse(gone).states
@@ -206,6 +206,9 @@ def test_every_action_runs_on_its_workflows_own_text():
         text = definition_for(action)
         assert text == (LIBRARY.root / "workflows" / f"{action['workflow']}.toml").read_text()
         d = machine.parse(text)
+        if len(d.states) > 1:  # it starts in its first state's first leaf, with that leaf's grant
+            assert action["grant"] == machine.effective(d, new(text).state) and not d.states[new(text).state].final
+            continue
         g = machine.effective(d, "session")
         assert d.states["session"].final and g.tools == action["grant"].tools and g.checkout == action["grant"].checkout
         assert g.access == action["grant"].access and g.permission_mode == action["grant"].permission_mode
