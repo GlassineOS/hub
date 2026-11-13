@@ -94,12 +94,28 @@ returns = { verdict = ["pass", "fail"], findings = "text-list" }  # what it hand
 - Tools that come with the role, not the grant: `start_managed` (a state with on-request entries), `answer_report` (a state
   that manages), `return_result` and `report_up` (a managed session; `report_up` also for any session whose workflow moves).
   At most 8 managed sessions run at once in all.
+- **Naming the item.** An owner on no single item (a repository's maintainer, the Steward) names what a managed session
+  works on with `start_managed`'s `item`: a repository alone for an action on a repository, `repo#N` for one on an issue
+  or pull request. A maintainer names only items of its own repository; an owner on its own item names none. A wrong item
+  is refused before the `when` is judged.
+- **The owner's pull request.** A pull request a managed session opens on its own branch is carried as its owner's, so the
+  owner's `pr.*` facts and the sessions it starts next (a reviewer, a QA engineer) see it. A design session's pull request
+  isn't: it only feeds the owner's `design.accepted`.
+- **Waking for a `when`.** An auto entry's `when` is judged on the owner's turn ends; on entering a state with one, an owner
+  idle at its prompt is woken with fixed words, so it gets a turn to judge.
+- **Actions only for managed sessions.** An action with `managed_only = true` (the engineer, the QA audit, the design check,
+  the workflow review) is on no menu and starts only under an owner. One with `per_repo = true` (the repository maintainer)
+  runs once per repository at a time.
 
 ## Facts and signals
 
 Facts: `pr.open`, `pr.merged`, `pr.checks` (`pass`, `fail`, `pending`), `pr.review` (`approved`, `changes_requested`,
 `none`), `pr.reviewed` (a review came since the newest head; `not pr.reviewed` means pushed since the review), `branch.pushed`, `issue.linked`, the counters `rounds.<state>`, `time.<state>` (seconds) and `tokens.<state>`, and
-`managed.<entry>.<field>` for what a managed session returns. A pull request's checks and review count only since its newest
+`managed.<entry>.<field>` for what a managed session returns, `started.<entry>` (a session of that entry, in force
+there, started this round: so an exit can wait for it, or hold only when none started), `report.answered` (the session's
+last report up has its answer), `design.accepted` (a design session it manages has its pull request merged; unknown
+before one is open), and for a Workflow author's drafts `draft.ok`, `draft.sensitive` and `drafts.failed` (failed drafts
+in a row in the current round of its state). A pull request's checks and review count only since its newest
 head: after a push they are unknown until the feed sees them again. The session's pull request is found by its branch,
 looked up at most once a minute.
 
@@ -152,3 +168,24 @@ facts the log kept, a judge's exit takes the verdict the judge gave then if the 
 rounds are counted by the replay's own moves. A fact the log didn't keep, or a question the judge wasn't asked, is "can't tell".
 Steps after the first difference are less certain.
 
+
+## The default workflows
+
+- **`implementor`** coordinates one issue: in `implement` an engineer (the `engineer` workflow, which writes the change and
+  opens the pull request on its own branch) runs under it and hands back `done` or `blocked`; with the change done, checks
+  passing and no design spike waiting, `review` starts a code reviewer, `qa` a QA engineer (`qa-audit`) when the change is
+  user-facing and, on request, a design check; a fail goes to `fix`, which resumes the same engineer, and three fix rounds
+  end in `escalated`. `merge-ready` asks first with `merge_pr`. The implementor holds a shell, a new branch and `push` in
+  `implement` and `fix` so its engineer starts within its grant; it doesn't edit. When the work meets a design question no
+  accepted board answers, a design spike (a full design session on GlassineOS/ui) starts after your approval, raises a
+  "Look at the design" card that opens its design view, and the work waits for its pull request to be merged.
+- **`repo-maintainer`** runs once per repository, started by the Steward: it reads the repository's issues, pull requests and
+  runs, starts implementors for ready issues (at most 3; the first asks you, as it holds more than the maintainer) and
+  reports stalls up. It ends at its token budget.
+- **`workflow-change`** is the Workflow author's: it reads a workflow, drafts with `draft_workflow` (checked, diffed and
+  replayed like a save, but never saved), and asks to move on. A draft that grants a sensitive item goes to a code reviewer
+  (`workflow-review`) first; three failed drafts in a row send it to ask you with `report_up`. On entering `propose`, the hub
+  puts the newest passing draft in Needs you as a "Workflow change" card; only your approval saves it. The editor's "Ask for
+  a change…" starts one with your request as its notes.
+- **`project-steward`** can start repository maintainers (`start_managed`, with the repository as the item) and answers what
+  they report up.

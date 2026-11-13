@@ -11,7 +11,7 @@ editor started from, and writes the next number with a link, which fails if the 
 number, and nothing overwrites a version. A session takes the new version at its next move (instances.move's `latest`).
 
 **Who changes one.** Only the maintainer, with a login: `workflow.save` in the editor, or approving a `workflow.change`
-card in Needs you, which `workflow.propose` makes. The tool server has no op here. A sensitive item (FR-034) or full access
+card in Needs you, which `workflow.propose` makes. The tool server has no op here (a Workflow author's drafts, in drafts.py, save nothing). A sensitive item (FR-034) or full access
 is marked on the card and in the editor; the mark adds no rule.
 
 **Replay** (FR-009) runs a definition over a past session's machine log, without a model: its exits decided by facts and

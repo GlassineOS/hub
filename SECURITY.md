@@ -455,6 +455,27 @@ the person or session that started work in the hub.
   sessions are ended within 30 seconds, also after a restart of hubd; `on_exit = "keep"` only keeps one across the owner's
   moves. At most 8 run at once in all, and each entry's `max`.
 
+### The default workflows' sessions
+
+- **A Workflow author never saves.** `draft_workflow`, `read_draft` and `read_workflow` are hubd ops behind a session's own
+  token, from its current conversation, with the tool on its list. A draft is kept in hubd's state folder
+  (`workflow-drafts/<conversation>.json`, the newest 20) and makes no version and no decision; `workflow.save` and
+  `workflow.propose` stay behind the login and refuse a token. The proposal is made by the hub when the session enters its
+  `propose` state, through the editor's own proposal path, with the session as who proposed it: so the card's checks,
+  diff, sensitive marks and replay are the hub's, and only the maintainer's approval saves. A draft that grants a sensitive
+  item is proposed only after a code reviewer's `pass` in that run. A reviewer reads its owner's draft, nothing else.
+- **Carried pull requests.** An owner's pull request facts include those its managed sessions opened on their own branches
+  (`agent/<name>`), found as any session's are; a design session's are kept apart and only feed `design.accepted`. A
+  pull request on another branch is never the owner's.
+- **One maintainer per repository.** A `per_repo` action is claimed per repository while it starts and refused while one runs.
+  A maintainer names only items of its own repository for the sessions it starts; the Steward may name any of the
+  organisation's. A `managed_only` action can't be started from the hub's menus or ops without an owner.
+- **The Steward manages maintainers.** Its grant holds all the maintainer's, so a maintainer starts with no card; an
+  implementor holds more than either (a shell, a new branch, `push`), so a maintainer's first implementor start asks you.
+- **A design spike asks you.** A design session is full access, more than any locked owner holds, so it always waits for your
+  approval. Its "Look at the design" card only opens the design view: answering it changes nothing.
+- **Waking for a `when`.** Entering a state whose auto entry has a `when` wakes an idle owner with fixed words only.
+
 ## The person's decisions
 
 Goes and merge approvals, each a file in hubd's state folder, on disk before anything acts on it.

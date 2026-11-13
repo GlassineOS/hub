@@ -108,7 +108,8 @@ class Drafts:
                  "marks": marks, "stat": changed["stat"], "replay": replay, "replay_session": session, "state": state, "round": round_}
         self._keep(sid, draft)
         failed = self._failed(self.drafts(sid), state, round_)
-        return {"id": draft["id"], "ok": draft["ok"], "problems": draft["problems"], "sensitive": [m["text"] for m in marks],
+        # `passes`, not `ok`: the op's own `ok` says whether the call worked, and a failing draft is a call that worked
+        return {"id": draft["id"], "passes": draft["ok"], "problems": draft["problems"], "sensitive": [m["text"] for m in marks],
                 "stat": changed["stat"], "replay": replay, "failed_in_a_row": failed, "saved": False,
                 "next": ("It passes. Ask to move on: to review, as it grants a sensitive item." if draft["ok"] and marks else
                          "It passes. Ask to move on to propose." if draft["ok"] else "Fix what the checks found and draft again.")}
@@ -127,8 +128,8 @@ class Drafts:
             base = self.workflows._from_text(d["workflow"], d["scope"], d["base_version"])
         except machinestore.StoreError:
             base = None
-        return {k: d[k] for k in ("id", "workflow", "scope", "base_version", "text", "note", "ok", "problems", "sensitive", "marks",
-                                  "stat", "replay")} | {"text_diff": machinestore.diff(base, d["text"])["text"] if base is not None else None}
+        return {k: d[k] for k in ("id", "workflow", "scope", "base_version", "text", "note", "problems", "sensitive", "marks",
+                                  "stat", "replay")} | {"passes": d["ok"], "text_diff": machinestore.diff(base, d["text"])["text"] if base is not None else None}
 
     def read_workflow(self, name, wscope=None) -> dict:
         """read_workflow: a workflow's text as it runs for a scope, its versions, and the sessions that ran on it."""
