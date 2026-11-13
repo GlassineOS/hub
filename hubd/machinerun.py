@@ -487,7 +487,7 @@ class Runner:
             _record, inst = self.machines.load(name)
             if (inst.state, inst.version) != (state, version) or inst.paused or inst.pending:
                 return {"moved": False, "stale": "the machine changed during the evaluation"}
-            return self.machines.move(name, exit_.to, by="machine", enter=exit_.enter, who=who)
+            return self.machines.move(name, exit_.to, by="machine", enter=exit_.enter, who=who, why=reason_of(exit_))
         except (MachineError, OSError) as e:
             return {"moved": False, "error": str(e)}
 
@@ -518,6 +518,14 @@ class Runner:
                 cost=sum(costs) if costs else None, failed=bool(failed))
         except (sqlite3.Error, LogError, OSError):
             log.exception("%s: the evaluation wasn't logged", name)
+
+
+def reason_of(exit_: machine.Exit) -> str:
+    """Why an exit moved, in the definition's own words: a judge's question, else the facts it requires. Never the judge's
+    evidence, which can quote a transcript."""
+    if exit_.decided_by == "judge" and exit_.when.strip():
+        return " ".join(exit_.when.split())
+    return ", ".join(exit_.requires) or {"counter": "a counter", "facts": "its facts"}.get(exit_.decided_by, exit_.decided_by)
 
 
 def _item(payload) -> tuple[str, int] | None:

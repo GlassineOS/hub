@@ -29,7 +29,7 @@ for sessions whose workflow has more than one state. A one-state session never m
   for a pending confirm. A card ends when the session moves any other way. Cards of the same kind with a `type` (a report
   sent up to Needs you, a managed session's start that needs more than its owner holds) are managed.py's.
 
-The status line of FR-025 isn't posted.
+The status line of FR-025 is statusline.py's, which watches the same moves.
 """
 from __future__ import annotations
 

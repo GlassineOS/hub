@@ -294,6 +294,11 @@ its current state's effective grant and nothing else; `hubd/effects.py` applies 
 - **A conversation keeps its access and its checkout.** A move to a state with other ones fails back: one that waits is declined,
   one that happened is rolled back (logged as the hub's), and the evaluation log says why. Resume refuses the same.
 - **The words a move adds** are the definition's instructions, marked as the hub's, never text from a transcript.
+- **The status line is the hub's, in the definition's words.** A workflow with `status = true` has hubd post each move to the
+  session's pull request or issue (`hubd/statusline.py`): the path of states and the exit's question or required facts,
+  never a judge's evidence or a transcript. It goes out as the persona's App, or the hub's login for a persona without one,
+  as an applied result does; an App that fails posts nothing. Its App asks for comment rights for that, and it edits only
+  the comment it posted, by the id it kept.
 - **A fresh context starts from references, not the transcript.** A state with `context = "fresh"` ends the conversation
   and starts a new one under the same instance (`hubd/handoff.py`): its prompt is the action's first prompt and a note the
   hub writes from the issue, the pull request, the states' instructions and the moves the log kept (state ids and how each

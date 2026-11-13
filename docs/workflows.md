@@ -104,6 +104,15 @@ returns = { verdict = ["pass", "fail"], findings = "text-list" }  # what it hand
   that manages), `return_result` and `report_up` (a managed session; `report_up` also for any session whose workflow moves).
   At most 8 managed sessions run at once in all.
 
+## The status line
+
+`status = true` at the top of a workflow makes each move post one line to the session's pull request, or its issue while it
+has none: `Workflow: now in <path> (<why>)`, where the reason is the exit's `when` for a judge's move, its `requires` for
+one by facts or a counter, or "by hand", "rolled back", "moved back by the hub". hubd posts it as the session's persona's
+GitHub App (the hub's login for a persona without one, as an applied result goes out; nothing if the App fails), and edits
+that one comment on later moves; a new comment goes out at most once a minute per session. It is off in every shipped
+workflow.
+
 ## Facts and signals
 
 Facts: `pr.open`, `pr.merged`, `pr.checks` (`pass`, `fail`, `pending`), `pr.review` (`approved`, `changes_requested`,

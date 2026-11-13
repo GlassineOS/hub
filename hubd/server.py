@@ -26,6 +26,7 @@ from pathlib import Path
 from . import auth, decisions, devices, interactions, machinerun, machinestore, newwork, notes, results, usage
 from . import judge as judgelib
 from .effects import Effects
+from .statusline import StatusLines
 from .managed import Managed, ManagedError
 from . import feed as feedlib
 from .designs import TICK as DESIGN_TICK, DesignError, Designs, Tools as DesignTools
@@ -175,6 +176,8 @@ class Hubd:
         self.managed = Managed(agents, machine_run, decision_store) if self.effects is not None else None
         if self.effects is not None:
             self.effects.managed = self.managed
+        # 012 FR-025: a workflow with `status = true` posts each move to its session's pull request or issue
+        self.status_lines = StatusLines(agents, gh, apps) if self.effects is not None else None
         # 012 FR-060: the saved versions of the workflows, the editor and the workflow.change card. A login only.
         self.workflows = machinestore.Workflows(agents, decision_store) if getattr(agents, "workflow_store", None) is not None else None
         self.work = work

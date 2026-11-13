@@ -277,7 +277,7 @@ def outline(d: Definition) -> dict:
                                      for i, e in enumerate(d.states[owner].exits, 1)],
                        "manages": [{**{k: (list(v) if isinstance(v, tuple) else v) for k, v in dataclasses.asdict(m).items() if k != "with_"},
                                     "with": list(m.with_), "returns": {k: list(v) for k, v in m.returns.items()}} for m in s.manages]})
-    return {"name": d.name, "initial": d.initial, "judge": d.judge, "states": states}
+    return {"name": d.name, "initial": d.initial, "judge": d.judge, "status": d.status, "states": states}
 
 
 def _finding(f) -> dict:
