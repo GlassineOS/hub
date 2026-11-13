@@ -39,9 +39,10 @@ def setup(tmp_path):
     return tmp_path, checkout, store
 
 
-def hook(tmp_path, checkout, command, extra=None, cwd=None):
+def hook(tmp_path, checkout, command, extra=None, cwd=None, github=None):
     event = {"tool_name": "Bash", "cwd": cwd or str(tmp_path), "tool_input": {"command": command, **(extra or {})}}
-    return subprocess.run([sys.executable, "-I", str(HOOK), str(tmp_path / "s" / "shell"), str(checkout)], input=json.dumps(event), text=True, capture_output=True)
+    flag = ["--github", str(github)] if github else []
+    return subprocess.run([sys.executable, "-I", str(HOOK), *flag, str(tmp_path / "s" / "shell"), str(checkout)], input=json.dumps(event), text=True, capture_output=True)
 
 
 def test_the_hook_allows_only_with_the_command_in_the_sandbox(setup):
@@ -95,8 +96,8 @@ def test_it_starts_inside_the_checkout_only(setup):
     assert argv[argv.index("--chdir") + 1] == str(checkout)
 
 
-def run_in(tmp_path, checkout, command):
-    out = json.loads(hook(tmp_path, checkout, command).stdout)["hookSpecificOutput"]
+def run_in(tmp_path, checkout, command, github=None):
+    out = json.loads(hook(tmp_path, checkout, command, github=github).stdout)["hookSpecificOutput"]
     return subprocess.run(out["updatedInput"]["command"], shell=True, text=True, capture_output=True, timeout=60)
 
 
@@ -210,6 +211,57 @@ def test_what_the_sandbox_sees_for_real(setup, monkeypatch):
     assert "changed" in again.stdout and "made" in again.stdout, again
     assert "kept" in run_in(tmp_path, checkout, "ls ~").stdout
     assert not (Path.home() / "kept").exists() or (Path.home() / "kept").read_text() != "x\n"
+
+
+# --- a GitHub token, for a session whose launch carries GitHub capabilities -------------------------
+def github_folder(tmp_path, token="ghs_scoped"):
+    folder = tmp_path / "s" / "github"
+    folder.mkdir(exist_ok=True)
+    (folder / shell_hook.GITHUB_TOKEN).write_text(token)
+    return folder
+
+
+def test_without_the_switch_the_command_is_as_before(setup, monkeypatch):
+    tmp_path, checkout, _ = setup
+    monkeypatch.setattr(shell_hook, "_refused_routes", lambda: ["10.0.0.0/8"])
+    plain = shell_hook.sandboxed("echo hi", str(checkout), tmp_path / "s" / "shell", [checkout])
+    assert plain[-3:] == ["bash", "-c", "echo hi"] and not any("GH_TOKEN" in a or "GIT_CONFIG" in a or "github" in a for a in plain)
+    with_token = shell_hook.sandboxed("echo hi", str(checkout), tmp_path / "s" / "shell", [checkout], github_folder(tmp_path))
+    assert with_token[:len(plain) - 3] == plain[:-3]  # the same sandbox, with the token's lines after it
+
+
+def test_the_token_stays_off_the_command_line(setup):
+    tmp_path, checkout, _ = setup
+    folder = github_folder(tmp_path)
+    out = json.loads(hook(tmp_path, checkout, "gh pr list", github=folder).stdout)["hookSpecificOutput"]
+    assert out["permissionDecision"] == "allow"
+    command = out["updatedInput"]["command"]
+    assert "ghs_scoped" not in command and command.startswith("GLASSINE_SANDBOX=abc123 pasta ")
+    argv = shlex.split(command)
+    at = argv.index(shell_hook.GITHUB_MOUNT)
+    assert argv[at - 2:at] == ["--ro-bind", str(folder)]
+    assert argv[-2:] == ["sh", "gh pr list"]
+
+
+def test_no_token_file_says_deny(setup):
+    tmp_path, checkout, _ = setup
+    out = json.loads(hook(tmp_path, checkout, "true", github=tmp_path / "s" / "missing").stdout)["hookSpecificOutput"]
+    assert out["permissionDecision"] == "deny" and "GitHub token" in out["permissionDecisionReason"]
+
+
+@real
+def test_the_token_reaches_gh_and_git_for_github_only_and_is_read_anew(setup):
+    tmp_path, checkout, _ = setup
+    folder = github_folder(tmp_path)
+    fill = "printf 'protocol=https\nhost={}\n\n' | git credential fill 2>/dev/null"
+    done = run_in(tmp_path, checkout, f'echo "env=$GH_TOKEN"; {fill.format("github.com")}; echo ---; {fill.format("example.com")}; true', folder)
+    head, tail = done.stdout.split("---")
+    assert "env=ghs_scoped" in head and "username=x-access-token" in head and "password=ghs_scoped" in head, done
+    assert "ghs_scoped" not in tail, done
+    (folder / "next").write_text("ghs_renewed")
+    os.replace(folder / "next", folder / shell_hook.GITHUB_TOKEN)
+    assert "env=ghs_renewed" in run_in(tmp_path, checkout, 'echo "env=$GH_TOKEN"', folder).stdout
+    assert "GH_TOKEN" not in run_in(tmp_path, checkout, "env").stdout
 
 
 # --- the guard: the lock that doesn't depend on the hook ----------------------------------------
