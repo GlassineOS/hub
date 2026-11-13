@@ -447,7 +447,7 @@ def test_steward_reads_all_repositories_and_has_no_shell_or_files(tmp_path):
     token = (directory / "tool-token").read_text().strip()
     scope = a.scope(token)
     assert scope["all_repos"] is True and scope["persona"] == "steward" and scope["tools"] == [*LIBRARY.action("project-steward")["grant"].hub_tools, *LIBRARY.action("project-steward")["grant"].asks_first,
-                                                                                   "answer_report", "start_managed"]  # it manages repository maintainers (012 FR-071)
+                                                                                   "answer_report", "managed_status", "start_managed"]  # it manages repository maintainers (012 FR-071)
     script = (directory / "run.sh").read_text()
     assert "--permission-mode dontAsk" in script and "--strict-mcp-config" in script and "--add-dir" not in script
     for name in ("Bash", "Read", "Write", "Edit", "merge_pr", "create_issue"):

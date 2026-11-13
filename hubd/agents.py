@@ -133,8 +133,8 @@ DESIGN_ACTION = "design"  # the design sessions of 011, whose pull request is in
 MAX_MANAGED = 20
 # The chain of owners' tools (012 FR-040 to FR-053). A session gets them from where it stands, not from a grant: a managed
 # session returns and reports to its owner, a session whose workflow manages sessions starts them on request and answers
-# their reports, one whose workflow can move reports up. They reach only the hub, never GitHub.
-CHAIN_TOOLS = ("start_managed", "return_result", "report_up", "answer_report")
+# their reports and sees how they stand, one whose workflow can move reports up. They reach only the hub, never GitHub.
+CHAIN_TOOLS = ("start_managed", "return_result", "report_up", "answer_report", "managed_status")
 IDLE_FILE = "idle"  # its turn ended, and it's waiting for nothing but a person's next word
 ASKING_FILE = "asks-open"  # hubd holds a prompt of this session's
 MACHINE_HOOK_TIME = 5  # seconds; it sends one line and goes
@@ -1003,6 +1003,48 @@ def details_preview(kind: str, prompt: str) -> str:
     return shown.rstrip("\n") + "\n\n" + handoff.marked(DETAILS_HEADING, "\n".join(fields))
 
 
+def first_state(action: dict) -> tuple[machine.Definition, str] | None:
+    """The definition a session of the action runs on and the leaf it starts in (its start's state, down its first states)."""
+    text = (action or {}).get("definition")
+    if not isinstance(text, str):
+        return None
+    d = instances_parse(text)
+    sid = action.get("state") or d.initial
+    if sid not in d.states:
+        return None
+    while d.states[sid].initial is not None:
+        sid = d.states[sid].initial
+    return d, sid
+
+
+def managed_line(d: machine.Definition, state_id: str, running: dict | None = None) -> str | None:
+    """The sessions a state runs under its session, for that session's turn: each entry in force, how it starts, and the
+    names of those running under it now (`running`: entry -> names, from the hub's own records). None for a state that
+    manages nothing. Only the definition's words and session names: nothing a session wrote."""
+    entries = machine.managed_of(d, state_id)
+    if not entries:
+        return None
+    parts = []
+    for _sid, m in entries:
+        names = (running or {}).get(m.name) or []
+        when = " ".join(m.when.split())
+        if names:
+            how = f"runs under you now as {', '.join(names)}"
+        elif m.start == "on-request":
+            how = "starts only when you call start_managed" + (f", if this holds: {when}" if when else "")
+        elif when:
+            how = f"starts by itself once the hub judges that this holds: {when}"
+        else:
+            how = "starts by itself"
+        parts.append(f"{m.name} ({m.persona}) {how}")
+    out = "Sessions under you here: " + "; ".join(parts) + "."
+    if any(m.start == "auto" for _sid, m in entries):
+        out += (" One that starts by itself is the hub's to start: it runs as a session under you and hands back by itself "
+                "with return_result, so don't call start_managed for it and don't do its work; wait for its hand-back, and "
+                "answer its reports.")
+    return out + " managed_status shows how each one stands."
+
+
 def covers_of(config: dict) -> list[dict]:
     """What a session's record says it covers. A record from before covers has its number and also_numbers."""
     if isinstance(config.get("covers"), list):
@@ -1436,6 +1478,7 @@ class Agents:
                 tools.append("report_up")
             if entries:
                 tools.append("answer_report")
+                tools.append("managed_status")
             if any(m.start == "on-request" for m in entries):
                 tools.append("start_managed")
         return list(dict.fromkeys(tools))
@@ -2292,6 +2335,9 @@ class Agents:
         prompt = self._prompt(config, action, checkout, also, commit, beside, unnamed, details)
         if context:  # 012 FR-041: a managed session's context, filled in by the hub from named references (managed.py)
             prompt += "\n\n" + context
+        first = first_state(action)
+        if first and (line := managed_line(*first)):  # what its first state runs under it, which starts once it has
+            prompt += "\n\n" + line
         (directory / "prompt.md").write_text(prompt)
         (directory / "settings.json").write_text(json.dumps(self._hooks(directory, config, action, "return_result" in chain)))
         (directory / REPOS_FOLDER).mkdir(exist_ok=True)

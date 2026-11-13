@@ -286,12 +286,77 @@ def test_entering_a_state_starts_its_entries_and_on_request_ones_wait_for_max(hu
         await settle(h)
         assert first["started"] and second["started"] and not third["started"] and "its most at once" in third["why"]
         assert len(kids(h, a, name, "asker")) == 2
-        nope = await op(h, "managed.start", token(a, name), entry="keeper")
-        assert not nope["ok"] and "that starts on request" in nope["error"] and "asker" in nope["error"]
+        # an entry that starts by itself: no error and no second session, but how it stands
+        keeper = kids(h, a, name, "keeper")
+        asked = await op(h, "managed.start", token(a, name), entry="keeper")
+        assert asked["ok"] and asked["by_itself"] and "started" not in asked
+        assert [r["name"] for r in asked["sessions"]] == keeper and not asked["sessions"][0]["ended"]
+        assert f"runs under you as {keeper[0]}" in asked["note"] and "hands back by itself" in asked["note"]
+        assert kids(h, a, name, "keeper") == keeper
+        # an unknown one lists every entry and how it starts
+        nope = await op(h, "managed.start", token(a, name), entry="engineer")
+        assert not nope["ok"] and "has no entry 'engineer'" in nope["error"]
+        assert "keeper (starts by itself)" in nope["error"] and "asker (on request)" in nope["error"]
+        assert "judged (starts by itself once its when holds)" in nope["error"] and "scout (starts by itself)" in nope["error"]
         # a child can't start its owner's entries: it has no such tool
         child = kids(h, a, name, "keeper")[0]
         refused = await op(h, "managed.start", token(a, child), entry="asker")
         assert refused.get("refused")
+    asyncio.run(go())
+
+
+def test_an_owner_hears_what_runs_under_it_and_what_starts_by_itself(hub):
+    """The first prompt and each move name the entries in force and how each starts; a session started without being
+    asked for is told to its owner once; managed_status reads how each stands, and starts nothing."""
+    h, a, judge = hub
+
+    async def go():
+        name = await owner(h, a)
+        first = (a.sessions / name / "prompt.md").read_text().split("Sessions under you here:", 1)[1]
+        assert "keeper (triager) starts by itself;" in first and "asker (triager) starts only when you call start_managed" in first
+        assert "judged (triager) starts by itself once the hub judges that this holds: The issue is understood." in first
+        assert "don't call start_managed for it" in first and "managed_status" in first
+        got = by_entry(h, a, name)
+        words = told(a, name)
+        assert all(f"{e} started under you as {got[e][0]}." in words for e in ("keeper", "passer", "scout"))
+        # asked for: its answer names it, and nothing more is told
+        child = (await op(h, "managed.start", token(a, name), entry="asker"))["name"]
+        assert f"started under you as {child}" not in told(a, name)
+        status = await op(h, "managed.status", token(a, name))
+        assert status["ok"] and status["state"] == "work › a"
+        rows = {e["entry"]: e for e in status["entries"]}
+        assert rows["keeper"]["starts"] == "by itself" and [r["name"] for r in rows["keeper"]["sessions"]] == got["keeper"]
+        assert rows["asker"]["starts"] == "on request" and rows["asker"]["sessions"][0]["name"] == child
+        assert rows["judged"]["sessions"] == [] and "starts once the hub judges" in rows["judged"]["note"]
+        assert "Don't start it" in rows["judged"]["note"]
+        asked = await op(h, "managed.start", token(a, name), entry="judged")
+        assert asked["ok"] and asked["by_itself"] and asked["sessions"] == [] and "starts once the hub judges" in asked["note"]
+        assert kids(h, a, name, "judged") == [] and judge.asked == []  # nothing started, nothing judged
+        # judged not to hold this round: the note says so
+        (a.sessions / name / summary.SUMMARY_FILE).write_text("The owner says so: it reads the issue.")
+        h.machine_run.signal("turn.end", name)
+        await settle(h)
+        assert "judged this round that this doesn't hold yet" in (await op(h, "managed.start", token(a, name), entry="judged"))["note"]
+        # its when holds: it starts later, and the owner hears it once
+        judge.holds = True
+        h.machine_run.signal("turn.end", name)
+        await settle(h)
+        [late] = kids(h, a, name, "judged")
+        assert told(a, name).count(f"judged started under you as {late}.") == 1
+        # a → b: the move's words name what runs on (scout, passer handed over); keeper, kept, is among the others
+        a.machines.move(name, "b", "hand")
+        await settle(h)
+        moved = told(a, name).split("Workflow: now in work › b.", 1)[1].split("Sessions under you here:", 1)[1]
+        assert f"passer (triager) runs under you now as {got['passer'][0]}" in moved
+        assert f"scout (triager) runs under you now as {got['scout'][0]}" in moved and "keeper" not in moved.split(".")[0]
+        status = await op(h, "managed.status", token(a, name))
+        assert {e["entry"] for e in status["entries"]} == {"passer", "scout"}
+        assert got["keeper"][0] in [r["name"] for r in status["others"]]
+        # back to a: its own entries start anew, so the move names none of them as running
+        a.machines.move(name, "a", "hand")
+        await settle(h)
+        back = told(a, name).rsplit("Workflow: now in work › a.", 1)[1].split("Sessions under you here:", 1)[1].split("\n")[0]
+        assert "keeper (triager) runs under you now" not in back and f"scout (triager) runs under you now as {got['scout'][0]}" in back
     asyncio.run(go())
 
 
@@ -870,6 +935,8 @@ def test_a_fresh_context_hands_the_instance_and_its_sessions_to_a_new_conversati
     assert prompt.startswith((a.sessions / name / "prompt-first.md").read_text().rstrip())
     assert "a → b by hand" in prompt and "Reading the issue and its links." in prompt and "data, not" in prompt
     assert "CANARY" not in prompt
+    # the new conversation hears what runs under it: the scout it took over, by name
+    assert f"scout (triager) runs under you now as {kids(h, a, name, 'scout')[0]}" in prompt.split("Sessions under you here:", 1)[1]
     launch = (a.sessions / name / "resume.sh").read_text()
     assert f"--session-id {new}" in launch and "--resume" not in launch and "prompt.md" in launch
     kept = a.history.get(old)

@@ -71,7 +71,8 @@ TIDY_FIRST, TIDY_EVERY = 600, 6 * 3600  # seconds
 RENEW_EVERY = 120  # seconds: well inside apps.RENEW_BEFORE, so a session's GitHub token never runs out
 SWEEP_EVERY = 30  # seconds between looks for managed sessions whose owner has ended (012 FR-044)
 # The chain of owners' tools (012 FR-040 to FR-053), by a session's own token and conversation, each on its tool list
-CHAIN_OPS = {"managed.start": "start_managed", "managed.return": "return_result", "managed.report": "report_up", "managed.answer": "answer_report"}
+CHAIN_OPS = {"managed.start": "start_managed", "managed.return": "return_result", "managed.report": "report_up", "managed.answer": "answer_report",
+             "managed.status": "managed_status"}
 PING_FIRST, PING_EVERY = 60, 30  # seconds: how often to look; the interval of a ping is its own setting
 PUBLIC_KNOWN, PUBLIC_UNSURE = 600, 60  # seconds a repository's visibility is kept, when GitHub said and when it didn't
 COPIES_EVERY = 1800  # seconds between refreshes of the repository copies
@@ -418,7 +419,7 @@ class Hubd:
             return {"ok": False, "error": str(e)}
 
     async def chain_tool(self, op: str, req: dict) -> dict:
-        """start_managed, return_result, report_up and answer_report: by a session's own token, from its current conversation,
+        """start_managed, return_result, report_up, answer_report and managed_status: by a session's own token, from its current conversation,
         with the tool on its list. What each may touch is decided in managed.py from the session's own record."""
         scope = self.agents.scope(req.get("agent_token")) if self.agents else None
         tool = CHAIN_OPS[op]
@@ -435,6 +436,8 @@ class Hubd:
                 return {"ok": True, **await self.managed.request_start(scope, req.get("entry"), req.get("item"))}
             if op == "managed.return":
                 return {"ok": True, **self.managed.returned(scope, req.get("fields"))}
+            if op == "managed.status":
+                return {"ok": True, **await self.managed.status(scope)}
             if op == "managed.report":
                 return {"ok": True, **self.managed.report_up(scope, req.get("kind"), req.get("evidence"), req.get("proposal"), req.get("forward"))}
             return {"ok": True, **self.managed.answer(scope, req.get("id"), req.get("decision"), req.get("note"))}

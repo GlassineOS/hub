@@ -22,7 +22,7 @@ from hubd.decisions import APPROVE
 
 import test_implement_flow as base
 from test_implement_flow import hub  # noqa: F401  (the fixture)
-from test_implement_flow import HEAD, PR, ev, feed, history, settle, state_of, token_of, turn_ends
+from test_implement_flow import HEAD, PR, ev, feed, history, settle, state_of, token_of, told, turn_ends
 
 REPO = Path(__file__).resolve().parents[1]
 LIBRARY = Library(REPO / "agents")
@@ -176,6 +176,11 @@ async def through_implement(h, a, gh, judge):
     # the engineer started with no approval: the implementor holds what it needs, push included, in implement
     assert record["config"]["action"] == "engineer" and record["owner"]["name"] == name and "push" in record["config"]["github"]
     assert h.decisions.open_approvals(name) == []
+    # the engineer starts by itself: the implementor hears so, and asking for it starts nothing but says how it stands
+    assert f"engineer started under you as {engineer}." in told(a, name)
+    asked = await h.request({"op": "managed.start", "agent_token": token_of(a, name), "entry": "engineer"})
+    assert asked["ok"] and asked["by_itself"] and [r["name"] for r in asked["sessions"]] == [engineer]
+    assert children(h, a, name, "engineer") == [engineer]
     # its turn ends: no design question, so no design spike; the engineer hasn't handed back, so it stays
     await turn_ends(h, a, name)
     assert state_of(a, name) == "implement" and children(h, a, name, "design-spike") == []

@@ -103,8 +103,20 @@ returns = { verdict = ["pass", "fail"], findings = "text-list" }  # what it hand
 - **Reports**: a managed session sends a `blocker` or `decision` up with `report_up` (evidence and a proposal); the owner
   answers with `answer_report` (`approve` or `deny`, a note) or sends it on with `report_up` and `forward`. A report from the
   top of the chain is a decision in Needs you. Every report and answer is in the machine log.
-- Tools that come with the role, not the grant: `start_managed` (a state with on-request entries), `answer_report` (a state
-  that manages), `return_result` and `report_up` (a managed session; `report_up` also for any session whose workflow moves).
+- Tools that come with the role, not the grant: `start_managed` (a state with on-request entries), `answer_report` and
+  `managed_status` (a state that manages), `return_result` and `report_up` (a managed session; `report_up` also for any
+  session whose workflow moves).
+- **What the owner is told.** Its first prompt, and its turn on each move into a state that manages, end with one line from
+  the definition and the hub's records (never a transcript): each entry in force, whether it starts by itself, once its
+  `when` holds, or on request, and the sessions already running under it by name; one that starts by itself is the hub's to
+  start and hands back by itself. A fresh context's hand-off note has the same line. A session that starts later without
+  being asked for (a `when` that came to hold, an approval, room under the cap) is told to its owner once, at its next turn.
+- **`managed_status`** reads, for the owner's state: each entry in force, how it starts, its sessions under this
+  conversation (name, state, idle, ended) and a note on what it waits for (an approval, the cap, a holder of its item, its
+  `when` not judged yet or judged not to hold, a start that can't happen this round); and any other session still running
+  under it (an `on_exit = "keep"` one). `start_managed` for an entry that starts by itself starts and judges nothing: it
+  answers with the same (`by_itself`, its sessions, the note). An entry the state hasn't is refused with every entry and how
+  each starts.
   At most 20 managed sessions run at once in all, not counting one of a staged workflow that is idle in a final state (an
   implementor that is merge-ready). A start that this holds back tells the owner once, and an automatic entry that didn't
   start in its round is tried again on the owner's next signals, and when a managed session ends.
