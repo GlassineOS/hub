@@ -427,15 +427,58 @@ def diff(a_text: str, b_text: str, inherited=None) -> dict:
             "text": lines, "stat": stat}
 
 
-def sensitive_marks(a_text: str | None, findings: list[dict]) -> list[dict]:
-    """The marks of the new text, each saying whether the old text had it already (`new`)."""
+def sensitive_marks(a_text: str | None, findings: list[dict], b_text: str | None = None, inherited=None) -> list[dict]:
+    """The marks of the new text, each saying whether the old text had it already (`new`), and with the new text, what its
+    starts change that a reviewer should see (start_marks)."""
     old = set()
     if a_text is not None:
         try:
             old = {(f.where, f.text) for f in machine.check(machine.parse(a_text)) if f.kind == "mark"}
         except DefinitionError:
             old = set()
-    return [{**f, "new": (f["where"], f["text"]) not in old} for f in findings if f["kind"] == "mark"]
+    out = [{**f, "new": (f["where"], f["text"]) not in old} for f in findings if f["kind"] == "mark"]
+    return out + (start_marks(a_text, b_text, inherited) if b_text is not None else [])
+
+
+def _an(kind: str) -> str:
+    return f"{'an' if kind[:1] in 'aeiou' else 'a'} {kind}"
+
+
+def start_marks(a_text: str | None, b_text: str, inherited=None) -> list[dict]:
+    """What a change to the starts grants or moves, as marks: a start whose session begins holding more than the same start
+    did (or, for a new one, more than the workflow's first state), one that now begins on another kind of item or takes or
+    gives up the lead, and one whose starting grant writes on the item differently while its ceiling, the words its item's page
+    shows, stays as it was."""
+    try:
+        b = machine.parse(b_text)
+        a = machine.parse(a_text) if a_text is not None else None
+    except DefinitionError:
+        return []
+    def keyed(d):
+        return {machine.start_id(d, st): st for st in machine.effective_starts(d, inherited)}
+    before = keyed(a) if a is not None else {}
+    out = []
+    mark = lambda sid, text: out.append({"kind": "mark", "where": f"start.{sid}", "text": text, "new": True})  # noqa: E731
+    for sid, st in keyed(b).items():
+        grant = machine.effective(b, machine.start_state(b, st))
+        old = before.get(sid)
+        if a is not None:
+            base = machine.effective(a, machine.start_state(a, old)) if old is not None and (old.state is None or old.state in a.states) \
+                else machine.effective(a, machine._leaf(a, a.initial)) if a.initial in a.states else machine.Grant()
+            if wider := machine.beyond(grant, base):
+                words = "; ".join(f"{k} {', '.join(map(str, v))}" for k, v in wider.items())
+                mark(sid, f"wider start: {st.label} begins in {machine.start_state(b, st)}, holding more than before ({words})")
+        if old is None:
+            continue
+        if old.on != st.on:
+            mark(sid, f"another item: {st.label} now starts on {_an(st.on)}, not {_an(old.on)}")
+        if old.lead != st.lead:
+            mark(sid, f"lead: {st.label} " + ("now leads" if st.lead else "no longer leads") + f" the starts of {_an(st.on)}")
+        writes = machine.writes_on_item(grant)
+        if a is not None and writes and old.ceiling == st.ceiling and (old.state is None or old.state in a.states) \
+                and writes != machine.writes_on_item(machine.effective(a, machine.start_state(a, old))):
+            mark(sid, f"ceiling unchanged: {st.label} writes on its item ({', '.join(writes[:4])}), and its ceiling words are as before")
+    return out
 
 
 def reorder(text: str, state: str, place, by) -> str:
@@ -857,7 +900,7 @@ class Workflows:
         changed = diff(before, text, _file_starts(self.library, name))
         card = {"workflow": name, "scope": scope, "repo": repo, "base_version": base, "text": text, "note": note.strip(),
                 "proposed_by": who, "rows": changed["rows"], "starts": changed["starts"], "text_diff": changed["text"], "stat": changed["stat"],
-                "findings": found["findings"], "sensitive": sensitive_marks(before, found["findings"])}
+                "findings": found["findings"], "sensitive": sensitive_marks(before, found["findings"], text, _file_starts(self.library, name))}
         session = req.get("session")
         if session is not None:
             try:
