@@ -48,7 +48,7 @@ from .codemap import UNREADABLE, CodeMaps, MapError
 from .codesearch import CodeSearch, SearchError
 from .ghpolicy import ORG, Refused
 from .history import History
-from .instances import FILE as MACHINE_FILE, MachineError, Machines
+from .instances import FILE as MACHINE_FILE, UNREADABLE, MachineError, Machines
 from .results import APPLY_TOOLS
 from .seeds import SeedError, Seeds, remove_tree
 from .shells import ShellError, Shells
@@ -106,6 +106,8 @@ ENDED_FILE = "ended"  # Claude has ended in this session
 OUTCOMES_FILE = "outcomes"  # what the hub has to tell it, until its next turn reads it
 GRANT_FILE = "grant.json"  # the tools its workflow's current state grants, read by grant_hook.py before each tool use
 GRANT_HOOK_TIME = 10  # seconds; it only reads a file
+RESUME_ROUNDS = 5  # times a resume is set up again because the session's workflow moved meanwhile
+LOCKED_FILE = "locked"  # its grant couldn't be worked out: its tools refuse everything until a resume
 _REPO_RE = re.compile(r"\.?[A-Za-z0-9_][A-Za-z0-9._-]*")  # .github is a repository
 _BRANCH_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]*")
 MAX_NAME = 34
@@ -584,6 +586,10 @@ def _mode(action: dict) -> str:
     return _grant(action).permission_mode if _full(action) else "dontAsk"
 
 
+def _locked(scope: dict) -> dict:
+    return {**scope, "tools": [], "asks_first": [], "all_repos": False}
+
+
 def _write_private(path: Path, value) -> None:
     """JSON, 0600, whole: a hook reading it never sees half."""
     part = path.with_name(path.name + ".part")
@@ -865,6 +871,8 @@ class Agents:
             self._scopes[token] = _session_scope(directory.name, record["config"], record.get("full", False),
                                                  self._all_repos(record["config"], state), self._asks_first(record["config"], state),
                                                  record.get("session_id"))
+            if (directory / LOCKED_FILE).exists():
+                self._scopes[token] = _locked(self._scopes[token])
 
     def _asks_first(self, config: dict, action: dict | None = None) -> list[str]:
         """Read from the action's grant, as it is now, like _all_repos: the library's, or the state's a session is in."""
@@ -889,16 +897,33 @@ class Agents:
         return bool(action) and _grant(action).all_repos is True
 
     # --- the grant of a session's workflow state (012 FR-022, FR-023, FR-031) ---------------
-    def staged(self, action: dict) -> bool:
-        """Whether a session of this action can move: its workflow has more than one state."""
+    def staged(self, action: dict, name=None) -> bool:
+        """Whether a session can move: the definition its instance runs on has more than one state. With no instance (no
+        name, or one not yet made), the action's workflow as the library has it. One whose instance can't be read counts as
+        able to move, so its rights are refused rather than taken from the action."""
+        if isinstance(name, str) and _NAME_RE.fullmatch(name):
+            try:
+                inst = self.machines.peek(name)
+            except MachineError:
+                return True
+            if inst is not None:
+                return len(inst.definition().states) > 1
         definition = self.library.workflows.get(action.get("workflow"))
         return definition is not None and len(definition.states) > 1
+
+    def _machine_mark(self, name) -> tuple | None:
+        """Where the session's machine is: a resume set up from an older one starts again."""
+        try:
+            inst = self.machines.peek(name)
+        except MachineError:
+            return ("unreadable",)
+        return (inst.state, inst.version) if inst else None
 
     def _state_action(self, name, action: dict) -> dict:
         """The action as a session in its workflow's current state has it: with that state's effective grant. A session of a
         one-state workflow has the action as the library has it now. One whose machine can't be read gets no rights: it's
         refused, never taken to be in the first state."""
-        if not self.staged(action) or not isinstance(name, str) or not (self.sessions / name / "session.json").exists():
+        if not isinstance(name, str) or not (self.sessions / name / "session.json").exists() or not self.staged(action, name):
             return action
         try:
             _record, inst = self.machines.load(name)
@@ -931,15 +956,16 @@ class Agents:
     def _grant_hooks(self, directory: Path, action: dict) -> list:
         """Before each tool use of a session that can move: grant_hook.py refuses what its current state doesn't grant. Only
         refuses or stays silent, so the other hooks and the permission mode still decide the rest."""
-        if not self.staged(action):
+        if not self.staged(action, directory.name):
             return []
-        command = shlex.join([sys.executable, "-I", str(Path(__file__).with_name("grant_hook.py")), str(directory / GRANT_FILE)])
+        # Claude Code takes only exit status 2 as a block: whatever else stops the script, the shell turns into that.
+        command = shlex.join([sys.executable, "-I", str(Path(__file__).with_name("grant_hook.py")), str(directory / GRANT_FILE)]) + " || exit 2"
         return [{"hooks": [{"type": "command", "command": command, "timeout": GRANT_HOOK_TIME}]}]
 
     def write_grant(self, directory: Path, config: dict, action: dict, asks_first=None) -> None:
         """What grant_hook.py reads: the Claude Code tools and the hub's tools in force. None for a full session, which has no
         list: its tools are guarded, not limited."""
-        if not self.staged(action):
+        if not self.staged(action, directory.name):
             return
         full = _full(action)
         asks = list(self._asks_first(config, action) if asks_first is None else asks_first)
@@ -989,14 +1015,17 @@ class Agents:
             self._scopes[token] = _session_scope(name, narrowed, _full(state), self._all_repos(in_force, state) and scope["all_repos"], asks,
                                                  scope["instance"])
         self.write_grant(directory, narrowed, state, asks)
+        if (directory / LOCKED_FILE).exists():  # locked stays locked until a resume
+            self.lock_down(name)
         return {"config": narrowed, "github_changed": narrowed.get("github") != in_force.get("github"), "state": state}
 
     def lock_down(self, name) -> None:
         """When the grant in force can't be worked out: the session's token and its tools refuse everything until a resume."""
         self._load_scopes()
         for token in [t for t, sc in self._scopes.items() if sc["session"] == name]:
-            self._scopes[token] = {**self._scopes[token], "tools": [], "asks_first": [], "all_repos": False}
+            self._scopes[token] = _locked(self._scopes[token])
         try:
+            (self.sessions / name / LOCKED_FILE).touch(mode=0o600)  # so a restart of hubd keeps it
             _write_private(self.sessions / name / GRANT_FILE, {"tools": [], "hub_tools": [], "server": HUB_SERVER})
         except OSError:
             log.exception("%s: couldn't write its grant", name)
@@ -1568,6 +1597,17 @@ class Agents:
             raise AgentError(str(e)) from e
         if token is None:
             raise AgentError(f"GitHub capabilities need a GitHub App for {config['persona']}")
+        # Asking GitHub takes a while, and a move can narrow the session meanwhile, or another renewal start with another list.
+        # The record says what is in force now: a token made for anything else isn't written, and the one for that wins.
+        try:
+            now = json.loads((directory / "session.json").read_text())["config"].get("github")
+        except FileNotFoundError:  # a start: its record is written after its token
+            now = config["github"]
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            now = None
+        if now != config["github"]:
+            log.info("%s: a GitHub token for a list no longer in force wasn't written", directory.name)
+            return
         folder = directory / GITHUB_FOLDER
         folder.mkdir(mode=0o700, exist_ok=True)
         path = folder / shell_hook.GITHUB_TOKEN
@@ -1611,7 +1651,7 @@ class Agents:
             return {"PreToolUse": marks, "PermissionRequest": [ask], "PostToolUse": [moved], "PostToolUseFailure": [moved], "Stop": [moved]}
         held = [{"matcher": QUESTION_TOOL, **ask}] if QUESTION_TOOL in config["tools"] else []
         # Not on the allowed list, so under dontAsk these run only when this says allow, and hubd checks that too.
-        writes = self._asks_first(config, action if self.staged(action) else None)  # a state's, for a session that can move
+        writes = self._asks_first(config, action if self.staged(action, directory.name) else None)  # a state's, for a session that can move
         if writes:
             held.append({"matcher": "|".join(_qualified(t) for t in writes), "hooks": [{"type": "command", "command": command, "timeout": WAIT + HOOK_MARGIN}]})
         return {"PreToolUse": [*marks, *held]}
@@ -1840,38 +1880,48 @@ class Agents:
             live = any(s["name"] == name for s in await self.shells.list())
             if live and not (directory / ENDED_FILE).exists() and not relaunch:
                 raise AgentError(f"{name} is still running")
-            first = self.library.actions.get(record["config"].get("action"))
-            state = self._state_action(name, first) if first else None
-            staged = state is not None and state is not first
-            config = validate(self.library, self._current_config(record["config"], name, record.get("launched")), state)
-            action = state if staged else self.library.action(config["action"])
-            config = await self._github_for(config, action)
-            self._check_sandbox(config, action)
-            if _full(action) != record.get("full", False):
-                raise AgentError(f"{name} can't resume: its action's access has changed")
-            if staged and (problem := self.launch_problem(name, _grant(action))):
-                raise AgentError(f"{name} can't resume: {problem}")
-            present = self._present(name)
-            if len(present) < len(self._checkouts(name, config, action)):
-                raise AgentError(f"{name} can't resume: its checkout is gone")
-            if staged:  # what it was launched with stays, for what the next state takes off (_state_config)
-                record = {**record, "launched": record.get("launched") or record["config"], "checkout": record.get("checkout", _grant(first).checkout)}
-            if staged or any(config.get(f) != record["config"].get(f) for f in ("model", "tools", "hub_tools", "github")) or record.get("permission_mode") != _mode(action):
-                # A resume runs with what the action says now (_argv), so the record says that too.
-                (directory / "session.json").write_text(json.dumps({**record, "config": config, "permission_mode": _mode(action)}))
-                self._load_scopes()
-                for token in [t for t, s in self._scopes.items() if s["session"] == name]:
-                    self._scopes[token] = _session_scope(name, config, _full(action), self._all_repos(config, action), self._asks_first(config, action),
-                                                         record.get("session_id"))
-            self.write_grant(directory, config, action)
-            if action.get("singleton") or staged:  # what it's told has to match what it can do
-                self._write_persona(config, action, directory)
-            if not (directory / TOKEN_FILE).exists():
-                self._session_token(directory, config, _full(action), record.get("session_id"))
-            (directory / REPOS_FOLDER).mkdir(exist_ok=True)  # one from before there were snapshots
-            self._prepare_shell(directory, config, action)
-            await self._github_token(directory, config, action)
-            await self._probe_sandbox(directory, config, action)
+            # A move can come in at any await below, and its narrowing writes the record, the scopes and grant.json. Each round
+            # starts from the instance as it is; one that finds it has moved since is built again, so a stale state never wins.
+            for _round in range(RESUME_ROUNDS):
+                mark = self._machine_mark(name)
+                record = json.loads((directory / "session.json").read_text())
+                first = self.library.actions.get(record["config"].get("action"))
+                state = self._state_action(name, first) if first else None
+                staged = state is not None and state is not first
+                config = validate(self.library, self._current_config(record["config"], name, record.get("launched")), state)
+                action = state if staged else self.library.action(config["action"])
+                config = await self._github_for(config, action)
+                self._check_sandbox(config, action)
+                if _full(action) != record.get("full", False):
+                    raise AgentError(f"{name} can't resume: its action's access has changed")
+                if staged and (problem := self.launch_problem(name, _grant(action))):
+                    raise AgentError(f"{name} can't resume: {problem}")
+                present = self._present(name)
+                if len(present) < len(self._checkouts(name, config, action)):
+                    raise AgentError(f"{name} can't resume: its checkout is gone")
+                if staged:  # what it was launched with stays, for what the next state takes off (_state_config)
+                    record = {**record, "launched": record.get("launched") or record["config"], "checkout": record.get("checkout", _grant(first).checkout)}
+                if staged or any(config.get(f) != record["config"].get(f) for f in ("model", "tools", "hub_tools", "github")) or record.get("permission_mode") != _mode(action):
+                    # A resume runs with what the action says now (_argv), so the record says that too.
+                    (directory / "session.json").write_text(json.dumps({**record, "config": config, "permission_mode": _mode(action)}))
+                    self._load_scopes()
+                    for token in [t for t, s in self._scopes.items() if s["session"] == name]:
+                        self._scopes[token] = _session_scope(name, config, _full(action), self._all_repos(config, action), self._asks_first(config, action),
+                                                             record.get("session_id"))
+                self.write_grant(directory, config, action)
+                if action.get("singleton") or staged:  # what it's told has to match what it can do
+                    self._write_persona(config, action, directory)
+                if not (directory / TOKEN_FILE).exists():
+                    self._session_token(directory, config, _full(action), record.get("session_id"))
+                (directory / REPOS_FOLDER).mkdir(exist_ok=True)  # one from before there were snapshots
+                self._prepare_shell(directory, config, action)
+                await self._github_token(directory, config, action)
+                await self._probe_sandbox(directory, config, action)
+                if self._machine_mark(name) == mark:
+                    break
+            else:
+                raise AgentError(f"{name} can't resume: its workflow kept moving while it was set up")
+            (directory / LOCKED_FILE).unlink(missing_ok=True)  # its rights were worked out again just now
             argv = self._argv(config, action, directory, present[0] if present else None, record["session_id"],
                               self._prepare_home(), resume=True)
             script = self._launcher(directory, "resume.sh", shlex.join(argv))
@@ -2814,8 +2864,12 @@ class Agents:
         directory = self.sessions / name
         if not directory.exists():
             directory.mkdir(mode=0o700)
-            (directory / "session.json").write_text(json.dumps({k: record[k] for k in record if k not in ("how", "ended", "machine")}))
-            self.machines.restore(directory, record)
+            (directory / "session.json").write_text(json.dumps({k: record[k] for k in record if k not in ("how", "ended", "machine", UNREADABLE)}))
+            try:
+                self.machines.restore(directory, record)
+            except MachineError as e:  # its record stays in the history
+                await self._remove(name)
+                raise AgentError(f"{name} can't resume: {e}") from None
             restored = True
         self._starting.add(name)
         try:

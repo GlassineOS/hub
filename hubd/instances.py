@@ -39,6 +39,7 @@ log = logging.getLogger("hubd.instances")
 SCHEMA = 1
 FILE = "machine.json"
 MAX_TRAIL = 50                  # moves that can be rolled back, newest last
+UNREADABLE = "machine_unreadable"  # in a history record: the folder's machine couldn't be read when it went
 ENDED = "ended"                 # the marker a session's terminal leaves when Claude ends (agents.ENDED_FILE)
 OPS = ("machine.get", "machine.history", "machine.move", "machine.confirm", "machine.rollback", "machine.pause")
 
@@ -466,18 +467,44 @@ class Machines:
         banked, so the days it spends ended don't count as time in its state."""
         try:
             inst = Instance.from_json(json.loads((Path(directory) / FILE).read_text()))
-        except (OSError, ValueError, MachineError):
+        except FileNotFoundError:  # a session from before instances
             return {}
+        except (OSError, ValueError, MachineError):  # said, so a resume doesn't take it to be in its first state
+            return {UNREADABLE: True}
         set_stopped(inst, True, self._ended_at(Path(directory), inst))
         return {"machine": inst.to_json()}
 
     def restore(self, directory: Path, record: dict) -> None:
-        """When resume brings a folder back from the history: the machine it had, if the record kept one."""
-        if "machine" in record:
-            try:
+        """When resume brings a folder back from the history: the machine it had, if the record kept one. A session whose
+        workflow can move, and whose machine was lost or can't be read, is refused: starting it in its first state would give
+        it that state's grant, whatever it held. One of a one-state workflow starts again from it, on the next look."""
+        try:
+            if record.get(UNREADABLE):
+                raise MachineError("its machine record couldn't be read when it ended")
+            if "machine" in record:
                 self._write(directory, Instance.from_json(record["machine"]))  # stopped: resume starts its clock
-            except MachineError as e:  # it starts again from its workflow's first state, on the next look
-                log.warning("%s: %s", record.get("name"), e)
+        except MachineError as e:
+            if self.staged_record(record):
+                raise
+            log.warning("%s: %s", record.get("name"), e)
+
+    def staged_record(self, record: dict) -> bool:
+        """Whether a session's workflow, as the library has it now, has more than one state."""
+        latest = self.latest(record)
+        try:
+            return latest is not None and len(_parse(latest).states) > 1
+        except MachineError:
+            return True
+
+    def peek(self, name: str) -> Instance | None:
+        """The session's instance as it is on disk, or None if it has none yet. Makes nothing. MachineError if unreadable."""
+        try:
+            raw = json.loads((self.sessions / name / FILE).read_text())
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError) as e:
+            raise MachineError("the session's machine record can't be read") from e
+        return Instance.from_json(raw)
 
     def load(self, name: str) -> tuple[dict, Instance]:
         if not self.is_session(name):
@@ -493,6 +520,9 @@ class Machines:
             latest = self.latest(record)
             if latest is None:
                 raise MachineError(f"{name}'s action is gone, so it has no workflow") from None
+            if self.staged_record(record) and record.get("session_id"):
+                # Every session of a workflow that can move had one from its start: a lost one isn't made up in the first state.
+                raise MachineError("its machine record is missing") from None
             inst = Instance.new(latest, self.clock())
             self._write(directory, inst)
             return record, inst

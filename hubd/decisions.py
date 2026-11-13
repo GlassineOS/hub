@@ -260,7 +260,8 @@ class Decisions:
         for_hours = None
         if kept_ends.pop("until", None) is not None:  # its clock starts when it's approved: a card can stay up for a day
             for_hours = ends["hours"]
-        waiting = [r for r in self._all.values() if self.current_state(r) == "requested" and r["asked_by"] == asked_by]
+        # The hub's own confirms aren't the session's asking, and don't use up its room.
+        waiting = [r for r in self._all.values() if r["kind"] not in HUB_KINDS and self.current_state(r) == "requested" and r["asked_by"] == asked_by]
         if len(waiting) >= MAX_REQUESTS:
             raise DecisionError(f"you have {MAX_REQUESTS} waiting already: wait for an answer")
         return self._new(kind, scope, kept_ends, "requested", None, asked_by=asked_by, why=why, for_hours=for_hours)

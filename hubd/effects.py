@@ -94,7 +94,7 @@ class Effects:
     # --- the watcher ----------------------------------------------------------------
     def on_move(self, name: str, result: dict) -> None:
         action = self._action_of(name)
-        if action is None or not self.agents.staged(action):
+        if action is None or not self.agents.staged(action, name):
             return
         if result.get("needs_confirm"):
             self._ask(name, result)
