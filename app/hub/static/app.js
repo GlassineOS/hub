@@ -1149,10 +1149,12 @@ const useItemStarts = (kind, repo, number) => useLoad(() => post("agents/starts"
 const KIND_WORDS = { issue: "issues", pr: "pull requests", run: "runs", repo: "repositories", project: "the project", knowledge: "knowledge", notes: "notes" };
 
 function StartTile({ start, onOpen, plain }) {
-  return html`<button class=${`starttile${plain ? " plain" : ""}`} title=${`${start.summary} ${start.ceiling}`} onClick=${onOpen}>
+  // a start that waits (whether a session holds the item isn't known yet) shows, but doesn't open Launch, and says why
+  const waits = start.availability === "hidden";
+  return html`<button class=${`starttile${plain ? " plain" : ""}`} title=${`${start.summary} ${start.ceiling}`} disabled=${waits} onClick=${waits ? null : onOpen}>
     <${PersonaBadge} persona=${{ id: start.persona, name: start.persona_name, initials: start.initials, family: start.family }} hidden />
     <span class="stack" style="gap: 1px; min-width: 0"><b>${start.title}</b><span class="small">${start.persona_name || start.persona}</span>
-      <span class="small soft">${start.ceiling}</span></span></button>`;
+      <span class="small soft">${waits ? `Waits: ${start.why}` : start.ceiling}</span></span></button>`;
 }
 
 function Starts({ kind, repo, number, facts, road }) {
@@ -1171,7 +1173,8 @@ function Starts({ kind, repo, number, facts, road }) {
     const lead = starts.find((s) => s.lead);
     const quick = offeredFor(starts.filter((s) => s !== lead && s.availability !== "refused"), facts);
     const refused = starts.filter((s) => s !== lead && s.availability === "refused"); // a fork's pull request, for a start that pushes
-    const leadOff = lead && lead.availability === "refused";
+    // with a session that may hold it unknown yet (unsure), what doesn't run beside a holder is hidden: shown, but not live
+    const leadOff = lead && (lead.availability === "refused" || lead.availability === "hidden");
     return html`<section class="spawn keycap starts" aria-labelledby="h-starts">
       <div class="row" style="justify-content: space-between; align-items: center"><h2 id="h-starts" class="eyebrow">Start on ${here}</h2>${newWork}</div>
       ${data.unsure && data.unsure.length > 0 && html`<p class="small soft" role="status">Whether ${data.unsure.join(", ")} holds this isn't known yet: the lead start waits until it is.</p>`}
@@ -1179,7 +1182,7 @@ function Starts({ kind, repo, number, facts, road }) {
           <${PersonaBadge} persona=${{ id: lead.persona, name: lead.persona_name, initials: lead.initials, family: lead.family }} hidden />
           <span class="stack" style="gap: 2px; text-align: left"><b>${lead.title}</b><span class="small">${lead.persona_name || lead.persona} · <span class="mono">${[lead.workflow, ...(lead.path || [])].join(" › ")}</span></span></span></button>
         <div class="stack" style="gap: 4px"><span>${lead.summary}</span><span class="small"><span class="eyebrow">May</span> ${lead.ceiling}</span>
-          ${leadOff && html`<span id="lead-refused" class="small" role="note"><b>Can't start here:</b> ${lead.why}.</span>`}</div></div>`}
+          ${leadOff && html`<span id="lead-refused" class="small" role="note"><b>${lead.availability === "hidden" ? "Can't start yet" : "Can't start here"}:</b> ${lead.why}.</span>`}</div></div>`}
       ${quick.length > 0 && html`<${Eyebrow}>Quick tasks<//><div class="startgrid">${quick.map((a) => html`<${StartTile} start=${a} onOpen=${() => open(a)} />`)}
         ${road && html`<button class="starttile" onClick=${() => planIssues(repo, number, "Work")}><b>Plan issues…</b></button>`}</div>`}
       ${refused.length > 0 && html`<details class="small soft"><summary>Can't start here · ${refused.length}</summary>

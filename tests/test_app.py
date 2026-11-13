@@ -3268,9 +3268,19 @@ def test_a_refused_start_says_why_and_launchs_head_names_the_start_and_its_items
     it, other refused starts sit behind a disclosure. Launch's head names the chosen start and its items, as the board does."""
     script = _app_js()
     starts = _component(script, "Starts")
-    assert 'const leadOff = lead && lead.availability === "refused";' in starts and "disabled=${leadOff}" in starts
-    assert "<b>Can't start here:</b> ${lead.why}." in starts and "Can't start here · ${refused.length}" in starts
+    assert 'const leadOff = lead && (lead.availability === "refused" || lead.availability === "hidden");' in starts
+    assert "disabled=${leadOff}" in starts and "Can't start here · ${refused.length}" in starts
+    assert '<b>${lead.availability === "hidden" ? "Can\'t start yet" : "Can\'t start here"}:</b> ${lead.why}.' in starts
     assert 's.availability === "hidden" || s.availability === "refused"' in starts
     modal, brief = _component(script, "LaunchModal"), _component(script, "LaunchBrief")
     assert ": chosen || \"Launch\";" in modal and "onChoose=${setChosen}" in modal and '<span class="nw-tag">Launch</span>' in modal
     assert "onChoose(`${action.title}${itemWords ? ` · ${itemWords}` : \"\"}`)" in brief
+
+
+def test_with_a_holder_unknown_yet_the_starts_that_dont_run_beside_show_off_with_why():
+    """No holder, but whether a session holds the item isn't known yet (unsure): hubd marks the starts that don't run beside a
+    holder hidden. The page shows them, not live: the lead off with its reason, the tiles disabled saying why they wait."""
+    script = _app_js()
+    tile = _component(script, "StartTile")
+    assert 'const waits = start.availability === "hidden";' in tile
+    assert "disabled=${waits} onClick=${waits ? null : onOpen}" in tile and "${waits ? `Waits: ${start.why}` : start.ceiling}" in tile
