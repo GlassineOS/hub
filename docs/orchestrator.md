@@ -3,7 +3,7 @@
 Status: design, being built in the order at the end. The screens are on the "Project Command
 Center" design canvas, in the Steward section.
 
-The Steward is a regular locked hub session for the project as a whole: an action file, a persona,
+The Steward is a regular locked hub session for the project as a whole: a workflow file, a persona,
 its own tool token. It helps with strategy and long-term planning, and it can do through the hub what
 you would do in the UI. It reads freely. Everything that changes something asks you first, on the
 same permission card as any other prompt.

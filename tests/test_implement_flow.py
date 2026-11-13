@@ -513,3 +513,35 @@ def test_take_this_on_has_an_implementor_hold_an_open_pull_request_from_review(h
         with pytest.raises(agents_module.AgentError, match=f"{name} holds boot#{PR}: ask it"):
             await a.start(a.defaults("pr-address-review", "boot", PR))
     asyncio.run(go())
+
+
+
+def test_a_fix_round_on_a_pull_request_taken_on_waits_for_you(hub):
+    """A pull request taken on with Take this on has no issue for an engineer. A fail asks you to confirm fix (it adds push);
+    in fix the engineer doesn't start, each try is a failed line in the machine log, one per turn, and the implementor stays
+    in fix until you move it."""
+    h, a, gh, _apps, _judge = hub
+    turns = 3
+
+    async def go():
+        name = (await a.start(a.defaults("implementor-pr", "boot", PR)))["name"]
+        await settle(h)
+        [child] = reviewers(h, a, name)
+        (a.sessions / name / IDLE_FILE).touch()
+        assert (await returns(h, token_of(a, child), verdict="fail", findings=["Add a test."]))["ok"]
+        await settle(h)
+        _record, inst = a.machines.load(name)
+        assert inst.state == "review" and inst.pending["to"] == "fix" and inst.pending["adds"] == {"github": ["push"]}
+        a.machines.confirm_move(name, inst.pending["id"], "me")
+        await settle(h)
+        for _ in range(turns):
+            await turn_ends(h, a, name)
+        return name
+    name = asyncio.run(go())
+    assert state_of(a, name) == "fix"
+    assert a.machines.load(name)[1].managed["engineer"]["child"] is None
+    log = history(a, name)
+    tries = [e for e in log["evaluations"] if e["proposal"] == "start engineer"]
+    assert tries and all(e["failed"] and e["checks"] == {"started": False, "why": f"{name} isn't on an issue"} for e in tries)
+    assert len(tries) <= turns + 2, "a try per turn, never a loop of its own"
+    assert [(m["from"], m["to"], m["confirmed_by"]) for m in log["moves"]] == [("review", "fix", "me")]
