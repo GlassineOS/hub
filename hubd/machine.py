@@ -4,9 +4,10 @@
 Pure data and checks, no I/O. `parse` reads the TOML text form, `emit` writes it back, `check` finds what stops a save
 (problems) and what only shows (marks), and `effective`/`compare` give a state's grant and tell a widening move.
 
-A state's grant holds the fields actions use today (agents/actions/*.toml), so a one-state workflow is behaviour-neutral:
-access, permission_mode, tools, hub_tools, asks_first, checkout and all_repos, plus github capabilities. Fields that are
-not permissions of the session (result_tools, asks_paths, asks_describe, asks_wait_for_you) stay on the action.
+A state's grant holds a session's rights: access, permission_mode, tools, hub_tools, asks_first, checkout and all_repos,
+plus github capabilities. An action (agents/actions/*.toml) holds none of them: they are its workflow's
+(agents/workflows/*.toml), one state for each action. Fields that are not permissions of the session (result_tools,
+asks_paths, asks_describe, asks_wait_for_you) stay on the action.
 """
 from __future__ import annotations
 

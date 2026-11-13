@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+schema = 1
+name = "run-explain"
+initial = "work"
+
+[state.work]
+final = true
+[state.work.grant]
+tools = ["AskUserQuestion"]
+hub_tools = ["plan_work", "get_run", "get_run_log", "docs_search", "work_search"]
+checkout = false

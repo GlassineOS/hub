@@ -28,9 +28,9 @@ class FakeAgents:
         return self.conversation
 
     def __init__(self):
-        self.scopes = {"steward-token": {"session": "steward", "tools": LIBRARY.actions["project-steward"]["hub_tools"]},
-                       "planner-token": {"session": "new-issue-boot", "tools": LIBRARY.actions["new-issue"]["hub_tools"]},
-                       "review-token": {"session": "pr-review-boot-1", "tools": LIBRARY.actions["pr-review"]["hub_tools"]},
+        self.scopes = {"steward-token": {"session": "steward", "tools": LIBRARY.actions["project-steward"]["grant"].hub_tools},
+                       "planner-token": {"session": "new-issue-boot", "tools": LIBRARY.actions["new-issue"]["grant"].hub_tools},
+                       "review-token": {"session": "pr-review-boot-1", "tools": LIBRARY.actions["pr-review"]["grant"].hub_tools},
                        "full-token": {"session": "mine", "tools": None}}
         self.told, self.forgotten, self.started = [], [], []
         self.state = "Idle"
@@ -45,8 +45,8 @@ class FakeAgents:
 
     def defaults(self, action, repo, number):
         return validate(LIBRARY, {"action": action, "repo": repo, "number": number, "persona": LIBRARY.action(action)["personas"][0],
-                                  "model": LIBRARY.action(action)["models"][0], "effort": "high", "tools": LIBRARY.action(action)["tools"],
-                                  "hub_tools": LIBRARY.action(action)["hub_tools"], "brief": ""})
+                                  "model": LIBRARY.action(action)["models"][0], "effort": "high", "tools": list(LIBRARY.action(action)["grant"].tools),
+                                  "hub_tools": list(LIBRARY.action(action)["grant"].hub_tools), "brief": ""})
 
     async def plan(self, action, repo, number, notes=None, pins=None, planner_model=None, also_numbers=None, covers=None):
         self.planned.append((action, repo, number, notes, pins))
@@ -444,9 +444,9 @@ def test_a_failure_leaves_that_draft_to_retry_and_files_the_rest():
 def test_a_planner_session_gets_no_shell_and_no_write_tool():
     for action in LIBRARY.actions.values():
         if action["object"] == "repo":
-            assert action["checkout"] == "default" and not action.get("access")
-            assert not {"Bash", "Write", "Edit", "Agent"} & set(action["tools"])
-            assert not set(action["hub_tools"]) - {"get_issue", "list_issues", "list_prs", "get_pr", "docs_search", "work_search", "roadmap", "submit_drafts", "request_repository", "map_overview", "map_definition", "map_usages", "map_string", "code_search", "notes_find"}
+            assert action["grant"].checkout == "default" and action["grant"].access == "locked"
+            assert not {"Bash", "Write", "Edit", "Agent"} & set(action["grant"].tools)
+            assert not set(action["grant"].hub_tools) - {"get_issue", "list_issues", "list_prs", "get_pr", "docs_search", "work_search", "roadmap", "submit_drafts", "request_repository", "map_overview", "map_definition", "map_usages", "map_string", "code_search", "notes_find"}
 
 
 def test_a_repository_object_has_no_number(tmp_path):

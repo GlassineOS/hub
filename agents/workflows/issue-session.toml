@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+schema = 1
+name = "issue-session"
+initial = "work"
+
+[state.work]
+final = true
+[state.work.grant]
+access = "full"
+permission_mode = "auto"
+checkout = "new-branch"

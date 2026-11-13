@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+schema = 1
+name = "new-dependency-review"
+initial = "work"
+
+[state.work]
+final = true
+[state.work.grant]
+tools = ["Read", "Grep", "Glob", "AskUserQuestion"]
+hub_tools = ["request_repository", "map_overview", "map_definition", "map_usages", "map_string", "code_search", "get_issue", "list_issues", "list_prs", "get_pr", "docs_search", "work_search", "submit_drafts"]
+checkout = "default"
+all_repos = true

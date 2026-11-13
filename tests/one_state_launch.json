@@ -1,0 +1,6423 @@
+{
+ "actions": {
+  "None": [
+   {
+    "full": false,
+    "id": "issue-triage"
+   },
+   {
+    "full": false,
+    "id": "knowledge-research"
+   },
+   {
+    "full": false,
+    "id": "pr-review"
+   },
+   {
+    "full": false,
+    "id": "project-steward"
+   },
+   {
+    "full": false,
+    "id": "run-diagnose"
+   },
+   {
+    "full": true,
+    "id": "issue-implement"
+   },
+   {
+    "full": true,
+    "id": "pr-fix-checks"
+   },
+   {
+    "full": false,
+    "id": "pr-merge-prep"
+   },
+   {
+    "full": true,
+    "id": "run-fix"
+   },
+   {
+    "full": false,
+    "id": "run-flaky"
+   },
+   {
+    "full": true,
+    "id": "issue-docs"
+   },
+   {
+    "full": false,
+    "id": "pr-explain"
+   },
+   {
+    "full": false,
+    "id": "run-explain"
+   },
+   {
+    "full": true,
+    "id": "design"
+   },
+   {
+    "full": false,
+    "id": "run-slow"
+   },
+   {
+    "full": false,
+    "id": "pr-security-audit"
+   },
+   {
+    "full": true,
+    "id": "issue-session"
+   },
+   {
+    "full": true,
+    "id": "pr-session"
+   },
+   {
+    "full": true,
+    "id": "pr-address-review"
+   },
+   {
+    "full": false,
+    "id": "notes-compact"
+   },
+   {
+    "full": false,
+    "id": "notes-sweep"
+   }
+  ],
+  "issue": [
+   {
+    "full": false,
+    "id": "issue-triage"
+   },
+   {
+    "full": true,
+    "id": "issue-implement"
+   },
+   {
+    "full": true,
+    "id": "issue-docs"
+   },
+   {
+    "full": true,
+    "id": "design"
+   },
+   {
+    "full": true,
+    "id": "issue-session"
+   }
+  ],
+  "knowledge": [
+   {
+    "full": false,
+    "id": "knowledge-research"
+   }
+  ],
+  "notes": [
+   {
+    "full": false,
+    "id": "notes-compact"
+   },
+   {
+    "full": false,
+    "id": "notes-sweep"
+   }
+  ],
+  "pr": [
+   {
+    "full": false,
+    "id": "pr-review"
+   },
+   {
+    "full": true,
+    "id": "pr-fix-checks"
+   },
+   {
+    "full": false,
+    "id": "pr-merge-prep"
+   },
+   {
+    "full": false,
+    "id": "pr-explain"
+   },
+   {
+    "full": false,
+    "id": "pr-security-audit"
+   },
+   {
+    "full": true,
+    "id": "pr-session"
+   },
+   {
+    "full": true,
+    "id": "pr-address-review"
+   }
+  ],
+  "project": [
+   {
+    "full": false,
+    "id": "project-steward"
+   }
+  ],
+  "repo": [
+   {
+    "full": false,
+    "id": "new-issue"
+   },
+   {
+    "full": false,
+    "id": "new-security-audit"
+   },
+   {
+    "full": false,
+    "id": "new-architecture-audit"
+   },
+   {
+    "full": false,
+    "id": "new-roadmap-item"
+   },
+   {
+    "full": false,
+    "id": "new-docs-sweep"
+   },
+   {
+    "full": false,
+    "id": "new-dependency-review"
+   }
+  ],
+  "run": [
+   {
+    "full": false,
+    "id": "run-diagnose"
+   },
+   {
+    "full": true,
+    "id": "run-fix"
+   },
+   {
+    "full": false,
+    "id": "run-flaky"
+   },
+   {
+    "full": false,
+    "id": "run-explain"
+   },
+   {
+    "full": false,
+    "id": "run-slow"
+   }
+  ]
+ },
+ "design": {
+  "advanced": {
+   "checkout": "new-branch",
+   "full": true,
+   "hub_tools": [],
+   "tools": []
+  },
+  "ask_wait": 600,
+  "current": {
+   "action": "design",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [],
+   "model": "opus",
+   "number": 5,
+   "persona": "designer",
+   "repo": "boot",
+   "steps": [],
+   "tools": []
+  },
+  "defaults": {
+   "action": "design",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [],
+   "model": "opus",
+   "number": 5,
+   "persona": "designer",
+   "repo": "boot",
+   "steps": [],
+   "tools": []
+  },
+  "full": true,
+  "mode": "auto",
+  "notes_search": false,
+  "preview": {
+   "checkouts": [
+    "<state>/workspace/work/design-5/ui"
+   ],
+   "command": "claude --session-id '<session id>' --name design-5 --model opus --effort high --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/design-5/settings.json --append-system-prompt-file <state>/sessions/design-5/persona.md --permission-mode auto",
+   "cwd": "<state>/workspace",
+   "name": "design-5",
+   "worktree": "new branch agent/design-5"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "design-5",
+   "--model",
+   "opus",
+   "--effort",
+   "high",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/design-5/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/design-5/persona.md",
+   "--permission-mode",
+   "auto"
+  ],
+  "scope": {
+   "all_repos": false,
+   "asks_first": [],
+   "design": true,
+   "instance": "<instance>",
+   "persona": "designer",
+   "reports": [],
+   "session": "design-5",
+   "tools": null
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/design-5/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PermissionRequest": [
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/design-5/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PostToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "test -e <state>/sessions/design-5/asks-open && <python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/design-5/tool-token; true",
+        "timeout": 10,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PostToolUseFailure": [
+     {
+      "hooks": [
+       {
+        "command": "test -e <state>/sessions/design-5/asks-open && <python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/design-5/tool-token; true",
+        "timeout": 10,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/design-5/waiting <state>/sessions/design-5/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/design-5/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/design-5/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "test -e <state>/sessions/design-5/asks-open && <python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/design-5/tool-token; true",
+        "timeout": 10,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/design-5/waiting <state>/sessions/design-5/idle; if mv <state>/sessions/design-5/outcomes <state>/sessions/design-5/outcomes.read 2>/dev/null; then cat <state>/sessions/design-5/outcomes.read; rm -f <state>/sessions/design-5/outcomes.read; fi; cat <state>/sessions/design-5/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/design-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/design-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/design-5/status.json.part.$$ <state>/sessions/design-5/status.json; rm -f <state>/sessions/design-5/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ },
+ "issue-docs": {
+  "advanced": {
+   "checkout": "new-branch",
+   "full": true,
+   "hub_tools": [],
+   "tools": []
+  },
+  "ask_wait": 600,
+  "current": {
+   "action": "issue-docs",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [],
+   "model": "opus",
+   "number": 5,
+   "persona": "engineer",
+   "repo": "boot",
+   "steps": [],
+   "tools": []
+  },
+  "defaults": {
+   "action": "issue-docs",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [],
+   "model": "opus",
+   "number": 5,
+   "persona": "engineer",
+   "repo": "boot",
+   "steps": [],
+   "tools": []
+  },
+  "full": true,
+  "mode": "auto",
+  "notes_search": false,
+  "preview": {
+   "checkouts": [
+    "<state>/workspace/work/issue-docs-boot-5/boot"
+   ],
+   "command": "claude --session-id '<session id>' --name issue-docs-boot-5 --model opus --effort high --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/issue-docs-boot-5/settings.json --append-system-prompt-file <state>/sessions/issue-docs-boot-5/persona.md --permission-mode auto",
+   "cwd": "<state>/workspace",
+   "name": "issue-docs-boot-5",
+   "worktree": "new branch agent/issue-docs-boot-5"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "issue-docs-boot-5",
+   "--model",
+   "opus",
+   "--effort",
+   "high",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/issue-docs-boot-5/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/issue-docs-boot-5/persona.md",
+   "--permission-mode",
+   "auto"
+  ],
+  "scope": {
+   "all_repos": false,
+   "asks_first": [],
+   "design": false,
+   "instance": "<instance>",
+   "persona": "engineer",
+   "reports": [],
+   "session": "issue-docs-boot-5",
+   "tools": null
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/issue-docs-boot-5/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PermissionRequest": [
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/issue-docs-boot-5/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PostToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "test -e <state>/sessions/issue-docs-boot-5/asks-open && <python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/issue-docs-boot-5/tool-token; true",
+        "timeout": 10,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PostToolUseFailure": [
+     {
+      "hooks": [
+       {
+        "command": "test -e <state>/sessions/issue-docs-boot-5/asks-open && <python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/issue-docs-boot-5/tool-token; true",
+        "timeout": 10,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/issue-docs-boot-5/waiting <state>/sessions/issue-docs-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/issue-docs-boot-5/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/issue-docs-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "test -e <state>/sessions/issue-docs-boot-5/asks-open && <python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/issue-docs-boot-5/tool-token; true",
+        "timeout": 10,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/issue-docs-boot-5/waiting <state>/sessions/issue-docs-boot-5/idle; if mv <state>/sessions/issue-docs-boot-5/outcomes <state>/sessions/issue-docs-boot-5/outcomes.read 2>/dev/null; then cat <state>/sessions/issue-docs-boot-5/outcomes.read; rm -f <state>/sessions/issue-docs-boot-5/outcomes.read; fi; cat <state>/sessions/issue-docs-boot-5/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/issue-docs-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/issue-docs-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/issue-docs-boot-5/status.json.part.$$ <state>/sessions/issue-docs-boot-5/status.json; rm -f <state>/sessions/issue-docs-boot-5/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ },
+ "issue-implement": {
+  "advanced": {
+   "checkout": "new-branch",
+   "full": true,
+   "hub_tools": [],
+   "tools": []
+  },
+  "ask_wait": 600,
+  "current": {
+   "action": "issue-implement",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [],
+   "model": "opus",
+   "number": 5,
+   "persona": "engineer",
+   "repo": "boot",
+   "steps": [],
+   "tools": []
+  },
+  "defaults": {
+   "action": "issue-implement",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [],
+   "model": "opus",
+   "number": 5,
+   "persona": "engineer",
+   "repo": "boot",
+   "steps": [],
+   "tools": []
+  },
+  "full": true,
+  "mode": "auto",
+  "notes_search": false,
+  "preview": {
+   "checkouts": [
+    "<state>/workspace/work/issue-implement-boot-5/boot"
+   ],
+   "command": "claude --session-id '<session id>' --name issue-implement-boot-5 --model opus --effort high --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/issue-implement-boot-5/settings.json --append-system-prompt-file <state>/sessions/issue-implement-boot-5/persona.md --permission-mode auto",
+   "cwd": "<state>/workspace",
+   "name": "issue-implement-boot-5",
+   "worktree": "new branch agent/issue-implement-boot-5"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "issue-implement-boot-5",
+   "--model",
+   "opus",
+   "--effort",
+   "high",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/issue-implement-boot-5/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/issue-implement-boot-5/persona.md",
+   "--permission-mode",
+   "auto"
+  ],
+  "scope": {
+   "all_repos": false,
+   "asks_first": [],
+   "design": false,
+   "instance": "<instance>",
+   "persona": "engineer",
+   "reports": [],
+   "session": "issue-implement-boot-5",
+   "tools": null
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/issue-implement-boot-5/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PermissionRequest": [
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/issue-implement-boot-5/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PostToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "test -e <state>/sessions/issue-implement-boot-5/asks-open && <python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/issue-implement-boot-5/tool-token; true",
+        "timeout": 10,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PostToolUseFailure": [
+     {
+      "hooks": [
+       {
+        "command": "test -e <state>/sessions/issue-implement-boot-5/asks-open && <python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/issue-implement-boot-5/tool-token; true",
+        "timeout": 10,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/issue-implement-boot-5/waiting <state>/sessions/issue-implement-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/issue-implement-boot-5/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/issue-implement-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "test -e <state>/sessions/issue-implement-boot-5/asks-open && <python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/issue-implement-boot-5/tool-token; true",
+        "timeout": 10,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/issue-implement-boot-5/waiting <state>/sessions/issue-implement-boot-5/idle; if mv <state>/sessions/issue-implement-boot-5/outcomes <state>/sessions/issue-implement-boot-5/outcomes.read 2>/dev/null; then cat <state>/sessions/issue-implement-boot-5/outcomes.read; rm -f <state>/sessions/issue-implement-boot-5/outcomes.read; fi; cat <state>/sessions/issue-implement-boot-5/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/issue-implement-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/issue-implement-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/issue-implement-boot-5/status.json.part.$$ <state>/sessions/issue-implement-boot-5/status.json; rm -f <state>/sessions/issue-implement-boot-5/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ },
+ "issue-session": {
+  "advanced": {
+   "checkout": "new-branch",
+   "full": true,
+   "hub_tools": [],
+   "tools": []
+  },
+  "ask_wait": 600,
+  "current": {
+   "action": "issue-session",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [],
+   "model": "opus",
+   "number": 5,
+   "persona": "engineer",
+   "repo": "boot",
+   "steps": [],
+   "tools": []
+  },
+  "defaults": {
+   "action": "issue-session",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [],
+   "model": "opus",
+   "number": 5,
+   "persona": "engineer",
+   "repo": "boot",
+   "steps": [],
+   "tools": []
+  },
+  "full": true,
+  "mode": "auto",
+  "notes_search": false,
+  "preview": {
+   "checkouts": [
+    "<state>/workspace/work/issue-session-boot-5/boot"
+   ],
+   "command": "claude --session-id '<session id>' --name issue-session-boot-5 --model opus --effort high --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/issue-session-boot-5/settings.json --append-system-prompt-file <state>/sessions/issue-session-boot-5/persona.md --permission-mode auto",
+   "cwd": "<state>/workspace",
+   "name": "issue-session-boot-5",
+   "worktree": "new branch agent/issue-session-boot-5"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "issue-session-boot-5",
+   "--model",
+   "opus",
+   "--effort",
+   "high",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/issue-session-boot-5/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/issue-session-boot-5/persona.md",
+   "--permission-mode",
+   "auto"
+  ],
+  "scope": {
+   "all_repos": false,
+   "asks_first": [],
+   "design": false,
+   "instance": "<instance>",
+   "persona": "engineer",
+   "reports": [],
+   "session": "issue-session-boot-5",
+   "tools": null
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/issue-session-boot-5/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PermissionRequest": [
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/issue-session-boot-5/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PostToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "test -e <state>/sessions/issue-session-boot-5/asks-open && <python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/issue-session-boot-5/tool-token; true",
+        "timeout": 10,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PostToolUseFailure": [
+     {
+      "hooks": [
+       {
+        "command": "test -e <state>/sessions/issue-session-boot-5/asks-open && <python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/issue-session-boot-5/tool-token; true",
+        "timeout": 10,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/issue-session-boot-5/waiting <state>/sessions/issue-session-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/issue-session-boot-5/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/issue-session-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "test -e <state>/sessions/issue-session-boot-5/asks-open && <python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/issue-session-boot-5/tool-token; true",
+        "timeout": 10,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/issue-session-boot-5/waiting <state>/sessions/issue-session-boot-5/idle; if mv <state>/sessions/issue-session-boot-5/outcomes <state>/sessions/issue-session-boot-5/outcomes.read 2>/dev/null; then cat <state>/sessions/issue-session-boot-5/outcomes.read; rm -f <state>/sessions/issue-session-boot-5/outcomes.read; fi; cat <state>/sessions/issue-session-boot-5/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/issue-session-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/issue-session-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/issue-session-boot-5/status.json.part.$$ <state>/sessions/issue-session-boot-5/status.json; rm -f <state>/sessions/issue-session-boot-5/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ },
+ "issue-triage": {
+  "advanced": {
+   "checkout": false,
+   "full": false,
+   "hub_tools": [
+    "plan_work",
+    "get_issue",
+    "list_issues",
+    "submit_result",
+    "comment_issue",
+    "docs_search",
+    "work_search"
+   ],
+   "tools": [
+    "Skill",
+    "AskUserQuestion"
+   ]
+  },
+  "ask_wait": 600,
+  "current": {
+   "action": "issue-triage",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "low",
+   "hub_tools": [
+    "plan_work",
+    "get_issue",
+    "list_issues",
+    "submit_result",
+    "comment_issue",
+    "docs_search",
+    "work_search"
+   ],
+   "model": "sonnet",
+   "number": 5,
+   "persona": "triager",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "Skill",
+    "AskUserQuestion"
+   ]
+  },
+  "defaults": {
+   "action": "issue-triage",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "low",
+   "hub_tools": [
+    "plan_work",
+    "get_issue",
+    "list_issues",
+    "submit_result",
+    "comment_issue",
+    "docs_search",
+    "work_search"
+   ],
+   "model": "sonnet",
+   "number": 5,
+   "persona": "triager",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "Skill",
+    "AskUserQuestion"
+   ]
+  },
+  "full": false,
+  "mode": "dontAsk",
+  "notes_search": false,
+  "preview": {
+   "checkouts": [],
+   "command": "claude --session-id '<session id>' --name issue-triage-boot-5 --model sonnet --effort low --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/issue-triage-boot-5/settings.json --append-system-prompt-file <state>/sessions/issue-triage-boot-5/persona.md --permission-mode dontAsk --setting-sources user --strict-mcp-config --tools Skill,AskUserQuestion --allowedTools Skill,AskUserQuestion,mcp__glassine-hub__plan_work,mcp__glassine-hub__get_issue,mcp__glassine-hub__list_issues,mcp__glassine-hub__submit_result,mcp__glassine-hub__comment_issue,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search",
+   "cwd": "<state>/home",
+   "name": "issue-triage-boot-5",
+   "worktree": "none"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "issue-triage-boot-5",
+   "--model",
+   "sonnet",
+   "--effort",
+   "low",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/issue-triage-boot-5/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/issue-triage-boot-5/persona.md",
+   "--permission-mode",
+   "dontAsk",
+   "--setting-sources",
+   "user",
+   "--strict-mcp-config",
+   "--tools",
+   "Skill,AskUserQuestion",
+   "--allowedTools",
+   "Skill,AskUserQuestion,mcp__glassine-hub__plan_work,mcp__glassine-hub__get_issue,mcp__glassine-hub__list_issues,mcp__glassine-hub__submit_result,mcp__glassine-hub__comment_issue,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search"
+  ],
+  "scope": {
+   "all_repos": false,
+   "asks_first": [],
+   "design": false,
+   "instance": "<instance>",
+   "persona": "triager",
+   "reports": [],
+   "session": "issue-triage-boot-5",
+   "tools": [
+    "plan_work",
+    "get_issue",
+    "list_issues",
+    "submit_result",
+    "comment_issue",
+    "docs_search",
+    "work_search"
+   ]
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/issue-triage-boot-5/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/issue-triage-boot-5/waiting <state>/sessions/issue-triage-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/issue-triage-boot-5/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ],
+      "matcher": "AskUserQuestion"
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/issue-triage-boot-5/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/issue-triage-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/issue-triage-boot-5/waiting <state>/sessions/issue-triage-boot-5/idle; if mv <state>/sessions/issue-triage-boot-5/outcomes <state>/sessions/issue-triage-boot-5/outcomes.read 2>/dev/null; then cat <state>/sessions/issue-triage-boot-5/outcomes.read; rm -f <state>/sessions/issue-triage-boot-5/outcomes.read; fi; cat <state>/sessions/issue-triage-boot-5/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/issue-triage-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/issue-triage-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/issue-triage-boot-5/status.json.part.$$ <state>/sessions/issue-triage-boot-5/status.json; rm -f <state>/sessions/issue-triage-boot-5/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ },
+ "knowledge-research": {
+  "advanced": {
+   "checkout": false,
+   "full": false,
+   "hub_tools": [
+    "docs_search",
+    "work_search",
+    "list_repo_files",
+    "read_repo_file",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "get_pr",
+    "list_prs",
+    "read_report",
+    "submit_result",
+    "notes_find"
+   ],
+   "tools": [
+    "AskUserQuestion"
+   ]
+  },
+  "ask_wait": 600,
+  "current": {
+   "action": "knowledge-research",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [
+    "docs_search",
+    "work_search",
+    "list_repo_files",
+    "read_repo_file",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "get_pr",
+    "list_prs",
+    "read_report",
+    "submit_result",
+    "notes_find"
+   ],
+   "model": "sonnet",
+   "number": null,
+   "persona": "researcher",
+   "repo": null,
+   "steps": [],
+   "tools": [
+    "AskUserQuestion"
+   ]
+  },
+  "defaults": {
+   "action": "knowledge-research",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [
+    "docs_search",
+    "work_search",
+    "list_repo_files",
+    "read_repo_file",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "get_pr",
+    "list_prs",
+    "read_report",
+    "submit_result",
+    "notes_find"
+   ],
+   "model": "sonnet",
+   "number": null,
+   "persona": "researcher",
+   "repo": null,
+   "steps": [],
+   "tools": [
+    "AskUserQuestion"
+   ]
+  },
+  "full": false,
+  "mode": "dontAsk",
+  "notes_search": true,
+  "preview": {
+   "checkouts": [],
+   "command": "claude --session-id '<session id>' --name knowledge-research --model sonnet --effort high --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/knowledge-research/settings.json --append-system-prompt-file <state>/sessions/knowledge-research/persona.md --permission-mode dontAsk --setting-sources user --strict-mcp-config --tools AskUserQuestion --allowedTools AskUserQuestion,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search,mcp__glassine-hub__list_repo_files,mcp__glassine-hub__read_repo_file,mcp__glassine-hub__map_overview,mcp__glassine-hub__map_definition,mcp__glassine-hub__map_usages,mcp__glassine-hub__map_string,mcp__glassine-hub__code_search,mcp__glassine-hub__get_issue,mcp__glassine-hub__list_issues,mcp__glassine-hub__get_pr,mcp__glassine-hub__list_prs,mcp__glassine-hub__read_report,mcp__glassine-hub__submit_result,mcp__glassine-hub__notes_find",
+   "cwd": "<state>/home",
+   "name": "knowledge-research",
+   "worktree": "none"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "knowledge-research",
+   "--model",
+   "sonnet",
+   "--effort",
+   "high",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/knowledge-research/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/knowledge-research/persona.md",
+   "--permission-mode",
+   "dontAsk",
+   "--setting-sources",
+   "user",
+   "--strict-mcp-config",
+   "--tools",
+   "AskUserQuestion",
+   "--allowedTools",
+   "AskUserQuestion,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search,mcp__glassine-hub__list_repo_files,mcp__glassine-hub__read_repo_file,mcp__glassine-hub__map_overview,mcp__glassine-hub__map_definition,mcp__glassine-hub__map_usages,mcp__glassine-hub__map_string,mcp__glassine-hub__code_search,mcp__glassine-hub__get_issue,mcp__glassine-hub__list_issues,mcp__glassine-hub__get_pr,mcp__glassine-hub__list_prs,mcp__glassine-hub__read_report,mcp__glassine-hub__submit_result,mcp__glassine-hub__notes_find"
+  ],
+  "scope": {
+   "all_repos": true,
+   "asks_first": [],
+   "design": false,
+   "instance": "<instance>",
+   "persona": "researcher",
+   "reports": [],
+   "session": "knowledge-research",
+   "tools": [
+    "docs_search",
+    "work_search",
+    "list_repo_files",
+    "read_repo_file",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "get_pr",
+    "list_prs",
+    "read_report",
+    "submit_result",
+    "notes_find"
+   ]
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/knowledge-research/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/knowledge-research/waiting <state>/sessions/knowledge-research/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/knowledge-research/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ],
+      "matcher": "AskUserQuestion"
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/knowledge-research/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/knowledge-research/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/knowledge-research/waiting <state>/sessions/knowledge-research/idle; if mv <state>/sessions/knowledge-research/outcomes <state>/sessions/knowledge-research/outcomes.read 2>/dev/null; then cat <state>/sessions/knowledge-research/outcomes.read; rm -f <state>/sessions/knowledge-research/outcomes.read; fi; cat <state>/sessions/knowledge-research/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/knowledge-research/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/knowledge-research/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/knowledge-research/status.json.part.$$ <state>/sessions/knowledge-research/status.json; rm -f <state>/sessions/knowledge-research/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ },
+ "new-architecture-audit": {
+  "advanced": {
+   "checkout": "default",
+   "full": false,
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "list_prs",
+    "get_pr",
+    "docs_search",
+    "work_search",
+    "submit_drafts",
+    "notes_find"
+   ],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "AskUserQuestion"
+   ]
+  },
+  "ask_wait": 600,
+  "current": {
+   "action": "new-architecture-audit",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "list_prs",
+    "get_pr",
+    "docs_search",
+    "work_search",
+    "submit_drafts",
+    "notes_find"
+   ],
+   "model": "opus",
+   "number": null,
+   "persona": "architect",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "AskUserQuestion"
+   ]
+  },
+  "defaults": {
+   "action": "new-architecture-audit",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "list_prs",
+    "get_pr",
+    "docs_search",
+    "work_search",
+    "submit_drafts",
+    "notes_find"
+   ],
+   "model": "opus",
+   "number": null,
+   "persona": "architect",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "AskUserQuestion"
+   ]
+  },
+  "full": false,
+  "mode": "dontAsk",
+  "notes_search": true,
+  "preview": {
+   "checkouts": [
+    "<state>/sessions/new-architecture-audit-boot/checkout/boot"
+   ],
+   "command": "claude --session-id '<session id>' --name new-architecture-audit-boot --model opus --effort high --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/new-architecture-audit-boot/settings.json --append-system-prompt-file <state>/sessions/new-architecture-audit-boot/persona.md --permission-mode dontAsk --setting-sources user --strict-mcp-config --tools Read,Grep,Glob,AskUserQuestion --allowedTools AskUserQuestion,mcp__glassine-hub__request_repository,mcp__glassine-hub__map_overview,mcp__glassine-hub__map_definition,mcp__glassine-hub__map_usages,mcp__glassine-hub__map_string,mcp__glassine-hub__code_search,mcp__glassine-hub__get_issue,mcp__glassine-hub__list_issues,mcp__glassine-hub__list_prs,mcp__glassine-hub__get_pr,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search,mcp__glassine-hub__submit_drafts,mcp__glassine-hub__notes_find --add-dir <state>/sessions/new-architecture-audit-boot/checkout/boot <state>/sessions/new-architecture-audit-boot/repos",
+   "cwd": "<state>/home",
+   "name": "new-architecture-audit-boot",
+   "worktree": "detached at the default branch"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "new-architecture-audit-boot",
+   "--model",
+   "opus",
+   "--effort",
+   "high",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/new-architecture-audit-boot/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/new-architecture-audit-boot/persona.md",
+   "--permission-mode",
+   "dontAsk",
+   "--setting-sources",
+   "user",
+   "--strict-mcp-config",
+   "--tools",
+   "Read,Grep,Glob,AskUserQuestion",
+   "--allowedTools",
+   "AskUserQuestion,mcp__glassine-hub__request_repository,mcp__glassine-hub__map_overview,mcp__glassine-hub__map_definition,mcp__glassine-hub__map_usages,mcp__glassine-hub__map_string,mcp__glassine-hub__code_search,mcp__glassine-hub__get_issue,mcp__glassine-hub__list_issues,mcp__glassine-hub__list_prs,mcp__glassine-hub__get_pr,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search,mcp__glassine-hub__submit_drafts,mcp__glassine-hub__notes_find",
+   "--add-dir",
+   "<state>/sessions/new-architecture-audit-boot/checkout/boot",
+   "<state>/sessions/new-architecture-audit-boot/repos"
+  ],
+  "scope": {
+   "all_repos": true,
+   "asks_first": [],
+   "design": false,
+   "instance": "<instance>",
+   "persona": "architect",
+   "reports": [],
+   "session": "new-architecture-audit-boot",
+   "tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "list_prs",
+    "get_pr",
+    "docs_search",
+    "work_search",
+    "submit_drafts",
+    "notes_find"
+   ]
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/new-architecture-audit-boot/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/new-architecture-audit-boot/waiting <state>/sessions/new-architecture-audit-boot/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/new-architecture-audit-boot/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ],
+      "matcher": "AskUserQuestion"
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/new-architecture-audit-boot/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/new-architecture-audit-boot/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/new-architecture-audit-boot/waiting <state>/sessions/new-architecture-audit-boot/idle; if mv <state>/sessions/new-architecture-audit-boot/outcomes <state>/sessions/new-architecture-audit-boot/outcomes.read 2>/dev/null; then cat <state>/sessions/new-architecture-audit-boot/outcomes.read; rm -f <state>/sessions/new-architecture-audit-boot/outcomes.read; fi; cat <state>/sessions/new-architecture-audit-boot/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/new-architecture-audit-boot/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/new-architecture-audit-boot/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/new-architecture-audit-boot/status.json.part.$$ <state>/sessions/new-architecture-audit-boot/status.json; rm -f <state>/sessions/new-architecture-audit-boot/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ },
+ "new-dependency-review": {
+  "advanced": {
+   "checkout": "default",
+   "full": false,
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "list_prs",
+    "get_pr",
+    "docs_search",
+    "work_search",
+    "submit_drafts",
+    "notes_find"
+   ],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "AskUserQuestion"
+   ]
+  },
+  "ask_wait": 600,
+  "current": {
+   "action": "new-dependency-review",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "list_prs",
+    "get_pr",
+    "docs_search",
+    "work_search",
+    "submit_drafts",
+    "notes_find"
+   ],
+   "model": "sonnet",
+   "number": null,
+   "persona": "release-steward",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "AskUserQuestion"
+   ]
+  },
+  "defaults": {
+   "action": "new-dependency-review",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "list_prs",
+    "get_pr",
+    "docs_search",
+    "work_search",
+    "submit_drafts",
+    "notes_find"
+   ],
+   "model": "sonnet",
+   "number": null,
+   "persona": "release-steward",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "AskUserQuestion"
+   ]
+  },
+  "full": false,
+  "mode": "dontAsk",
+  "notes_search": true,
+  "preview": {
+   "checkouts": [
+    "<state>/sessions/new-dependency-review-boot/checkout/boot"
+   ],
+   "command": "claude --session-id '<session id>' --name new-dependency-review-boot --model sonnet --effort high --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/new-dependency-review-boot/settings.json --append-system-prompt-file <state>/sessions/new-dependency-review-boot/persona.md --permission-mode dontAsk --setting-sources user --strict-mcp-config --tools Read,Grep,Glob,AskUserQuestion --allowedTools AskUserQuestion,mcp__glassine-hub__request_repository,mcp__glassine-hub__map_overview,mcp__glassine-hub__map_definition,mcp__glassine-hub__map_usages,mcp__glassine-hub__map_string,mcp__glassine-hub__code_search,mcp__glassine-hub__get_issue,mcp__glassine-hub__list_issues,mcp__glassine-hub__list_prs,mcp__glassine-hub__get_pr,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search,mcp__glassine-hub__submit_drafts,mcp__glassine-hub__notes_find --add-dir <state>/sessions/new-dependency-review-boot/checkout/boot <state>/sessions/new-dependency-review-boot/repos",
+   "cwd": "<state>/home",
+   "name": "new-dependency-review-boot",
+   "worktree": "detached at the default branch"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "new-dependency-review-boot",
+   "--model",
+   "sonnet",
+   "--effort",
+   "high",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/new-dependency-review-boot/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/new-dependency-review-boot/persona.md",
+   "--permission-mode",
+   "dontAsk",
+   "--setting-sources",
+   "user",
+   "--strict-mcp-config",
+   "--tools",
+   "Read,Grep,Glob,AskUserQuestion",
+   "--allowedTools",
+   "AskUserQuestion,mcp__glassine-hub__request_repository,mcp__glassine-hub__map_overview,mcp__glassine-hub__map_definition,mcp__glassine-hub__map_usages,mcp__glassine-hub__map_string,mcp__glassine-hub__code_search,mcp__glassine-hub__get_issue,mcp__glassine-hub__list_issues,mcp__glassine-hub__list_prs,mcp__glassine-hub__get_pr,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search,mcp__glassine-hub__submit_drafts,mcp__glassine-hub__notes_find",
+   "--add-dir",
+   "<state>/sessions/new-dependency-review-boot/checkout/boot",
+   "<state>/sessions/new-dependency-review-boot/repos"
+  ],
+  "scope": {
+   "all_repos": true,
+   "asks_first": [],
+   "design": false,
+   "instance": "<instance>",
+   "persona": "release-steward",
+   "reports": [],
+   "session": "new-dependency-review-boot",
+   "tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "list_prs",
+    "get_pr",
+    "docs_search",
+    "work_search",
+    "submit_drafts",
+    "notes_find"
+   ]
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/new-dependency-review-boot/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/new-dependency-review-boot/waiting <state>/sessions/new-dependency-review-boot/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/new-dependency-review-boot/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ],
+      "matcher": "AskUserQuestion"
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/new-dependency-review-boot/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/new-dependency-review-boot/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/new-dependency-review-boot/waiting <state>/sessions/new-dependency-review-boot/idle; if mv <state>/sessions/new-dependency-review-boot/outcomes <state>/sessions/new-dependency-review-boot/outcomes.read 2>/dev/null; then cat <state>/sessions/new-dependency-review-boot/outcomes.read; rm -f <state>/sessions/new-dependency-review-boot/outcomes.read; fi; cat <state>/sessions/new-dependency-review-boot/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/new-dependency-review-boot/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/new-dependency-review-boot/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/new-dependency-review-boot/status.json.part.$$ <state>/sessions/new-dependency-review-boot/status.json; rm -f <state>/sessions/new-dependency-review-boot/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ },
+ "new-docs-sweep": {
+  "advanced": {
+   "checkout": "default",
+   "full": false,
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "list_prs",
+    "get_pr",
+    "docs_search",
+    "work_search",
+    "submit_drafts",
+    "notes_find"
+   ],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "AskUserQuestion"
+   ]
+  },
+  "ask_wait": 600,
+  "current": {
+   "action": "new-docs-sweep",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "list_prs",
+    "get_pr",
+    "docs_search",
+    "work_search",
+    "submit_drafts",
+    "notes_find"
+   ],
+   "model": "sonnet",
+   "number": null,
+   "persona": "docs-writer",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "AskUserQuestion"
+   ]
+  },
+  "defaults": {
+   "action": "new-docs-sweep",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "list_prs",
+    "get_pr",
+    "docs_search",
+    "work_search",
+    "submit_drafts",
+    "notes_find"
+   ],
+   "model": "sonnet",
+   "number": null,
+   "persona": "docs-writer",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "AskUserQuestion"
+   ]
+  },
+  "full": false,
+  "mode": "dontAsk",
+  "notes_search": true,
+  "preview": {
+   "checkouts": [
+    "<state>/sessions/new-docs-sweep-boot/checkout/boot"
+   ],
+   "command": "claude --session-id '<session id>' --name new-docs-sweep-boot --model sonnet --effort high --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/new-docs-sweep-boot/settings.json --append-system-prompt-file <state>/sessions/new-docs-sweep-boot/persona.md --permission-mode dontAsk --setting-sources user --strict-mcp-config --tools Read,Grep,Glob,AskUserQuestion --allowedTools AskUserQuestion,mcp__glassine-hub__request_repository,mcp__glassine-hub__map_overview,mcp__glassine-hub__map_definition,mcp__glassine-hub__map_usages,mcp__glassine-hub__map_string,mcp__glassine-hub__code_search,mcp__glassine-hub__get_issue,mcp__glassine-hub__list_issues,mcp__glassine-hub__list_prs,mcp__glassine-hub__get_pr,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search,mcp__glassine-hub__submit_drafts,mcp__glassine-hub__notes_find --add-dir <state>/sessions/new-docs-sweep-boot/checkout/boot <state>/sessions/new-docs-sweep-boot/repos",
+   "cwd": "<state>/home",
+   "name": "new-docs-sweep-boot",
+   "worktree": "detached at the default branch"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "new-docs-sweep-boot",
+   "--model",
+   "sonnet",
+   "--effort",
+   "high",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/new-docs-sweep-boot/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/new-docs-sweep-boot/persona.md",
+   "--permission-mode",
+   "dontAsk",
+   "--setting-sources",
+   "user",
+   "--strict-mcp-config",
+   "--tools",
+   "Read,Grep,Glob,AskUserQuestion",
+   "--allowedTools",
+   "AskUserQuestion,mcp__glassine-hub__request_repository,mcp__glassine-hub__map_overview,mcp__glassine-hub__map_definition,mcp__glassine-hub__map_usages,mcp__glassine-hub__map_string,mcp__glassine-hub__code_search,mcp__glassine-hub__get_issue,mcp__glassine-hub__list_issues,mcp__glassine-hub__list_prs,mcp__glassine-hub__get_pr,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search,mcp__glassine-hub__submit_drafts,mcp__glassine-hub__notes_find",
+   "--add-dir",
+   "<state>/sessions/new-docs-sweep-boot/checkout/boot",
+   "<state>/sessions/new-docs-sweep-boot/repos"
+  ],
+  "scope": {
+   "all_repos": true,
+   "asks_first": [],
+   "design": false,
+   "instance": "<instance>",
+   "persona": "docs-writer",
+   "reports": [],
+   "session": "new-docs-sweep-boot",
+   "tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "list_prs",
+    "get_pr",
+    "docs_search",
+    "work_search",
+    "submit_drafts",
+    "notes_find"
+   ]
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/new-docs-sweep-boot/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/new-docs-sweep-boot/waiting <state>/sessions/new-docs-sweep-boot/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/new-docs-sweep-boot/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ],
+      "matcher": "AskUserQuestion"
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/new-docs-sweep-boot/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/new-docs-sweep-boot/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/new-docs-sweep-boot/waiting <state>/sessions/new-docs-sweep-boot/idle; if mv <state>/sessions/new-docs-sweep-boot/outcomes <state>/sessions/new-docs-sweep-boot/outcomes.read 2>/dev/null; then cat <state>/sessions/new-docs-sweep-boot/outcomes.read; rm -f <state>/sessions/new-docs-sweep-boot/outcomes.read; fi; cat <state>/sessions/new-docs-sweep-boot/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/new-docs-sweep-boot/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/new-docs-sweep-boot/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/new-docs-sweep-boot/status.json.part.$$ <state>/sessions/new-docs-sweep-boot/status.json; rm -f <state>/sessions/new-docs-sweep-boot/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ },
+ "new-issue": {
+  "advanced": {
+   "checkout": "default",
+   "full": false,
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "list_prs",
+    "get_pr",
+    "docs_search",
+    "work_search",
+    "submit_drafts",
+    "notes_find"
+   ],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "AskUserQuestion"
+   ]
+  },
+  "ask_wait": 600,
+  "current": {
+   "action": "new-issue",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "list_prs",
+    "get_pr",
+    "docs_search",
+    "work_search",
+    "submit_drafts",
+    "notes_find"
+   ],
+   "model": "sonnet",
+   "number": null,
+   "persona": "issue-writer",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "AskUserQuestion"
+   ]
+  },
+  "defaults": {
+   "action": "new-issue",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "list_prs",
+    "get_pr",
+    "docs_search",
+    "work_search",
+    "submit_drafts",
+    "notes_find"
+   ],
+   "model": "sonnet",
+   "number": null,
+   "persona": "issue-writer",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "AskUserQuestion"
+   ]
+  },
+  "full": false,
+  "mode": "dontAsk",
+  "notes_search": true,
+  "preview": {
+   "checkouts": [
+    "<state>/sessions/new-issue-boot/checkout/boot"
+   ],
+   "command": "claude --session-id '<session id>' --name new-issue-boot --model sonnet --effort high --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/new-issue-boot/settings.json --append-system-prompt-file <state>/sessions/new-issue-boot/persona.md --permission-mode dontAsk --setting-sources user --strict-mcp-config --tools Read,Grep,Glob,AskUserQuestion --allowedTools AskUserQuestion,mcp__glassine-hub__request_repository,mcp__glassine-hub__map_overview,mcp__glassine-hub__map_definition,mcp__glassine-hub__map_usages,mcp__glassine-hub__map_string,mcp__glassine-hub__code_search,mcp__glassine-hub__get_issue,mcp__glassine-hub__list_issues,mcp__glassine-hub__list_prs,mcp__glassine-hub__get_pr,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search,mcp__glassine-hub__submit_drafts,mcp__glassine-hub__notes_find --add-dir <state>/sessions/new-issue-boot/checkout/boot <state>/sessions/new-issue-boot/repos",
+   "cwd": "<state>/home",
+   "name": "new-issue-boot",
+   "worktree": "detached at the default branch"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "new-issue-boot",
+   "--model",
+   "sonnet",
+   "--effort",
+   "high",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/new-issue-boot/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/new-issue-boot/persona.md",
+   "--permission-mode",
+   "dontAsk",
+   "--setting-sources",
+   "user",
+   "--strict-mcp-config",
+   "--tools",
+   "Read,Grep,Glob,AskUserQuestion",
+   "--allowedTools",
+   "AskUserQuestion,mcp__glassine-hub__request_repository,mcp__glassine-hub__map_overview,mcp__glassine-hub__map_definition,mcp__glassine-hub__map_usages,mcp__glassine-hub__map_string,mcp__glassine-hub__code_search,mcp__glassine-hub__get_issue,mcp__glassine-hub__list_issues,mcp__glassine-hub__list_prs,mcp__glassine-hub__get_pr,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search,mcp__glassine-hub__submit_drafts,mcp__glassine-hub__notes_find",
+   "--add-dir",
+   "<state>/sessions/new-issue-boot/checkout/boot",
+   "<state>/sessions/new-issue-boot/repos"
+  ],
+  "scope": {
+   "all_repos": true,
+   "asks_first": [],
+   "design": false,
+   "instance": "<instance>",
+   "persona": "issue-writer",
+   "reports": [],
+   "session": "new-issue-boot",
+   "tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "list_prs",
+    "get_pr",
+    "docs_search",
+    "work_search",
+    "submit_drafts",
+    "notes_find"
+   ]
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/new-issue-boot/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/new-issue-boot/waiting <state>/sessions/new-issue-boot/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/new-issue-boot/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ],
+      "matcher": "AskUserQuestion"
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/new-issue-boot/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/new-issue-boot/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/new-issue-boot/waiting <state>/sessions/new-issue-boot/idle; if mv <state>/sessions/new-issue-boot/outcomes <state>/sessions/new-issue-boot/outcomes.read 2>/dev/null; then cat <state>/sessions/new-issue-boot/outcomes.read; rm -f <state>/sessions/new-issue-boot/outcomes.read; fi; cat <state>/sessions/new-issue-boot/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/new-issue-boot/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/new-issue-boot/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/new-issue-boot/status.json.part.$$ <state>/sessions/new-issue-boot/status.json; rm -f <state>/sessions/new-issue-boot/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ },
+ "new-roadmap-item": {
+  "advanced": {
+   "checkout": "default",
+   "full": false,
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "list_prs",
+    "get_pr",
+    "docs_search",
+    "work_search",
+    "roadmap",
+    "submit_drafts",
+    "notes_find"
+   ],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "AskUserQuestion"
+   ]
+  },
+  "ask_wait": 600,
+  "current": {
+   "action": "new-roadmap-item",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "list_prs",
+    "get_pr",
+    "docs_search",
+    "work_search",
+    "roadmap",
+    "submit_drafts",
+    "notes_find"
+   ],
+   "model": "opus",
+   "number": null,
+   "persona": "steward",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "AskUserQuestion"
+   ]
+  },
+  "defaults": {
+   "action": "new-roadmap-item",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "list_prs",
+    "get_pr",
+    "docs_search",
+    "work_search",
+    "roadmap",
+    "submit_drafts",
+    "notes_find"
+   ],
+   "model": "opus",
+   "number": null,
+   "persona": "steward",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "AskUserQuestion"
+   ]
+  },
+  "full": false,
+  "mode": "dontAsk",
+  "notes_search": true,
+  "preview": {
+   "checkouts": [
+    "<state>/sessions/new-roadmap-item-boot/checkout/boot"
+   ],
+   "command": "claude --session-id '<session id>' --name new-roadmap-item-boot --model opus --effort high --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/new-roadmap-item-boot/settings.json --append-system-prompt-file <state>/sessions/new-roadmap-item-boot/persona.md --permission-mode dontAsk --setting-sources user --strict-mcp-config --tools Read,Grep,Glob,AskUserQuestion --allowedTools AskUserQuestion,mcp__glassine-hub__request_repository,mcp__glassine-hub__map_overview,mcp__glassine-hub__map_definition,mcp__glassine-hub__map_usages,mcp__glassine-hub__map_string,mcp__glassine-hub__code_search,mcp__glassine-hub__get_issue,mcp__glassine-hub__list_issues,mcp__glassine-hub__list_prs,mcp__glassine-hub__get_pr,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search,mcp__glassine-hub__roadmap,mcp__glassine-hub__submit_drafts,mcp__glassine-hub__notes_find --add-dir <state>/sessions/new-roadmap-item-boot/checkout/boot <state>/sessions/new-roadmap-item-boot/repos",
+   "cwd": "<state>/home",
+   "name": "new-roadmap-item-boot",
+   "worktree": "detached at the default branch"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "new-roadmap-item-boot",
+   "--model",
+   "opus",
+   "--effort",
+   "high",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/new-roadmap-item-boot/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/new-roadmap-item-boot/persona.md",
+   "--permission-mode",
+   "dontAsk",
+   "--setting-sources",
+   "user",
+   "--strict-mcp-config",
+   "--tools",
+   "Read,Grep,Glob,AskUserQuestion",
+   "--allowedTools",
+   "AskUserQuestion,mcp__glassine-hub__request_repository,mcp__glassine-hub__map_overview,mcp__glassine-hub__map_definition,mcp__glassine-hub__map_usages,mcp__glassine-hub__map_string,mcp__glassine-hub__code_search,mcp__glassine-hub__get_issue,mcp__glassine-hub__list_issues,mcp__glassine-hub__list_prs,mcp__glassine-hub__get_pr,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search,mcp__glassine-hub__roadmap,mcp__glassine-hub__submit_drafts,mcp__glassine-hub__notes_find",
+   "--add-dir",
+   "<state>/sessions/new-roadmap-item-boot/checkout/boot",
+   "<state>/sessions/new-roadmap-item-boot/repos"
+  ],
+  "scope": {
+   "all_repos": true,
+   "asks_first": [],
+   "design": false,
+   "instance": "<instance>",
+   "persona": "steward",
+   "reports": [],
+   "session": "new-roadmap-item-boot",
+   "tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "list_prs",
+    "get_pr",
+    "docs_search",
+    "work_search",
+    "roadmap",
+    "submit_drafts",
+    "notes_find"
+   ]
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/new-roadmap-item-boot/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/new-roadmap-item-boot/waiting <state>/sessions/new-roadmap-item-boot/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/new-roadmap-item-boot/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ],
+      "matcher": "AskUserQuestion"
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/new-roadmap-item-boot/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/new-roadmap-item-boot/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/new-roadmap-item-boot/waiting <state>/sessions/new-roadmap-item-boot/idle; if mv <state>/sessions/new-roadmap-item-boot/outcomes <state>/sessions/new-roadmap-item-boot/outcomes.read 2>/dev/null; then cat <state>/sessions/new-roadmap-item-boot/outcomes.read; rm -f <state>/sessions/new-roadmap-item-boot/outcomes.read; fi; cat <state>/sessions/new-roadmap-item-boot/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/new-roadmap-item-boot/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/new-roadmap-item-boot/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/new-roadmap-item-boot/status.json.part.$$ <state>/sessions/new-roadmap-item-boot/status.json; rm -f <state>/sessions/new-roadmap-item-boot/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ },
+ "new-security-audit": {
+  "advanced": {
+   "checkout": "default",
+   "full": false,
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "list_prs",
+    "get_pr",
+    "docs_search",
+    "work_search",
+    "submit_drafts",
+    "notes_find"
+   ],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "AskUserQuestion"
+   ]
+  },
+  "ask_wait": 600,
+  "current": {
+   "action": "new-security-audit",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "list_prs",
+    "get_pr",
+    "docs_search",
+    "work_search",
+    "submit_drafts",
+    "notes_find"
+   ],
+   "model": "fable",
+   "number": null,
+   "persona": "security-auditor",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "AskUserQuestion"
+   ]
+  },
+  "defaults": {
+   "action": "new-security-audit",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "list_prs",
+    "get_pr",
+    "docs_search",
+    "work_search",
+    "submit_drafts",
+    "notes_find"
+   ],
+   "model": "fable",
+   "number": null,
+   "persona": "security-auditor",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "AskUserQuestion"
+   ]
+  },
+  "full": false,
+  "mode": "dontAsk",
+  "notes_search": true,
+  "preview": {
+   "checkouts": [
+    "<state>/sessions/new-security-audit-boot/checkout/boot"
+   ],
+   "command": "claude --session-id '<session id>' --name new-security-audit-boot --model fable --effort high --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/new-security-audit-boot/settings.json --append-system-prompt-file <state>/sessions/new-security-audit-boot/persona.md --permission-mode dontAsk --setting-sources user --strict-mcp-config --tools Read,Grep,Glob,AskUserQuestion --allowedTools AskUserQuestion,mcp__glassine-hub__request_repository,mcp__glassine-hub__map_overview,mcp__glassine-hub__map_definition,mcp__glassine-hub__map_usages,mcp__glassine-hub__map_string,mcp__glassine-hub__code_search,mcp__glassine-hub__get_issue,mcp__glassine-hub__list_issues,mcp__glassine-hub__list_prs,mcp__glassine-hub__get_pr,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search,mcp__glassine-hub__submit_drafts,mcp__glassine-hub__notes_find --add-dir <state>/sessions/new-security-audit-boot/checkout/boot <state>/sessions/new-security-audit-boot/repos",
+   "cwd": "<state>/home",
+   "name": "new-security-audit-boot",
+   "worktree": "detached at the default branch"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "new-security-audit-boot",
+   "--model",
+   "fable",
+   "--effort",
+   "high",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/new-security-audit-boot/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/new-security-audit-boot/persona.md",
+   "--permission-mode",
+   "dontAsk",
+   "--setting-sources",
+   "user",
+   "--strict-mcp-config",
+   "--tools",
+   "Read,Grep,Glob,AskUserQuestion",
+   "--allowedTools",
+   "AskUserQuestion,mcp__glassine-hub__request_repository,mcp__glassine-hub__map_overview,mcp__glassine-hub__map_definition,mcp__glassine-hub__map_usages,mcp__glassine-hub__map_string,mcp__glassine-hub__code_search,mcp__glassine-hub__get_issue,mcp__glassine-hub__list_issues,mcp__glassine-hub__list_prs,mcp__glassine-hub__get_pr,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search,mcp__glassine-hub__submit_drafts,mcp__glassine-hub__notes_find",
+   "--add-dir",
+   "<state>/sessions/new-security-audit-boot/checkout/boot",
+   "<state>/sessions/new-security-audit-boot/repos"
+  ],
+  "scope": {
+   "all_repos": true,
+   "asks_first": [],
+   "design": false,
+   "instance": "<instance>",
+   "persona": "security-auditor",
+   "reports": [],
+   "session": "new-security-audit-boot",
+   "tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "get_issue",
+    "list_issues",
+    "list_prs",
+    "get_pr",
+    "docs_search",
+    "work_search",
+    "submit_drafts",
+    "notes_find"
+   ]
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/new-security-audit-boot/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/new-security-audit-boot/waiting <state>/sessions/new-security-audit-boot/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/new-security-audit-boot/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ],
+      "matcher": "AskUserQuestion"
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/new-security-audit-boot/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/new-security-audit-boot/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/new-security-audit-boot/waiting <state>/sessions/new-security-audit-boot/idle; if mv <state>/sessions/new-security-audit-boot/outcomes <state>/sessions/new-security-audit-boot/outcomes.read 2>/dev/null; then cat <state>/sessions/new-security-audit-boot/outcomes.read; rm -f <state>/sessions/new-security-audit-boot/outcomes.read; fi; cat <state>/sessions/new-security-audit-boot/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/new-security-audit-boot/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/new-security-audit-boot/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/new-security-audit-boot/status.json.part.$$ <state>/sessions/new-security-audit-boot/status.json; rm -f <state>/sessions/new-security-audit-boot/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ },
+ "notes-compact": {
+  "advanced": {
+   "checkout": false,
+   "full": false,
+   "hub_tools": [
+    "notes_find",
+    "docs_search",
+    "work_search",
+    "get_issue",
+    "get_pr",
+    "submit_result"
+   ],
+   "tools": [
+    "AskUserQuestion"
+   ]
+  },
+  "ask_wait": 600,
+  "current": {
+   "action": "notes-compact",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [
+    "notes_find",
+    "docs_search",
+    "work_search",
+    "get_issue",
+    "get_pr",
+    "submit_result"
+   ],
+   "model": "sonnet",
+   "number": null,
+   "persona": "archivist",
+   "repo": null,
+   "steps": [],
+   "tools": [
+    "AskUserQuestion"
+   ]
+  },
+  "defaults": {
+   "action": "notes-compact",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [
+    "notes_find",
+    "docs_search",
+    "work_search",
+    "get_issue",
+    "get_pr",
+    "submit_result"
+   ],
+   "model": "sonnet",
+   "number": null,
+   "persona": "archivist",
+   "repo": null,
+   "steps": [],
+   "tools": [
+    "AskUserQuestion"
+   ]
+  },
+  "full": false,
+  "mode": "dontAsk",
+  "notes_search": true,
+  "preview": {
+   "checkouts": [],
+   "command": "claude --session-id '<session id>' --name notes-compact --model sonnet --effort high --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/notes-compact/settings.json --append-system-prompt-file <state>/sessions/notes-compact/persona.md --permission-mode dontAsk --setting-sources user --strict-mcp-config --tools AskUserQuestion --allowedTools AskUserQuestion,mcp__glassine-hub__notes_find,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search,mcp__glassine-hub__get_issue,mcp__glassine-hub__get_pr,mcp__glassine-hub__submit_result",
+   "cwd": "<state>/home",
+   "name": "notes-compact",
+   "worktree": "none"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "notes-compact",
+   "--model",
+   "sonnet",
+   "--effort",
+   "high",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/notes-compact/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/notes-compact/persona.md",
+   "--permission-mode",
+   "dontAsk",
+   "--setting-sources",
+   "user",
+   "--strict-mcp-config",
+   "--tools",
+   "AskUserQuestion",
+   "--allowedTools",
+   "AskUserQuestion,mcp__glassine-hub__notes_find,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search,mcp__glassine-hub__get_issue,mcp__glassine-hub__get_pr,mcp__glassine-hub__submit_result"
+  ],
+  "scope": {
+   "all_repos": false,
+   "asks_first": [],
+   "design": false,
+   "instance": "<instance>",
+   "persona": "archivist",
+   "reports": [],
+   "session": "notes-compact",
+   "tools": [
+    "notes_find",
+    "docs_search",
+    "work_search",
+    "get_issue",
+    "get_pr",
+    "submit_result"
+   ]
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/notes-compact/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/notes-compact/waiting <state>/sessions/notes-compact/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/notes-compact/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ],
+      "matcher": "AskUserQuestion"
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/notes-compact/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/notes-compact/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/notes-compact/waiting <state>/sessions/notes-compact/idle; if mv <state>/sessions/notes-compact/outcomes <state>/sessions/notes-compact/outcomes.read 2>/dev/null; then cat <state>/sessions/notes-compact/outcomes.read; rm -f <state>/sessions/notes-compact/outcomes.read; fi; cat <state>/sessions/notes-compact/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/notes-compact/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/notes-compact/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/notes-compact/status.json.part.$$ <state>/sessions/notes-compact/status.json; rm -f <state>/sessions/notes-compact/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ },
+ "notes-sweep": {
+  "advanced": {
+   "checkout": false,
+   "full": false,
+   "hub_tools": [
+    "notes_find",
+    "docs_search",
+    "work_search",
+    "get_issue",
+    "list_issues",
+    "submit_drafts"
+   ],
+   "tools": [
+    "AskUserQuestion"
+   ]
+  },
+  "ask_wait": 600,
+  "current": {
+   "action": "notes-sweep",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [
+    "notes_find",
+    "docs_search",
+    "work_search",
+    "get_issue",
+    "list_issues",
+    "submit_drafts"
+   ],
+   "model": "sonnet",
+   "number": null,
+   "persona": "docs-writer",
+   "repo": null,
+   "steps": [],
+   "tools": [
+    "AskUserQuestion"
+   ]
+  },
+  "defaults": {
+   "action": "notes-sweep",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [
+    "notes_find",
+    "docs_search",
+    "work_search",
+    "get_issue",
+    "list_issues",
+    "submit_drafts"
+   ],
+   "model": "sonnet",
+   "number": null,
+   "persona": "docs-writer",
+   "repo": null,
+   "steps": [],
+   "tools": [
+    "AskUserQuestion"
+   ]
+  },
+  "full": false,
+  "mode": "dontAsk",
+  "notes_search": true,
+  "preview": {
+   "checkouts": [],
+   "command": "claude --session-id '<session id>' --name notes-sweep --model sonnet --effort high --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/notes-sweep/settings.json --append-system-prompt-file <state>/sessions/notes-sweep/persona.md --permission-mode dontAsk --setting-sources user --strict-mcp-config --tools AskUserQuestion --allowedTools AskUserQuestion,mcp__glassine-hub__notes_find,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search,mcp__glassine-hub__get_issue,mcp__glassine-hub__list_issues,mcp__glassine-hub__submit_drafts",
+   "cwd": "<state>/home",
+   "name": "notes-sweep",
+   "worktree": "none"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "notes-sweep",
+   "--model",
+   "sonnet",
+   "--effort",
+   "high",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/notes-sweep/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/notes-sweep/persona.md",
+   "--permission-mode",
+   "dontAsk",
+   "--setting-sources",
+   "user",
+   "--strict-mcp-config",
+   "--tools",
+   "AskUserQuestion",
+   "--allowedTools",
+   "AskUserQuestion,mcp__glassine-hub__notes_find,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search,mcp__glassine-hub__get_issue,mcp__glassine-hub__list_issues,mcp__glassine-hub__submit_drafts"
+  ],
+  "scope": {
+   "all_repos": false,
+   "asks_first": [],
+   "design": false,
+   "instance": "<instance>",
+   "persona": "docs-writer",
+   "reports": [],
+   "session": "notes-sweep",
+   "tools": [
+    "notes_find",
+    "docs_search",
+    "work_search",
+    "get_issue",
+    "list_issues",
+    "submit_drafts"
+   ]
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/notes-sweep/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/notes-sweep/waiting <state>/sessions/notes-sweep/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/notes-sweep/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ],
+      "matcher": "AskUserQuestion"
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/notes-sweep/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/notes-sweep/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/notes-sweep/waiting <state>/sessions/notes-sweep/idle; if mv <state>/sessions/notes-sweep/outcomes <state>/sessions/notes-sweep/outcomes.read 2>/dev/null; then cat <state>/sessions/notes-sweep/outcomes.read; rm -f <state>/sessions/notes-sweep/outcomes.read; fi; cat <state>/sessions/notes-sweep/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/notes-sweep/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/notes-sweep/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/notes-sweep/status.json.part.$$ <state>/sessions/notes-sweep/status.json; rm -f <state>/sessions/notes-sweep/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ },
+ "pr-address-review": {
+  "advanced": {
+   "checkout": "pr-branch",
+   "full": true,
+   "hub_tools": [],
+   "tools": []
+  },
+  "ask_wait": 600,
+  "current": {
+   "action": "pr-address-review",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [],
+   "model": "opus",
+   "number": 5,
+   "persona": "engineer",
+   "repo": "boot",
+   "steps": [],
+   "tools": []
+  },
+  "defaults": {
+   "action": "pr-address-review",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [],
+   "model": "opus",
+   "number": 5,
+   "persona": "engineer",
+   "repo": "boot",
+   "steps": [],
+   "tools": []
+  },
+  "full": true,
+  "mode": "auto",
+  "notes_search": false,
+  "preview": {
+   "checkouts": [
+    "<state>/workspace/work/pr-address-review-boot-5/boot"
+   ],
+   "command": "claude --session-id '<session id>' --name pr-address-review-boot-5 --model opus --effort high --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/pr-address-review-boot-5/settings.json --append-system-prompt-file <state>/sessions/pr-address-review-boot-5/persona.md --permission-mode auto",
+   "cwd": "<state>/workspace",
+   "name": "pr-address-review-boot-5",
+   "worktree": "the pull request's branch"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "pr-address-review-boot-5",
+   "--model",
+   "opus",
+   "--effort",
+   "high",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/pr-address-review-boot-5/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/pr-address-review-boot-5/persona.md",
+   "--permission-mode",
+   "auto"
+  ],
+  "scope": {
+   "all_repos": false,
+   "asks_first": [],
+   "design": false,
+   "instance": "<instance>",
+   "persona": "engineer",
+   "reports": [],
+   "session": "pr-address-review-boot-5",
+   "tools": null
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/pr-address-review-boot-5/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PermissionRequest": [
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/pr-address-review-boot-5/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PostToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "test -e <state>/sessions/pr-address-review-boot-5/asks-open && <python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/pr-address-review-boot-5/tool-token; true",
+        "timeout": 10,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PostToolUseFailure": [
+     {
+      "hooks": [
+       {
+        "command": "test -e <state>/sessions/pr-address-review-boot-5/asks-open && <python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/pr-address-review-boot-5/tool-token; true",
+        "timeout": 10,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/pr-address-review-boot-5/waiting <state>/sessions/pr-address-review-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/pr-address-review-boot-5/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/pr-address-review-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "test -e <state>/sessions/pr-address-review-boot-5/asks-open && <python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/pr-address-review-boot-5/tool-token; true",
+        "timeout": 10,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/pr-address-review-boot-5/waiting <state>/sessions/pr-address-review-boot-5/idle; if mv <state>/sessions/pr-address-review-boot-5/outcomes <state>/sessions/pr-address-review-boot-5/outcomes.read 2>/dev/null; then cat <state>/sessions/pr-address-review-boot-5/outcomes.read; rm -f <state>/sessions/pr-address-review-boot-5/outcomes.read; fi; cat <state>/sessions/pr-address-review-boot-5/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/pr-address-review-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/pr-address-review-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/pr-address-review-boot-5/status.json.part.$$ <state>/sessions/pr-address-review-boot-5/status.json; rm -f <state>/sessions/pr-address-review-boot-5/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ },
+ "pr-explain": {
+  "advanced": {
+   "checkout": "pr",
+   "full": false,
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "plan_work",
+    "get_pr",
+    "get_pr_diff",
+    "get_pr_threads",
+    "docs_search",
+    "work_search"
+   ],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "AskUserQuestion"
+   ]
+  },
+  "ask_wait": 600,
+  "current": {
+   "action": "pr-explain",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "low",
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "plan_work",
+    "get_pr",
+    "get_pr_diff",
+    "get_pr_threads",
+    "docs_search",
+    "work_search"
+   ],
+   "model": "sonnet",
+   "number": 5,
+   "persona": "reviewer",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "AskUserQuestion"
+   ]
+  },
+  "defaults": {
+   "action": "pr-explain",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "low",
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "plan_work",
+    "get_pr",
+    "get_pr_diff",
+    "get_pr_threads",
+    "docs_search",
+    "work_search"
+   ],
+   "model": "sonnet",
+   "number": 5,
+   "persona": "reviewer",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "AskUserQuestion"
+   ]
+  },
+  "full": false,
+  "mode": "dontAsk",
+  "notes_search": false,
+  "preview": {
+   "checkouts": [
+    "<state>/sessions/pr-explain-boot-5/checkout/boot"
+   ],
+   "command": "claude --session-id '<session id>' --name pr-explain-boot-5 --model sonnet --effort low --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/pr-explain-boot-5/settings.json --append-system-prompt-file <state>/sessions/pr-explain-boot-5/persona.md --permission-mode dontAsk --setting-sources user --strict-mcp-config --tools Read,Grep,Glob,AskUserQuestion --allowedTools AskUserQuestion,mcp__glassine-hub__request_repository,mcp__glassine-hub__map_overview,mcp__glassine-hub__map_definition,mcp__glassine-hub__map_usages,mcp__glassine-hub__map_string,mcp__glassine-hub__code_search,mcp__glassine-hub__plan_work,mcp__glassine-hub__get_pr,mcp__glassine-hub__get_pr_diff,mcp__glassine-hub__get_pr_threads,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search --add-dir <state>/sessions/pr-explain-boot-5/checkout/boot <state>/sessions/pr-explain-boot-5/repos",
+   "cwd": "<state>/home",
+   "name": "pr-explain-boot-5",
+   "worktree": "detached at the pull request's head"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "pr-explain-boot-5",
+   "--model",
+   "sonnet",
+   "--effort",
+   "low",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/pr-explain-boot-5/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/pr-explain-boot-5/persona.md",
+   "--permission-mode",
+   "dontAsk",
+   "--setting-sources",
+   "user",
+   "--strict-mcp-config",
+   "--tools",
+   "Read,Grep,Glob,AskUserQuestion",
+   "--allowedTools",
+   "AskUserQuestion,mcp__glassine-hub__request_repository,mcp__glassine-hub__map_overview,mcp__glassine-hub__map_definition,mcp__glassine-hub__map_usages,mcp__glassine-hub__map_string,mcp__glassine-hub__code_search,mcp__glassine-hub__plan_work,mcp__glassine-hub__get_pr,mcp__glassine-hub__get_pr_diff,mcp__glassine-hub__get_pr_threads,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search",
+   "--add-dir",
+   "<state>/sessions/pr-explain-boot-5/checkout/boot",
+   "<state>/sessions/pr-explain-boot-5/repos"
+  ],
+  "scope": {
+   "all_repos": false,
+   "asks_first": [],
+   "design": false,
+   "instance": "<instance>",
+   "persona": "reviewer",
+   "reports": [],
+   "session": "pr-explain-boot-5",
+   "tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "plan_work",
+    "get_pr",
+    "get_pr_diff",
+    "get_pr_threads",
+    "docs_search",
+    "work_search"
+   ]
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/pr-explain-boot-5/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/pr-explain-boot-5/waiting <state>/sessions/pr-explain-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/pr-explain-boot-5/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ],
+      "matcher": "AskUserQuestion"
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/pr-explain-boot-5/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/pr-explain-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/pr-explain-boot-5/waiting <state>/sessions/pr-explain-boot-5/idle; if mv <state>/sessions/pr-explain-boot-5/outcomes <state>/sessions/pr-explain-boot-5/outcomes.read 2>/dev/null; then cat <state>/sessions/pr-explain-boot-5/outcomes.read; rm -f <state>/sessions/pr-explain-boot-5/outcomes.read; fi; cat <state>/sessions/pr-explain-boot-5/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/pr-explain-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/pr-explain-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/pr-explain-boot-5/status.json.part.$$ <state>/sessions/pr-explain-boot-5/status.json; rm -f <state>/sessions/pr-explain-boot-5/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ },
+ "pr-fix-checks": {
+  "advanced": {
+   "checkout": "pr-branch",
+   "full": true,
+   "hub_tools": [],
+   "tools": []
+  },
+  "ask_wait": 600,
+  "current": {
+   "action": "pr-fix-checks",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [],
+   "model": "opus",
+   "number": 5,
+   "persona": "ci-fixer",
+   "repo": "boot",
+   "steps": [],
+   "tools": []
+  },
+  "defaults": {
+   "action": "pr-fix-checks",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [],
+   "model": "opus",
+   "number": 5,
+   "persona": "ci-fixer",
+   "repo": "boot",
+   "steps": [],
+   "tools": []
+  },
+  "full": true,
+  "mode": "auto",
+  "notes_search": false,
+  "preview": {
+   "checkouts": [
+    "<state>/workspace/work/pr-fix-checks-boot-5/boot"
+   ],
+   "command": "claude --session-id '<session id>' --name pr-fix-checks-boot-5 --model opus --effort high --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/pr-fix-checks-boot-5/settings.json --append-system-prompt-file <state>/sessions/pr-fix-checks-boot-5/persona.md --permission-mode auto",
+   "cwd": "<state>/workspace",
+   "name": "pr-fix-checks-boot-5",
+   "worktree": "the pull request's branch"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "pr-fix-checks-boot-5",
+   "--model",
+   "opus",
+   "--effort",
+   "high",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/pr-fix-checks-boot-5/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/pr-fix-checks-boot-5/persona.md",
+   "--permission-mode",
+   "auto"
+  ],
+  "scope": {
+   "all_repos": false,
+   "asks_first": [],
+   "design": false,
+   "instance": "<instance>",
+   "persona": "ci-fixer",
+   "reports": [],
+   "session": "pr-fix-checks-boot-5",
+   "tools": null
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/pr-fix-checks-boot-5/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PermissionRequest": [
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/pr-fix-checks-boot-5/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PostToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "test -e <state>/sessions/pr-fix-checks-boot-5/asks-open && <python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/pr-fix-checks-boot-5/tool-token; true",
+        "timeout": 10,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PostToolUseFailure": [
+     {
+      "hooks": [
+       {
+        "command": "test -e <state>/sessions/pr-fix-checks-boot-5/asks-open && <python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/pr-fix-checks-boot-5/tool-token; true",
+        "timeout": 10,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/pr-fix-checks-boot-5/waiting <state>/sessions/pr-fix-checks-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/pr-fix-checks-boot-5/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/pr-fix-checks-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "test -e <state>/sessions/pr-fix-checks-boot-5/asks-open && <python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/pr-fix-checks-boot-5/tool-token; true",
+        "timeout": 10,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/pr-fix-checks-boot-5/waiting <state>/sessions/pr-fix-checks-boot-5/idle; if mv <state>/sessions/pr-fix-checks-boot-5/outcomes <state>/sessions/pr-fix-checks-boot-5/outcomes.read 2>/dev/null; then cat <state>/sessions/pr-fix-checks-boot-5/outcomes.read; rm -f <state>/sessions/pr-fix-checks-boot-5/outcomes.read; fi; cat <state>/sessions/pr-fix-checks-boot-5/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/pr-fix-checks-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/pr-fix-checks-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/pr-fix-checks-boot-5/status.json.part.$$ <state>/sessions/pr-fix-checks-boot-5/status.json; rm -f <state>/sessions/pr-fix-checks-boot-5/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ },
+ "pr-merge-prep": {
+  "advanced": {
+   "checkout": false,
+   "full": false,
+   "hub_tools": [
+    "plan_work",
+    "get_pr",
+    "get_pr_diff",
+    "get_pr_threads",
+    "docs_search",
+    "work_search"
+   ],
+   "tools": [
+    "AskUserQuestion"
+   ]
+  },
+  "ask_wait": 600,
+  "current": {
+   "action": "pr-merge-prep",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "low",
+   "hub_tools": [
+    "plan_work",
+    "get_pr",
+    "get_pr_diff",
+    "get_pr_threads",
+    "docs_search",
+    "work_search"
+   ],
+   "model": "sonnet",
+   "number": 5,
+   "persona": "reviewer",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "AskUserQuestion"
+   ]
+  },
+  "defaults": {
+   "action": "pr-merge-prep",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "low",
+   "hub_tools": [
+    "plan_work",
+    "get_pr",
+    "get_pr_diff",
+    "get_pr_threads",
+    "docs_search",
+    "work_search"
+   ],
+   "model": "sonnet",
+   "number": 5,
+   "persona": "reviewer",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "AskUserQuestion"
+   ]
+  },
+  "full": false,
+  "mode": "dontAsk",
+  "notes_search": false,
+  "preview": {
+   "checkouts": [],
+   "command": "claude --session-id '<session id>' --name pr-merge-prep-boot-5 --model sonnet --effort low --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/pr-merge-prep-boot-5/settings.json --append-system-prompt-file <state>/sessions/pr-merge-prep-boot-5/persona.md --permission-mode dontAsk --setting-sources user --strict-mcp-config --tools AskUserQuestion --allowedTools AskUserQuestion,mcp__glassine-hub__plan_work,mcp__glassine-hub__get_pr,mcp__glassine-hub__get_pr_diff,mcp__glassine-hub__get_pr_threads,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search",
+   "cwd": "<state>/home",
+   "name": "pr-merge-prep-boot-5",
+   "worktree": "none"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "pr-merge-prep-boot-5",
+   "--model",
+   "sonnet",
+   "--effort",
+   "low",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/pr-merge-prep-boot-5/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/pr-merge-prep-boot-5/persona.md",
+   "--permission-mode",
+   "dontAsk",
+   "--setting-sources",
+   "user",
+   "--strict-mcp-config",
+   "--tools",
+   "AskUserQuestion",
+   "--allowedTools",
+   "AskUserQuestion,mcp__glassine-hub__plan_work,mcp__glassine-hub__get_pr,mcp__glassine-hub__get_pr_diff,mcp__glassine-hub__get_pr_threads,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search"
+  ],
+  "scope": {
+   "all_repos": false,
+   "asks_first": [],
+   "design": false,
+   "instance": "<instance>",
+   "persona": "reviewer",
+   "reports": [],
+   "session": "pr-merge-prep-boot-5",
+   "tools": [
+    "plan_work",
+    "get_pr",
+    "get_pr_diff",
+    "get_pr_threads",
+    "docs_search",
+    "work_search"
+   ]
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/pr-merge-prep-boot-5/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/pr-merge-prep-boot-5/waiting <state>/sessions/pr-merge-prep-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/pr-merge-prep-boot-5/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ],
+      "matcher": "AskUserQuestion"
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/pr-merge-prep-boot-5/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/pr-merge-prep-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/pr-merge-prep-boot-5/waiting <state>/sessions/pr-merge-prep-boot-5/idle; if mv <state>/sessions/pr-merge-prep-boot-5/outcomes <state>/sessions/pr-merge-prep-boot-5/outcomes.read 2>/dev/null; then cat <state>/sessions/pr-merge-prep-boot-5/outcomes.read; rm -f <state>/sessions/pr-merge-prep-boot-5/outcomes.read; fi; cat <state>/sessions/pr-merge-prep-boot-5/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/pr-merge-prep-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/pr-merge-prep-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/pr-merge-prep-boot-5/status.json.part.$$ <state>/sessions/pr-merge-prep-boot-5/status.json; rm -f <state>/sessions/pr-merge-prep-boot-5/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ },
+ "pr-review": {
+  "advanced": {
+   "checkout": "pr",
+   "full": false,
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "plan_work",
+    "get_pr",
+    "get_pr_diff",
+    "get_pr_threads",
+    "submit_result",
+    "docs_search",
+    "work_search",
+    "list_runs",
+    "list_workflows",
+    "work_status",
+    "docs_index_status"
+   ],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Skill",
+    "AskUserQuestion",
+    "Bash"
+   ]
+  },
+  "ask_wait": 600,
+  "current": {
+   "action": "pr-review",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "medium",
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "plan_work",
+    "get_pr",
+    "get_pr_diff",
+    "get_pr_threads",
+    "submit_result",
+    "docs_search",
+    "work_search",
+    "list_runs",
+    "list_workflows",
+    "work_status",
+    "docs_index_status"
+   ],
+   "model": "opus",
+   "number": 5,
+   "persona": "reviewer",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Skill",
+    "AskUserQuestion",
+    "Bash"
+   ]
+  },
+  "defaults": {
+   "action": "pr-review",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "medium",
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "plan_work",
+    "get_pr",
+    "get_pr_diff",
+    "get_pr_threads",
+    "submit_result",
+    "docs_search",
+    "work_search",
+    "list_runs",
+    "list_workflows",
+    "work_status",
+    "docs_index_status"
+   ],
+   "model": "opus",
+   "number": 5,
+   "persona": "reviewer",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Skill",
+    "AskUserQuestion",
+    "Bash"
+   ]
+  },
+  "full": false,
+  "mode": "dontAsk",
+  "notes_search": false,
+  "preview": {
+   "checkouts": [
+    "<state>/sessions/pr-review-boot-5/checkout/boot"
+   ],
+   "command": "claude --session-id '<session id>' --name pr-review-boot-5 --model opus --effort medium --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/pr-review-boot-5/settings.json --append-system-prompt-file <state>/sessions/pr-review-boot-5/persona.md --permission-mode dontAsk --setting-sources user --strict-mcp-config --tools Read,Grep,Glob,Skill,AskUserQuestion,Bash --allowedTools Skill,AskUserQuestion,mcp__glassine-hub__request_repository,mcp__glassine-hub__map_overview,mcp__glassine-hub__map_definition,mcp__glassine-hub__map_usages,mcp__glassine-hub__map_string,mcp__glassine-hub__code_search,mcp__glassine-hub__plan_work,mcp__glassine-hub__get_pr,mcp__glassine-hub__get_pr_diff,mcp__glassine-hub__get_pr_threads,mcp__glassine-hub__submit_result,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search,mcp__glassine-hub__list_runs,mcp__glassine-hub__list_workflows,mcp__glassine-hub__work_status,mcp__glassine-hub__docs_index_status --add-dir <state>/sessions/pr-review-boot-5/checkout/boot <state>/sessions/pr-review-boot-5/repos",
+   "cwd": "<state>/home",
+   "name": "pr-review-boot-5",
+   "worktree": "detached at the pull request's head"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "pr-review-boot-5",
+   "--model",
+   "opus",
+   "--effort",
+   "medium",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/pr-review-boot-5/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/pr-review-boot-5/persona.md",
+   "--permission-mode",
+   "dontAsk",
+   "--setting-sources",
+   "user",
+   "--strict-mcp-config",
+   "--tools",
+   "Read,Grep,Glob,Skill,AskUserQuestion,Bash",
+   "--allowedTools",
+   "Skill,AskUserQuestion,mcp__glassine-hub__request_repository,mcp__glassine-hub__map_overview,mcp__glassine-hub__map_definition,mcp__glassine-hub__map_usages,mcp__glassine-hub__map_string,mcp__glassine-hub__code_search,mcp__glassine-hub__plan_work,mcp__glassine-hub__get_pr,mcp__glassine-hub__get_pr_diff,mcp__glassine-hub__get_pr_threads,mcp__glassine-hub__submit_result,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search,mcp__glassine-hub__list_runs,mcp__glassine-hub__list_workflows,mcp__glassine-hub__work_status,mcp__glassine-hub__docs_index_status",
+   "--add-dir",
+   "<state>/sessions/pr-review-boot-5/checkout/boot",
+   "<state>/sessions/pr-review-boot-5/repos"
+  ],
+  "scope": {
+   "all_repos": false,
+   "asks_first": [],
+   "design": false,
+   "instance": "<instance>",
+   "persona": "reviewer",
+   "reports": [],
+   "session": "pr-review-boot-5",
+   "tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "plan_work",
+    "get_pr",
+    "get_pr_diff",
+    "get_pr_threads",
+    "submit_result",
+    "docs_search",
+    "work_search",
+    "list_runs",
+    "list_workflows",
+    "work_status",
+    "docs_index_status"
+   ]
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/pr-review-boot-5/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/pr-review-boot-5/waiting <state>/sessions/pr-review-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/shell_hook.py <state>/sessions/pr-review-boot-5/shell <state>/sessions/pr-review-boot-5/checkout/boot",
+        "timeout": 10,
+        "type": "command"
+       }
+      ],
+      "matcher": "Bash"
+     },
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/pr-review-boot-5/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ],
+      "matcher": "AskUserQuestion"
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/pr-review-boot-5/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/pr-review-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/pr-review-boot-5/waiting <state>/sessions/pr-review-boot-5/idle; if mv <state>/sessions/pr-review-boot-5/outcomes <state>/sessions/pr-review-boot-5/outcomes.read 2>/dev/null; then cat <state>/sessions/pr-review-boot-5/outcomes.read; rm -f <state>/sessions/pr-review-boot-5/outcomes.read; fi; cat <state>/sessions/pr-review-boot-5/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/pr-review-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/pr-review-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/pr-review-boot-5/status.json.part.$$ <state>/sessions/pr-review-boot-5/status.json; rm -f <state>/sessions/pr-review-boot-5/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ },
+ "pr-security-audit": {
+  "advanced": {
+   "checkout": "pr",
+   "full": false,
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "plan_work",
+    "get_pr",
+    "get_pr_diff",
+    "comment_pr",
+    "docs_search",
+    "work_search"
+   ],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Skill",
+    "AskUserQuestion",
+    "Bash"
+   ]
+  },
+  "ask_wait": 600,
+  "current": {
+   "action": "pr-security-audit",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "plan_work",
+    "get_pr",
+    "get_pr_diff",
+    "comment_pr",
+    "docs_search",
+    "work_search"
+   ],
+   "model": "fable",
+   "number": 5,
+   "persona": "security-auditor",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Skill",
+    "AskUserQuestion",
+    "Bash"
+   ]
+  },
+  "defaults": {
+   "action": "pr-security-audit",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "plan_work",
+    "get_pr",
+    "get_pr_diff",
+    "comment_pr",
+    "docs_search",
+    "work_search"
+   ],
+   "model": "fable",
+   "number": 5,
+   "persona": "security-auditor",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Skill",
+    "AskUserQuestion",
+    "Bash"
+   ]
+  },
+  "full": false,
+  "mode": "dontAsk",
+  "notes_search": false,
+  "preview": {
+   "checkouts": [
+    "<state>/sessions/pr-security-audit-boot-5/checkout/boot"
+   ],
+   "command": "claude --session-id '<session id>' --name pr-security-audit-boot-5 --model fable --effort high --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/pr-security-audit-boot-5/settings.json --append-system-prompt-file <state>/sessions/pr-security-audit-boot-5/persona.md --permission-mode dontAsk --setting-sources user --strict-mcp-config --tools Read,Grep,Glob,Skill,AskUserQuestion,Bash --allowedTools Skill,AskUserQuestion,mcp__glassine-hub__request_repository,mcp__glassine-hub__map_overview,mcp__glassine-hub__map_definition,mcp__glassine-hub__map_usages,mcp__glassine-hub__map_string,mcp__glassine-hub__code_search,mcp__glassine-hub__plan_work,mcp__glassine-hub__get_pr,mcp__glassine-hub__get_pr_diff,mcp__glassine-hub__comment_pr,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search --add-dir <state>/sessions/pr-security-audit-boot-5/checkout/boot <state>/sessions/pr-security-audit-boot-5/repos",
+   "cwd": "<state>/home",
+   "name": "pr-security-audit-boot-5",
+   "worktree": "detached at the pull request's head"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "pr-security-audit-boot-5",
+   "--model",
+   "fable",
+   "--effort",
+   "high",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/pr-security-audit-boot-5/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/pr-security-audit-boot-5/persona.md",
+   "--permission-mode",
+   "dontAsk",
+   "--setting-sources",
+   "user",
+   "--strict-mcp-config",
+   "--tools",
+   "Read,Grep,Glob,Skill,AskUserQuestion,Bash",
+   "--allowedTools",
+   "Skill,AskUserQuestion,mcp__glassine-hub__request_repository,mcp__glassine-hub__map_overview,mcp__glassine-hub__map_definition,mcp__glassine-hub__map_usages,mcp__glassine-hub__map_string,mcp__glassine-hub__code_search,mcp__glassine-hub__plan_work,mcp__glassine-hub__get_pr,mcp__glassine-hub__get_pr_diff,mcp__glassine-hub__comment_pr,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search",
+   "--add-dir",
+   "<state>/sessions/pr-security-audit-boot-5/checkout/boot",
+   "<state>/sessions/pr-security-audit-boot-5/repos"
+  ],
+  "scope": {
+   "all_repos": false,
+   "asks_first": [],
+   "design": false,
+   "instance": "<instance>",
+   "persona": "security-auditor",
+   "reports": [],
+   "session": "pr-security-audit-boot-5",
+   "tools": [
+    "request_repository",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "plan_work",
+    "get_pr",
+    "get_pr_diff",
+    "comment_pr",
+    "docs_search",
+    "work_search"
+   ]
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/pr-security-audit-boot-5/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/pr-security-audit-boot-5/waiting <state>/sessions/pr-security-audit-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/shell_hook.py <state>/sessions/pr-security-audit-boot-5/shell <state>/sessions/pr-security-audit-boot-5/checkout/boot",
+        "timeout": 10,
+        "type": "command"
+       }
+      ],
+      "matcher": "Bash"
+     },
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/pr-security-audit-boot-5/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ],
+      "matcher": "AskUserQuestion"
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/pr-security-audit-boot-5/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/pr-security-audit-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/pr-security-audit-boot-5/waiting <state>/sessions/pr-security-audit-boot-5/idle; if mv <state>/sessions/pr-security-audit-boot-5/outcomes <state>/sessions/pr-security-audit-boot-5/outcomes.read 2>/dev/null; then cat <state>/sessions/pr-security-audit-boot-5/outcomes.read; rm -f <state>/sessions/pr-security-audit-boot-5/outcomes.read; fi; cat <state>/sessions/pr-security-audit-boot-5/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/pr-security-audit-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/pr-security-audit-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/pr-security-audit-boot-5/status.json.part.$$ <state>/sessions/pr-security-audit-boot-5/status.json; rm -f <state>/sessions/pr-security-audit-boot-5/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ },
+ "pr-session": {
+  "advanced": {
+   "checkout": "pr-branch",
+   "full": true,
+   "hub_tools": [],
+   "tools": []
+  },
+  "ask_wait": 600,
+  "current": {
+   "action": "pr-session",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [],
+   "model": "opus",
+   "number": 5,
+   "persona": "engineer",
+   "repo": "boot",
+   "steps": [],
+   "tools": []
+  },
+  "defaults": {
+   "action": "pr-session",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [],
+   "model": "opus",
+   "number": 5,
+   "persona": "engineer",
+   "repo": "boot",
+   "steps": [],
+   "tools": []
+  },
+  "full": true,
+  "mode": "auto",
+  "notes_search": false,
+  "preview": {
+   "checkouts": [
+    "<state>/workspace/work/pr-session-boot-5/boot"
+   ],
+   "command": "claude --session-id '<session id>' --name pr-session-boot-5 --model opus --effort high --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/pr-session-boot-5/settings.json --append-system-prompt-file <state>/sessions/pr-session-boot-5/persona.md --permission-mode auto",
+   "cwd": "<state>/workspace",
+   "name": "pr-session-boot-5",
+   "worktree": "the pull request's branch"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "pr-session-boot-5",
+   "--model",
+   "opus",
+   "--effort",
+   "high",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/pr-session-boot-5/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/pr-session-boot-5/persona.md",
+   "--permission-mode",
+   "auto"
+  ],
+  "scope": {
+   "all_repos": false,
+   "asks_first": [],
+   "design": false,
+   "instance": "<instance>",
+   "persona": "engineer",
+   "reports": [],
+   "session": "pr-session-boot-5",
+   "tools": null
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/pr-session-boot-5/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PermissionRequest": [
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/pr-session-boot-5/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PostToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "test -e <state>/sessions/pr-session-boot-5/asks-open && <python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/pr-session-boot-5/tool-token; true",
+        "timeout": 10,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PostToolUseFailure": [
+     {
+      "hooks": [
+       {
+        "command": "test -e <state>/sessions/pr-session-boot-5/asks-open && <python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/pr-session-boot-5/tool-token; true",
+        "timeout": 10,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/pr-session-boot-5/waiting <state>/sessions/pr-session-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/pr-session-boot-5/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/pr-session-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "test -e <state>/sessions/pr-session-boot-5/asks-open && <python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/pr-session-boot-5/tool-token; true",
+        "timeout": 10,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/pr-session-boot-5/waiting <state>/sessions/pr-session-boot-5/idle; if mv <state>/sessions/pr-session-boot-5/outcomes <state>/sessions/pr-session-boot-5/outcomes.read 2>/dev/null; then cat <state>/sessions/pr-session-boot-5/outcomes.read; rm -f <state>/sessions/pr-session-boot-5/outcomes.read; fi; cat <state>/sessions/pr-session-boot-5/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/pr-session-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/pr-session-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/pr-session-boot-5/status.json.part.$$ <state>/sessions/pr-session-boot-5/status.json; rm -f <state>/sessions/pr-session-boot-5/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ },
+ "project-steward": {
+  "advanced": {
+   "checkout": false,
+   "full": false,
+   "hub_tools": [
+    "list_repo_files",
+    "read_repo_file",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "plan_work",
+    "message_started_session",
+    "suggest_session",
+    "new_work_drafts",
+    "list_sessions",
+    "list_running_sessions",
+    "session_summary",
+    "overview",
+    "rate_limit",
+    "run_history",
+    "roadmap",
+    "list_issues",
+    "get_issue",
+    "list_prs",
+    "get_pr",
+    "get_pr_diff",
+    "list_runs",
+    "get_run",
+    "get_run_log",
+    "list_workflows",
+    "work_search",
+    "work_status",
+    "changes_since",
+    "docs_search",
+    "docs_index_status"
+   ],
+   "tools": [
+    "AskUserQuestion"
+   ]
+  },
+  "ask_wait": 1728000,
+  "current": {
+   "action": "project-steward",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [
+    "list_repo_files",
+    "read_repo_file",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "plan_work",
+    "message_started_session",
+    "suggest_session",
+    "new_work_drafts",
+    "list_sessions",
+    "list_running_sessions",
+    "session_summary",
+    "overview",
+    "rate_limit",
+    "run_history",
+    "roadmap",
+    "list_issues",
+    "get_issue",
+    "list_prs",
+    "get_pr",
+    "get_pr_diff",
+    "list_runs",
+    "get_run",
+    "get_run_log",
+    "list_workflows",
+    "work_search",
+    "work_status",
+    "changes_since",
+    "docs_search",
+    "docs_index_status"
+   ],
+   "model": "sonnet",
+   "number": null,
+   "persona": "steward",
+   "repo": null,
+   "steps": [],
+   "tools": [
+    "AskUserQuestion"
+   ]
+  },
+  "defaults": {
+   "action": "project-steward",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [
+    "list_repo_files",
+    "read_repo_file",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "plan_work",
+    "message_started_session",
+    "suggest_session",
+    "new_work_drafts",
+    "list_sessions",
+    "list_running_sessions",
+    "session_summary",
+    "overview",
+    "rate_limit",
+    "run_history",
+    "roadmap",
+    "list_issues",
+    "get_issue",
+    "list_prs",
+    "get_pr",
+    "get_pr_diff",
+    "list_runs",
+    "get_run",
+    "get_run_log",
+    "list_workflows",
+    "work_search",
+    "work_status",
+    "changes_since",
+    "docs_search",
+    "docs_index_status"
+   ],
+   "model": "sonnet",
+   "number": null,
+   "persona": "steward",
+   "repo": null,
+   "steps": [],
+   "tools": [
+    "AskUserQuestion"
+   ]
+  },
+  "full": false,
+  "mode": "dontAsk",
+  "notes_search": false,
+  "preview": {
+   "checkouts": [],
+   "command": "claude --session-id '<session id>' --name steward --model sonnet --effort high --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/steward/settings.json --append-system-prompt-file <state>/sessions/steward/persona.md --permission-mode dontAsk --setting-sources user --strict-mcp-config --tools AskUserQuestion --allowedTools AskUserQuestion,mcp__glassine-hub__list_repo_files,mcp__glassine-hub__read_repo_file,mcp__glassine-hub__map_overview,mcp__glassine-hub__map_definition,mcp__glassine-hub__map_usages,mcp__glassine-hub__map_string,mcp__glassine-hub__code_search,mcp__glassine-hub__plan_work,mcp__glassine-hub__message_started_session,mcp__glassine-hub__suggest_session,mcp__glassine-hub__new_work_drafts,mcp__glassine-hub__list_sessions,mcp__glassine-hub__list_running_sessions,mcp__glassine-hub__session_summary,mcp__glassine-hub__overview,mcp__glassine-hub__rate_limit,mcp__glassine-hub__run_history,mcp__glassine-hub__roadmap,mcp__glassine-hub__list_issues,mcp__glassine-hub__get_issue,mcp__glassine-hub__list_prs,mcp__glassine-hub__get_pr,mcp__glassine-hub__get_pr_diff,mcp__glassine-hub__list_runs,mcp__glassine-hub__get_run,mcp__glassine-hub__get_run_log,mcp__glassine-hub__list_workflows,mcp__glassine-hub__work_search,mcp__glassine-hub__work_status,mcp__glassine-hub__changes_since,mcp__glassine-hub__docs_search,mcp__glassine-hub__docs_index_status",
+   "cwd": "<state>/home",
+   "name": "steward",
+   "worktree": "none"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "steward",
+   "--model",
+   "sonnet",
+   "--effort",
+   "high",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/steward/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/steward/persona.md",
+   "--permission-mode",
+   "dontAsk",
+   "--setting-sources",
+   "user",
+   "--strict-mcp-config",
+   "--tools",
+   "AskUserQuestion",
+   "--allowedTools",
+   "AskUserQuestion,mcp__glassine-hub__list_repo_files,mcp__glassine-hub__read_repo_file,mcp__glassine-hub__map_overview,mcp__glassine-hub__map_definition,mcp__glassine-hub__map_usages,mcp__glassine-hub__map_string,mcp__glassine-hub__code_search,mcp__glassine-hub__plan_work,mcp__glassine-hub__message_started_session,mcp__glassine-hub__suggest_session,mcp__glassine-hub__new_work_drafts,mcp__glassine-hub__list_sessions,mcp__glassine-hub__list_running_sessions,mcp__glassine-hub__session_summary,mcp__glassine-hub__overview,mcp__glassine-hub__rate_limit,mcp__glassine-hub__run_history,mcp__glassine-hub__roadmap,mcp__glassine-hub__list_issues,mcp__glassine-hub__get_issue,mcp__glassine-hub__list_prs,mcp__glassine-hub__get_pr,mcp__glassine-hub__get_pr_diff,mcp__glassine-hub__list_runs,mcp__glassine-hub__get_run,mcp__glassine-hub__get_run_log,mcp__glassine-hub__list_workflows,mcp__glassine-hub__work_search,mcp__glassine-hub__work_status,mcp__glassine-hub__changes_since,mcp__glassine-hub__docs_search,mcp__glassine-hub__docs_index_status"
+  ],
+  "scope": {
+   "all_repos": true,
+   "asks_first": [
+    "roadmap_add",
+    "roadmap_move",
+    "create_issue",
+    "comment_issue",
+    "close_issue",
+    "reopen_issue",
+    "label_issue",
+    "edit_issue",
+    "tick_item",
+    "edit_comment",
+    "comment_pr",
+    "merge_pr",
+    "close_pr",
+    "rerun",
+    "cancel_run",
+    "dispatch_workflow",
+    "spawn_session",
+    "message_session"
+   ],
+   "design": false,
+   "instance": "<instance>",
+   "persona": "steward",
+   "reports": [],
+   "session": "steward",
+   "tools": [
+    "list_repo_files",
+    "read_repo_file",
+    "map_overview",
+    "map_definition",
+    "map_usages",
+    "map_string",
+    "code_search",
+    "plan_work",
+    "message_started_session",
+    "suggest_session",
+    "new_work_drafts",
+    "list_sessions",
+    "list_running_sessions",
+    "session_summary",
+    "overview",
+    "rate_limit",
+    "run_history",
+    "roadmap",
+    "list_issues",
+    "get_issue",
+    "list_prs",
+    "get_pr",
+    "get_pr_diff",
+    "list_runs",
+    "get_run",
+    "get_run_log",
+    "list_workflows",
+    "work_search",
+    "work_status",
+    "changes_since",
+    "docs_search",
+    "docs_index_status",
+    "roadmap_add",
+    "roadmap_move",
+    "create_issue",
+    "comment_issue",
+    "close_issue",
+    "reopen_issue",
+    "label_issue",
+    "edit_issue",
+    "tick_item",
+    "edit_comment",
+    "comment_pr",
+    "merge_pr",
+    "close_pr",
+    "rerun",
+    "cancel_run",
+    "dispatch_workflow",
+    "spawn_session",
+    "message_session"
+   ]
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/steward/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/steward/waiting <state>/sessions/steward/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/steward/tool-token",
+        "timeout": 1728030,
+        "type": "command"
+       }
+      ],
+      "matcher": "AskUserQuestion"
+     },
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/steward/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ],
+      "matcher": "mcp__glassine-hub__roadmap_add|mcp__glassine-hub__roadmap_move|mcp__glassine-hub__create_issue|mcp__glassine-hub__comment_issue|mcp__glassine-hub__close_issue|mcp__glassine-hub__reopen_issue|mcp__glassine-hub__label_issue|mcp__glassine-hub__edit_issue|mcp__glassine-hub__tick_item|mcp__glassine-hub__edit_comment|mcp__glassine-hub__comment_pr|mcp__glassine-hub__merge_pr|mcp__glassine-hub__close_pr|mcp__glassine-hub__rerun|mcp__glassine-hub__cancel_run|mcp__glassine-hub__dispatch_workflow|mcp__glassine-hub__spawn_session|mcp__glassine-hub__message_session"
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/steward/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/steward/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/steward/waiting <state>/sessions/steward/idle; if mv <state>/sessions/steward/outcomes <state>/sessions/steward/outcomes.read 2>/dev/null; then cat <state>/sessions/steward/outcomes.read; rm -f <state>/sessions/steward/outcomes.read; fi; cat <state>/sessions/steward/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/steward/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/steward/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/steward/status.json.part.$$ <state>/sessions/steward/status.json; rm -f <state>/sessions/steward/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ },
+ "run-diagnose": {
+  "advanced": {
+   "checkout": false,
+   "full": false,
+   "hub_tools": [
+    "plan_work",
+    "get_run",
+    "get_run_log",
+    "submit_result",
+    "docs_search",
+    "work_search"
+   ],
+   "tools": [
+    "Skill",
+    "AskUserQuestion"
+   ]
+  },
+  "ask_wait": 600,
+  "current": {
+   "action": "run-diagnose",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "low",
+   "hub_tools": [
+    "plan_work",
+    "get_run",
+    "get_run_log",
+    "submit_result",
+    "docs_search",
+    "work_search"
+   ],
+   "model": "sonnet",
+   "number": 5,
+   "persona": "ci-diagnostician",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "Skill",
+    "AskUserQuestion"
+   ]
+  },
+  "defaults": {
+   "action": "run-diagnose",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "low",
+   "hub_tools": [
+    "plan_work",
+    "get_run",
+    "get_run_log",
+    "submit_result",
+    "docs_search",
+    "work_search"
+   ],
+   "model": "sonnet",
+   "number": 5,
+   "persona": "ci-diagnostician",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "Skill",
+    "AskUserQuestion"
+   ]
+  },
+  "full": false,
+  "mode": "dontAsk",
+  "notes_search": false,
+  "preview": {
+   "checkouts": [],
+   "command": "claude --session-id '<session id>' --name run-diagnose-boot-5 --model sonnet --effort low --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/run-diagnose-boot-5/settings.json --append-system-prompt-file <state>/sessions/run-diagnose-boot-5/persona.md --permission-mode dontAsk --setting-sources user --strict-mcp-config --tools Skill,AskUserQuestion --allowedTools Skill,AskUserQuestion,mcp__glassine-hub__plan_work,mcp__glassine-hub__get_run,mcp__glassine-hub__get_run_log,mcp__glassine-hub__submit_result,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search",
+   "cwd": "<state>/home",
+   "name": "run-diagnose-boot-5",
+   "worktree": "none"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "run-diagnose-boot-5",
+   "--model",
+   "sonnet",
+   "--effort",
+   "low",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/run-diagnose-boot-5/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/run-diagnose-boot-5/persona.md",
+   "--permission-mode",
+   "dontAsk",
+   "--setting-sources",
+   "user",
+   "--strict-mcp-config",
+   "--tools",
+   "Skill,AskUserQuestion",
+   "--allowedTools",
+   "Skill,AskUserQuestion,mcp__glassine-hub__plan_work,mcp__glassine-hub__get_run,mcp__glassine-hub__get_run_log,mcp__glassine-hub__submit_result,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search"
+  ],
+  "scope": {
+   "all_repos": false,
+   "asks_first": [],
+   "design": false,
+   "instance": "<instance>",
+   "persona": "ci-diagnostician",
+   "reports": [],
+   "session": "run-diagnose-boot-5",
+   "tools": [
+    "plan_work",
+    "get_run",
+    "get_run_log",
+    "submit_result",
+    "docs_search",
+    "work_search"
+   ]
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/run-diagnose-boot-5/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/run-diagnose-boot-5/waiting <state>/sessions/run-diagnose-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/run-diagnose-boot-5/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ],
+      "matcher": "AskUserQuestion"
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/run-diagnose-boot-5/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/run-diagnose-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/run-diagnose-boot-5/waiting <state>/sessions/run-diagnose-boot-5/idle; if mv <state>/sessions/run-diagnose-boot-5/outcomes <state>/sessions/run-diagnose-boot-5/outcomes.read 2>/dev/null; then cat <state>/sessions/run-diagnose-boot-5/outcomes.read; rm -f <state>/sessions/run-diagnose-boot-5/outcomes.read; fi; cat <state>/sessions/run-diagnose-boot-5/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/run-diagnose-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/run-diagnose-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/run-diagnose-boot-5/status.json.part.$$ <state>/sessions/run-diagnose-boot-5/status.json; rm -f <state>/sessions/run-diagnose-boot-5/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ },
+ "run-explain": {
+  "advanced": {
+   "checkout": false,
+   "full": false,
+   "hub_tools": [
+    "plan_work",
+    "get_run",
+    "get_run_log",
+    "docs_search",
+    "work_search"
+   ],
+   "tools": [
+    "AskUserQuestion"
+   ]
+  },
+  "ask_wait": 600,
+  "current": {
+   "action": "run-explain",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "low",
+   "hub_tools": [
+    "plan_work",
+    "get_run",
+    "get_run_log",
+    "docs_search",
+    "work_search"
+   ],
+   "model": "sonnet",
+   "number": 5,
+   "persona": "ci-diagnostician",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "AskUserQuestion"
+   ]
+  },
+  "defaults": {
+   "action": "run-explain",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "low",
+   "hub_tools": [
+    "plan_work",
+    "get_run",
+    "get_run_log",
+    "docs_search",
+    "work_search"
+   ],
+   "model": "sonnet",
+   "number": 5,
+   "persona": "ci-diagnostician",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "AskUserQuestion"
+   ]
+  },
+  "full": false,
+  "mode": "dontAsk",
+  "notes_search": false,
+  "preview": {
+   "checkouts": [],
+   "command": "claude --session-id '<session id>' --name run-explain-boot-5 --model sonnet --effort low --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/run-explain-boot-5/settings.json --append-system-prompt-file <state>/sessions/run-explain-boot-5/persona.md --permission-mode dontAsk --setting-sources user --strict-mcp-config --tools AskUserQuestion --allowedTools AskUserQuestion,mcp__glassine-hub__plan_work,mcp__glassine-hub__get_run,mcp__glassine-hub__get_run_log,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search",
+   "cwd": "<state>/home",
+   "name": "run-explain-boot-5",
+   "worktree": "none"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "run-explain-boot-5",
+   "--model",
+   "sonnet",
+   "--effort",
+   "low",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/run-explain-boot-5/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/run-explain-boot-5/persona.md",
+   "--permission-mode",
+   "dontAsk",
+   "--setting-sources",
+   "user",
+   "--strict-mcp-config",
+   "--tools",
+   "AskUserQuestion",
+   "--allowedTools",
+   "AskUserQuestion,mcp__glassine-hub__plan_work,mcp__glassine-hub__get_run,mcp__glassine-hub__get_run_log,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search"
+  ],
+  "scope": {
+   "all_repos": false,
+   "asks_first": [],
+   "design": false,
+   "instance": "<instance>",
+   "persona": "ci-diagnostician",
+   "reports": [],
+   "session": "run-explain-boot-5",
+   "tools": [
+    "plan_work",
+    "get_run",
+    "get_run_log",
+    "docs_search",
+    "work_search"
+   ]
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/run-explain-boot-5/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/run-explain-boot-5/waiting <state>/sessions/run-explain-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/run-explain-boot-5/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ],
+      "matcher": "AskUserQuestion"
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/run-explain-boot-5/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/run-explain-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/run-explain-boot-5/waiting <state>/sessions/run-explain-boot-5/idle; if mv <state>/sessions/run-explain-boot-5/outcomes <state>/sessions/run-explain-boot-5/outcomes.read 2>/dev/null; then cat <state>/sessions/run-explain-boot-5/outcomes.read; rm -f <state>/sessions/run-explain-boot-5/outcomes.read; fi; cat <state>/sessions/run-explain-boot-5/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/run-explain-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/run-explain-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/run-explain-boot-5/status.json.part.$$ <state>/sessions/run-explain-boot-5/status.json; rm -f <state>/sessions/run-explain-boot-5/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ },
+ "run-fix": {
+  "advanced": {
+   "checkout": "new-branch",
+   "full": true,
+   "hub_tools": [],
+   "tools": []
+  },
+  "ask_wait": 600,
+  "current": {
+   "action": "run-fix",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [],
+   "model": "opus",
+   "number": 5,
+   "persona": "ci-fixer",
+   "repo": "boot",
+   "steps": [],
+   "tools": []
+  },
+  "defaults": {
+   "action": "run-fix",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "high",
+   "hub_tools": [],
+   "model": "opus",
+   "number": 5,
+   "persona": "ci-fixer",
+   "repo": "boot",
+   "steps": [],
+   "tools": []
+  },
+  "full": true,
+  "mode": "auto",
+  "notes_search": false,
+  "preview": {
+   "checkouts": [
+    "<state>/workspace/work/run-fix-boot-5/boot"
+   ],
+   "command": "claude --session-id '<session id>' --name run-fix-boot-5 --model opus --effort high --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/run-fix-boot-5/settings.json --append-system-prompt-file <state>/sessions/run-fix-boot-5/persona.md --permission-mode auto",
+   "cwd": "<state>/workspace",
+   "name": "run-fix-boot-5",
+   "worktree": "new branch agent/run-fix-boot-5"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "run-fix-boot-5",
+   "--model",
+   "opus",
+   "--effort",
+   "high",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/run-fix-boot-5/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/run-fix-boot-5/persona.md",
+   "--permission-mode",
+   "auto"
+  ],
+  "scope": {
+   "all_repos": false,
+   "asks_first": [],
+   "design": false,
+   "instance": "<instance>",
+   "persona": "ci-fixer",
+   "reports": [],
+   "session": "run-fix-boot-5",
+   "tools": null
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/run-fix-boot-5/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PermissionRequest": [
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/run-fix-boot-5/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PostToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "test -e <state>/sessions/run-fix-boot-5/asks-open && <python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/run-fix-boot-5/tool-token; true",
+        "timeout": 10,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PostToolUseFailure": [
+     {
+      "hooks": [
+       {
+        "command": "test -e <state>/sessions/run-fix-boot-5/asks-open && <python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/run-fix-boot-5/tool-token; true",
+        "timeout": 10,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/run-fix-boot-5/waiting <state>/sessions/run-fix-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/run-fix-boot-5/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/run-fix-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "test -e <state>/sessions/run-fix-boot-5/asks-open && <python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/run-fix-boot-5/tool-token; true",
+        "timeout": 10,
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/run-fix-boot-5/waiting <state>/sessions/run-fix-boot-5/idle; if mv <state>/sessions/run-fix-boot-5/outcomes <state>/sessions/run-fix-boot-5/outcomes.read 2>/dev/null; then cat <state>/sessions/run-fix-boot-5/outcomes.read; rm -f <state>/sessions/run-fix-boot-5/outcomes.read; fi; cat <state>/sessions/run-fix-boot-5/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/run-fix-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/run-fix-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/run-fix-boot-5/status.json.part.$$ <state>/sessions/run-fix-boot-5/status.json; rm -f <state>/sessions/run-fix-boot-5/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ },
+ "run-flaky": {
+  "advanced": {
+   "checkout": false,
+   "full": false,
+   "hub_tools": [
+    "plan_work",
+    "get_run",
+    "get_run_log",
+    "list_runs",
+    "docs_search",
+    "work_search"
+   ],
+   "tools": [
+    "AskUserQuestion"
+   ]
+  },
+  "ask_wait": 600,
+  "current": {
+   "action": "run-flaky",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "low",
+   "hub_tools": [
+    "plan_work",
+    "get_run",
+    "get_run_log",
+    "list_runs",
+    "docs_search",
+    "work_search"
+   ],
+   "model": "sonnet",
+   "number": 5,
+   "persona": "ci-diagnostician",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "AskUserQuestion"
+   ]
+  },
+  "defaults": {
+   "action": "run-flaky",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "low",
+   "hub_tools": [
+    "plan_work",
+    "get_run",
+    "get_run_log",
+    "list_runs",
+    "docs_search",
+    "work_search"
+   ],
+   "model": "sonnet",
+   "number": 5,
+   "persona": "ci-diagnostician",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "AskUserQuestion"
+   ]
+  },
+  "full": false,
+  "mode": "dontAsk",
+  "notes_search": false,
+  "preview": {
+   "checkouts": [],
+   "command": "claude --session-id '<session id>' --name run-flaky-boot-5 --model sonnet --effort low --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/run-flaky-boot-5/settings.json --append-system-prompt-file <state>/sessions/run-flaky-boot-5/persona.md --permission-mode dontAsk --setting-sources user --strict-mcp-config --tools AskUserQuestion --allowedTools AskUserQuestion,mcp__glassine-hub__plan_work,mcp__glassine-hub__get_run,mcp__glassine-hub__get_run_log,mcp__glassine-hub__list_runs,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search",
+   "cwd": "<state>/home",
+   "name": "run-flaky-boot-5",
+   "worktree": "none"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "run-flaky-boot-5",
+   "--model",
+   "sonnet",
+   "--effort",
+   "low",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/run-flaky-boot-5/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/run-flaky-boot-5/persona.md",
+   "--permission-mode",
+   "dontAsk",
+   "--setting-sources",
+   "user",
+   "--strict-mcp-config",
+   "--tools",
+   "AskUserQuestion",
+   "--allowedTools",
+   "AskUserQuestion,mcp__glassine-hub__plan_work,mcp__glassine-hub__get_run,mcp__glassine-hub__get_run_log,mcp__glassine-hub__list_runs,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search"
+  ],
+  "scope": {
+   "all_repos": false,
+   "asks_first": [],
+   "design": false,
+   "instance": "<instance>",
+   "persona": "ci-diagnostician",
+   "reports": [],
+   "session": "run-flaky-boot-5",
+   "tools": [
+    "plan_work",
+    "get_run",
+    "get_run_log",
+    "list_runs",
+    "docs_search",
+    "work_search"
+   ]
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/run-flaky-boot-5/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/run-flaky-boot-5/waiting <state>/sessions/run-flaky-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/run-flaky-boot-5/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ],
+      "matcher": "AskUserQuestion"
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/run-flaky-boot-5/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/run-flaky-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/run-flaky-boot-5/waiting <state>/sessions/run-flaky-boot-5/idle; if mv <state>/sessions/run-flaky-boot-5/outcomes <state>/sessions/run-flaky-boot-5/outcomes.read 2>/dev/null; then cat <state>/sessions/run-flaky-boot-5/outcomes.read; rm -f <state>/sessions/run-flaky-boot-5/outcomes.read; fi; cat <state>/sessions/run-flaky-boot-5/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/run-flaky-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/run-flaky-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/run-flaky-boot-5/status.json.part.$$ <state>/sessions/run-flaky-boot-5/status.json; rm -f <state>/sessions/run-flaky-boot-5/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ },
+ "run-slow": {
+  "advanced": {
+   "checkout": false,
+   "full": false,
+   "hub_tools": [
+    "plan_work",
+    "get_run",
+    "get_run_log",
+    "list_runs",
+    "docs_search",
+    "work_search"
+   ],
+   "tools": [
+    "AskUserQuestion"
+   ]
+  },
+  "ask_wait": 600,
+  "current": {
+   "action": "run-slow",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "low",
+   "hub_tools": [
+    "plan_work",
+    "get_run",
+    "get_run_log",
+    "list_runs",
+    "docs_search",
+    "work_search"
+   ],
+   "model": "sonnet",
+   "number": 5,
+   "persona": "ci-diagnostician",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "AskUserQuestion"
+   ]
+  },
+  "defaults": {
+   "action": "run-slow",
+   "also_numbers": [],
+   "brief": "",
+   "covers": [
+    {
+     "number": 5,
+     "repo": "boot"
+    }
+   ],
+   "docs": [],
+   "docs_query": "",
+   "effort": "low",
+   "hub_tools": [
+    "plan_work",
+    "get_run",
+    "get_run_log",
+    "list_runs",
+    "docs_search",
+    "work_search"
+   ],
+   "model": "sonnet",
+   "number": 5,
+   "persona": "ci-diagnostician",
+   "repo": "boot",
+   "steps": [],
+   "tools": [
+    "AskUserQuestion"
+   ]
+  },
+  "full": false,
+  "mode": "dontAsk",
+  "notes_search": false,
+  "preview": {
+   "checkouts": [],
+   "command": "claude --session-id '<session id>' --name run-slow-boot-5 --model sonnet --effort low --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/run-slow-boot-5/settings.json --append-system-prompt-file <state>/sessions/run-slow-boot-5/persona.md --permission-mode dontAsk --setting-sources user --strict-mcp-config --tools AskUserQuestion --allowedTools AskUserQuestion,mcp__glassine-hub__plan_work,mcp__glassine-hub__get_run,mcp__glassine-hub__get_run_log,mcp__glassine-hub__list_runs,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search",
+   "cwd": "<state>/home",
+   "name": "run-slow-boot-5",
+   "worktree": "none"
+  },
+  "resume": [
+   "claude",
+   "--resume",
+   "<id>",
+   "--name",
+   "run-slow-boot-5",
+   "--model",
+   "sonnet",
+   "--effort",
+   "low",
+   "--mcp-config",
+   "<state>/hub-mcp.json",
+   "--plugin-dir",
+   "<repo>/agents/plugin",
+   "--settings",
+   "<state>/sessions/run-slow-boot-5/settings.json",
+   "--append-system-prompt-file",
+   "<state>/sessions/run-slow-boot-5/persona.md",
+   "--permission-mode",
+   "dontAsk",
+   "--setting-sources",
+   "user",
+   "--strict-mcp-config",
+   "--tools",
+   "AskUserQuestion",
+   "--allowedTools",
+   "AskUserQuestion,mcp__glassine-hub__plan_work,mcp__glassine-hub__get_run,mcp__glassine-hub__get_run_log,mcp__glassine-hub__list_runs,mcp__glassine-hub__docs_search,mcp__glassine-hub__work_search"
+  ],
+  "scope": {
+   "all_repos": false,
+   "asks_first": [],
+   "design": false,
+   "instance": "<instance>",
+   "persona": "ci-diagnostician",
+   "reports": [],
+   "session": "run-slow-boot-5",
+   "tools": [
+    "plan_work",
+    "get_run",
+    "get_run_log",
+    "list_runs",
+    "docs_search",
+    "work_search"
+   ]
+  },
+  "settings": {
+   "hooks": {
+    "Notification": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/run-slow-boot-5/waiting",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "PreToolUse": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/run-slow-boot-5/waiting <state>/sessions/run-slow-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     },
+     {
+      "hooks": [
+       {
+        "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/run-slow-boot-5/tool-token",
+        "timeout": 630,
+        "type": "command"
+       }
+      ],
+      "matcher": "AskUserQuestion"
+     }
+    ],
+    "SessionStart": [
+     {
+      "hooks": [
+       {
+        "command": "sleep 3",
+        "type": "command"
+       }
+      ],
+      "matcher": "startup"
+     },
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/run-slow-boot-5/idle",
+        "type": "command"
+       }
+      ],
+      "matcher": "resume"
+     }
+    ],
+    "Stop": [
+     {
+      "hooks": [
+       {
+        "command": "touch <state>/sessions/run-slow-boot-5/idle",
+        "type": "command"
+       }
+      ]
+     }
+    ],
+    "UserPromptSubmit": [
+     {
+      "hooks": [
+       {
+        "command": "rm -f <state>/sessions/run-slow-boot-5/waiting <state>/sessions/run-slow-boot-5/idle; if mv <state>/sessions/run-slow-boot-5/outcomes <state>/sessions/run-slow-boot-5/outcomes.read 2>/dev/null; then cat <state>/sessions/run-slow-boot-5/outcomes.read; rm -f <state>/sessions/run-slow-boot-5/outcomes.read; fi; cat <state>/sessions/run-slow-boot-5/context 2>/dev/null; true",
+        "type": "command"
+       }
+      ]
+     }
+    ]
+   },
+   "statusLine": {
+    "command": "head -c 16385 > <state>/sessions/run-slow-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/run-slow-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/run-slow-boot-5/status.json.part.$$ <state>/sessions/run-slow-boot-5/status.json; rm -f <state>/sessions/run-slow-boot-5/status.json.part.$$; true",
+    "padding": 0,
+    "type": "command"
+   }
+  }
+ }
+}

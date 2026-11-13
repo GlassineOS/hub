@@ -26,7 +26,7 @@ from pathlib import Path
 from . import auth, decisions, devices, interactions, newwork, notes, results, usage
 from . import feed as feedlib
 from .designs import TICK as DESIGN_TICK, DesignError, Designs, Tools as DesignTools
-from .agents import MAX_ALSO, MAX_NOTES, NOTES_TOOL, PLANNER_MODELS, RESULTS as RESULTS_WORDS, SCREENS, AgentError, Agents, Library, load_environment, screen_of, validate, with_also
+from .agents import MAX_ALSO, MAX_NOTES, NOTES_TOOL, PLANNER_MODELS, RESULTS as RESULTS_WORDS, SCREENS, AgentError, Agents, Library, _full, load_environment, screen_of, validate, with_also
 from .apps import AppError, Apps, is_write
 from .asks import GRANT_LIFE, MAX_INPUT, TOOL_PREFIX, AskError, Asks
 from .ghpolicy import ORG, Refused, check, is_merge, merge_request
@@ -399,7 +399,7 @@ class Hubd:
                 return "You started that session, and it only reads: use message_started_session, which doesn't ask."
         if name == "spawn_session":
             try:
-                if self.agents.check_spawn(tool_input).get("access") == "full":
+                if _full(self.agents.check_spawn(tool_input)):
                     return "That's a full session, with the person's rights: only they can start it. Tell them which one."
                 await self.agents.room_to_start()
             except AgentError as e:
@@ -879,7 +879,7 @@ class Hubd:
         if not (req.get("why") or "").strip():
             raise AgentError("say why, in a sentence: it's the first thing the person reads")
         action = self.agents.library.action(req.get("action"))
-        if action.get("access") != "full" or action["object"] not in ("issue", "pr"):
+        if not _full(action) or action["object"] not in ("issue", "pr"):
             raise AgentError(f"{action['id']} isn't a full session on an issue or pull request: use spawn_session or plan_work")
         base = {**self.agents.defaults(action["id"], req.get("repo"), req.get("number")), "notes": req.get("notes") or ""}
         numbers = req.get("also_numbers") or []

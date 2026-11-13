@@ -563,13 +563,14 @@ def test_listing_all_repositories_comes_from_the_token_scope(hubd, tool, all_rep
 
 def test_the_stewards_tools_only_read(hubd, github):
     """Its writes ask you first: on its allowed list, it has no write tool at all."""
-    action = tomllib.loads((Path(__file__).parents[1] / "agents" / "actions" / "project-steward.toml").read_text())
+    from hubd.agents import Library
+    action = Library(Path(__file__).parents[1] / "agents").action("project-steward")
     listed = {t.name: t for t in asyncio.run(tools.build(github, FakeDocs()).list_tools())}
     # These write only a suggestion, or a message to a session of its own that can't write. hubd checks that part.
-    for name in set(action["hub_tools"]) - {"plan_work", "suggest_session", "message_started_session"}:
+    for name in set(action["grant"].hub_tools) - {"plan_work", "suggest_session", "message_started_session"}:
         assert listed[name].annotations.read_only_hint is True, name
-    for name in action["asks_first"]:
-        assert listed[name].annotations.read_only_hint is False and name not in action["hub_tools"], name
+    for name in action["grant"].asks_first:
+        assert listed[name].annotations.read_only_hint is False and name not in action["grant"].hub_tools, name
 
 
 def test_suggest_session_hands_covers_to_hubd(github, hubd):
@@ -1691,10 +1692,10 @@ def test_the_terminal_keeps_your_place():
 def test_submit_result_is_listed_only_for_a_token_whose_action_has_it():
     from hubd.agents import Library
     library = Library(Path(__file__).parents[1] / "agents")
-    review = library.actions["pr-review"]["hub_tools"]
+    review = library.actions["pr-review"]["grant"].hub_tools
     assert "submit_result" in listed_for({"session": "s", "tools": review, "persona": "reviewer"})
     assert "review_pr" not in listed_for({"session": "s", "tools": review, "persona": "reviewer"})
-    implement_less = library.actions["pr-explain"]["hub_tools"]
+    implement_less = library.actions["pr-explain"]["grant"].hub_tools
     assert "submit_result" not in listed_for({"session": "s", "tools": implement_less, "persona": "x"})
     listed = {t.name: t for t in asyncio.run(tools.build(GitHub(Hubd("/nonexistent"), CONFIG), FakeDocs()).list_tools())}
     assert listed["submit_result"].annotations.read_only_hint is False and listed["submit_result"].annotations.destructive_hint is False
@@ -2594,8 +2595,8 @@ def test_docsearch_exact_finds_what_the_ranked_search_leaves_out(github):
 def test_read_report_is_listed_only_for_a_research_session_and_goes_to_hubd_under_its_token(github, hubd):
     from hubd.agents import Library
     library = Library(Path(__file__).parents[1] / "agents")
-    assert "read_report" in listed_for({"session": "s", "tools": library.actions["knowledge-research"]["hub_tools"], "persona": "researcher"})
-    others = [a for a, spec in library.actions.items() if "read_report" in spec["hub_tools"]]
+    assert "read_report" in listed_for({"session": "s", "tools": library.actions["knowledge-research"]["grant"].hub_tools, "persona": "researcher"})
+    others = [a for a, spec in library.actions.items() if "read_report" in spec["grant"].hub_tools]
     assert others == ["knowledge-research"]
     listed = {t.name: t for t in asyncio.run(tools.build(GitHub(Hubd("/nonexistent"), CONFIG), FakeDocs()).list_tools())}
     assert listed["read_report"].annotations.read_only_hint is True

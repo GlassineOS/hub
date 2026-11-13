@@ -498,21 +498,21 @@ def test_the_notes_search_is_on_the_actions_that_only_read():
     first. One that can post or send never has it (SECURITY.md, Notes)."""
     from hubd.agents import _full, _may_search_notes
     for action in LIBRARY.actions.values():
-        assert ("notes_find" in action.get("hub_tools", ())) == _may_search_notes(action), action["id"]
+        assert ("notes_find" in action["grant"].hub_tools) == _may_search_notes(action), action["id"]
         if _full(action):  # a full session has no list: hubd lets it use any tool
-            assert "notes_find" not in action.get("hub_tools", ())
+            assert "notes_find" not in action["grant"].hub_tools
     for reads in ("notes-compact", "notes-sweep", "knowledge-research", "new-issue", "new-security-audit"):
-        assert "notes_find" in LIBRARY.action(reads)["hub_tools"], reads
+        assert "notes_find" in LIBRARY.action(reads)["grant"].hub_tools, reads
     # The ones that read an outsider's text and post (comment_issue, comment_pr), or have a shell with the internet, or ask first.
     for posts in ("issue-triage", "pr-security-audit", "pr-review", "project-steward"):
-        assert "notes_find" not in LIBRARY.action(posts)["hub_tools"], posts
+        assert "notes_find" not in LIBRARY.action(posts)["grant"].hub_tools, posts
     # plan_work reads only, but what it carries reaches a planner as yours once you press Start: none of its holders has the search.
-    plans = [a["id"] for a in LIBRARY.actions.values() if "plan_work" in a.get("hub_tools", ())]
+    plans = [a["id"] for a in LIBRARY.actions.values() if "plan_work" in a["grant"].hub_tools]
     assert {"pr-explain", "pr-merge-prep", "run-diagnose", "run-explain", "run-flaky", "run-slow", "issue-triage", "pr-review",
             "pr-security-audit", "project-steward"} <= set(plans)
-    assert not [a for a in plans if "notes_find" in LIBRARY.action(a)["hub_tools"]]
-    assert "comment_issue" in LIBRARY.action("issue-triage")["hub_tools"] and "comment_pr" in LIBRARY.action("pr-security-audit")["hub_tools"]
-    assert "Bash" in LIBRARY.action("pr-review")["tools"] and LIBRARY.action("project-steward")["asks_first"]
+    assert not [a for a in plans if "notes_find" in LIBRARY.action(a)["grant"].hub_tools]
+    assert "comment_issue" in LIBRARY.action("issue-triage")["grant"].hub_tools and "comment_pr" in LIBRARY.action("pr-security-audit")["grant"].hub_tools
+    assert "Bash" in LIBRARY.action("pr-review")["grant"].tools and LIBRARY.action("project-steward")["grant"].asks_first
 
 
 def _copy_of_the_library(tmp_path):
@@ -524,25 +524,25 @@ def _copy_of_the_library(tmp_path):
 def test_the_library_adds_the_search_only_where_it_cant_carry_a_note_out(tmp_path):
     """An action added later with a post tool, a shell or a card to ask doesn't pick the tool up by being new."""
     root = _copy_of_the_library(tmp_path)
-    base = (root / "actions" / "new-issue.toml").read_text()
+    action, base = (root / "actions" / "new-issue.toml").read_text(), (root / "workflows" / "new-issue.toml").read_text()
     variants = {"posts": base.replace('"submit_drafts"]', '"submit_drafts", "comment_issue"]'),
                 "writes": base.replace('"submit_drafts"]', '"submit_drafts", "create_issue"]'),
                 "shell": base.replace('tools = ["Read", "Grep", "Glob", "AskUserQuestion"]', 'tools = ["Read", "Grep", "Glob", "AskUserQuestion", "Bash"]'),
                 "plans": base.replace('"submit_drafts"]', '"submit_drafts", "plan_work"]'),
                 "asks": base + 'asks_first = ["comment_issue"]\n'}
-    for name, text in variants.items():
-        assert text != base, name
-        (root / "actions" / f"x-{name}.toml").write_text(text.replace('verb = "issue"', f'verb = "{name}"'))
-    (root / "actions" / "x-reads.toml").write_text(base.replace('verb = "issue"', 'verb = "reads"'))
+    for name, text in {**variants, "reads": base}.items():
+        assert text != base or name == "reads", name
+        (root / "actions" / f"x-{name}.toml").write_text(action.replace('verb = "issue"', f'verb = "{name}"'))
+        (root / "workflows" / f"x-{name}.toml").write_text(text.replace('name = "new-issue"', f'name = "x-{name}"'))
     library = Library(root)
-    assert "notes_find" in library.action("x-reads")["hub_tools"]
+    assert "notes_find" in library.action("x-reads")["grant"].hub_tools
     for name in variants:
-        assert "notes_find" not in library.action(f"x-{name}")["hub_tools"], name
+        assert "notes_find" not in library.action(f"x-{name}")["grant"].hub_tools, name
 
 
 def test_the_library_refuses_a_hand_listed_search_on_an_action_that_can_post(tmp_path):
     root = _copy_of_the_library(tmp_path)
-    action = root / "actions" / "notes-compact.toml"
+    action = root / "workflows" / "notes-compact.toml"
     good = action.read_text()
     for bad in (good.replace('"submit_result"]', '"submit_result", "comment_issue"]'), good + 'asks_first = ["comment_issue"]\n',
                 good.replace('"submit_result"]', '"submit_result", "plan_work"]'),  # its words would reach a planner as yours

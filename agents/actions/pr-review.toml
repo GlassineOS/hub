@@ -1,5 +1,5 @@
-# An action does what it says on the tin. Everything an agent may do is listed here, and
-# hubd holds the planner and the advanced form to it.
+# An action does what it says on the tin. Everything an agent may do is listed in its workflow
+# (agents/workflows/<workflow>.toml), and hubd holds the planner and the advanced form to it.
 order = 1
 ceiling = "Reads and hands in one review, which may approve; you post it. Has a sandboxed shell with the internet, seeing the checkout, the repository's git history, and the system's programs and /etc. Never merges, closes or pushes."
 object = "pr"
@@ -11,8 +11,5 @@ personas = ["reviewer"]
 prompt = "pr-review"
 models = ["opus", "sonnet"]
 efforts = ["medium", "high", "xhigh"]
-tools = ["Read", "Grep", "Glob", "Skill", "AskUserQuestion", "Bash"]
-hub_tools = ["request_repository", "map_overview", "map_definition", "map_usages", "map_string", "code_search", "plan_work", "get_pr", "get_pr_diff", "get_pr_threads", "submit_result", "docs_search", "work_search", "list_runs", "list_workflows", "work_status", "docs_index_status"]
-checkout = "pr"
 # The review goes out when you press Post on its card, through review_pr's path, never from the session itself.
 result_tools = ["review_pr"]

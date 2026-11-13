@@ -10,6 +10,3 @@ personas = ["archivist"]
 prompt = "notes-compact"
 models = ["sonnet", "opus", "haiku"]
 efforts = ["high", "xhigh", "medium"]
-tools = ["AskUserQuestion"]
-hub_tools = ["notes_find", "docs_search", "work_search", "get_issue", "get_pr", "submit_result"]
-checkout = false

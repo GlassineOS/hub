@@ -9,8 +9,5 @@ personas = ["triager"]
 prompt = "issue-triage"
 models = ["sonnet", "opus"]
 efforts = ["low", "medium", "high"]
-tools = ["Skill", "AskUserQuestion"]
-hub_tools = ["plan_work", "get_issue", "list_issues", "submit_result", "comment_issue", "docs_search", "work_search"]
-checkout = false
 # Labels and the Part of line are set when you press Apply on its card, never from the session itself.
 result_tools = ["label_issue", "edit_issue"]
