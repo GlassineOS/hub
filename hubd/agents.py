@@ -1126,7 +1126,9 @@ class Agents:
         self._resuming = asyncio.Lock()
         self._starting: set[str] = set()
         self._per_repo: set[tuple[str, str]] = set()  # (action, repository) of a per_repo start under way
-        self._holding: set[tuple] = set()  # (kind, repository, number) a start of a workflow that will hold it is making
+        # ((kind, repository, number), root) a start that will hold the item is making: root is the top of its chain of owners
+        # (a managed start's) or the start's own token, so sessions of one chain don't refuse each other
+        self._holding: list[tuple[tuple, str]] = []
         self._prs: dict[str, tuple[float, list, str | None]] = {}  # session name: when looked up, its pull requests, which session id
         # session name: (session id, the repositories whose lookup failed with no earlier answer): what it holds there isn't known
         self._prs_unknown: dict[str, tuple[str | None, frozenset]] = {}
@@ -2326,27 +2328,46 @@ class Agents:
             existing = await self._existing(action)
             if existing:
                 return existing
-        held_by, claims = None, []
+        held_by, claims, root = None, [], f"start:{secrets.token_hex(6)}"
+        chain = self.chain_of(owner["name"]) if owner is not None else []
+        if chain:
+            root = chain[-1]
         # Refused here only when GitHub says it is a fork's; unsure, the branch checkout that would push refuses it (fails closed)
         if owner is None and _pushes_on_pr(action) and any([await self.pr_fork_state(c["repo"], c["number"]) for c in covers_of(config)]):
             raise ForkError(f"{action['title']} can't run on a fork's pull request: its workflow pushes to the pull request's "
                             "branch, and nobody here may push to a fork's")
-        if owner is None and action["object"] in machine.START_ON:  # a managed session is its owner's: the owner holds the item
+        if action["object"] in machine.START_ON:
+            # A managed start too: its owner, or a session above it, may hold the item; any other holder refuses it
             if action["object"] == "pr" and action.get("when_held", "ask") != "beside":
-                unsure = sorted({n for c in covers_of(config) for n in self.unsure_prs("pr", c["repo"], c["number"])})
+                unsure = sorted({n for c in covers_of(config) for n in self.unsure_prs("pr", c["repo"], c["number"]) if n not in chain})
                 if unsure:
                     await self.refresh_prs(unsure)
             # from here to the claim nothing is awaited, so two starts on one item can't both find it free (FR-103)
-            if (why := self._held_problem(action, config)):
+            if (why := self._held_problem(action, config, chain)):
                 raise AgentError(why)
-            held_by = next((h for c in (covers_of(config) or [{}]) for h in self.holders(action["object"], c.get("repo"), c.get("number"))[0]), None)
-            claims = self._claims(action, config)
-            self._holding.update(claims)
+            if owner is None:
+                held_by = next((h for c in (covers_of(config) or [{}]) for h in self.holders(action["object"], c.get("repo"), c.get("number"))[0]), None)
+            claims = [(c, root) for c in self._claims(action, config)]
+            self._holding.extend(claims)
         try:
             async with self._one_per_repo(action, config.get("repo")):
                 return await self._start(config, action, started_by, origin, owner, context, held_by)
         finally:
-            self._holding.difference_update(claims)
+            for claim in claims:
+                self._holding.remove(claim)
+
+    def chain_of(self, name: str | None) -> list[str]:
+        """The session and those above it, nearest first: its owner, its owner's owner, up to the top."""
+        out = []
+        while isinstance(name, str) and name not in out and len(out) < 16:
+            out.append(name)
+            name = self.owner_of(name)
+        return out
+
+    def foreign_holder(self, kind, repo, number, chain) -> str | None:
+        """The session that holds the item, if it is none of `chain` (an owner and those above it)."""
+        held, _unsure = self.holders(kind, repo, number)
+        return next((h for h in held if h not in chain), None)
 
     def _claims(self, action: dict, config: dict) -> list[tuple]:
         """The items a start will hold once its session is recorded: any start but one that runs beside a holder."""
@@ -3334,8 +3355,9 @@ class Agents:
         return {"holder": self.holder_view(holder) if holder else None, "also_held_by": held[1:], "unsure": unsure,
                 "moves": self.holder_moves(holder) if holder else [], "starts": rows}
 
-    def _held_problem(self, action: dict, config: dict) -> str | None:
-        """Why this start can't start now on its item: an instance holds it, and the start doesn't run beside one."""
+    def _held_problem(self, action: dict, config: dict, chain=()) -> str | None:
+        """Why this start can't start now on its item: an instance holds it, and the start doesn't run beside one. `chain`: a
+        managed start's owner and those above it, who may hold it (and claim it) for the sessions they start."""
         kind = action["object"]
         if action.get("when_held", "ask") == "beside" or kind not in machine.START_ON:
             return None
@@ -3343,12 +3365,16 @@ class Agents:
         for repo, number in items or [(config.get("repo"), config.get("number"))]:
             claimed = (kind, str(repo).lower(), number)
             held, unsure = self.holders(kind, repo, number)
+            held = [h for h in held if h not in chain]
+            unsure = [n for n in unsure if n not in chain]
             if held:
                 how = "ask it through the item's page" if action.get("when_held") == "ask" else "this start is hidden while it does"
+                if chain:
+                    how = f"{chain[0]} doesn't hold it, so the session it starts can't work on it"
                 return f"{held[0]} holds {_item_words(kind, repo, number)}: {how}"
             if unsure:
                 return f"whether {', '.join(unsure)} holds {_item_words(kind, repo, number)} isn't known yet: try again in a moment"
-            if claimed in self._holding:
+            if any(c == claimed and (not chain or root != chain[-1]) for c, root in self._holding):
                 return f"another session is starting on {_item_words(kind, repo, number)}"
         return None
 
