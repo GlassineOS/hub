@@ -530,7 +530,8 @@ def test_a_numeric_string_is_taken_as_the_number(hub):
 
 
 def test_a_fork_answer_is_kept_as_an_own_one_is(hub):
-    """A pull request's head repository doesn't change: GitHub is asked once whether it is a fork's, either answer."""
+    """A pull request's head repository doesn't change: an item's page asks GitHub once whether it is a fork's, either
+    answer, and a fork's found when a token was made is kept too. A token itself is made on what GitHub says then."""
     h, a = hub
     asked = []
 
@@ -544,7 +545,12 @@ def test_a_fork_answer_is_kept_as_an_own_one_is(hub):
 
     async def go():
         for _ in range(3):
-            assert await a.pr_fork_state("boot", 7) is True and await a._from_fork("boot", 7)
-            assert await a.pr_fork_state("boot", 8) is False and not await a._from_fork("boot", 8)
+            assert await a.pr_fork_state("boot", 7) is True
+            assert await a.pr_fork_state("boot", 8) is False
+        assert asked == ["7", "8"]
+        assert await a._from_fork("boot", 9) is False and await a._from_fork("boot", 7)
+        assert asked == ["7", "8", "9", "7"]
+        a._fork_prs.clear()
+        assert await a._from_fork("boot", 7) and await a.pr_fork_state("boot", 7) is True
+        assert asked == ["7", "8", "9", "7", "7"]
     asyncio.run(go())
-    assert asked == ["7", "8"]
