@@ -3040,7 +3040,8 @@ function MachinePanel({ name, onMoved }) {
       : html`<p class="small soft">No facts to check${e.decided_by === "hand" ? ": only a move by hand takes it" : ""}.</p>`}</li>`;
   return html`<div class="mpanel stack">
     <div class="row" style="gap: 8px 12px">
-      <span class="small soft" style="flex: 1 1 240px">${inst.workflow} · version ${inst.version.slice(0, 8)}${one ? " · one state, from its action" : ` · in ${here.join(" › ")}`}${inst.paused ? " · paused" : ""}</span></div>
+      <span class="small soft" style="flex: 1 1 240px">${inst.workflow} · version ${inst.version.slice(0, 8)}${one ? " · one state, from its action" : ` · in ${here.join(" › ")}`}${inst.paused ? " · paused" : ""}</span>
+      <a class="il-btn" href=${`#/workflows/${encodeURIComponent(inst.workflow)}`}>Open ${inst.workflow} in the editor</a></div>
     ${v.newer && html`<p class="small notice quiet">${v.newer.kept ? `${inst.workflow} has a newer version; this session stays on its own until you move it by hand.` : v.newer.has_state ? `A newer version of ${inst.workflow} is out: the next move takes it.` : `The newest version of ${inst.workflow} has no state ${at}: this session stays on its version until you move it by hand.`}</p>`}
     <${Err} text=${got.error || hist.error} />
     ${waiting && !confirmOpen && html`<div role="status" class="waitbar"><span>A ${waiting.kind === "rollback" ? "roll-back" : "move"} to ${waiting.to} waits for your confirm: it widens the grant.</span>
@@ -3103,6 +3104,390 @@ function MachinePanel({ name, onMoved }) {
     ${confirmOpen && html`<${WidenConfirm} name=${name} pending=${confirmOpen} sensitive=${v.sensitive} busy=${act.busy} error=${act.error}
       onAnswer=${answer} onClose=${() => setAsking(null)} />`}
   </div>`;
+}
+
+// --- the workflow editor (012 FR-060 to FR-063, User Story 5) -------------------------------------------------------
+// hubd parses, checks, diffs and saves: the page shows what it says. The Text view is the definition; the inspector reads
+// the outline hubd made of it and changes nothing, except the order of a state's exits, which hubd writes back as text.
+const GRANT_KIND = { tools: "Tools", hub_tools: "Hub tools", asks_first: "Asks first", github: "GitHub", access: "Access",
+  permission_mode: "Permission mode", all_repos: "All repositories", checkout: "Checkout" };
+const scopeWords = (scope) => (scope === "org" ? "the organisation" : `${scope.replace(/^[^_]+__/, "")} (its override)`);
+
+// The checks as rows: problems first (they stop a save and an approval), then the marks, which only show.
+function checkRows(findings) {
+  const all = findings || [];
+  const problems = all.filter((f) => f.kind === "problem");
+  const marks = all.filter((f) => f.kind !== "problem");
+  const rows = [...problems.map((f) => ({ kind: "problem", mark: "✗", sr: "Problem: ", title: f.text, where: f.where })),
+    ...marks.map((f) => ({ kind: f.kind, mark: "!", sr: "Marked: ", title: f.text, where: f.where }))];
+  if (!problems.length) rows.unshift({ kind: "ok", mark: "✓", sr: "", title: "Every state can be reached, every loop ends at a count, every fact is known", where: "" });
+  return rows;
+}
+
+// Why Approve (or Save) can't be pressed, in words, or null when it can: a problem the checks find stops it.
+function approveReason(findings, verb = "Approve") {
+  const problems = (findings || []).filter((f) => f.kind === "problem");
+  if (!problems.length) return null;
+  const first = problems[0];
+  return `${verb} waits: the checks find ${problems.length === 1 ? "a problem" : `${problems.length} problems`}. ${first.where ? `${first.where}: ` : ""}${first.text}`;
+}
+
+// One row of the outline diff as its two sides. A side is null where the row has no counterpart (added: no before).
+function odCells(r) {
+  const face = (x, isState) => (x ? { title: x.title, sub: isState ? [...(x.tags || []), x.context && x.context !== "keep" ? `context ${x.context}` : ""].filter(Boolean).join(" · ") : x.sub } : null);
+  const isState = r.exit === null || r.exit === undefined;
+  const L = face(r.before, isState), R = face(r.after, isState);
+  const what = { added: "added", removed: "removed", changed: `changed: ${(r.fields || []).join(", ")}`, moved: `moved from place ${r.was} to ${r.exit}`, same: "" }[r.kind];
+  const at = (n) => (isState ? "" : `${n}. `);
+  return {
+    L: L && { ...L, title: at(r.was) + L.title, mark: r.kind === "same" ? "" : "old" },
+    R: R && { ...R, title: at(r.exit) + R.title, mark: r.kind === "same" ? "" : "add" },
+    tag: what, isState,
+  };
+}
+
+// The rows the diff shows, with folds: "only what changes" keeps every state that changes, or any of whose exits does,
+// with all its exits, and folds each run of the rest into one row that says how many it hides.
+function odRows(rows, only) {
+  const list = rows || [];
+  const touched = new Set(list.filter((r) => r.kind !== "same").map((r) => r.state));
+  const out = [];
+  let folded = 0;
+  const flush = () => { if (folded) { out.push({ fold: true, text: `⋯ ${folded} unchanged row${folded === 1 ? "" : "s"}` }); folded = 0; } };
+  for (const r of list) {
+    if (only && !touched.has(r.state)) { folded += 1; continue; }
+    flush();
+    out.push({ fold: false, row: r, ...odCells(r) });
+  }
+  flush();
+  return out;
+}
+
+// The text diff as CodeBlock lines, with what screen readers hear for each sign.
+function textDiffLines(lines) {
+  return (lines || []).map((l) => ({ cls: l.kind === "add" ? "add" : l.kind === "del" ? "del" : l.kind === "hunk" ? "hunk" : "", sr: l.kind === "add" ? "added: " : l.kind === "del" ? "removed: " : "",
+    text: l.text }));
+}
+
+// A replay's result in words: what it would have done differently, step by step.
+function replayWords(r) {
+  if (!r) return null;
+  if (r.error) return { title: "The replay couldn't run", body: r.error, rows: [] };
+  const n = (r.steps || []).length;
+  const title = !n ? "The log has no evaluations for this session" : r.differs ? `It would have moved differently ${r.differs === 1 ? "once" : `${r.differs} times`}` : r.cant_tell ? "No difference the log can show" : "It would have done what the session did";
+  const rows = (r.steps || []).filter((s) => s.differs !== false).map((s) => {
+    const was = s.kind === "evaluation" ? (s.logged.to ? `moved to ${s.logged.to}` : `stayed in ${s.logged.from}`) : s.kind === "hand" ? `moved by hand to ${s.logged.to}` : `rolled back to ${s.logged.to}`;
+    const would = s.replay.result === "moves" ? `would move to ${s.replay.to}` : s.replay.result === "asks" ? `would wait for an approval: ${s.replay.why}` : s.replay.result === "cant_tell" ? `can’t tell: ${s.replay.why}` : `would stay in ${s.replay.from}`;
+    return { at: s.at, signal: s.signal || s.kind, text: `${s.kind === "evaluation" ? `In ${s.logged.from}, on ${s.signal}` : "By hand"}: the session ${was}; this ${would}.`, unsure: s.uncertain, cant: s.differs === null };
+  });
+  const body = [`${count(n, "step")} replayed; it ends in ${r.end}${r.logged_end ? `, the session in ${r.logged_end}` : ""}.`,
+    r.cant_tell ? `${count(r.cant_tell, "step")} can’t be told from the log${(r.unknown_facts || []).length ? `: it kept no value for ${r.unknown_facts.join(", ")}` : ""}.` : ""].filter(Boolean).join(" ");
+  return { title, body, rows };
+}
+
+// The editor's outline: states depth-first in the text's order, each with its own exits under it.
+function editorRows(outline) {
+  const states = (outline && outline.states) || [];
+  const rows = [];
+  const visit = (s) => {
+    const parent = s.initial !== null && s.initial !== undefined;
+    const up = s.parent ? states.find((x) => x.id === s.parent) : null;
+    const tags = [parent ? "parent" : "", s.final ? "final" : "", (up ? up.initial : outline.initial) === s.id ? "starts here" : "",
+      s.grant.some((g) => g.sensitive && g.from === null) ? "sensitive" : ""].filter(Boolean);
+    rows.push({ row: "state", id: s.id, depth: s.depth, tags });
+    states.filter((x) => x.parent === s.id).forEach(visit);
+    s.exits.forEach((e) => rows.push({ row: "exit", state: s.id, place: e.place, depth: s.depth + 1, to: e.to, why: exitWhy(e), widens: e.widens, n: parent ? `${e.place}, in any of them` : String(e.place) }));
+  };
+  states.filter((s) => !s.parent).forEach(visit);
+  return rows;
+}
+
+function Checklist({ findings, id }) {
+  return html`<ol class="wfchecklist" aria-labelledby=${id}>${checkRows(findings).map((k) => html`<li data-kind=${k.kind}>
+    <span class="wfchecklist-mark" aria-hidden="true">${k.mark}</span>
+    <span class="stack" style="gap: 2px"><span><span class="sr">${k.sr}</span><strong>${k.title}</strong></span>${k.where && html`<span class="small mono soft">${k.where}</span>`}</span></li>`)}</ol>`;
+}
+
+function OutlineDiff({ rows, only, mode, from, to }) {
+  const shown = odRows(rows, only);
+  const cell = (c, tag) => (c ? html`<div class="od-cell" data-mark=${c.mark}><span class="sr">${c.mark === "add" ? "After: " : c.mark === "old" ? "Before: " : ""}</span><span class="od-title">${c.title}</span>${c.sub && html`<span class="od-sub">${c.sub}</span>`}${tag && html`<span class="od-tag">${tag}</span>`}</div>`
+    : html`<div class="od-cell od-none"><span class="small soft">${"—"}</span></div>`);
+  if (!rows) return html`<p class="small">The outline diff needs both versions to parse: see the checks and the text below.</p>`;
+  const changed = rows.filter((r) => r.kind !== "same").length;
+  return html`<div class="od" data-mode=${mode} role="group" aria-label=${`Outline diff, ${from} to ${to}`}>
+    <p class="small soft">${changed ? `${count(changed, "row")} change${changed === 1 ? "s" : ""}, state by state and exit by exit.` : "Nothing changes in the outline."}</p>
+    <div class="od-head">${mode === "split" ? html`<span class="eyebrow">Before · ${from}</span><span class="eyebrow">After · ${to}</span>` : html`<span class="eyebrow">${from} → ${to}, in one column</span>`}</div>
+    ${shown.map((r) => (r.fold ? html`<div class="od-row od-fold"><span class="small soft">${r.text}</span></div>`
+      : html`<div class="od-row" data-kind=${r.row.kind} data-state=${r.isState ? "" : undefined} style=${`--depth: ${r.row.depth}`}>
+        ${mode === "split" ? html`${cell(r.L, "")}${cell(r.R, r.tag)}` : html`<div class="od-one">${r.row.kind !== "added" && r.row.kind !== "same" && r.L && cell(r.L, "")}${r.R ? cell(r.R, r.tag) : cell(r.L, r.tag)}</div>`}</div>`))}
+  </div>`;
+}
+
+function TextDiff({ lines, title, stat }) {
+  return html`<div class="il-code wfdiff"><div class="il-code__head"><span class="mono">${title}</span>${stat && html`<span class="small soft">+${stat.added} −${stat.removed}</span>`}</div>
+    <pre>${textDiffLines(lines).map((l) => html`<span class=${l.cls}><span class="sr">${l.sr}</span>${l.text}</span>`)}</pre></div>`;
+}
+
+function Sensitive({ marks, intro }) {
+  const added = (marks || []).filter((m) => m.new !== false);
+  if (!added.length) return null;
+  return html`<aside class="il-admonition il-admonition--danger">
+    <span class="il-admonition__label"><span class="il-admonition__seal" aria-hidden="true">!</span>Sensitive</span>
+    <p class="il-admonition__title">${intro} ${count(added.length, "sensitive item")}</p>
+    <ul class="stack tight">${added.map((m) => html`<li class="row small" style="gap: 6px 10px"><span class="wfsens">${m.text.split(":")[0]}</span><span>${m.text.split(":").slice(1).join(":").trim()}</span><span class="mono soft">${m.where}</span></li>`)}</ul>
+    <p class="small">The mark only shows it: it adds no rule, and saving takes it as written. <strong>Way out:</strong> take it out of the text, or don’t save.</p></aside>`;
+}
+
+// The inspector for a state or one of its exits. Read-only: the Text view is the definition.
+function Inspector({ outline, sel, onPick, onMove, busy }) {
+  const states = (outline && outline.states) || [];
+  const s = sel && states.find((x) => x.id === sel.state);
+  if (!s) return html`<p class="small soft">Select a state or an exit in the outline to see it here.</p>`;
+  if (sel.exit) {
+    const e = s.exits.find((x) => x.place === sel.exit);
+    if (!e) return html`<p class="small soft">That exit is gone from the text.</p>`;
+    const target = states.find((x) => x.id === e.to);
+    const field = (k, v) => html`<dt>${k}</dt><dd>${v}</dd>`;
+    return html`<div class="stack tight"><span class="eyebrow">Exit</span><h2 class="wfh3" id="wfe-insp">${s.id} → ${e.to}</h2>
+      <span class="small soft">Place ${e.place} of ${s.exits.length} in ${s.id}: the first that holds moves.</span>
+      <dl class="defs">${field("From", s.path.join(" › "))}${field("To", target ? target.path.join(" › ") : `${e.to} (not a state)`)}
+        ${target && target.initial ? field("Enters", e.enter === "history" ? "where it was (history)" : `its first state (${target.initial})`) : null}
+        ${field("Decided by", { judge: "a judge’s question", facts: "facts", counter: "a counter", hand: "by hand only" }[e.decided_by] || e.decided_by)}
+        ${e.when ? field("When", html`<span class="wfquote">“${e.when}”</span>`) : null}
+        ${field("Requires", e.requires.length ? html`<span class="mono">${e.requires.join(" · ")}</span>` : "nothing")}
+        ${field("Tried on", e.on.length ? html`<span class="mono">${e.on.join(", ")}</span>` : e.move === "on-request" ? "the session’s request" : "nothing")}
+        ${field("Move", e.move === "on-request" ? "on the session’s request" : "on its own")}
+        ${field("Approve", e.approve === "none" ? "nobody first" : e.approve)}</dl>
+      <p class="small">${e.widens ? `Widens the grant: ${Object.entries(e.adds).map(([k, v]) => `${GRANT_KIND[k] || k} ${v.join(", ")}`).join("; ")}. A session moving here waits for your confirm the first time.` : "Doesn’t widen the grant."}</p>
+      <div class="row"><button type="button" class="il-btn" onClick=${() => onPick({ state: s.id })}>Back to ${s.id}</button></div></div>`;
+  }
+  const groups = {};
+  for (const g of s.grant) (groups[g.key] = groups[g.key] || []).push(g);
+  const kind = s.initial ? "a parent: its grant and exits hold in every state under it" : s.final ? "final: nothing follows" : "a state a session can be in";
+  return html`<div class="stack tight"><span class="eyebrow">State</span><h2 class="wfh3" id="wfe-insp">${s.path.join(" › ")}</h2>
+    <span class="small soft">${kind}</span>
+    <dl class="defs"><dt>Inside</dt><dd>${s.parent || "top level"}</dd>${s.initial ? html`<dt>First state</dt><dd>${s.initial}</dd>` : null}
+      ${s.personas.length ? html`<dt>Personas</dt><dd>${s.personas.join(", ")}</dd>` : null}
+      <dt>Context on entry</dt><dd>${s.context === "compact" ? `compact, keeping ${s.focus}` : s.context}</dd></dl>
+    ${s.instructions && html`<div class="stack tight"><span class="eyebrow">Instructions on entry</span><p class="small" style="white-space: pre-wrap">${s.instructions}</p></div>`}
+    <section class="stack tight" aria-labelledby="wfe-g"><h3 class="wfh3" id="wfe-g">Grant</h3>
+      <p class="small soft">With its parents’: what it takes from one says so.</p>
+      ${Object.entries(groups).map(([key, items]) => html`<div class="stack" style="gap: 2px"><span class="eyebrow">${GRANT_KIND[key] || key}</span>
+        <ul class="wfpick">${items.filter((g) => !(g.set === false)).map((g) => html`<li><span class="small mono">${g.item === false ? "none" : String(g.item)}</span>${g.sensitive && html` <span class="wfsens">sensitive</span>`}<span class="small soft">${g.from ? `from ${g.from}` : "its own"}</span></li>`)}
+          ${items.every((g) => g.set === false) && html`<li><span class="small soft">not set: ${items.map((g) => String(g.item)).join(", ")}</span></li>`}</ul></div>`)}</section>
+    <section class="stack tight" aria-labelledby="wfe-m"><h3 class="wfh3" id="wfe-m">Sessions it runs</h3>
+      ${s.manages.length ? html`<ul class="stack tight">${s.manages.map((m) => html`<li class="wfbox small"><strong>${m.persona}</strong> · workflow <span class="mono">${m.workflow}</span> · ${m.start === "auto" ? "starts on entry" : "on request"}, at most ${m.max}${Object.keys(m.returns).length ? ` · returns ${Object.keys(m.returns).join(", ")}` : ""}</li>`)}</ul>` : html`<p class="small soft">None.</p>`}</section>
+    <section class="stack tight" aria-labelledby="wfe-x"><h3 class="wfh3" id="wfe-x">Exits, in order</h3>
+      <p class="small soft">The first that holds moves. ↑ and ↓ write the text again through the hub, so its comments go.</p>
+      ${s.exits.length ? html`<ol class="wforder">${s.exits.map((e, i) => html`<li><span class="mono">${e.place}</span>
+        <button type="button" class="link" onClick=${() => onPick({ state: s.id, exit: e.place })}>→ ${e.to}</button><span class="small soft">${exitWhy(e)}</span>
+        <span class="row" style="gap: 4px"><button type="button" class="il-btn" aria-label=${`Move the exit to ${e.to} up`} disabled=${busy || i === 0} onClick=${() => onMove(s.id, e.place, -1)}>↑</button>
+          <button type="button" class="il-btn" aria-label=${`Move the exit to ${e.to} down`} disabled=${busy || i === s.exits.length - 1} onClick=${() => onMove(s.id, e.place, 1)}>↓</button></span></li>`)}</ol>`
+        : html`<p class="small">${s.final ? "None: it is final." : "None of its own."}</p>`}
+      ${s.inherited.map((e) => html`<p class="small"><span class="eyebrow">then, from ${e.from}</span> → ${e.to} · ${exitWhy(e)}</p>`)}</section></div>`;
+}
+
+function WorkflowList() {
+  const got = useLoad(() => api("hub-workflows"), []);
+  const rows = (got.data && got.data.workflows) || [];
+  return html`<main class="page"><div class="stack tight"><${Eyebrow} soft>Hub · workflows<//><h1>Workflows</h1></div>
+    <p class="small" style="max-width: 70ch">Each action runs on a workflow. A version you save is never changed after; a session takes the newest at its next move. A repository can have its own override.</p>
+    <${Err} text=${got.error} />${!got.data && !got.error && html`<p class="soft">Loading…</p>`}
+    <ul class="wflist">${rows.map((w) => html`<li><a href=${`#/workflows/${encodeURIComponent(w.name)}`}><span class="mono"><b>${w.name}</b></span>
+      <span class="small soft">${w.states === 1 ? "one state" : `${w.states} states`} · v${w.org}${w.org === 0 ? " (the file)" : ""} for the organisation${w.overrides.length ? ` · overrides: ${w.overrides.map((o) => `${o.repo} v${o.v}`).join(", ")}` : ""}${w.actions.length ? ` · runs ${w.actions.join(", ")}` : ""}</span>
+      ${Object.entries(w.refused).map(([scope, why]) => html`<span class="small">Not in use for ${scopeWords(scope)}: ${why}</span>`)}</a></li>`)}</ul></main>`;
+}
+
+function WorkflowsPage({ query }) {
+  return query.name ? html`<${WorkflowEditor} key=${`${query.name}:${query.scope || "org"}:${query.proposal || ""}`} name=${query.name} scope=${query.scope || "org"} proposal=${query.proposal} />` : html`<${WorkflowList} />`;
+}
+
+function WorkflowEditor({ name, scope, proposal }) {
+  const phone = usePhone();
+  const [version, setVersion] = useState(null);
+  const got = useLoad(() => api(`hub-workflows/${encodeURIComponent(name)}${params({ scope, version: version === null ? "" : String(version), proposal })}`), [name, scope, version]);
+  const [draft, setDraft] = useState(null);
+  const [checked, setChecked] = useState(null);
+  const [view, setView] = useState("outline");
+  const [sel, setSel] = useState(null);
+  const [session, setSession] = useState("");
+  const [replayed, setReplayed] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [proposing, setProposing] = useState(false);
+  const [note, setNote] = useState("");
+  const [said, setSaid] = useState("");
+  const [repo, setRepo] = useState("");
+  const act = useAct();
+  const v = got.data;
+  const base = v ? v.text : "";
+  const text = draft === null ? base : draft;
+  const dirty = draft !== null && draft !== base;
+  // A proposal opened from its card: its text is the draft, on the version it starts from.
+  useEffect(() => { if (v && v.proposal && draft === null) setDraft(v.proposal.text); }, [v && v.proposal && v.proposal.id]);
+  // Checks as you type: hubd parses and checks the text, a moment after the last key.
+  useEffect(() => {
+    if (!v) return undefined;
+    if (!dirty) { setChecked({ findings: v.findings, outline: v.outline }); return undefined; }
+    const timer = setTimeout(() => post(`hub-workflows/${encodeURIComponent(name)}/check`, { scope, text }).then(setChecked).catch((e) => setChecked({ findings: [{ kind: "problem", where: "hub", text: e.message }], outline: null })), 400);
+    return () => clearTimeout(timer);
+  }, [text, v && v.text]);
+  if (!v) return html`<main class="page"><${Eyebrow} soft>Hub · workflows<//><h1>${name}</h1><${Err} text=${got.error} />${!got.error && html`<p class="soft">Loading…</p>`}</main>`;
+  const findings = (checked && checked.findings) || v.findings;
+  const outline = (checked && checked.outline) || (dirty ? null : v.outline);
+  const shownV = v.shown.v;
+  const next = v.latest + 1;
+  const onLatest = v.shown.v === v.latest;
+  const saveWhy = !dirty ? "Save waits: nothing is changed yet." : approveReason(findings, "Save") || (!onLatest ? `Save waits: this is v${shownV}; open v${v.latest}, the newest, and change that.` : null);
+  const status = `${v.shown.v === 0 && scope === "org" ? "v0, the file under agents/workflows" : `v${v.shown.v}`} for ${scopeWords(scope)}${v.in_use.scope === scope && v.in_use.v === v.shown.v ? " · in use" : ""} · ${count(v.running, "session")} run ${name} now${dirty ? " · edited, not saved" : ""}`;
+  const move = (state, place, by) => act.run(async () => { const r = await post(`hub-workflows/${encodeURIComponent(name)}/reorder`, { text, state, place, by }); setDraft(r.text); setSel({ state }); });
+  const doReplay = () => act.run(async () => setReplayed(await post(`hub-workflows/${encodeURIComponent(name)}/replay`, { text, session })));
+  const save = () => act.run(async () => {
+    const r = await post(`hub-workflows/${encodeURIComponent(name)}/save`, { scope, text, base_version: v.latest, note: note || null });
+    setSaving(false); setDraft(null); setNote(""); setVersion(null); setSaid(`Saved as v${r.saved.v} for ${scopeWords(scope)} · sessions take it at their next move.`); await got.reload();
+  });
+  const propose = () => act.run(async () => {
+    const r = await post(`hub-workflows/${encodeURIComponent(name)}/propose`, { scope, text, note, session: session || undefined });
+    setProposing(false); setNote(""); setSaid(`Sent to Needs you as ${r.decision.id}: approving it there saves it.`);
+  });
+  const marks = (findings || []).filter((f) => f.kind !== "problem");
+  const rows = outline ? editorRows(outline) : [];
+  const words = replayWords(replayed);
+  return html`<main class="page wide wfe">
+    <header class="wfe-bar">
+      <div class="stack tight" style="flex: 1 1 320px"><a class="small" href="#/workflows">Workflows</a><h1 class="mono">${name}</h1><span class="small soft" role="status">${status}</span></div>
+      <label class="stack tight small"><span class="eyebrow">Version</span>
+        <select value=${String(shownV)} onChange=${(e) => { setVersion(Number(e.target.value)); setDraft(null); }}>${v.versions.map((x) => html`<option value=${String(x.v)}>v${x.v}${x.default ? " · the file" : x.who ? ` · by ${x.who}` : ""}${x.v === v.latest ? " · newest" : ""}</option>`)}
+          ${!v.versions.length && html`<option value="0">no override yet: starts from the organisation’s v${v.shown.from}</option>`}</select></label>
+      <label class="stack tight small"><span class="eyebrow">Scope</span>
+        <select value=${scope} onChange=${(e) => { location.hash = hash(`workflows/${name}`, { scope: e.target.value === "org" ? "" : e.target.value }); }}>${v.scopes.map((s) => html`<option value=${s}>${scopeWords(s)}</option>`)}</select></label>
+      <form class="row small" style="gap: 6px; align-items: flex-end" onSubmit=${(e) => { e.preventDefault(); if (repo.trim()) location.hash = hash(`workflows/${name}`, { scope: `GlassineOS__${repo.trim()}` }); }}>
+        <label class="stack tight"><span class="eyebrow">Override for a repository</span><input value=${repo} placeholder="boot" onInput=${(e) => setRepo(e.target.value)} /></label>
+        <button type="submit" class="il-btn" disabled=${!repo.trim()}>Open</button></form>
+    </header>
+    <${Err} text=${got.error} />
+    <div class="wfe-grid">
+      <section class="stack wfe-view" aria-labelledby="wfe-view">
+        <h2 class="sr" id="wfe-view">The machine</h2>
+        <div class="row" style="justify-content: space-between">
+          <div class="seg" role="group" aria-label="View"><button aria-pressed=${view === "outline" ? "true" : "false"} onClick=${() => setView("outline")}>Outline</button><button aria-pressed=${view === "text" ? "true" : "false"} onClick=${() => setView("text")}>Text</button></div>
+          ${dirty && html`<button type="button" class="il-btn" onClick=${() => setDraft(null)}>Discard the edits</button>`}</div>
+        ${view === "outline" ? (outline ? html`<ul class="wftree wfe-tree" aria-label=${`States and exits of ${name}`}>${rows.map((r) => (r.row === "state"
+          ? html`<li data-row="state" style=${`--depth: ${r.depth}`}><button type="button" class="link wfe-pick" aria-pressed=${sel && sel.state === r.id && !sel.exit ? "true" : "false"} onClick=${() => setSel({ state: r.id })}><b class="mono">${r.id}</b></button>${r.tags.map((t) => (t === "sensitive" ? html`<span class="wfsens">sensitive</span>` : html`<span class="il-chip il-chip--over">${t}</span>`))}</li>`
+          : html`<li data-row="exit" style=${`--depth: ${r.depth}`} class="small"><button type="button" class="link wfe-pick" aria-pressed=${sel && sel.state === r.state && sel.exit === r.place ? "true" : "false"} onClick=${() => setSel({ state: r.state, exit: r.place })}><span class="mono">${r.n}</span> → <b>${r.to}</b></button> <span class="soft">${r.why}</span>${r.widens && html` · <span>widens</span>`}</li>`))}</ul>`
+          : html`<p class="small">The text doesn’t parse, so there is no outline: see the checks.</p>`)
+          : html`<label class="stack tight"><span class="small soft">${name}.toml · the definition itself: the outline and the inspector read it, and the checks run as you type</span>
+            <textarea class="mono wfe-text" spellcheck="false" rows=${phone ? 18 : 30} value=${text} onInput=${(e) => setDraft(e.target.value)}></textarea></label>`}
+        ${view === "outline" && html`<p class="small soft">Select a state or an exit to see it in the inspector. Edit in the Text view.</p>`}
+      </section>
+      <aside class="wfe-insp wfbox" aria-labelledby="wfe-insp"><${Inspector} outline=${outline} sel=${sel} onPick=${setSel} onMove=${move} busy=${act.busy} /></aside>
+      <section class="stack wfe-checks" aria-labelledby="wfe-chk">
+        <div class="row"><h2 class="wfh3" id="wfe-chk">Checks</h2><span class="small soft">${approveReason(findings, "Save") ? "a problem stops a save" : marks.length ? `${count(marks.length, "marked item")}: they only show` : "nothing found"}</span></div>
+        <${Checklist} findings=${findings} id="wfe-chk" />
+        <${Sensitive} marks=${marks.map((m) => ({ ...m, new: true }))} intro="This version grants" />
+      </section>
+      <section class="stack wfe-replay" aria-labelledby="wfe-rp">
+        <h2 class="wfh3" id="wfe-rp">Replay</h2>
+        <p class="small soft">Runs this text over a past session’s log: exits decided by facts and counters are evaluated again, a judge’s by the verdict it gave then. What the log didn’t keep can’t be told.</p>
+        <div class="row" style="gap: 8px; align-items: flex-end">
+          <label class="stack tight small" style="flex: 1 1 240px"><span class="eyebrow">Session</span>
+            <select value=${session} onChange=${(e) => { setSession(e.target.value); setReplayed(null); }}><option value="">${v.sessions.length ? "Choose a session" : "No session has run this workflow yet"}</option>
+              ${v.sessions.map((s) => html`<option value=${s.session_id}>${s.name} · ${count(s.evaluations, "evaluation")} · ${whenAgo(s.last)}</option>`)}</select></label>
+          <button type="button" class="il-btn" disabled=${act.busy || !session || !outline} onClick=${doReplay}>Replay</button>
+          ${(!session || !outline) && html`<span class="il-btn-reason">${!outline ? "Replay waits: the text doesn’t parse." : "Choose a session first."}</span>`}</div>
+        ${words && html`<div class="wfbox stack tight" role="status"><strong>${words.title}</strong><p class="small">${words.body}</p>
+          ${words.rows.length > 0 && html`<ol class="stack tight small">${words.rows.map((r) => html`<li><span class="mono soft">${whenAgo(r.at)}</span> ${r.text}${r.unsure && " (after an earlier difference, so less certain)"}</li>`)}</ol>`}</div>`}
+      </section>
+    </div>
+    <footer class="wfe-foot">
+      <button type="button" class="il-btn il-btn--primary" aria-disabled=${saveWhy ? "true" : "false"} aria-describedby="wfe-save-why" onClick=${() => { if (!saveWhy) setSaving(true); }}>Save as v${next}…</button>
+      ${saveWhy && html`<span class="il-btn-reason" id="wfe-save-why">${saveWhy}</span>`}
+      <button type="button" class="il-btn" disabled=${!dirty} onClick=${() => setProposing(true)}>Propose it…</button>
+      ${!dirty && html`<span class="il-btn-reason">Propose waits: nothing is changed yet.</span>`}
+      <span class="small soft" role="status" style="flex: 1 1 20rem">${said}</span>
+      <${Err} text=${saving || proposing ? null : act.error} />
+    </footer>
+    ${saving && html`<${SaveDialog} name=${name} scope=${scope} next=${next} latest=${v.latest} text=${text} marks=${marks} running=${v.running} note=${note} setNote=${setNote} busy=${act.busy} error=${act.error} onSave=${save} onClose=${() => setSaving(false)} />`}
+    ${proposing && html`<${ProposeDialog} name=${name} scope=${scope} note=${note} setNote=${setNote} findings=${findings} busy=${act.busy} error=${act.error} onSend=${propose} onClose=${() => setProposing(false)} />`}
+  </main>`;
+}
+
+function SaveDialog({ name, scope, next, latest, text, marks, running, note, setNote, busy, error, onSave, onClose }) {
+  const ref = useRef();
+  useModal(ref);
+  const diff = useLoad(() => post(`hub-workflows/${encodeURIComponent(name)}/diff`, { scope, from: latest, text }), [text]);
+  const changed = diff.data && diff.data.rows ? diff.data.rows.filter((r) => r.kind !== "same") : [];
+  return html`<dialog ref=${ref} class="il-dialog wfconfirm" aria-labelledby="wfs-t" onClose=${onClose}>
+    <div class="il-dialog__head"><span class="il-label">Save a workflow</span><h2 class="il-dialog__title" id="wfs-t">Save ${name} as v${next} for ${scopeWords(scope)}?</h2></div>
+    <div class="il-dialog__body stack">
+      <p class="small">${scope === "org" ? `It replaces v${latest} for every repository without its own override.` : `It replaces v${latest} of this repository’s override.`} v${latest} stays as it was: a version never changes.</p>
+      ${diff.data ? html`<ul class="stack tight small">${changed.slice(0, 12).map((r) => html`<li>${r.exit ? `${r.state}: exit ${r.exit} → ${r.to}` : r.state} · ${r.kind}${r.fields.length ? `: ${r.fields.join(", ")}` : ""}</li>`)}${changed.length > 12 && html`<li>and ${changed.length - 12} more</li>`}${!changed.length && html`<li>The outline is the same; only the text changes.</li>`}</ul>` : html`<p class="small soft">Reading what changes…</p>`}
+      <${Sensitive} marks=${marks.map((m) => ({ ...m, new: true }))} intro="It grants" />
+      <p class="small">${count(running, "session")} run ${name} now. Each takes v${next} at its next move, and keeps its own version until then. One in a state v${next} doesn’t have stays on its version until you move it by hand. Saving it is the approval: nothing asks again.</p>
+      <label class="stack tight small"><span class="eyebrow">What it’s for (kept with the version)</span><input value=${note} onInput=${(e) => setNote(e.target.value)} /></label>
+      <${Err} text=${error || diff.error} /></div>
+    <div class="il-dialog__actions"><button type="button" class="il-btn" disabled=${busy} onClick=${onClose}>Keep editing</button>
+      <button type="button" class="il-btn il-btn--primary" disabled=${busy} onClick=${onSave}>Save v${next}${marks.length ? `, with ${count(marks.length, "marked item")}` : ""}</button></div>
+  </dialog>`;
+}
+
+function ProposeDialog({ name, scope, note, setNote, findings, busy, error, onSend, onClose }) {
+  const ref = useRef();
+  useModal(ref);
+  return html`<dialog ref=${ref} class="il-dialog wfconfirm" aria-labelledby="wfp-t" onClose=${onClose}>
+    <div class="il-dialog__head"><span class="il-label">Propose a change</span><h2 class="il-dialog__title" id="wfp-t">Send this version of ${name} to Needs you?</h2></div>
+    <div class="il-dialog__body stack">
+      <p class="small">It becomes a card with the diff, the checks and the replay. Nothing is saved until it is approved there${approveReason(findings) ? ", and Approve waits while a problem stands" : ""}.</p>
+      <label class="stack tight small"><span class="eyebrow">What it changes and why</span><textarea rows="4" value=${note} onInput=${(e) => setNote(e.target.value)}></textarea></label>
+      <${Err} text=${error} /></div>
+    <div class="il-dialog__actions"><button type="button" class="il-btn" disabled=${busy} onClick=${onClose}>Keep editing</button>
+      <button type="button" class="il-btn il-btn--primary" disabled=${busy || !note.trim()} onClick=${onSend}>Send it for ${scopeWords(scope)}</button>
+      ${!note.trim() && html`<span class="il-btn-reason">Say what it’s for first.</span>`}</div>
+  </dialog>`;
+}
+
+// FR-063, DefinitionChange: the card for a proposed version. Approve saves it; it waits, with the reason beside it, while
+// the checks find a problem. hubd checks again when it is pressed.
+function WorkflowChangeCard({ d, onChanged, where }) {
+  const phone = usePhone();
+  const [mode, setMode] = useState("split");
+  const [only, setOnly] = useState(true);
+  const [words, setWords] = useState("");
+  const act = useAct(onChanged);
+  const s = d.scope;
+  const asked = d.state === "requested";
+  const why = approveReason(s.findings);
+  const send = (verdict, body = {}) => act.run(() => answerAt(d.id, { verdict, ...body }, where));
+  const shownMode = phone ? "unified" : mode;
+  const rp = replayWords(s.replay);
+  const sens = (s.sensitive || []).filter((m) => m.new);
+  return html`<article class="stack wfchange" aria-labelledby=${`wc-${d.id}`}>
+    <div class="row" style="gap: 8px"><span class="badge">${DECISION_STATE[d.state]}</span><span class="mono small">${d.id}</span><span class="small soft">made ${ago(d.made * 1000)}${d.ended ? `, ended ${ago(d.ended * 1000)}` : ""}</span>
+      ${sens.length > 0 && html`<span class="wfsens">${sens.length} sensitive</span>`}</div>
+    <h3 class="wfh3" id=${`wc-${d.id}`}>${d.says}</h3>
+    <p class="small"><span class="soft">Why, in ${s.proposed_by ? `${s.proposed_by}’s` : "its"} words: </span><span style="overflow-wrap: anywhere">${s.note}</span></p>
+    <${Sensitive} marks=${sens} intro="This change grants" />
+    <section class="stack tight" aria-label="Before and after">
+      <div class="row" style="justify-content: space-between"><h4 class="eyebrow">Before and after</h4>
+        ${!phone && html`<div class="seg" role="group" aria-label="Show"><button aria-pressed=${mode === "split" ? "true" : "false"} onClick=${() => setMode("split")}>Side by side</button>
+          <button aria-pressed=${shownMode === "unified" ? "true" : "false"} onClick=${() => setMode("unified")}>One column</button></div>`}
+        <label class="row small" style="gap: 6px"><input type="checkbox" checked=${only} onChange=${(e) => setOnly(e.target.checked)} />Only what changes</label></div>
+      <${OutlineDiff} rows=${s.rows} only=${only} mode=${shownMode} from=${`v${s.base_version}`} to="proposed" /></section>
+    <section class="stack tight" aria-label="The change, as written"><h4 class="eyebrow">The change, as written</h4>
+      <${TextDiff} lines=${s.text_diff} title=${`${s.workflow} · v${s.base_version} → proposed`} stat=${s.stat} /></section>
+    <section class="stack tight" aria-label="The hub’s checks"><h4 class="eyebrow">The hub’s checks</h4><${Checklist} findings=${s.findings} id=${`wc-${d.id}`} />
+      <p class="small soft">A problem stops the approval until it is fixed; a sensitive item only marks what you are granting.</p></section>
+    ${rp && html`<section class="wfbox stack tight" aria-label="Replay"><strong>Replay: ${rp.title}</strong><p class="small">${rp.body}</p>
+      ${rp.rows.length > 0 && html`<ol class="stack tight small">${rp.rows.map((r) => html`<li>${r.text}${r.unsure && " (less certain)"}</li>`)}</ol>`}</section>`}
+    ${d.why_ended && html`<p class="small" role="status">Ended: ${d.why_ended}</p>`}
+    ${asked && html`<div class="stack tight wfchange-actions">
+      <label class="stack tight small">Your words, if you want them on the record<input value=${words} onInput=${(e) => setWords(e.target.value)} /></label>
+      ${why && html`<p class="il-btn-reason" id=${`wcw-${d.id}`}>${why}</p>`}
+      <div class="row" style="gap: 8px">
+        <button type="button" class="il-btn il-btn--primary" aria-disabled=${why ? "true" : "false"} aria-describedby=${why ? `wcw-${d.id}` : undefined} disabled=${act.busy} onClick=${() => { if (!why) send("approve", { words: words || null }); }}>Approve and save${sens.length ? `, with ${sens.length} sensitive` : ""}</button>
+        <a class="il-btn" href=${hash(`workflows/${s.workflow}`, { scope: s.scope === "org" ? "" : s.scope, proposal: d.id })}>Open in the editor</a>
+        <button type="button" class="il-btn" disabled=${act.busy} onClick=${() => send("deny", { why: words || null, changes: true })}>Ask for changes</button>
+        <button type="button" class="il-btn" disabled=${act.busy} onClick=${() => send("deny", { why: words || null })}>Discard</button></div></div>`}
+    <${Err} text=${act.error} /></article>`;
 }
 
 const hubTool = (tool) => tool.replace(/^mcp__glassine-hub__/, "hub.");
@@ -3790,8 +4175,10 @@ function InteractionCard({ item, dense, where, reload }) {
   const body = () => {
     if (item.kind === "permission" || item.kind === "question") return html`<${Ask} ask=${d} compact=${settled} onDone=${reload} where=${where} />`;
     if (item.kind === "result" && d.type) return html`<${ResultView} r=${d} reload=${reload} where=${where} />`;
-    if (item.kind === "decision") return html`<div class="ask calm ${settled ? "done" : ""}"><div class="ask-head"><span class="ask-kind">${d.kind === "go" ? (d.scope.actions.includes("eye-test") ? "GO · EYE TEST" : "GO") : d.kind === "machine.widen" ? "WORKFLOW MOVE" : d.kind === "machine.approve" ? "WORKFLOW APPROVAL" : "MERGE"}</span>
-      <span class="small mono">${d.asked_by || "you"}</span></div><div class="ask-body"><${DecisionRow} key=${`${d.id}-${d.state}`} d=${d} onChanged=${reload} where=${where} /></div></div>`;
+    if (item.kind === "decision") return html`<div class="ask calm ${settled ? "done" : ""}"><div class="ask-head"><span class="ask-kind">${d.kind === "go" ? (d.scope.actions.includes("eye-test") ? "GO · EYE TEST" : "GO") : d.kind === "machine.widen" ? "WORKFLOW MOVE" : d.kind === "machine.approve" ? "WORKFLOW APPROVAL" : d.kind === "workflow.change" ? "WORKFLOW CHANGE" : "MERGE"}</span>
+      <span class="small mono">${d.asked_by || (d.scope && d.scope.proposed_by) || "you"}</span></div><div class="ask-body">${d.kind === "workflow.change"
+        ? html`<${WorkflowChangeCard} key=${`${d.id}-${d.state}`} d=${d} onChanged=${reload} where=${where} />`
+        : html`<${DecisionRow} key=${`${d.id}-${d.state}`} d=${d} onChanged=${reload} where=${where} />`}</div></div>`;
     if (settled && d.state === "dismissed" && (d.drafts || []).length) return html`<${SetAside} item=${d} reload=${reload} />`;
     if (settled) return html`<div class="ask calm done"><div class="ask-head"><span class="ask-kind">${KIND_LABEL[item.kind].toUpperCase()}</span><span class="small mono">${d.by}</span></div>
       <div class="ask-body"><p class="ask-title">${d.title}</p></div></div>`;
@@ -4797,8 +5184,11 @@ function Hub({ host: first, route, onOut }) {
   // Links from before Work was one page, the Docs and Device pages, and the items a card points to.
   const { path, query, moved, to } = movedRoute(route);
   useEffect(() => { if (moved) history.replaceState(null, "", to || hash(path)); }, [route.path, route.query.tab]);
-  const views = { overview: Overview, roadmap: Roadmap, work: Work, knowledge: Knowledge, notes: NotesPage, shells: Sessions, design: DesignView, apps: AppsPage };
-  const View = views[path] || Overview;
+  const views = { overview: Overview, roadmap: Roadmap, work: Work, knowledge: Knowledge, notes: NotesPage, shells: Sessions, design: DesignView, apps: AppsPage, workflows: WorkflowsPage };
+  // #/workflows/<name>: the editor of one workflow (012 FR-061).
+  const [top, sub] = path.split("/");
+  const View = views[sub !== undefined && top === "workflows" ? top : path] || Overview;
+  const pageQuery = top === "workflows" && sub ? { ...query, name: decodeURIComponent(sub) } : query;
   const here = path;
   const unreachable = Boolean(hostPoll.error || listed.error);
   const newWork = () => launch({ from: { view: SEEN_SCREEN[here] || "Overview" } });
@@ -4820,7 +5210,7 @@ function Hub({ host: first, route, onOut }) {
     ${header}
     ${menu && phone && html`<${MenuSheet} here=${here} asks=${asks} host=${host} onOut=${onOut} onClose=${() => setMenu(false)} />`}
     ${unreachable && html`<div class="unreachable" role="status">hubd can't be reached — showing what was last read.</div>`}
-    <${View} key=${path + JSON.stringify(path === "shells" || path === "work" || path === "knowledge" ? {} : query)} query=${query} asks=${asks} /></div>
+    <${View} key=${path + JSON.stringify(path === "shells" || path === "work" || path === "knowledge" ? {} : query)} query=${pageQuery} asks=${asks} /></div>
     <${Steward} route=${route} asks=${asks} />
     ${launching && html`<${LaunchModal} key=${launching.key} open=${launching} work=${asks.work} asks=${asks} reload=${reloadAll}
       onClose=${() => setLaunching(null)} onBehind=${(b) => { setLaunching(null); setBehind(b); }} />`}

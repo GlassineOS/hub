@@ -419,8 +419,9 @@ class Machines:
     """The instances of the sessions under `sessions`. `action_of(id)` gives an action as the library has it now, or None;
     `is_session(name)` says whether a name is a session's."""
 
-    def __init__(self, sessions: Path, log_path: Path, action_of, is_session, clock=time.time):
+    def __init__(self, sessions: Path, log_path: Path, action_of, is_session, clock=time.time, resolve=None):
         self.sessions = Path(sessions)
+        self.resolve = resolve  # (action, record) -> the action as the session's repository has it, with its override's text
         self.log_path = log_path
         self.action_of = action_of
         self.is_session = is_session
@@ -442,8 +443,11 @@ class Machines:
         return self._log
 
     def latest(self, record: dict) -> str | None:
-        """The newest definition text for a session's workflow."""
+        """The newest definition text for a session's workflow: its repository's override, else the organisation's newest
+        saved version, else the file (machinestore)."""
         action = self.action_of(record.get("config", {}).get("action"))
+        if action and self.resolve is not None:
+            action = self.resolve(action, record)
         return definition_for(action) if action else None
 
     # --- files ---------------------------------------------------------------------
