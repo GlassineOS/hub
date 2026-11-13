@@ -1128,39 +1128,93 @@ function offeredFor(actions, facts) {
 }
 
 // 006 FR-007: the one action that fits the item best. Fix if failing (a run without a fix action: investigate), address if a
-// review asked for changes, triage if nobody has labelled it, else review a PR, implement an issue, investigate a run.
-// Work's rows use it too.
-const BEST_VERB = { pr: "review", issue: "implement", run: "investigate" };
+// review asked for changes, triage if nobody has labelled it, else the kind's lead start (012 FR-102). Work's rows use it too.
 function bestAction(kind, facts, offered) {
   const verbs = facts.failing ? ["fix", "investigate"]
     : kind === "pr" && (facts.changesRequested || facts.openThreads > 0) ? ["address"]
-    : kind === "issue" && facts.untriaged ? ["triage"] : [BEST_VERB[kind]];
+    : kind === "issue" && facts.untriaged ? ["triage"] : [];
   for (const verb of verbs) {
     const found = offered.find((a) => a.verb === verb);
     if (found) return found;
   }
-  return offered.find((a) => a.verb) || offered[0] || null;
+  return offered.find((a) => a.lead) || offered.find((a) => a.verb) || offered[0] || null;
 }
 
 const useKindActions = (kind) => useLoad(() => api(`agents/actions${params({ object: kind })}`), [kind]);
 
-// 006 FR-015: the kind's agent actions as blue buttons, the best one filled, and "New work from this…". Each opens Launch on the item.
-function LaunchRow({ kind, repo, number, facts, road }) {
-  const { data, error } = useKindActions(kind);
-  const offered = offeredFor(data, facts);
-  const best = bestAction(kind, facts, offered);
-  const ordered = best ? [best, ...offered.filter((a) => a !== best)] : offered;
-  const pins = facts.threadPins || [];
-  const titleOf = (a) => (a.needs === "review" ? `${a.title} · ${pins.length ? count(pins.length, "ticked thread") : facts.openThreads === 1 ? "1 open thread" : facts.openThreads ? `all ${facts.openThreads} threads` : count(facts.reviews, "review")}` : a.title);
+// 012 FR-102 to FR-104: an item's starts. Nothing holds it: the lead start first, as the one big button with its persona
+// and what it may do, then the quick tasks. An instance holds it: the page leads with that instance (its session, state and
+// next step), then what can be asked of its owner, the read-only tasks that run beside it, and the rest behind a disclosure.
+const useItemStarts = (kind, repo, number) => useLoad(() => post("agents/starts", { object: kind, repo, number }), [kind, repo, number]);
+const KIND_WORDS = { issue: "issues", pr: "pull requests", run: "runs", repo: "repositories", project: "the project", knowledge: "knowledge", notes: "notes" };
+
+function StartTile({ start, onOpen, plain }) {
+  return html`<button class=${`starttile${plain ? " plain" : ""}`} title=${`${start.summary} ${start.ceiling}`} onClick=${onOpen}>
+    <${PersonaBadge} persona=${{ id: start.persona, name: start.persona_name, initials: start.initials, family: start.family }} hidden />
+    <span class="stack" style="gap: 1px; min-width: 0"><b>${start.title}</b><span class="small">${start.persona_name || start.persona}</span>
+      <span class="small soft">${start.ceiling}</span></span></button>`;
+}
+
+function Starts({ kind, repo, number, facts, road }) {
+  const { data, error, reload } = useItemStarts(kind, repo, number);
+  const [said, setSaid] = useState(null);
+  const act = useAct();
   const here = `${repo}#${number}`;
+  const pins = facts.threadPins || [];
   const open = (a) => launch({ action: a.id, covers: [{ kind, repo, number }], pins: a.needs === "review" ? pins : [], from: { view: "Work", ref: here } });
-  return html`<section class="spawn keycap" aria-labelledby="h-launch">
-    <div class="row" style="gap: 4px 12px; align-items: baseline"><h2 id="h-launch" class="row" style="gap: 8px; font-size: 19px; font-weight: 600"><${TermIcon} />Launch on ${here}</h2>
-      <span class="small soft">Each opens Launch on this item: a planner reads first, and nothing runs until you've read its plan.</span></div>
-    <${Err} text=${error} />
-    <div class="row">${ordered.map((a) => html`<button class=${a === best ? "primary" : "pen"} title=${`${a.summary} ${a.ceiling}`} onClick=${() => open(a)}><${TermIcon} />${titleOf(a)}</button>`)}
-      ${road && html`<button class="pen" onClick=${() => planIssues(repo, number, "Work")}><${TermIcon} />Plan issues…</button>`}
-      <button class="pen" onClick=${() => launch({ repos: [repo], context: here, pins: [{ kind: "ref", label: here }], from: { view: "Work", ref: here } })}>＋ New work from this…</button></div>
+  const newWork = html`<button class="pen dashed" onClick=${() => launch({ repos: [repo], context: here, pins: [{ kind: "ref", label: here }], from: { view: "Work", ref: here } })}>New work from this…</button>`;
+  if (error) return html`<section class="spawn keycap"><${Err} text=${error} /></section>`;
+  if (!data) return html`<section class="spawn keycap"><p class="soft small">Reading what starts here…</p></section>`;
+  const starts = data.starts || [];
+  const holder = data.holder;
+  if (!holder) {
+    const lead = starts.find((s) => s.lead);
+    const quick = offeredFor(starts.filter((s) => s !== lead), facts);
+    return html`<section class="spawn keycap starts" aria-labelledby="h-starts">
+      <div class="row" style="justify-content: space-between; align-items: center"><h2 id="h-starts" class="eyebrow">Start on ${here}</h2>${newWork}</div>
+      ${data.unsure && data.unsure.length > 0 && html`<p class="small soft" role="status">Whether ${data.unsure.join(", ")} holds this isn't known yet: the lead start waits until it is.</p>`}
+      ${lead && html`<div class="leadstart"><button class="primary lead" onClick=${() => open(lead)}>
+          <${PersonaBadge} persona=${{ id: lead.persona, name: lead.persona_name, initials: lead.initials, family: lead.family }} hidden />
+          <span class="stack" style="gap: 2px; text-align: left"><b>${lead.title}</b><span class="small">${lead.persona_name || lead.persona} · <span class="mono">${[lead.workflow, ...(lead.path || [])].join(" › ")}</span></span></span></button>
+        <div class="stack" style="gap: 4px"><span>${lead.summary}</span><span class="small"><span class="eyebrow">May</span> ${lead.ceiling}</span></div></div>`}
+      ${quick.length > 0 && html`<${Eyebrow}>Quick tasks<//><div class="startgrid">${quick.map((a) => html`<${StartTile} start=${a} onOpen=${() => open(a)} />`)}
+        ${road && html`<button class="starttile" onClick=${() => planIssues(repo, number, "Work")}><b>Plan issues…</b></button>`}</div>`}
+    </section>`;
+  }
+  const fits = offeredFor(starts, facts); // what the item's state offers now, as for an item nothing holds
+  const asks = fits.filter((s) => s.availability === "asks");
+  const beside = fits.filter((s) => s.availability === "runs");
+  const hidden = starts.filter((s) => s.availability === "hidden");
+  const ask = (body, label) => act.run(async () => {
+    const got = await post("agents/ask_owner", { object: kind, repo, number, ...body });
+    setSaid(!got.asked ? `Not asked: ${got.why}` : got.via === "managed"
+      ? (got.started ? `${label}: ${holder.session} started it under it.` : `${label}: ${got.why || "it waits"}. It is in Needs you.`)
+      : got.moved ? `${label}: ${holder.session} moved.` : `${label}: ${got.why || "asked"}.`);
+    reload();
+  });
+  const session = { name: holder.session, agent: holder.agent };
+  return html`<section class="spawn keycap starts held" aria-labelledby="h-starts">
+    <div class="row" style="gap: 8px 12px; align-items: center"><h2 id="h-starts" class="eyebrow">Held by</h2>
+      <${SessionChip} session=${session} />
+      <span class="row" style="gap: 6px"><${PersonaBadge} persona=${personaOf(holder.agent)} hidden /><span class="stack" style="gap: 0"><b class="small">${holder.persona_name || holder.persona}</b>
+        <span class="eyebrow soft">${FAMILY_WORD[holder.family] || ""}</span></span></span>
+      <span class="mono small soft">${holder.workflow}</span></div>
+    <div class="row" style="justify-content: space-between; align-items: center"><${StateChip} machine=${holder.agent.machine} ended=${holder.ended} size="lg" />
+      <a class="small" href=${`#/workflows/${encodeURIComponent(holder.workflow)}`}>Open its workflow</a></div>
+    <p><b>Next:</b> ${holder.next}</p>
+    ${said && html`<div role="status" class="notice quiet"><span class="grow">${said}</span><button class="plain" onClick=${() => setSaid(null)}>Dismiss</button></div>`}
+    <${Err} text=${act.error} />
+    ${(asks.length > 0 || data.moves.length > 0) && html`<div class="split-rule"><${Eyebrow}>Ask ${holder.session}<//>
+      <p class="small soft">These go to ${holder.session}, not to a new session. Grants, caps and approvals apply as if ${holder.session} had asked for it.</p>
+      <div class="startgrid">${asks.map((a) => html`<div class="stack" style="gap: 4px"><button class="asktile" disabled=${act.busy} onClick=${() => ask({ action: a.id }, a.title)}>${a.title}</button>
+          <span class="small soft">${a.ask.via === "managed" ? `a session under ${holder.session}: ${a.persona_name || a.persona}` : `a move request: ${holder.state} → ${a.ask.to}`}</span></div>`)}
+        ${data.moves.filter((m) => !asks.some((a) => a.ask.via === "move" && a.ask.to === m.to)).map((m) => html`<div class="stack" style="gap: 4px">
+          <button class="asktile" disabled=${act.busy} onClick=${() => ask({ to: m.to }, m.label)}>${m.label}</button>
+          <span class="small soft">${m.via}${m.requires.length ? ` · requires ${m.requires.join(", ")}` : ""}</span></div>`)}</div></div>`}
+    ${beside.length > 0 && html`<div class="split-rule"><${Eyebrow}>Runs beside it · read-only<//>
+      <div class="startgrid">${beside.map((a) => html`<${StartTile} start=${a} onOpen=${() => open(a)} />`)}</div></div>`}
+    ${hidden.length > 0 && html`<details class="small soft"><summary>Hidden while ${holder.session} holds this · ${hidden.length}</summary>
+      <ul class="stack" style="gap: 2px; margin-top: 6px">${hidden.map((a) => html`<li><b>${a.title}</b>: ${a.why}</li>`)}</ul></details>`}
   </section>`;
 }
 
@@ -2004,7 +2058,7 @@ function WorkLists({ query, asks }) {
       });
     };
     const frame = {
-      launchRow: ({ kind, facts }) => html`<${LaunchRow} key=${current.key} kind=${kind} repo=${current.repo} number=${current.number} facts=${facts} road=${kind === "issue" && query.road === "1"} />`,
+      launchRow: ({ kind, facts }) => html`<${Starts} key=${current.key} kind=${kind} repo=${current.repo} number=${current.number} facts=${facts} road=${kind === "issue" && query.road === "1"} />`,
       sessions: ({ kind, facts }) => html`<${SessionsOn} key=${current.key} kind=${kind} repo=${current.repo} number=${current.number} facts=${facts} sessions=${on}
         phaseOf=${phaseOf} place=${place} setPhase=${(name, m) => setPhases((p) => ({ ...p, [`${name}@${here}`]: m }))} asks=${asks} onReload=${() => sessions.reload()}
         onEnded=${(r) => { setKeptCheckout(r && r.kept ? { ref: here, path: r.kept } : null); sessions.reload(); }} />
@@ -3538,18 +3592,30 @@ function costLine(c) {
   return `${c.sessions} session${c.sessions === 1 ? "" : "s"} · ${c.judge_calls_avg} judge calls each · ${pct}${lat}`;
 }
 
+// FR-105: every workflow, one-state ones too, by the kind of item its starts are on; one without starts is managed only.
+const START_KINDS = [["issue", "On issues"], ["pr", "On pull requests"], ["run", "On runs"], ["repo", "On repositories"], ["project", "On the project"],
+  ["knowledge", "On knowledge"], ["notes", "On notes"]];
 function WorkflowList() {
   const got = useLoad(() => api("hub-workflows"), []);
   const costs = useLoad(() => api("machine-costs"), []);
   const rows = (got.data && got.data.workflows) || [];
   const costOf = Object.fromEntries(((costs.data && costs.data.workflows) || []).map((c) => [c.workflow, c]));
-  return html`<main class="page"><div class="stack tight"><${Eyebrow} soft>Hub · workflows<//><h1>Workflows</h1></div>
-    <p class="small" style="max-width: 70ch">Each action runs on a workflow. A version you save is never changed after; a session takes the newest at its next move. A repository can have its own override.</p>
-    <${Err} text=${got.error} />${!got.data && !got.error && html`<p class="soft">Loading…</p>`}
-    <ul class="wflist">${rows.map((w) => html`<li><a href=${`#/workflows/${encodeURIComponent(w.name)}`}><span class="mono"><b>${w.name}</b></span>
-      <span class="small soft">${w.states === 1 ? "one state" : `${w.states} states`} · v${w.org}${w.org === 0 ? " (the file)" : ""} for the organisation${w.overrides.length ? ` · overrides: ${w.overrides.map((o) => `${o.repo} v${o.v}`).join(", ")}` : ""}${w.actions.length ? ` · runs ${w.actions.join(", ")}` : ""}</span>
+  const row = (w, kind) => html`<li><a href=${`#/workflows/${encodeURIComponent(w.name)}`}><span class="mono"><b>${w.name}</b></span>
+      ${kind && html`<span class="small">${(w.starts || []).filter((x) => x.on === kind).map((x, i) => html`${i ? " · " : ""}${x.label}${x.lead ? html` <span class="wflead">lead</span>` : ""}`)}</span>`}
+      <span class="small soft">${w.states === 1 ? "one state" : `${w.states} states`} · v${w.org}${w.org === 0 ? " (the file)" : ""} for the organisation${w.overrides.length ? ` · overrides: ${w.overrides.map((o) => `${o.repo} v${o.v}`).join(", ")}` : ""}</span>
       ${costOf[w.name] && html`<span class="small">${costLine(costOf[w.name])}</span>`}
-      ${Object.entries(w.refused).map(([scope, why]) => html`<span class="small">Not in use for ${scopeWords(scope)}: ${why}</span>`)}</a></li>`)}</ul></main>`;
+      ${Object.entries(w.refused).map(([scope, why]) => html`<span class="small">Not in use for ${scopeWords(scope)}: ${why}</span>`)}</a></li>`;
+  const managed = rows.filter((w) => w.managed_only);
+  return html`<main class="page"><div class="stack tight"><${Eyebrow} soft>Hub · workflows<//><h1>Workflows</h1></div>
+    <p class="small" style="max-width: 70ch">Each workflow names how it starts on an item: its starts are the buttons on that kind of item’s page, the lead start first. A version you save is never changed after; a session takes the newest at its next move. A repository can have its own override.</p>
+    <${Err} text=${got.error} />${!got.data && !got.error && html`<p class="soft">Loading…</p>`}
+    ${START_KINDS.map(([kind, title]) => {
+      const here = rows.filter((w) => (w.kinds || []).includes(kind));
+      return here.length > 0 && html`<section class="stack tight" aria-label=${title}><h2 class="eyebrow">${title} · ${here.length}</h2><ul class="wflist">${here.map((w) => row(w, kind))}</ul></section>`;
+    })}
+    ${managed.length > 0 && html`<section class="stack tight" aria-label="Managed only"><h2 class="eyebrow">Managed only · ${managed.length}</h2>
+      <p class="small soft">No starts: these run only under another session whose workflow starts them, or resume where one already runs.</p>
+      <ul class="wflist">${managed.map((w) => row(w, null))}</ul></section>`}</main>`;
 }
 
 function WorkflowsPage({ query }) {
@@ -3640,6 +3706,7 @@ function WorkflowEditor({ name, scope, proposal }) {
         ${shown !== "text" && html`<p class="small soft">Select a state or an exit to see it in the inspector. Edit in the Text view.</p>`}
       </section>
       <aside class="wfe-insp wfbox" aria-labelledby="wfe-insp"><${Inspector} outline=${outline} sel=${sel} onPick=${setSel} onMove=${move} busy=${act.busy} /></aside>
+      <${StartsSection} name=${name} outline=${outline} text=${text} busy=${act.busy} onText=${setDraft} />
       <section class="stack wfe-checks" aria-labelledby="wfe-chk">
         <div class="row"><h2 class="wfh3" id="wfe-chk">Checks</h2><span class="small soft">${approveReason(findings, "Save") ? "a problem stops a save" : marks.length ? `${count(marks.length, "marked item")}: they only show` : "nothing found"}</span></div>
         <${Checklist} findings=${findings} id="wfe-chk" />
@@ -3654,6 +3721,7 @@ function WorkflowEditor({ name, scope, proposal }) {
               ${v.sessions.map((s) => html`<option value=${s.session_id}>${s.name} · ${count(s.evaluations, "evaluation")} · ${whenAgo(s.last)}</option>`)}</select></label>
           <button type="button" class="il-btn" disabled=${act.busy || !session || !outline} onClick=${doReplay}>Replay</button>
           ${(!session || !outline) && html`<span class="il-btn-reason">${!outline ? "Replay waits: the text doesn’t parse." : "Choose a session first."}</span>`}</div>
+        ${replayed && replayed.starts && replayed.starts.length > 0 && html`<p class="small" role="status">Starts that change: ${replayed.starts.map((r) => `${r.label} (${r.kind}${r.fields.length ? `: ${r.fields.join(", ")}` : ""})`).join("; ")}. ${replayed.starts_note}</p>`}
         ${words && html`<div class="wfbox stack tight" role="status"><strong>${words.title}</strong><p class="small">${words.body}</p>
           ${words.rows.length > 0 && html`<ol class="stack tight small">${words.rows.map((r) => html`<li><span class="mono soft">${whenAgo(r.at)}</span> ${r.text}${r.unsure && " (after an earlier difference, so less certain)"}</li>`)}</ol>`}</div>`}
       </section>
@@ -3673,6 +3741,82 @@ function WorkflowEditor({ name, scope, proposal }) {
   </main>`;
 }
 
+// FR-105: a workflow's starts, by kind, and one of them in an edit form with what its session receives. Applying writes the
+// start into the text through hubd (workflow.start); saving it is the editor's own save or proposal, with its diff and replay.
+const START_MODELS = ["fable", "opus", "sonnet", "haiku"];
+const START_EFFORTS = ["low", "medium", "high", "xhigh"];
+const HELD_WORDS = { beside: "runs beside it", ask: "asks the owner", hide: "hidden" };
+function receivesPreview(on, prompt) {
+  const shown = String(prompt || "").replaceAll("{repo}", "<repo>").replaceAll("{number}", "<number>").replaceAll("{checkout}", "<checkout>").replaceAll("{{", "{").replaceAll("}}", "}");
+  const fields = ["project", "knowledge", "notes"].includes(on) ? null
+    : [["kind", { issue: "issue", pr: "pull request", run: "workflow run", repo: "repository" }[on] || on], ["repository", "GlassineOS/<repo>"],
+      ...(on === "repo" ? [] : [["number", "<number>"], ["title", "…"], ["state", "…"]]), ...(on === "pr" ? [["branch", "…"], ["checks", "…"]] : []),
+      ...(on === "issue" || on === "pr" ? [["labels", "…"]] : []), ["links", "…"]];
+  return { shown, fields };
+}
+
+function StartsSection({ name, outline, text, busy, onText }) {
+  const starts = (outline && outline.starts) || [];
+  const [place, setPlace] = useState(starts.length ? 1 : null);
+  const [form, setForm] = useState(null);
+  const [error, setError] = useState(null);
+  const current = place ? starts[place - 1] : null;
+  useEffect(() => { setForm(current ? { ...current } : null); setError(null); }, [place, current && JSON.stringify(current)]);
+  const leaves = ((outline && outline.states) || []).filter((st) => !outline.states.some((x) => x.parent === st.id));
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const toggle = (k, v) => setForm((f) => { const have = f[k] || []; return { ...f, [k]: have.includes(v) ? have.filter((x) => x !== v) : [...have, v] }; });
+  const fields = ["id", "on", "label", "summary", "ceiling", "state", "lead", "when_held", "ask_move", "order", "verb", "when", "needs", "asks_describe", "asks_paths", "models", "efforts", "prompt"];
+  const send = (start, at) => post(`hub-workflows/${encodeURIComponent(name)}/start`, { text, place: at, start })
+    .then((r) => { setError(null); onText(r.text); }, (e) => setError(e.message));
+  const apply = () => {
+    const start = Object.fromEntries(fields.filter((k) => form[k] !== undefined && form[k] !== null && form[k] !== "" && !(Array.isArray(form[k]) && !form[k].length)).map((k) => [k, form[k]]));
+    if (start.state === "") delete start.state;
+    send(start, place);
+  };
+  const add = () => send({ on: "issue", label: "A new start", id: `${name}-${starts.length + 1}` }, null).then(() => setPlace(starts.length + 1));
+  const preview = form ? receivesPreview(form.on, form.prompt || (outline.launch && outline.launch.prompt)) : null;
+  return html`<section class="stack wfe-starts" aria-labelledby="wfe-st">
+    <div class="row" style="gap: 8px; align-items: baseline"><h2 class="wfh3" id="wfe-st">Starts</h2>
+      <span class="small soft">${count(starts.length, "start")}${starts.length ? ` · on ${[...new Set(starts.map((x) => KIND_WORDS[x.on] || x.on))].join(" and ")}` : " · managed only"}${starts.length && starts[0].inherited ? " · the file’s, as this version names none" : ""}</span></div>
+    <p class="small soft">How ${name} begins on an item. Each start is a button on the pages of its kind of item: the lead start first, the others as quick tasks.</p>
+    <div class="wfe-starts-grid">
+      <div class="stack tight">${START_KINDS.filter(([k]) => starts.some((x) => x.on === k)).map(([k, title]) => html`<${Eyebrow}>${title}<//>
+        ${starts.filter((x) => x.on === k).map((x) => html`<button type="button" class="starttile" aria-pressed=${place === x.place ? "true" : "false"} onClick=${() => setPlace(x.place)}>
+          <span class="stack" style="gap: 2px; flex: 1"><span class="row" style="justify-content: space-between"><b>${x.label}</b>${x.lead && html`<span class="wflead">lead</span>`}</span>
+            <span class="small">starts in <span class="mono">${(x.path || []).join(" › ") || "?"}</span> · when held: ${HELD_WORDS[x.when_held] || x.when_held}</span></span></button>`)}`)}
+        <button type="button" class="il-btn" disabled=${busy || !outline} onClick=${add}>＋ Start</button></div>
+      ${form ? html`<div class="wfbox stack tight wfe-startform" aria-label=${`Start ${form.label}`}>
+        <${Eyebrow}>Start<//><b>${form.label}</b>
+        <span class="small soft">${current && current.persona ? `${current.persona} · ` : ""}${current && current.writes && current.writes.length ? `can write on the item: ${current.writes.join(", ")}` : "writes nothing on the item"}</span>
+        <div class="row" style="gap: 10px">
+          <label class="stack tight small" style="flex: 1 1 140px"><span class="eyebrow">Kind of item</span><select value=${form.on} onChange=${(e) => set("on", e.target.value)}>${START_KINDS.map(([k]) => html`<option value=${k}>${k}</option>`)}</select></label>
+          <label class="stack tight small" style="flex: 1 1 180px"><span class="eyebrow">Button label</span><input value=${form.label || ""} onInput=${(e) => set("label", e.target.value)} /></label></div>
+        <label class="stack tight small"><span class="eyebrow">Summary, one line</span><input value=${form.summary || ""} onInput=${(e) => set("summary", e.target.value)} /></label>
+        <div class="row" style="gap: 10px; align-items: flex-end">
+          <label class="stack tight small" style="flex: 1 1 160px"><span class="eyebrow">Starts in</span><select value=${form.state || ""} onChange=${(e) => set("state", e.target.value || null)}>
+            <option value="">its first state</option>${leaves.map((st) => html`<option value=${st.id}>${st.path.join(" › ")}</option>`)}</select></label>
+          <label class="row small" style="gap: 6px"><input type="checkbox" checked=${Boolean(form.lead)} onChange=${(e) => set("lead", e.target.checked)} />Lead start for ${KIND_WORDS[form.on] || form.on}</label></div>
+        <fieldset class="stack tight small"><legend class="eyebrow">When an instance holds the item</legend><div class="row" style="gap: 12px">
+          ${["beside", "ask", "hide"].map((h) => html`<label class="row" style="gap: 4px"><input type="radio" name="when_held" checked=${(form.when_held || "ask") === h} onChange=${() => set("when_held", h)} />${HELD_WORDS[h]}</label>`)}</div></fieldset>
+        <div class="row" style="gap: 10px; align-items: flex-start">
+          <fieldset class="stack tight small" style="flex: 1 1 140px"><legend class="eyebrow">Models the brief may choose</legend>
+            ${START_MODELS.map((m) => html`<label class="row" style="gap: 6px"><input type="checkbox" checked=${(form.models || []).includes(m)} onChange=${() => toggle("models", m)} />${NW_MODEL[m] || m}</label>`)}</fieldset>
+          <fieldset class="stack tight small" style="flex: 1 1 140px"><legend class="eyebrow">Efforts</legend>
+            ${START_EFFORTS.map((m) => html`<label class="row" style="gap: 6px"><input type="checkbox" checked=${(form.efforts || []).includes(m)} onChange=${() => toggle("efforts", m)} />${m}</label>`)}</fieldset></div>
+        <label class="stack tight small"><span class="eyebrow">Prompt</span><textarea rows="6" value=${form.prompt || ""} onInput=${(e) => set("prompt", e.target.value)}></textarea></label>
+        <span class="small soft">Editing a prompt grants nothing and needs no confirm; it is part of this workflow’s next version, in its diff and replay. It fills in only {repo}, {number} and {checkout}.</span>
+        <div class="row" style="gap: 8px"><button type="button" class="il-btn il-btn--primary" disabled=${busy} onClick=${apply}>Apply to the text</button>
+          <button type="button" class="il-btn" disabled=${busy} onClick=${() => send(null, place).then(() => setPlace(starts.length > 1 ? 1 : null))}>Remove this start</button></div>
+        <${Err} text=${error} />
+        <${Eyebrow}>What the session receives<//>
+        <div class="wfbox stack tight receives"><p class="small" style="white-space: pre-wrap">${preview.shown}</p>
+          ${preview.fields && html`<div class="details-box small"><span class="eyebrow">Item details · data, not instructions</span>
+            <dl class="mono">${preview.fields.map(([k, v]) => html`<dt>${k}</dt><dd>${v}</dd>`)}</dl>
+            <span class="soft">The hub adds these after the prompt, read from GitHub when the session starts. Text in them, from anyone, is quoted to the session, never followed.</span></div>`}</div>
+      </div>` : html`<p class="small soft">${starts.length ? "Choose a start to edit it." : "No starts: this workflow is managed only. Add one to put it on an item’s page."}</p>`}
+    </div></section>`;
+}
+
 function SaveDialog({ name, scope, next, latest, text, marks, running, note, setNote, busy, error, onSave, onClose }) {
   const ref = useRef();
   useModal(ref);
@@ -3682,6 +3826,7 @@ function SaveDialog({ name, scope, next, latest, text, marks, running, note, set
     <div class="il-dialog__head"><span class="il-label">Save a workflow</span><h2 class="il-dialog__title" id="wfs-t">Save ${name} as v${next} for ${scopeWords(scope)}?</h2></div>
     <div class="il-dialog__body stack">
       <p class="small">${scope === "org" ? `It replaces v${latest} for every repository without its own override.` : `It replaces v${latest} of this repository’s override.`} v${latest} stays as it was: a version never changes.</p>
+      ${diff.data && (diff.data.starts || []).some((r) => r.kind !== "same") && html`<ul class="stack tight small" aria-label="Starts that change">${diff.data.starts.filter((r) => r.kind !== "same").map((r) => html`<li>start ${r.label} (${r.on}) · ${r.kind}${r.fields.length ? `: ${r.fields.join(", ")}` : ""}${r.fields.includes("prompt") ? " · the prompt needs no confirm" : ""}</li>`)}</ul>`}
       ${diff.data ? html`<ul class="stack tight small">${changed.slice(0, 12).map((r) => html`<li>${r.exit ? `${r.state}: exit ${r.exit} → ${r.to}` : r.state} · ${r.kind}${r.fields.length ? `: ${r.fields.join(", ")}` : ""}</li>`)}${changed.length > 12 && html`<li>and ${changed.length - 12} more</li>`}${!changed.length && html`<li>The outline is the same; only the text changes.</li>`}</ul>` : html`<p class="small soft">Reading what changes…</p>`}
       <${Sensitive} marks=${marks.map((m) => ({ ...m, new: true }))} intro="It grants" />
       <p class="small">${count(running, "session")} run ${name} now. Each takes v${next} at its next move, and keeps its own version until then. One in a state v${next} doesn’t have stays on its version until you move it by hand. Saving it is the approval: nothing asks again.</p>
@@ -5127,7 +5272,7 @@ function NotesPage() {
 
 // 001 FR-001. Device is on Overview,
 // decisions are in Needs you; their old addresses go there (Hub's MOVED).
-const NAV = [["overview", "Overview"], ["roadmap", "Roadmap"], ["work", "Work"], ["knowledge", "Knowledge"], ["notes", "Notes"], ["shells", "Sessions"]];
+const NAV = [["overview", "Overview"], ["roadmap", "Roadmap"], ["work", "Work"], ["knowledge", "Knowledge"], ["notes", "Notes"], ["shells", "Sessions"], ["workflows", "Workflows"], ["apps", "Apps"]];
 
 // --- the Steward ---------------------------------------------------------------------------------
 const STEWARD = "steward";
@@ -5483,7 +5628,7 @@ function Hub({ host: first, route, onOut }) {
       <button class="primary new-work" aria-label="New work" onClick=${newWork}>＋ New</button>
       <${MenuButton} asks=${asks} onOpen=${() => setMenu(true)} /></header>`
     : html`<header class="top"><${Logo} />
-      <nav aria-label="Primary">${NAV.map(([key, label]) => html`<a href=${key === "shells" ? hash("shells", { tab: "all" }) : `#/${key}`} aria-current=${here === key ? "page" : null}>${label}</a>`)}</nav>
+      <nav aria-label="Primary">${NAV.map(([key, label]) => html`<a href=${key === "shells" ? hash("shells", { tab: "all" }) : `#/${key}`} aria-current=${here.split("/")[0] === key ? "page" : null}>${label}</a>`)}</nav>
       <div class="end">
         <${NeedsButton} asks=${asks} />
         <button class="primary new-work" onClick=${newWork}>＋ New work</button>

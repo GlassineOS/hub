@@ -1103,6 +1103,7 @@ class Agents:
         return [{**{k: a[k] for k in ("id", "object", "title", "summary", "ceiling", "result")}, "when": a.get("when"),
                  "full": _full(a), "plan": a.get("plan", True), "models": a["models"], "needs": a.get("needs"),
                  "verb": a.get("verb"), "result_words": RESULTS[a["result"]], "repository": a.get("repository"),
+                 "lead": bool(a.get("lead")), "when_held": a.get("when_held"), "workflow": a["workflow"], "state": a.get("state"),
                  "family": self.library.family(a["personas"][0])["family"],
                  "persona_name": self.library.family(a["personas"][0])["name"],
                  "persona": a["personas"][0], "initials": self.library.family(a["personas"][0])["initials"]}
@@ -3157,7 +3158,7 @@ class Agents:
         return {"session": name, "title": about["title"], "persona": about["persona"], "persona_name": about["persona_name"],
                 "initials": about["initials"], "family": about["family"], "workflow": inst.workflow, "state": inst.state,
                 "path": path, "one_state": one_state, "paused": inst.paused, "waits": inst.pending is not None, "next": next_words,
-                "ended": about["ended"], "repo": about["repo"], "number": about["number"]}
+                "ended": about["ended"], "repo": about["repo"], "number": about["number"], "agent": about}
 
     def _ask_route(self, holder: str, action: dict) -> dict | None:
         """How a start that asks the owner reaches the holder: a managed start, when the holder's state in force manages an
@@ -3200,11 +3201,17 @@ class Agents:
         for a in sorted((a for a in view.actions.values() if a["object"] == kind and not a.get("managed_only")),
                         key=lambda a: (not a.get("lead"), a.get("order", 99), a["id"])):
             family = self.library.family(a["personas"][0]) or {}
-            row = {"id": a["id"], "workflow": a["workflow"], "object": kind, "title": a["title"], "summary": a["summary"],
+            try:  # where it starts, as the page names it: the workflow, then its state path
+                d = machine.parse(a["definition"])
+                path = [] if len(d.states) == 1 else list(reversed(machine.ancestors(d, machine.start_state(d, machine.Start(on=kind, label="", state=a.get("state"))))))
+            except (machine.DefinitionError, KeyError):
+                path = []
+            row = {"id": a["id"], "path": path, "workflow": a["workflow"], "object": kind, "title": a["title"], "summary": a["summary"],
                    "ceiling": a["ceiling"], "lead": bool(a.get("lead")), "when_held": a.get("when_held", "ask"),
                    "state": a.get("state"), "persona": a["personas"][0], "persona_name": family.get("name"),
                    "initials": family.get("initials"), "family": family.get("family"), "full": _full(a),
                    "models": a["models"], "efforts": a["efforts"], "writes": machine.writes_on_item(_grant(a)),
+                   "verb": a.get("verb"), "when": a.get("when"), "needs": a.get("needs"), "plan": a.get("plan", True),
                    "availability": "runs"}
             if holder is not None or unsure:
                 if a.get("when_held") == "beside":
