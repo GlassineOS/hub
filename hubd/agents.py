@@ -104,6 +104,8 @@ REPOS_FOLDER = "repos"  # a session's own snapshots of the hub's copies
 GUARD_FILE = "shell-guard"
 ENDED_FILE = "ended"  # Claude has ended in this session
 OUTCOMES_FILE = "outcomes"  # what the hub has to tell it, until its next turn reads it
+GRANT_FILE = "grant.json"  # the tools its workflow's current state grants, read by grant_hook.py before each tool use
+GRANT_HOOK_TIME = 10  # seconds; it only reads a file
 _REPO_RE = re.compile(r"\.?[A-Za-z0-9_][A-Za-z0-9._-]*")  # .github is a repository
 _BRANCH_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]*")
 MAX_NAME = 34
@@ -356,10 +358,15 @@ class Library:
             raise LibraryError(f"{where}: workflow {name!r} isn't one of workflows/*.toml")
         definition = self.workflows[name]
         action["definition"] = self.workflow_texts[name]  # what a session's instance runs on
-        # Nothing moves a session from one state to another yet, so it would keep the first one's rights for good.
-        if len(definition.states) != 1:
-            raise LibraryError(f"{where}: workflow {name} has more than one state, and a session stays in its first")
         return machine.effective(definition, definition.initial)
+
+    def states_of(self, action: dict) -> list[dict]:
+        """The action as a session has it in each state of its workflow it can be in (a session is always in a leaf): the action
+        with that state's effective grant. One entry, the action itself, for a one-state workflow."""
+        definition = self.workflows[action["workflow"]]
+        if len(definition.states) == 1:
+            return [action]
+        return [{**action, "grant": machine.effective(definition, sid)} for sid, st in definition.states.items() if st.initial is None]
 
     def _check(self) -> None:
         """A new persona can't ship without its badge, nor an action without its result type."""
@@ -392,16 +399,22 @@ class Library:
             # The notes are kept for agents to read (SECURITY.md, Notes), so a locked action that only reads has the search. One that
             # can post, send or ask first doesn't: nothing technical stops a steered session putting a note in public. A full
             # session has no list to put it on: hubd lets it use any tool. A grant that changes either way doesn't load.
-            if NOTES_TOOL in _grant(action).hub_tools and not _may_search_notes(action):
+            # A session keeps what it read when it moves, so for a workflow of several states this holds of the whole: the search
+            # only where every state only reads, and then in every state.
+            states = self.states_of(action)
+            reads_only = all(_may_search_notes(s) for s in states)
+            if any(NOTES_TOOL in _grant(s).hub_tools for s in states) and not reads_only:
                 raise LibraryError(f"workflows/{action['workflow']}.toml: {NOTES_TOOL} is for a locked action that only reads: no shell, no write "
-                                   "or post tool, no plan_work, nothing that asks first")
-            if NOTES_TOOL not in _grant(action).hub_tools and _may_search_notes(action):
-                raise LibraryError(f"workflows/{action['workflow']}.toml: a locked action that only reads has {NOTES_TOOL} in its hub_tools")
-            github = _grant(action).github
-            if github and (set(github) - set(CAPABILITIES) or _full(action) or "Bash" not in _grant(action).tools):
-                # A full session uses the host's login and is guarded, not limited; without a shell a token has no use.
-                raise LibraryError(f"workflows/{action['workflow']}.toml: github is a list of GitHub capabilities "
-                                   f"({', '.join(CAPABILITIES)}), for a locked action with Bash")
+                                   "or post tool, no plan_work, nothing that asks first" + (", in every state" if len(states) > 1 else ""))
+            if reads_only and not all(NOTES_TOOL in _grant(s).hub_tools for s in states):
+                raise LibraryError(f"workflows/{action['workflow']}.toml: a locked action that only reads has {NOTES_TOOL} in its hub_tools"
+                                   + (", in every state" if len(states) > 1 else ""))
+            for state in states:
+                github = _grant(state).github
+                if github and (set(github) - set(CAPABILITIES) or _full(state) or "Bash" not in _grant(state).tools):
+                    # A full session uses the host's login and is guarded, not limited; without a shell a token has no use.
+                    raise LibraryError(f"workflows/{action['workflow']}.toml: github is a list of GitHub capabilities "
+                                       f"({', '.join(CAPABILITIES)}), for a locked action with Bash")
             home = action.get("repository")
             if home is not None and not (isinstance(home, str) and _REPO_RE.fullmatch(home) and ".." not in home and home.lstrip(".") != "work"
                                          and _full(action) and _grant(action).checkout == "new-branch"
@@ -462,14 +475,16 @@ class Library:
         return {"type": "object", "additionalProperties": False, "required": sorted(properties), "properties": properties}
 
 
-def validate(library: Library, config) -> dict:
-    """The check everything passes before it can start, whoever wrote the config."""
+def validate(library: Library, config, action: dict | None = None) -> dict:
+    """The check everything passes before it can start, whoever wrote the config. `action` is the action as a session in a
+    later state of its workflow has it (Agents._state_action), checked against that state's grant."""
     if not isinstance(config, dict):
         raise AgentError("the config must be an object")
     unknown = set(config) - _FIELDS
     if unknown:
         raise AgentError(f"not part of an invocation: {', '.join(sorted(unknown))}")
-    action = library.action(config.get("action"))
+    if action is None or action.get("id") != config.get("action"):
+        action = library.action(config.get("action"))
     repo, number = config.get("repo"), config.get("number")
     if action["object"] in NO_REPO_OBJECTS:  # about the whole project, or a question about it (008 FR-007), not one item in it
         if repo is not None or number is not None:
@@ -566,6 +581,16 @@ def with_also(config: dict, numbers) -> dict:
 def _mode(action: dict) -> str:
     """The permission mode a session of this action runs with."""
     return _grant(action).permission_mode if _full(action) else "dontAsk"
+
+
+def _write_private(path: Path, value) -> None:
+    """JSON, 0600, whole: a hook reading it never sees half."""
+    part = path.with_name(path.name + ".part")
+    part.unlink(missing_ok=True)
+    fd = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(value, f)
+    os.replace(part, path)
 
 
 def _small_file(path: Path, limit: int = 512) -> str | None:
@@ -829,13 +854,20 @@ class Agents:
                 record = json.loads((directory / "session.json").read_text())
             except (OSError, ValueError):
                 continue
+            action = self.library.actions.get(record["config"].get("action"))
+            try:
+                state = self._state_action(directory.name, action) if action else None
+            except AgentError as e:  # its machine can't say which state it's in: its token does nothing
+                log.warning("%s: %s", directory.name, e)
+                self._scopes[token] = {**_session_scope(directory.name, record["config"], False, False, (), record.get("session_id")), "tools": []}
+                continue
             self._scopes[token] = _session_scope(directory.name, record["config"], record.get("full", False),
-                                                 self._all_repos(record["config"]), self._asks_first(record["config"]),
+                                                 self._all_repos(record["config"], state), self._asks_first(record["config"], state),
                                                  record.get("session_id"))
 
-    def _asks_first(self, config: dict) -> list[str]:
-        """Read from the action's grant, as it is now, like _all_repos."""
-        action = self.library.actions.get(config.get("action"))
+    def _asks_first(self, config: dict, action: dict | None = None) -> list[str]:
+        """Read from the action's grant, as it is now, like _all_repos: the library's, or the state's a session is in."""
+        action = action or self.library.actions.get(config.get("action"))
         return list(_grant(action).asks_first) if action else []
 
     def tell(self, session: str, text: str, made: float = float("inf")) -> None:
@@ -850,10 +882,128 @@ class Agents:
             with open(directory / OUTCOMES_FILE, "a") as f:
                 f.write(text + "\n")
 
-    def _all_repos(self, config: dict) -> bool:
+    def _all_repos(self, config: dict, action: dict | None = None) -> bool:
         """Read from the action's grant, as it is now. An action that's gone has no such right."""
-        action = self.library.actions.get(config.get("action"))
+        action = action or self.library.actions.get(config.get("action"))
         return bool(action) and _grant(action).all_repos is True
+
+    # --- the grant of a session's workflow state (012 FR-022, FR-023, FR-031) ---------------
+    def staged(self, action: dict) -> bool:
+        """Whether a session of this action can move: its workflow has more than one state."""
+        definition = self.library.workflows.get(action.get("workflow"))
+        return definition is not None and len(definition.states) > 1
+
+    def _state_action(self, name, action: dict) -> dict:
+        """The action as a session in its workflow's current state has it: with that state's effective grant. A session of a
+        one-state workflow has the action as the library has it now. One whose machine can't be read gets no rights: it's
+        refused, never taken to be in the first state."""
+        if not self.staged(action) or not isinstance(name, str) or not (self.sessions / name / "session.json").exists():
+            return action
+        try:
+            _record, inst = self.machines.load(name)
+        except MachineError as e:
+            raise AgentError(f"{name}'s workflow can't say which state it's in: {e}") from None
+        definition = inst.definition()
+        if len(definition.states) == 1:
+            return action
+        return {**action, "grant": machine.effective(definition, inst.state)}
+
+    @staticmethod
+    def _state_config(config: dict, action: dict, state: dict, launched: dict) -> dict:
+        """A config for the state's grant. What was taken off the first state's lists at launch stays off; whatever else the state
+        grants is on, so a state that adds a tool has it."""
+        first, grant = _grant(action), _grant(state)
+        out = dict(config)
+        for f in ("tools", "hub_tools"):
+            chosen = launched.get(f) if isinstance(launched.get(f), list) else list(getattr(first, f))
+            dropped = set(getattr(first, f)) - set(chosen)
+            out[f] = [t for t in getattr(grant, f) if t not in dropped]
+        chosen = launched.get("github")
+        dropped = set(first.github) - set(chosen if isinstance(chosen, list) else [])
+        caps = [c for c in grant.github if c not in dropped]
+        if grant.github and (caps or isinstance(chosen, list)) and "Bash" in out["tools"]:
+            out["github"] = caps
+        else:
+            out.pop("github", None)
+        return out
+
+    def _grant_hooks(self, directory: Path, action: dict) -> list:
+        """Before each tool use of a session that can move: grant_hook.py refuses what its current state doesn't grant. Only
+        refuses or stays silent, so the other hooks and the permission mode still decide the rest."""
+        if not self.staged(action):
+            return []
+        command = shlex.join([sys.executable, "-I", str(Path(__file__).with_name("grant_hook.py")), str(directory / GRANT_FILE)])
+        return [{"hooks": [{"type": "command", "command": command, "timeout": GRANT_HOOK_TIME}]}]
+
+    def write_grant(self, directory: Path, config: dict, action: dict, asks_first=None) -> None:
+        """What grant_hook.py reads: the Claude Code tools and the hub's tools in force. None for a full session, which has no
+        list: its tools are guarded, not limited."""
+        if not self.staged(action):
+            return
+        full = _full(action)
+        asks = list(self._asks_first(config, action) if asks_first is None else asks_first)
+        _write_private(directory / GRANT_FILE, {"tools": None if full else list(config["tools"]),
+                                                "hub_tools": None if full else [*config["hub_tools"], *(t for t in asks if t not in config["hub_tools"])],
+                                                "server": HUB_SERVER})
+
+    def launch_problem(self, name, grant: machine.Grant | None = None) -> str | None:
+        """Why the session can't run under this grant (its current state's if none is given) with the conversation it has: its
+        access and its checkout are fixed for a conversation. None if it can."""
+        try:
+            record = json.loads((self.sessions / name / "session.json").read_text())
+        except (OSError, ValueError):
+            return "it has no record"
+        action = self.library.actions.get(record["config"].get("action"))
+        if action is None:
+            return "its action is gone"
+        grant = grant or _grant(self._state_action(name, action))
+        if (grant.access == "full") != record.get("full", False):
+            return "its action's access has changed"
+        if grant.checkout != record.get("checkout", _grant(action).checkout):
+            return "its checkout would change"
+        return None
+
+    def narrow_to_state(self, name) -> dict:
+        """The session's rights in its current state, at once, as far as they go down: a tool its launch has and the state doesn't
+        grant goes from its token and from what grant_hook.py lets it use. Nothing is added here: what a state adds comes with a
+        new launch (resume). Returns the config now in force, and whether its GitHub list changed."""
+        directory = self.sessions / name
+        record = json.loads((directory / "session.json").read_text())
+        action = self.library.action(record["config"].get("action"))
+        state = self._state_action(name, action)
+        in_force = record["config"]
+        launched = record.get("launched") or in_force
+        wanted = self._current_config(in_force, name, launched)
+        narrowed = {**in_force, **{f: [t for t in in_force[f] if t in wanted[f]] for f in ("tools", "hub_tools")}}
+        if isinstance(in_force.get("github"), list):
+            if isinstance(wanted.get("github"), list):
+                narrowed["github"] = [c for c in in_force["github"] if c in wanted["github"]]
+            else:
+                narrowed.pop("github")
+        asks = [t for t in self._asks_first(in_force, state) if any(t in s["asks_first"] for s in self._scopes_of(name))]
+        if narrowed != in_force or "launched" not in record:
+            _write_private(directory / "session.json", {**record, "config": narrowed, "launched": launched,
+                                                        "checkout": record.get("checkout", _grant(action).checkout)})
+        for token, scope in self._scopes_of(name, tokens=True):
+            self._scopes[token] = _session_scope(name, narrowed, _full(state), self._all_repos(in_force, state) and scope["all_repos"], asks,
+                                                 scope["instance"])
+        self.write_grant(directory, narrowed, state, asks)
+        return {"config": narrowed, "github_changed": narrowed.get("github") != in_force.get("github"), "state": state}
+
+    def lock_down(self, name) -> None:
+        """When the grant in force can't be worked out: the session's token and its tools refuse everything until a resume."""
+        self._load_scopes()
+        for token in [t for t, sc in self._scopes.items() if sc["session"] == name]:
+            self._scopes[token] = {**self._scopes[token], "tools": [], "asks_first": [], "all_repos": False}
+        try:
+            _write_private(self.sessions / name / GRANT_FILE, {"tools": [], "hub_tools": [], "server": HUB_SERVER})
+        except OSError:
+            log.exception("%s: couldn't write its grant", name)
+
+    def _scopes_of(self, name, tokens: bool = False) -> list:
+        self._load_scopes()
+        found = [(t, sc) for t, sc in self._scopes.items() if sc["session"] == name]
+        return found if tokens else [sc for _t, sc in found]
 
     def _session_token(self, directory: Path, config: dict, full: bool, instance=None) -> None:
         token = secrets.token_urlsafe(32)
@@ -1320,7 +1470,8 @@ class Agents:
         read = shlex.quote(str(directory / (OUTCOMES_FILE + ".read")))
         read_outcomes = f"if mv {outcomes} {read} 2>/dev/null; then cat {read}; rm -f {read}; fi"
         context = shlex.quote(str(directory / CONTEXT_FILE))
-        asks = self._ask_hooks(directory, config, action, [*hook(f"rm -f {marker} {idle}"), *self._shell_hooks(directory, config, action)])
+        asks = self._ask_hooks(directory, config, action, [*self._grant_hooks(directory, action), *hook(f"rm -f {marker} {idle}"),
+                                                            *self._shell_hooks(directory, config, action)])
         return {"statusLine": self._status_line(directory), "hooks": {"Notification": hook(f"touch {marker}"), "UserPromptSubmit": hook(f"rm -f {marker} {idle}; {read_outcomes}; cat {context} 2>/dev/null; true"),
                           **asks, "Stop": [*hook(f"touch {idle}"), *asks.get("Stop", ())], "SessionStart": [{"matcher": "startup", **hook(f"sleep {TOOL_SERVER_WAIT}")[0]},
                                            # A resume has no first turn, so nothing else would say it's at its prompt.
@@ -1436,7 +1587,7 @@ class Agents:
             return {"PreToolUse": marks, "PermissionRequest": [ask], "PostToolUse": [moved], "PostToolUseFailure": [moved], "Stop": [moved]}
         held = [{"matcher": QUESTION_TOOL, **ask}] if QUESTION_TOOL in config["tools"] else []
         # Not on the allowed list, so under dontAsk these run only when this says allow, and hubd checks that too.
-        writes = self._asks_first(config)
+        writes = self._asks_first(config, action if self.staged(action) else None)  # a state's, for a session that can move
         if writes:
             held.append({"matcher": "|".join(_qualified(t) for t in writes), "hooks": [{"type": "command", "command": command, "timeout": WAIT + HOOK_MARGIN}]})
         return {"PreToolUse": [*marks, *held]}
@@ -1581,6 +1732,7 @@ class Agents:
                 self.machines.start(directory, action)  # 012 FR-011: its workflow instance, kept beside the record
             except MachineError as e:
                 raise AgentError(f"{name} can't start: its workflow {e}") from None
+            self.write_grant(directory, config, action)
             await self.shells.new(name, str(cwd), self._command(directory, script))
         except Exception:  # whatever it was, a folder left behind would keep the name taken
             await self._remove(name)
@@ -1626,12 +1778,17 @@ class Agents:
                 self.machines.stopped(f["name"])
         return sorted((f for f in found if f["agent"]), key=lambda f: f["agent"].get("created") or 0, reverse=True)
 
-    def _current_config(self, config: dict) -> dict:
+    def _current_config(self, config: dict, name=None, launched: dict | None = None) -> dict:
         """A session's rights as its action has them now. What's gone from the action goes from the session, which
-        keeps its conversation. The Steward isn't set up by hand, so it also gets what's been added since, and the model you chose for it."""
+        keeps its conversation. The Steward isn't set up by hand, so it also gets what's been added since, and the model you chose for it.
+        With a session's name, a session that can move has its current state's lists (_state_config), from what it was launched with."""
         action = self.library.actions.get(config.get("action"))
         if action is None:
             return config  # validate says so
+        state = self._state_action(name, action) if name is not None else action
+        if state is not action:
+            config = self._state_config(config, action, state, launched or config)
+            return {**config, "model": self._usual_model(action)} if action.get("singleton") else config
         if action.get("singleton"):
             return {**config, "model": self._usual_model(action), "tools": list(_grant(action).tools), "hub_tools": list(_grant(action).hub_tools)}
         grant = _grant(action)
@@ -1643,9 +1800,11 @@ class Agents:
             narrowed["github"] = [c for c in config["github"] if c in grant.github]
         return narrowed
 
-    async def resume(self, name) -> dict:
+    async def resume(self, name, relaunch: bool = False) -> dict:
         """Any session that has stopped, with the conversation it had, the same checkout and its own token.
-        The rights are read again from the action, so a resume can't keep what the action has since lost."""
+        The rights are read again from the action, so a resume can't keep what the action has since lost. A session that can
+        move gets its workflow's current state's. `relaunch`: one still running is ended and started again so (effects.py, after
+        a move that widens), once the checks below have passed."""
         if not (isinstance(name, str) and _NAME_RE.fullmatch(name)):
             raise AgentError(f"no such session: {name}")
         directory = self.sessions / name
@@ -1655,24 +1814,32 @@ class Agents:
             except (OSError, ValueError) as e:
                 raise AgentError(f"not a managed session: {name}") from e
             live = any(s["name"] == name for s in await self.shells.list())
-            if live and not (directory / ENDED_FILE).exists():
+            if live and not (directory / ENDED_FILE).exists() and not relaunch:
                 raise AgentError(f"{name} is still running")
-            config = validate(self.library, self._current_config(record["config"]))
-            action = self.library.action(config["action"])
+            first = self.library.actions.get(record["config"].get("action"))
+            state = self._state_action(name, first) if first else None
+            staged = state is not None and state is not first
+            config = validate(self.library, self._current_config(record["config"], name, record.get("launched")), state)
+            action = state if staged else self.library.action(config["action"])
             config = await self._github_for(config, action)
             self._check_sandbox(config, action)
             if _full(action) != record.get("full", False):
                 raise AgentError(f"{name} can't resume: its action's access has changed")
+            if staged and (problem := self.launch_problem(name, _grant(action))):
+                raise AgentError(f"{name} can't resume: {problem}")
             present = self._present(name)
             if len(present) < len(self._checkouts(name, config, action)):
                 raise AgentError(f"{name} can't resume: its checkout is gone")
-            if any(config.get(f) != record["config"].get(f) for f in ("model", "tools", "hub_tools", "github")) or record.get("permission_mode") != _mode(action):
+            if staged:  # what it was launched with stays, for what the next state takes off (_state_config)
+                record = {**record, "launched": record.get("launched") or record["config"], "checkout": record.get("checkout", _grant(first).checkout)}
+            if staged or any(config.get(f) != record["config"].get(f) for f in ("model", "tools", "hub_tools", "github")) or record.get("permission_mode") != _mode(action):
                 # A resume runs with what the action says now (_argv), so the record says that too.
                 (directory / "session.json").write_text(json.dumps({**record, "config": config, "permission_mode": _mode(action)}))
                 self._load_scopes()
                 for token in [t for t, s in self._scopes.items() if s["session"] == name]:
-                    self._scopes[token] = _session_scope(name, config, _full(action), self._all_repos(config), self._asks_first(config),
+                    self._scopes[token] = _session_scope(name, config, _full(action), self._all_repos(config, action), self._asks_first(config, action),
                                                          record.get("session_id"))
+            self.write_grant(directory, config, action)
             if action.get("singleton"):  # what it's told has to match what it can do
                 self._write_persona(config, action, directory)
             if not (directory / TOKEN_FILE).exists():
@@ -2604,7 +2771,7 @@ class Agents:
         name = record["name"]
         if name in self._removing:
             raise AgentError(f"{name} is being cleaned up: try again in a moment")
-        config = validate(self.library, self._current_config(record["config"]))
+        config = validate(self.library, self._current_config(record.get("launched") or record["config"]))  # resume checks its state's
         action = self.library.action(config["action"])
         if self._transcript(session_id) is None:
             raise AgentError(f"{name} can't resume: its transcript is gone")

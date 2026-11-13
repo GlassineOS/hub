@@ -470,3 +470,22 @@ def test_every_github_capability_maps_to_permissions():
     for name in machine.GITHUB:
         permissions = apps.permissions_for([name])
         assert name == "read" or permissions != {"metadata": "read", "contents": "read"}, name  # more than the reads
+
+
+def test_watchers_hear_each_saved_move_confirm_and_rollback_and_cant_undo_one(world):
+    a, _ = world
+    name = _session(a)
+    _as_implement(a, name)
+    m = a.machines
+    heard = []
+    m.on_move(lambda n, result: (_ for _ in ()).throw(RuntimeError("a broken watcher")))
+    m.on_move(lambda n, result: heard.append((n, {k: result.get(k) for k in ("moved", "needs_confirm", "declined", "by", "state")})))
+    asked = m.move(name, "merge-ready", "machine")
+    m.confirm_move(name, asked["pending"], "me", accept=False)
+    assert m.move(name, "review", "machine")["state"] == "review"
+    m.pause(name, True, "me")
+    m.rollback(name, "me")
+    assert heard == [(name, {"moved": False, "needs_confirm": True, "declined": None, "by": "machine", "state": "implement"}),
+                     (name, {"moved": False, "needs_confirm": None, "declined": True, "by": "confirm", "state": "implement"}),
+                     (name, {"moved": True, "needs_confirm": None, "declined": None, "by": "machine", "state": "review"}),
+                     (name, {"moved": True, "needs_confirm": None, "declined": None, "by": "rollback", "state": "implement"})]

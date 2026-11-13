@@ -14,8 +14,8 @@ round. A roll-back undoes the move's place in the trail but not its counters: ro
 Time counts only while the session runs and the machine isn't paused: it is banked when the session ends (the time its
 terminal marked), when hubd finds it stopped, and on a pause, and the clock starts again on a resume or an unpause.
 
-Only state lives here. What a move does to the running session (instructions, context, the grant in force) is not
-applied by this module.
+Only state lives here. What a move does to the running session (instructions, context, the grant in force) is applied
+by whoever watches the moves (`Machines.on_move`, effects.py).
 """
 from __future__ import annotations
 
@@ -396,6 +396,14 @@ class Machines:
         self.is_session = is_session
         self.clock = clock
         self._log: Log | None = None
+        self._watchers: list = []
+
+    def on_move(self, callback) -> None:
+        """callback(name, result) after each move, confirm and roll-back that was saved, by hand or by the machine: one
+        that moved ("moved"), one that waits for a confirm ("needs_confirm", "pending") and a confirm said no to
+        ("declined"). The result also says who did it ("by") and the state and version after it. A watcher that fails is
+        logged and doesn't undo the move, which is saved before it is called."""
+        self._watchers.append(callback)
 
     @property
     def log(self) -> Log:
@@ -513,7 +521,7 @@ class Machines:
                 "facts": inst.facts(self.clock()), "newer": newer}
 
     # --- acting on a session's machine: load, change, save, log ---------------------
-    def _act(self, name, change) -> dict:
+    def _act(self, name, change, by: str | None = None) -> dict:
         record, inst = self.load(name)
         result = change(record, inst, self.clock())
         self.save(name, inst)
@@ -523,18 +531,26 @@ class Machines:
                 self.log.move(record["session_id"], name, **row)
             except (sqlite3.Error, LogError, OSError):
                 log.exception("%s: the move wasn't logged", name)
-        return {**result, "state": inst.state, "version": inst.version, "paused": inst.paused}
+        result = {**result, "state": inst.state, "version": inst.version, "paused": inst.paused}
+        if by is not None and (result.get("moved") or result.get("needs_confirm") or result.get("declined")):
+            told = {**result, "by": row["by"] if row else by}
+            for watcher in list(self._watchers):
+                try:
+                    watcher(name, told)
+                except Exception:  # noqa: BLE001: the move is saved; what watches it says what went wrong
+                    log.exception("%s: a watcher of its moves failed", name)
+        return result
 
     def move(self, name, to, by: str = "machine", enter: str = "first", who: str | None = None) -> dict:
-        return self._act(name, lambda record, inst, now: move(inst, to, by, enter=enter, latest=self.latest(record), who=who, now=now))
+        return self._act(name, lambda record, inst, now: move(inst, to, by, enter=enter, latest=self.latest(record), who=who, now=now), by)
 
     def rollback(self, name, who: str | None = None) -> dict:
-        return self._act(name, lambda _record, inst, now: rollback(inst, who, now))
+        return self._act(name, lambda _record, inst, now: rollback(inst, who, now), "rollback")
 
     def confirm_move(self, name, pending_id, who: str | None, accept: bool = True) -> dict:
         if not isinstance(accept, bool):
             raise MachineError("accept is true or false")
-        return self._act(name, lambda _record, inst, now: confirm_move(inst, pending_id, who, accept, now))
+        return self._act(name, lambda _record, inst, now: confirm_move(inst, pending_id, who, accept, now), "confirm")
 
     def pause(self, name, paused, who: str | None = None) -> dict:
         return self._act(name, lambda _record, inst, now: pause(inst, paused, who, now))
