@@ -19,6 +19,8 @@ hub_tools = ["get_issue", "get_pr", "get_pr_threads", "get_pr_diff", "list_runs"
              "request_move"]
 checkout = "new-branch"
 github = ["read", "issues.comment", "pr.write"]
+# Held from the start, so merge-ready asks no confirm: a call shows a card, and allowing it is the merge decision.
+asks_first = ["merge_pr"]
 
 [state.implement]
 parent = "work"

@@ -87,6 +87,8 @@ A move that narrows the grant takes effect at once in the running session. One t
 conversation under a new launch once the session is at its prompt. A move to a capability the session has never held in
 this instance waits for the maintainer's confirm, a "Workflow move" card that shows what it adds, takes away and keeps; a
 later move back into what it held already doesn't ask again. In `implement`, review drops `push` and fix gets it back without
-a confirm, as implement held it; entering merge-ready asks once, as `merge_pr` is new there.
+a confirm, as implement held it. `merge_pr` asks first in every state, so merge-ready needs no confirm: a call shows a card, and allowing it is the merge decision.
+
+While a "Workflow approval" card is up for where a session is, nothing else is tried for it, as for a pending confirm.
 
 Every evaluation and move is in the machine log, with each check and the value it saw, the judge, its time and its cost.

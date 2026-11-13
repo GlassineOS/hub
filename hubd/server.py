@@ -164,6 +164,7 @@ class Hubd:
         self.effects = Effects(agents, decision_store) if getattr(agents, "machines", None) is not None else None
         if self.effects is not None and machine_run is not None:  # an exit that waits for an approval, and its answer
             machine_run.on_blocked = self.effects.ask_approval
+            machine_run.approval_open = self.effects.approval_open
             self.effects.approve_move = machine_run.approved
         self.work = work
         self._work_tasks: set[asyncio.Task] = set()  # or they could be collected mid-run

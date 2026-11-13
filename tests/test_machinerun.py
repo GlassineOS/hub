@@ -783,3 +783,21 @@ def test_a_push_since_the_review_is_a_fact():
     assert "pr.reviewed" not in pr_facts("OPEN", {}, False)  # the feed hasn't seen it: unknown
     assert pr_facts("OPEN", {"review": "CHANGES_REQUESTED", "checks": "passing"}, False)["pr.reviewed"] is True
     assert pr_facts("OPEN", {"head": True, "checks": "passing"}, False)["pr.reviewed"] is False
+
+
+def test_while_an_approval_card_is_up_nothing_is_evaluated(tmp_path):
+    w = World(tmp_path)
+    open_cards = set()
+    w.runner.on_blocked = lambda name, wait: open_cards.add((name, wait["session_id"], wait["state"], wait["version"]))
+    w.runner.approval_open = lambda *key: key in open_cards
+    w.session("s", text=JUDGED.replace('on = ["turn.end"]', 'approve = "me"\non = ["turn.end"]'))
+    w.facts["s"] = {"pr.open": True}
+    run(settle(w, ("turn.end", "s")))
+    assert len(w.judge.asked) == 1 and open_cards and w.state("s") == "a"
+    assert run(settle(w, ("turn.end", "s"))) == [[]]  # not even routed: no judge call
+    assert run(w.runner.evaluate("s", ["turn.end"])) == {"skipped": "a move waits for an approval"}
+    assert len(w.judge.asked) == 1
+    open_cards.clear()  # said no: it is tried again
+    w.judge.answer = {"exit": None, "evidence": "", "confidence": 0.5}
+    run(settle(w, ("turn.end", "s")))
+    assert len(w.judge.asked) == 2

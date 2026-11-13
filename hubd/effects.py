@@ -21,8 +21,8 @@ for sessions whose workflow has more than one state. A one-state session never m
   runner hands it here (`ask_approval`) and it becomes a `machine.approve` card in Needs you, one per session, state,
   version and exit; the maintainer's yes makes the move through the runner (`answer_approval`), after it checks the session
   is still where it was asked from and the exit's `requires` still hold. The levels owner, maintainer and steward name
-  sessions that don't exist yet, so until they do each asks the maintainer too, and the card says so. A card ends when the
-  session moves any other way.
+  sessions that don't exist yet, so until they do each asks the maintainer too, and the card says so. While it is up the
+  runner tries nothing else for that instance, as for a pending confirm. A card ends when the session moves any other way.
 
 The status line of FR-025 isn't posted.
 """
@@ -228,6 +228,12 @@ class Effects:
             self.decisions.approve_request(scope, why)
         except (DecisionError, OSError):
             log.exception("%s: its approval couldn't be put in Needs you", name)
+
+    def approval_open(self, name: str, session_id, state: str, version: str) -> bool:
+        if self.decisions is None:
+            return False
+        return any(r["scope"].get("session_id") == session_id and r["scope"].get("state") == state and r["scope"].get("version") == version
+                   for r in self.decisions.open_approvals(name))
 
     async def answer_approval(self, decision_id, accept: bool, who: str | None, words: str | None = None) -> dict:
         """The maintainer's answer on a `machine.approve` card: a yes makes the move it names, a no leaves the session where it is."""

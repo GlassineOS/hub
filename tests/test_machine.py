@@ -552,6 +552,7 @@ def test_the_default_implement_workflow_passes_its_checks():
     assert [s for s in leaves if "push" in machine.effective(d, s).github] == ["implement", "fix"]
     assert not any("merge" in machine.effective(d, s).github for s in leaves)
     assert machine.effective(d, "merge-ready").asks_first == ("merge_pr",)
+    assert all(machine.effective(d, s).asks_first == ("merge_pr",) for s in leaves if s != "escalated")  # held before merge-ready: no confirm
     assert all(e.approve == "none" for s in d.states.values() for e in s.exits)
     # without the cycle's counter, the check refuses it
     text = library.workflow_texts["implement"].replace('requires = ["rounds.fix >= 3", "pr.review == changes_requested"]',

@@ -139,6 +139,7 @@ class Runner:
         self._names = names or (lambda: ())
         self._refresh = refresh  # async (name): look up what facts need a look first (its pull requests), if it's due
         self.on_blocked = None   # (name, wait) when an exit holds and its `approve` asks someone first
+        self.approval_open = None  # (name, session_id, state, version): whether its card for that is still up
         self.debounce = debounce
         self._sleep = sleep
         self._waiting: dict[str, list[str]] = {}       # signals that came since the last pass began
@@ -195,9 +196,20 @@ class Runner:
 
     def _listens(self, name: str, signal: str) -> bool:
         try:
-            _record, inst = self.machines.load(name)
-            return not inst.paused and not inst.pending and bool(tried(inst.definition(), inst.state, [signal]))
+            record, inst = self.machines.load(name)
+            return (not inst.paused and not inst.pending and not self._approval_waits(name, record, inst)
+                    and bool(tried(inst.definition(), inst.state, [signal])))
         except (MachineError, OSError):
+            return False
+
+    def _approval_waits(self, name: str, record: dict, inst) -> bool:
+        """An approval card is up for where the instance is: like a pending confirm, nothing else is tried until it's answered."""
+        if self.approval_open is None:
+            return False
+        try:
+            return bool(self.approval_open(name, record.get("session_id"), inst.state, inst.version))
+        except Exception:  # noqa: BLE001 — unsure means evaluate: the card is deduplicated anyway
+            log.exception("%s: its approval card couldn't be looked at", name)
             return False
 
     def _schedule(self, name: str, signal: str) -> bool:
@@ -248,6 +260,8 @@ class Runner:
             return {"skipped": "paused"}
         if inst.pending:  # another proposal would replace the one waiting for the maintainer's confirm
             return {"skipped": "a move waits for a confirm"}
+        if self._approval_waits(name, record, inst):
+            return {"skipped": "a move waits for an approval"}
         d, state, version = inst.definition(), inst.state, inst.version
         candidates = tried(d, state, signals)
         if not candidates:
