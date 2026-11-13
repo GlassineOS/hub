@@ -674,7 +674,7 @@ class Machines:
         repo = (record.get("config") or {}).get("repo")
         return lambda workflow: self.grant_of(workflow, repo)
 
-    def _act(self, name, change, by: str | None = None) -> dict:
+    def _act(self, name, change, by: str | None = None, why: str | None = None) -> dict:
         record, inst = self.load(name)
         result = change(record, inst, self.clock())
         self.save(name, inst)
@@ -686,7 +686,7 @@ class Machines:
                 log.exception("%s: the move wasn't logged", name)
         result = {**result, "state": inst.state, "version": inst.version, "paused": inst.paused}
         if by is not None and (result.get("moved") or result.get("needs_confirm") or result.get("declined")):
-            told = {**result, "by": row["by"] if row else by}
+            told = {**result, "by": row["by"] if row else by, "who": row.get("who") if row else None, "why": why}
             for watcher in list(self._watchers):
                 try:
                     watcher(name, told)
@@ -694,9 +694,10 @@ class Machines:
                     log.exception("%s: a watcher of its moves failed", name)
         return result
 
-    def move(self, name, to, by: str = "machine", enter: str = "first", who: str | None = None) -> dict:
+    def move(self, name, to, by: str = "machine", enter: str = "first", who: str | None = None, why: str | None = None) -> dict:
+        """`why`: what made the machine move, in the definition's words (the exit's question or its facts), for the watchers."""
         return self._act(name, lambda record, inst, now: move(inst, to, by, enter=enter, latest=self.latest(record), who=who, now=now,
-                                                                     grant_of=self._grant_for(record)), by)
+                                                                     grant_of=self._grant_for(record)), by, why)
 
     def rollback(self, name, who: str | None = None) -> dict:
         return self._act(name, lambda record, inst, now: rollback(inst, who, now, self._grant_for(record)), "rollback")
