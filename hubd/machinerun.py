@@ -376,7 +376,7 @@ class Runner:
             log.exception("%s: its approval couldn't be asked for", name)
 
     # --- moves the session or the maintainer asks for -----------------------------------
-    async def request(self, name: str, session_id, to) -> dict:
+    async def request(self, name: str, session_id, to, signal: str = "request") -> dict:
         """The session asks to take one of its state's `move = "on-request"` exits to `to`. Only its own conversation's
         token gets here (the caller checks it); the request is the proposal, and `requires` and `approve` decide."""
         lock = self._locks.setdefault(name, asyncio.Lock())
@@ -415,7 +415,7 @@ class Runner:
                 self._ask(name, record, state, version, chosen[0], chosen[1], rows[-1]["checks"])
             elif chosen:
                 result = self._move(name, state, version, chosen[1])
-            self._log(record, name, ["request"], state, version, d, None, None, None, chosen, rows, blocked, result)
+            self._log(record, name, [signal], state, version, d, None, None, None, chosen, rows, blocked, result)
         if result is not None:
             if result.get("needs_confirm"):
                 return {**result, "why": "the move waits for the maintainer's confirm: the new state gives what you haven't held"}
