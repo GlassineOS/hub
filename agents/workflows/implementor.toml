@@ -142,14 +142,15 @@ on = ["hub:managed.return", "feed:pr.checks", "turn.end"]
 [[state.qa.exit]]
 to = "merge-ready"
 decided_by = "facts"
-requires = ["managed.qa.verdict == pass", "pr.checks == pass"]
+requires = ["managed.qa.verdict == pass", "pr.checks == pass", "not started.designer or managed.designer.verdict == pass"]
 on = ["hub:managed.return", "feed:pr.checks", "turn.end"]
+# Both exits to merge-ready wait for a designer started on request, as for the QA engineer.
 # No QA engineer started this round: the judge, asked on the same turn end as the QA entry's `when`, finds it isn't user-facing.
 [[state.qa.exit]]
 to = "merge-ready"
 decided_by = "judge"
 when = "The change isn't user-facing: nothing in it is something a person sees or uses."
-requires = ["not started.qa", "pr.checks == pass"]
+requires = ["not started.qa", "pr.checks == pass", "not started.designer or managed.designer.verdict == pass"]
 on = ["turn.end"]
 
 [state.fix]

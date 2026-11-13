@@ -174,7 +174,7 @@ Steps after the first difference are less certain.
 - **`implementor`** coordinates one issue: in `implement` an engineer (the `engineer` workflow, which writes the change and
   opens the pull request on its own branch) runs under it and hands back `done` or `blocked`; with the change done, checks
   passing and no design spike waiting, `review` starts a code reviewer, `qa` a QA engineer (`qa-audit`) when the change is
-  user-facing and, on request, a design check; a fail goes to `fix`, which resumes the same engineer, and three fix rounds
+  user-facing and, on request, a design check, waiting for both; a fail goes to `fix`, which resumes the same engineer, and three fix rounds
   end in `escalated`. `merge-ready` asks first with `merge_pr`. The implementor holds a shell, a new branch and `push` in
   `implement` and `fix` so its engineer starts within its grant; it doesn't edit. When the work meets a design question no
   accepted board answers, a design spike (a full design session on GlassineOS/ui) starts after your approval, raises a

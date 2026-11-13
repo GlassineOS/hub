@@ -547,7 +547,7 @@ def for_hub(agents, feed, judges) -> Runner:
     def items(name, record):
         found = [(c["repo"], c["number"]) for c in covers_of(record.get("config", {}))]
         # what it carries, and its design sessions' pull requests, whose merge is its design.accepted
-        return found + [(p["repo"], p["number"]) for p in [*(agents.known_prs(name) or ()), *(agents.design_prs(name) if hasattr(agents, "design_prs") else ())]]
+        return found + [(p["repo"], p["number"]) for p in [*(agents.known_prs(name) or ()), *agents.design_prs(name)]]
 
     def turn(_name, record):
         session_id = record.get("session_id")
