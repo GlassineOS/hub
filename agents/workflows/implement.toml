@@ -48,7 +48,7 @@ move = "on-request"
 parent = "work"
 instructions = """Your pull request waits for review. Mark it ready (`gh pr ready`) and ask for a review. Don't change the \
 branch now: you can't push in this state. Answer questions on the pull request if you are asked. When a review asks for \
-changes you move to fix; when it approves and the checks pass, to merge-ready. A reviewer session starts under this state and hands its verdict to the hub, which counts like a review: reports it sends you come in your turns, to answer with `answer_report`."""
+changes you move to fix; when it approves and the checks pass, to merge-ready. A reviewer session starts under this state and hands its verdict to the hub, which counts like a review, with its findings, which come in your turn: reports it sends you come in your turns, to answer with `answer_report`."""
 [[state.review.manages]]
 name = "reviewer"
 persona = "reviewer"
@@ -58,7 +58,7 @@ max = 1
 reuse = "fresh"
 on_exit = "stop"
 with = ["pr", "diff.since_last_round"]
-returns = { verdict = ["pass", "fail"] }
+returns = { verdict = ["pass", "fail"], findings = "text-list" }
 [[state.review.exit]]
 to = "merge-ready"
 decided_by = "facts"
@@ -77,7 +77,8 @@ on = ["feed:pr.review", "feed:pr.checks", "turn.end", "hub:managed.return"]
 
 [state.fix]
 parent = "work"
-instructions = """The review asked for changes. Read its threads (`get_pr_threads`), address each point, test, commit and push. \
+instructions = """The review asked for changes. Address the reviewer's findings, which the hub put in your turn as a marked \
+block, and any GitHub review threads (`get_pr_threads`): each point, then test, commit and push. \
 When the checks pass you go back to review: on your own when your turn ends, or at once with `request_move` to `review`."""
 [state.fix.grant]
 github = ["push"]

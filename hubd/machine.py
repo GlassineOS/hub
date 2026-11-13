@@ -67,6 +67,11 @@ FACTS = {"pr.open": "bool", "pr.merged": "bool", "pr.checks": ("pass", "fail", "
          "design.accepted": "bool", "report.answered": "bool",
          "rounds.<state>": "int", "time.<state>": "int", "tokens.<state>": "int", "managed.<entry>.<field>": "returns"}
 COUNTERS = ("rounds", "time", "tokens")
+# A `returns` field is a list of the values it takes (a fact), or TEXT_LIST: short lines of text handed to the owner as data,
+# never a fact. Bounds on what such a field carries:
+TEXT_LIST = "text-list"
+MAX_TEXT_ITEMS = 20
+MAX_TEXT_ITEM = 500
 OPS = ("==", "!=", "<", "<=", ">", ">=")
 
 
@@ -130,7 +135,7 @@ class Manage:
     reuse: str = "resume"
     on_exit: str = "stop"
     with_: tuple[str, ...] = ()
-    returns: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    returns: dict[str, tuple[str, ...] | str] = field(default_factory=dict)  # field -> its values, or TEXT_LIST
 
 
 @dataclass(frozen=True)
@@ -398,9 +403,15 @@ def _manage(r: _Reader, raw, where: str) -> Manage:
         r.problems.append(Problem(f"{where}.returns", "must be a table"))
         raw_returns = {}
     for key in raw_returns:
+        if raw_returns[key] == TEXT_LIST:
+            if _FIELD.fullmatch(key):
+                returns[key] = TEXT_LIST
+            else:
+                r.problems.append(Problem(f"{where}.returns.{key}", "is a field name"))
+            continue
         values = r.get(raw_returns, key, f"{where}.returns", list, None, pattern=_WORD)
         if not _FIELD.fullmatch(key) or not values or any(v in _RESERVED or v.isdigit() for v in values):
-            r.problems.append(Problem(f"{where}.returns.{key}", "is a field name with a list of the values it takes"))
+            r.problems.append(Problem(f"{where}.returns.{key}", f"is a field name with a list of the values it takes, or {TEXT_LIST!r}"))
         else:
             returns[key] = values
     most = r.get(t, "max", where, int, 1)
@@ -730,6 +741,8 @@ def check(d: Definition) -> list[Finding]:
                         values = returns.get(kind[1], {}).get(kind[2])
                         if values is None:
                             problem(f"{where}.requires", f"{t.name}: no managed entry here returns {kind[1]}.{kind[2]}")
+                        elif values == TEXT_LIST:
+                            problem(f"{where}.requires", f"{t.name} is text for the owner to read, not a fact")
                         elif t.value not in values:
                             problem(f"{where}.requires", f"{t.name} is one of {', '.join(values)}")
                 reqs.append(req)

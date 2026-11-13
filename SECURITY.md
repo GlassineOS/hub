@@ -425,8 +425,10 @@ the person or session that started work in the hub.
   and its conversation; a token from an earlier conversation, or a call for an entry, report or round that isn't the
   caller's, is refused.
 - **What starts it carries no transcript.** Its first prompt is its action's prompt and a block the hub writes from the
-  entry's named references; the owner's rolling summary, if named, sits between random marks as data. A return is a closed
-  set of fields each with a value from the definition, accepted only from the entry's current session; it is a fact, never text.
+  entry's named references; the owner's rolling summary, if named, sits between random marks as data. A return is a closed set of fields, each a value from the definition (a fact, never text) or, for a `text-list`
+  field, at most 20 lines of at most 500 characters with no invisible characters, which reach the owner's next turn
+  between marks as the managed session's own words, as data, and are never a fact. A return is accepted only from a
+  session of the entry started in the current round.
 - **Reports are a typed channel, not chat.** A report is a kind (`blocker`, `decision`), evidence and a proposal, each at
   most 2000 characters with no invisible characters, at most 3 open per session. It reaches the owner as a labelled block in
   its next turn (the reporter's words between marks, as data); if the owner is idle at its prompt the hub wakes it with
