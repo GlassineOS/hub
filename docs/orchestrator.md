@@ -198,7 +198,7 @@ run each week, so it's off until you turn it on.
 ## Identity
 
 A `glassine-steward` App, with contents, actions, issues and pull requests write, and organization
-projects write, is in `deploy/create-app.py`. GraphQL mutations go out as the calling session's App,
+projects write, is what the hub's manifest asks for (`hubd/apps.py`, `persona_permissions`). GraphQL mutations go out as the calling session's App,
 like other writes, so what you allow goes out as this App. A merge needs Contents write, and rerunning,
 cancelling and dispatching workflows need Actions write. An App made before this needs both added by hand,
 or those calls fail with a 403 after you allow them. It has no Workflows permission, so GitHub may refuse a

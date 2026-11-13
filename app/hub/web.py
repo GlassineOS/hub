@@ -5,14 +5,15 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, PlainTextResponse, Response
+from starlette.responses import JSONResponse, PlainTextResponse, RedirectResponse, Response
 from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket, WebSocketDisconnect
@@ -28,7 +29,31 @@ COOKIE = "hub_session"
 MAX_DESIGN_MESSAGE = 16 * 1024  # a viewer's input or choice; hubd checks each field
 STATIC = Path(__file__).parent / "static"
 CSP = ("default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; "
-       "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+       "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self' https://github.com")
+# GitHub's App manifest form is posted to github.com from the page: the one place a form leaves the hub (hubd/apps.py).
+GITHUB_APP_FORM = "https://github.com/"
+_GITHUB_TOKEN = re.compile(r"[A-Za-z0-9_-]{8,128}")  # a manifest code and a state, as GitHub sends them back
+APP_CALLBACK = "/apps/callback"
+
+
+class RedactCallback(logging.Filter):
+    """uvicorn's access log line holds the whole path, and GitHub's code on the callback alone becomes an App's private key:
+    the line keeps the path and drops the query."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple):
+            record.args = tuple(f"{APP_CALLBACK}?(hidden)" if isinstance(a, str) and a.startswith(APP_CALLBACK + "?") else a for a in args)
+        elif isinstance(record.msg, str) and APP_CALLBACK + "?" in record.msg:
+            record.msg = re.sub(re.escape(APP_CALLBACK) + r"\?\S*", f"{APP_CALLBACK}?(hidden)", record.msg)
+        return True
+
+
+def redact_access_log() -> None:
+    """After uvicorn has set up its loggers, which a Config does as it's made."""
+    logger = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, RedactCallback) for f in logger.filters):
+        logger.addFilter(RedactCallback())
 
 
 def _same_origin(headers) -> bool:
@@ -574,8 +599,38 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         reply.pop("ok", None)
         return reply  # a move that widens the grant comes back with needs_confirm and its pending id, and waits
 
+    # --- the personas' GitHub Apps (FR-032): the page relays, hubd holds the nonce, the code exchange and the key ---------
+    async def apps_list(_r, _b, token):
+        return {"apps": (await hubd.call(op="apps.list", token=token))["apps"]}
+
+    async def apps_manifest(r, b, token):
+        # The origin the browser reached the hub at, which the api() check has matched to the Host it allows: GitHub sends
+        # the maintainer back there. hubd takes only a bare origin.
+        reply = await hubd.call(op="apps.manifest", token=token, persona=b.get("persona"), replace=b.get("replace") is True,
+                                origin=r.headers.get("origin"))
+        if not str(reply.get("url", "")).startswith(GITHUB_APP_FORM):
+            raise BadRequest("hubd's manifest doesn't go to GitHub")
+        return {k: reply[k] for k in ("persona", "manifest", "url", "expires_in")}
+
+    async def apps_convert(_r, b, token):
+        reply = await hubd.call(op="apps.convert", token=token, code=b.get("code"), state=b.get("state"))
+        return {k: reply[k] for k in ("persona", "app_id", "slug", "install_url", "replaced")}
+
+    async def apps_callback(request: Request) -> Response:
+        """Where GitHub sends the maintainer back. Its redirect is a cross-site navigation, so the login cookie isn't sent:
+        this needs none and does nothing but hand code and state to the page, in the fragment, which no request carries. The
+        page posts them, with the login, to apps_convert."""
+        code, state = request.query_params.get("code", ""), request.query_params.get("state", "")
+        if not (_GITHUB_TOKEN.fullmatch(code) and _GITHUB_TOKEN.fullmatch(state)):
+            return RedirectResponse("/#/apps?failed=1", 303, headers={"Cache-Control": "no-store"})
+        return RedirectResponse(f"/#/apps?{urlencode({'code': code, 'state': state})}", 303, headers={"Cache-Control": "no-store"})
+
     routes = [
         Route("/api/login", login, methods=["POST"]),
+        Route(APP_CALLBACK, apps_callback),
+        Route("/api/apps", api(apps_list)),
+        Route("/api/apps/manifest", api(apps_manifest), methods=["POST"]),
+        Route("/api/apps/convert", api(apps_convert), methods=["POST"]),
         Route("/api/logout", api(logout), methods=["POST"]),
         Route("/api/host", api(host_status)),
         Route("/api/overview", api(overview)),

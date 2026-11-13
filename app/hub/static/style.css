@@ -240,6 +240,9 @@ button.stat.blocking { background: var(--highlight); }
 .svsend.compact { padding: 8px 12px; border-top: 0; background: none; }
 .tool-row { display: flex; align-items: center; gap: 10px; min-height: 30px; border-bottom: 1px solid var(--rule); font-size: 14px; }
 .tool-row span:first-child { flex: 1; overflow-wrap: anywhere; }
+/* GitHub Apps: a persona per row, its buttons under the words when the row is narrow */
+.app-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 0; border-bottom: 1px solid var(--rule); }
+.app-row-text { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; }
 .shadow { font: 400 12.5px/1.55 var(--font-mono); padding: 10px 12px; background: var(--paper); border: 1px solid var(--rule); border-radius: 6px; max-height: 360px; overflow-y: auto; }
 
 /* advanced */

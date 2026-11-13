@@ -203,14 +203,15 @@ Without `CLAUDE_CONFIG_DIR`, agents use the default login in `~/.claude`. The Ov
 which one is in use. Don't keep secrets in this file: its values are written to each session's
 start script.
 
-Personas can post as GitHub Apps of their own, not as you:
+Personas can post as GitHub Apps of their own, not as you. Create one from the GitHub Apps page
+(Overview, GitHub Apps), or, without a running hub:
 
 ```sh
-deploy/create-app.py reviewer      # also security-auditor, triager
+deploy/create-app.py reviewer      # any persona of agents/personas
 ```
 
-It opens GitHub's form with the App described; you press Create, and install it on the repositories
-it should work in with the link it prints. No restart is needed, and a session's manifest shows
+Either opens GitHub's form with the App described, with the permissions the persona's workflows need;
+you press Create, and install it on the repositories it should work in with the link it gives. No restart is needed, and a session's manifest shows
 who it posts as. `openssl` signs the App's requests.
 
 The terminal takes all keys, Shift+Tab included, while it has focus; a message says when it
