@@ -45,6 +45,7 @@ from .codemap import UNREADABLE, CodeMaps, MapError
 from .codesearch import CodeSearch, SearchError
 from .ghpolicy import ORG, Refused
 from .history import History
+from .instances import Machines
 from .results import APPLY_TOOLS
 from .seeds import SeedError, Seeds, remove_tree
 from .shells import ShellError, Shells
@@ -675,6 +676,7 @@ class Agents:
         self._pr_lookups: dict[str, asyncio.Task] = {}
         self._removing: set[str] = set()
         self.history = History(state_dir / "history")
+        self.machines = Machines(self.sessions, state_dir / "machines.sqlite", lambda a: self.library.actions.get(a), self.is_session)
         self.cleanup_file = state_dir / "cleanup.json"
         self.steward_file = state_dir / "steward.json"
         self.before_remove = None  # awaited with a session's name before its worktree goes: the design view stops its renderer
@@ -1437,6 +1439,7 @@ class Agents:
             if origin is not None:  # 005 FR-010: the Launch record it came from, shown as its origin
                 record["origin"] = origin
             (directory / "session.json").write_text(json.dumps(record))
+            self.machines.start(directory, action)  # 012 FR-011: its workflow instance, kept beside the record
             await self.shells.new(name, str(cwd), self._command(directory, script))
         except Exception:  # whatever it was, a folder left behind would keep the name taken
             await self._remove(name)
@@ -2325,7 +2328,7 @@ class Agents:
         action = self.library.actions.get(record["config"].get("action"), {})
         if not action.get("singleton"):  # the Steward is one long session, reached from its sidebar
             try:
-                self.history.add(record, "finished" if (directory / ENDED_FILE).exists() else "you" if by_you else "interrupted")
+                self.history.add({**record, **self.machines.remembered(directory)}, "finished" if (directory / ENDED_FILE).exists() else "you" if by_you else "interrupted")
             except OSError as e:  # a full disk mustn't stop a session from ending
                 log.warning("couldn't remember %s: %s", name, e)
 
@@ -2455,7 +2458,8 @@ class Agents:
         directory = self.sessions / name
         if not directory.exists():
             directory.mkdir(mode=0o700)
-            (directory / "session.json").write_text(json.dumps({k: record[k] for k in record if k not in ("how", "ended")}))
+            (directory / "session.json").write_text(json.dumps({k: record[k] for k in record if k not in ("how", "ended", "machine")}))
+            self.machines.restore(directory, record)
             restored = True
         self._starting.add(name)
         try:
