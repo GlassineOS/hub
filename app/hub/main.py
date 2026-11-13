@@ -186,6 +186,7 @@ async def run() -> int:
     ]
     for server in servers:
         server.install_signal_handlers = lambda: None
+    web.redact_access_log()  # the Configs above have set up uvicorn's loggers by now
     watchdog = Watchdog([pages, tools])
     watchers = [asyncio.create_task(docs.watch()), watchdog.start()]
     if github.sync:
