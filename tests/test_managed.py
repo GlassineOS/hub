@@ -545,9 +545,8 @@ def test_the_cap_and_what_lies_beyond_it():
     capped = machine.cap(child, owner_)
     assert capped.tools == ("Read",) and capped.permission_mode == "dontAsk" and capped.checkout == "pr" and capped.github == ("read",)
     assert machine.cap(child, owner_, {"tools": ["Edit"]}).tools == ("Read", "Edit")
-    # a checkout that can push doesn't fit under an owner whose checkout is another, but for its pull request's own branch
-    # under an owner on a new branch: the pull request a managed session gets is always its owner's own (on_pr)
-    assert machine.beyond(G(checkout="pr-branch"), G(checkout="new-branch")) == {}
+    # a checkout that can push doesn't fit under an owner whose checkout is another
+    assert machine.beyond(G(checkout="pr-branch"), G(checkout="new-branch")) == {"checkout": ("pr-branch",)}
     assert machine.beyond(G(checkout="new-branch"), G(checkout="pr-branch")) == {"checkout": ("new-branch",)}
     assert machine.beyond(G(checkout="pr-branch"), G(checkout="default")) == {"checkout": ("pr-branch",)}
     assert machine.beyond(G(checkout="pr-branch"), G(checkout=False)) == {"checkout": ("pr-branch",)}

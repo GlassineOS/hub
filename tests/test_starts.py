@@ -66,6 +66,23 @@ workflow = "issue-helper"
 start = "auto"
 '''
 
+REPO_BOSS = '''schema = 1
+name = "repo-boss"
+initial = "work"
+
+[state.work]
+final = true
+[state.work.grant]
+access = "full"
+permission_mode = "auto"
+checkout = "new-branch"
+[[state.work.manages]]
+name = "fixer"
+persona = "ci-fixer"
+workflow = "pr-fix-checks"
+start = "on-request"
+'''
+
 PR = 5
 
 
@@ -88,6 +105,8 @@ def hub(tmp_path, monkeypatch):
     # an owner on a pull request whose state starts a workflow on an issue: there is none, so that start can never happen
     (wf / "issue-helper.toml").write_text(HELPER.format(name="issue-helper", tools='["get_issue", "notes_find"]') + launch("issue-helper", start=False))
     (wf / "pr-stuck.toml").write_text(STUCK_OWNER + launch("pr-stuck", on="pr", label="Stuck on it", when_held="hide"))
+    # an owner on a repository with a new branch of its own, which names the pull request its fixer works on
+    (wf / "repo-boss.toml").write_text(REPO_BOSS + launch("repo-boss", on="repo", label="Boss it", start=False))
     # an owner that runs beside the holder: what it manages doesn't share the holder's hold
     (wf / "pr-beside.toml").write_text(PR_OWNER.replace('name = "pr-owner"', 'name = "pr-beside"')
                                        + launch("pr-beside", on="pr", label="Look beside", when_held="beside"))
@@ -451,4 +470,20 @@ def test_a_session_holds_by_what_its_start_did_when_it_started_not_by_a_later_ve
         lib.saved()
         assert a.holders("pr", "kernel", PR)[0] == []
         assert json.loads((a.sessions / reader / "session.json").read_text())["when_held"] == "beside"
+    asyncio.run(go())
+
+
+def test_a_named_pull_requests_branch_asks_above_its_owner_even_under_a_new_branch(hub):
+    """A pull request's own branch fits under an owner on a new branch only when the pull request is the owner's own. One the
+    owner names is anyone's: its branch asks above the owner, as any wider checkout does."""
+    h, a = hub
+    name = "boss"
+    (a.sessions / name).mkdir(parents=True)
+    record = {"name": name, "session_id": "sid", "object": "repo", "config": a.defaults("repo-boss", "boot", None), "title": "Boss it", "created": 1.0}
+    (a.sessions / name / "session.json").write_text(json.dumps(record))
+    a.machines.start(a.sessions / name, a.library.actions["repo-boss"])
+
+    async def go():
+        got = await h.managed.start(name, "fixer", item=f"boot#{PR}")
+        assert not got["started"] and "checkout pr-branch" in got["why"], got
     asyncio.run(go())
