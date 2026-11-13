@@ -22,6 +22,7 @@ Two kinds of session:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import logging
 import os
@@ -1084,10 +1085,11 @@ class Agents:
             out.pop("github", None)
         return out
 
-    def _grant_hooks(self, directory: Path, action: dict) -> list:
-        """Before each tool use of a session that can move: grant_hook.py refuses what its current state doesn't grant. Only
-        refuses or stays silent, so the other hooks and the permission mode still decide the rest."""
-        if not self.staged(action, directory.name):
+    def _grant_hooks(self, directory: Path, action: dict, managed: bool = False) -> list:
+        """Before each tool use of a session that can move, or a managed one (whose cap follows its owner): grant_hook.py
+        refuses what its current state, or its cap, doesn't grant. Only refuses or stays silent, so the other hooks and the
+        permission mode still decide the rest."""
+        if not self.staged(action, directory.name) and not managed:
             return []
         # Claude Code takes only exit status 2 as a block: whatever else stops the script, the shell turns into that.
         command = shlex.join([sys.executable, "-I", str(Path(__file__).with_name("grant_hook.py")), str(directory / GRANT_FILE)]) + " || exit 2"
@@ -1096,7 +1098,7 @@ class Agents:
     def write_grant(self, directory: Path, config: dict, action: dict, asks_first=None) -> None:
         """What grant_hook.py reads: the Claude Code tools and the hub's tools in force. None for a full session, which has no
         list: its tools are guarded, not limited."""
-        if not self.staged(action, directory.name):
+        if not self.staged(action, directory.name) and self.owner_record(directory.name) is None:
             return
         full = _full(action)
         asks = list(self._asks_first(config, action) if asks_first is None else asks_first)
@@ -1116,6 +1118,19 @@ class Agents:
         while d.states[first].initial is not None:
             first = d.states[first].initial
         return machine.effective(d, first)
+
+    def in_force_grant(self, name) -> machine.Grant:
+        """What a session holds now: its state's effective grant, narrowed to the lists in force in its record (what its launch
+        took off stays off; a GitHub list it doesn't have isn't held). A full session has its state's: it has no list."""
+        record = json.loads((self.sessions / name / "session.json").read_text())
+        config = record["config"]
+        g = _grant(self._state_action(name, self.library.action(config.get("action"), config.get("repo"))))
+        if g.access == "full":
+            return g
+        github = config.get("github") if isinstance(config.get("github"), list) else []
+        return dataclasses.replace(g, tools=tuple(t for t in g.tools if t in (config.get("tools") or ())),
+                                   hub_tools=tuple(t for t in g.hub_tools if t in (config.get("hub_tools") or ())),
+                                   github=tuple(c for c in g.github if c in github))
 
     def owner_record(self, name) -> dict | None:
         """A managed session's owner as its record names it: {name, session_id, entry}, or None."""
@@ -1224,7 +1239,30 @@ class Agents:
         self.write_grant(directory, narrowed, state, asks)
         if (directory / LOCKED_FILE).exists():  # locked stays locked until a resume
             self.lock_down(name)
-        return {"config": narrowed, "github_changed": narrowed.get("github") != in_force.get("github"), "state": state}
+        children = self._narrow_children(name, record.get("session_id"))
+        return {"config": narrowed, "github_changed": narrowed.get("github") != in_force.get("github"), "state": state,
+                "children": children}
+
+    def _narrow_children(self, name, session_id) -> list[tuple[str, dict]]:
+        """The cap holds at all times (FR-043): when a session is narrowed, so is every running session it manages, and theirs.
+        Each one narrowed, with what narrow_to_state said of it (its GitHub token is made again by the caller)."""
+        out = []
+        if not self.sessions.is_dir():
+            return out
+        for path in sorted(self.sessions.iterdir()):
+            owner = self.owner_record(path.name) if path.name != name else None
+            if not owner or owner.get("name") != name or owner.get("session_id") != session_id or owner.get("ended"):
+                continue
+            if (path / ENDED_FILE).exists():
+                continue
+            try:
+                got = self.narrow_to_state(path.name)
+            except Exception:  # noqa: BLE001 — one that can't be worked out is locked, never left wider
+                log.exception("%s: its cap couldn't be applied; it is locked", path.name)
+                self.lock_down(path.name)
+                continue
+            out += [(path.name, got), *got.get("children", ())]
+        return out
 
     def lock_down(self, name) -> None:
         """When the grant in force can't be worked out: the session's token and its tools refuse everything until a resume."""
@@ -1691,7 +1729,7 @@ class Agents:
                 for i, st in enumerate(config["steps"], 1))
         return prompt
 
-    def _hooks(self, directory: Path, config: dict, action: dict) -> dict:
+    def _hooks(self, directory: Path, config: dict, action: dict, managed: bool = False) -> dict:
         """How the hub knows a session waits for you: Claude Code's own notification, as a marker file.
 
         Claude Code connects to the tool server in the background and doesn't wait for it before
@@ -1707,7 +1745,7 @@ class Agents:
         read = shlex.quote(str(directory / (OUTCOMES_FILE + ".read")))
         read_outcomes = f"if mv {outcomes} {read} 2>/dev/null; then cat {read}; rm -f {read}; fi"
         context = shlex.quote(str(directory / CONTEXT_FILE))
-        asks = self._ask_hooks(directory, config, action, [*self._grant_hooks(directory, action), *hook(f"rm -f {marker} {idle}"),
+        asks = self._ask_hooks(directory, config, action, [*self._grant_hooks(directory, action, managed), *hook(f"rm -f {marker} {idle}"),
                                                             *self._shell_hooks(directory, config, action)])
         hooks = {"Notification": hook(f"touch {marker}"), "UserPromptSubmit": hook(f"rm -f {marker} {idle}; {read_outcomes}; cat {context} 2>/dev/null; true"),
                  **asks, "Stop": [*hook(f"touch {idle}"), *asks.get("Stop", ())], "SessionStart": [{"matcher": "startup", **hook(f"sleep {TOOL_SERVER_WAIT}")[0]},
@@ -1917,7 +1955,7 @@ class Agents:
         if context:  # 012 FR-041: a managed session's context, filled in by the hub from named references (managed.py)
             prompt += "\n\n" + context
         (directory / "prompt.md").write_text(prompt)
-        (directory / "settings.json").write_text(json.dumps(self._hooks(directory, config, action)))
+        (directory / "settings.json").write_text(json.dumps(self._hooks(directory, config, action, "return_result" in chain)))
         (directory / REPOS_FOLDER).mkdir(exist_ok=True)
         self._prepare_shell(directory, config, action)
         self._write_persona(config, action, directory)
@@ -2064,6 +2102,34 @@ class Agents:
         return sorted((f for f in found if f["agent"]), key=lambda f: f["agent"].get("created") or 0, reverse=True)
 
     def _current_config(self, config: dict, name=None, launched: dict | None = None) -> dict:
+        return self._capped(self._own_config(config, name, launched), name)
+
+    def _capped(self, config: dict, name) -> dict:
+        """A managed session's lists no wider than what its owner holds now, with what an approval above the owner allowed its
+        entry (FR-043, at all times). An owner that has gone, or is in another conversation, leaves it nothing."""
+        owner = self.owner_record(name) if name is not None else None
+        if owner is None:
+            return config
+        try:
+            owner_record = json.loads((self.sessions / owner["name"] / "session.json").read_text())
+            if owner_record.get("session_id") != owner.get("session_id"):
+                raise AgentError("another conversation")
+            held = self.in_force_grant(owner["name"])
+            _r, inst = self.machines.load(owner["name"])
+            allowed = (inst.managed.get(owner.get("entry")) or {}).get("allowed") or {}
+        except (OSError, ValueError, TypeError, KeyError, AgentError, MachineError, LibraryError):
+            held, allowed = machine.Grant(), {}
+        if held.access == "full":
+            return config
+        out = dict(config)
+        for f in ("tools", "hub_tools"):
+            if isinstance(config.get(f), list):
+                out[f] = [t for t in config[f] if t in getattr(held, f) or t in allowed.get(f, ())]
+        if isinstance(config.get("github"), list):
+            out["github"] = [c for c in config["github"] if c in held.github or c in allowed.get("github", ())]
+        return out
+
+    def _own_config(self, config: dict, name=None, launched: dict | None = None) -> dict:
         """A session's rights as its action has them now. What's gone from the action goes from the session, which
         keeps its conversation. The Steward isn't set up by hand, so it also gets what's been added since, and the model you chose for it.
         With a session's name, a session that can move has its current state's lists (_state_config), from what it was launched with."""
@@ -2149,7 +2215,7 @@ class Agents:
             cwd = self.workspace if _full(action) else self.home
             if live:
                 await self.shells.kill(name)
-            (directory / "settings.json").write_text(json.dumps(self._hooks(directory, config, action)))  # as they are now
+            (directory / "settings.json").write_text(json.dumps(self._hooks(directory, config, action, self.owner_record(name) is not None)))  # as they are now
             self.machines.resumed(name)  # after the ended marker says when its clock stopped
             for marker in (ENDED_FILE, "waiting", IDLE_FILE, ASKING_FILE):
                 (directory / marker).unlink(missing_ok=True)

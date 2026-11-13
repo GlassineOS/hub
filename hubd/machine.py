@@ -599,6 +599,16 @@ def cap(child: Grant, owner: Grant, allowed: dict | None = None) -> Grant:
     return Grant(**out)
 
 
+def fits(extra: dict, holder: Grant) -> bool:
+    """Whether what `beyond` gave (a managed session's items over its owner's) is all within `holder`'s grant: what a
+    session above may approve, as it may grant only what it holds itself (FR-051)."""
+    wanted = {key: tuple(extra.get(key, ())) for key in _SET_KEYS}
+    for key in _ORDERED:
+        wanted[key] = extra[key][0] if extra.get(key) else None
+    wanted["checkout"] = extra["checkout"][0] if extra.get("checkout") else False
+    return not beyond(Grant(**wanted), holder)
+
+
 def union(*grants: Grant) -> Grant:
     """Every item any of them holds: lists joined, ordered keys the widest, the first set checkout."""
     merged = {key: tuple(dict.fromkeys(x for g in grants for x in getattr(g, key))) for key in _SET_KEYS}
@@ -723,7 +733,7 @@ def check(d: Definition) -> list[Finding]:
     parsed: dict[tuple[str, int], list[Requirement]] = {}
 
     for s in d.states.values():
-        returns = {m.name: m.returns for a in ancestors(d, s.id) for m in d.states[a].manages}
+        returns = {m.name: m.returns for _sid, m in managed_of(d, s.id)}  # the entries in force there: a child's stands for its parent's
         for i, e in enumerate(s.exits, 1):
             where = f"state.{s.id}.exit.{i}"
             reqs = []

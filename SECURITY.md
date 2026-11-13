@@ -417,14 +417,20 @@ A workflow state can run sessions under it (spec 012, User Stories 3 and 4); `hu
 owning session is a separate field of the managed session's record (`owner`: name, conversation, entry), kept apart from
 the person or session that started work in the hub.
 
-- **A managed session starts with no more than its owner holds.** Its grant is its workflow's grant capped by the owner's
-  effective grant where the owner is when it starts: each list is the intersection, each level the lower, and a checkout must be the owner's, none, or
-  one that can't push. What lies beyond that isn't dropped silently: the start waits for an approval above the owner (the
-  owner's own owner session, else you, as a card hubd alone makes), and only the approved items are added, kept for that
-  instance. A move of the owner that widens counts what its managed entries there would hold (FR-023), so the confirm shows
-  it. The cap isn't taken again later: a session kept across the owner's moves (`keep`, `handover`, or an entry of a
-  parent state) keeps the grant it started with when the owner moves to a narrower state, and its own later moves are
-  held to its own workflow, not capped again against the owner.
+- **A managed session never holds more than its owner, at all times.** Its grant is its workflow's grant capped by what the
+  owner holds in force: the owner's state grant narrowed as its launch narrowed it (what it took off, a GitHub list it
+  lacks). Each list is the intersection, each level the lower, and a checkout must be the owner's, none, or one that can't
+  push. The cap is part of how a managed session's rights are worked out, at start, resume and every narrowing, and when
+  the owner is narrowed (a move, a library change) every running session it manages is narrowed to its cap again, and
+  theirs: its token, its grant hook (a managed session has one even with a one-state workflow) and its GitHub token, made
+  again. One whose cap can't be worked out is locked. What lies beyond the cap isn't dropped silently: the start waits
+  for an approval above the owner, and only the approved items are added, kept for that instance. A move of the owner
+  that widens counts what its managed entries there would hold (FR-023), so the confirm shows it.
+- **A session approves only within its own grant** (FR-051). An approval to start with more goes to the owner's own owner
+  only if that session holds the extra items itself, and is checked again when it answers; otherwise it goes to you. An
+  approval report whose addressee has ended, or is in another conversation, is settled as unanswerable and asked again
+  where it can be answered, so nobody waits on a session that isn't there. Forwarded up, an approval keeps what it
+  approves and is carried out where it is answered.
 - **The tools of the role are hubd's.** `start_managed`, `return_result`, `report_up` and `answer_report` aren't in any
   grant: hubd puts them on a session's list from its role (an owner whose state manages, a managed session) and the tool
   server, the grant hook and the launch all see the same list. Each reaches hubd with the session's own token, which names it
@@ -434,12 +440,14 @@ the person or session that started work in the hub.
   entry's named references; the owner's rolling summary, if named, sits between random marks as data. A return is a closed set of fields, each a value from the definition (a fact, never text) or, for a `text-list`
   field, at most 20 lines of at most 500 characters with no invisible characters, which reach the owner's next turn
   between marks as the managed session's own words, as data, and are never a fact. A return is accepted only from a
-  session of the entry started in the current round.
+  session of the entry started in the current round, and only while its entry holds where the owner is. A return about a
+  pull request is about its head: when the feed sees a new head, the returns go, so a verdict on old code never moves the
+  owner. An on-request entry's `when` is judged at most once a minute.
 - **Reports are a typed channel, not chat.** A report is a kind (`blocker`, `decision`), evidence and a proposal, each at
   most 2000 characters with no invisible characters, at most 3 open per session. It reaches the owner as a labelled block in
   its next turn (the reporter's words between marks, as data); if the owner is idle at its prompt the hub wakes it with
   fixed words only. An answer is `approve` or `deny` and an optional note, marked the same way going down. The top of the
-  chain is a decision card in Needs you. Every report, forward and answer is in the machine log of both ends.
+  chain is a decision card in Needs you, the reporters' words as fields of their own, never inside the hub's sentence. Every report, forward and answer is in the machine log of both ends.
 - **A guard, not a limit.** A report can't move anything by itself: an approval report carries out only the move or start
   it was made for, and only if that still holds. But an owner reads what its managed sessions write; words in a report can
   sway its next turn like any text it reads. What limits the owner stays its own grant.

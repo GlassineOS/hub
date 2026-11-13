@@ -108,6 +108,12 @@ name = "stepping"
 persona = "triager"
 workflow = "stepper"
 start = "on-request"
+[[state.a.manages]]
+name = "asked"
+persona = "triager"
+workflow = "helper"
+start = "on-request"
+when = "The issue is understood."
 [[state.a.exit]]
 to = "b"
 decided_by = "facts"
@@ -422,7 +428,7 @@ def test_a_workflow_that_needs_more_than_its_owner_waits_for_an_approval_above_i
         got = await op(h, "managed.start", token(a, name), entry="greedy")
         assert got["ok"] and not got["started"] and "list_prs" in got["why"]
         [card] = [c for c in h.decisions.open_approvals(name) if c["scope"].get("type") == "managed"]
-        assert card["scope"]["entry"] == "greedy" and "no session above it, so it asks you" in card["why"]
+        assert card["scope"]["entry"] == "greedy" and "there is no session above" in card["why"]
         again = await op(h, "managed.start", token(a, name), entry="greedy")
         assert not again["started"] and len(h.decisions.open_approvals(name)) == 1  # asked once
         await h.effects.answer_approval(card["id"], True, "me")
@@ -633,4 +639,188 @@ def test_a_managed_session_runs_its_workflow_as_the_repository_has_it(hub):
         assert not [c for c in h.decisions.open_approvals(name) if c["scope"].get("type") == "managed"]
         assert "list_prs" not in a.scope(token(a, got["name"]))["tools"]
         assert a.machines.load(got["name"])[1].definition().states["session"].grant.hub_tools == ("get_issue", "notes_find")
+    asyncio.run(go())
+
+
+# ---- regressions of the review of the chain (each asserts the fix) ----
+
+def test_an_ended_start_card_lets_the_entry_ask_again(hub):
+    """An owner's move ends the start-approval card; its report is settled with it, so a later start asks again."""
+    h, a, _ = hub
+
+    async def go():
+        name = await owner(h, a)
+        assert not (await op(h, "managed.start", token(a, name), entry="greedy"))["started"]
+        a.machines.move(name, "b", "hand")
+        await settle(h)
+        a.machines.move(name, "a", "hand")
+        await settle(h)
+        assert [c for c in h.decisions.open_approvals(name) if c["scope"].get("type") == "managed"] == []
+        again = await op(h, "managed.start", token(a, name), entry="greedy")
+        assert not again["started"]
+        assert len([c for c in h.decisions.open_approvals(name) if c["scope"].get("type") == "managed"]) == 1
+        assert len([r for r in a.machines.log.reports(state="open") if r["kind"] == "approval"]) == 1
+    asyncio.run(go())
+
+
+def test_an_approval_routed_to_an_owner_that_has_gone_falls_back_to_you(hub):
+    h, a, _ = hub
+
+    async def go():
+        name = await owner(h, a)
+        child = (await op(h, "managed.start", token(a, name), entry="stepping"))["name"]
+        await settle(h)
+        await h.machine_run.evaluate(child, ["turn.end"])
+        await settle(h)
+        [report] = a.machines.log.reports(to_sid=a.session_id_of(name), state="open")
+        (a.sessions / name / ENDED_FILE).touch()  # the owner ended before it answered
+        await h.machine_run.evaluate(child, ["turn.end"])
+        await settle(h)
+        assert a.machines.log.get_report(report["id"])["state"] == "answered"  # settled: nobody there to answer it
+        [card] = h.decisions.open_approvals(child)
+        assert not card["scope"].get("type")  # the exit's own card, for you
+    asyncio.run(go())
+
+
+def test_a_forwarded_approval_is_carried_out_where_it_is_answered(hub):
+    h, a, _ = hub
+
+    async def go():
+        name = await owner(h, a)
+        child = (await op(h, "managed.start", token(a, name), entry="stepping"))["name"]
+        await settle(h)
+        await h.machine_run.evaluate(child, ["turn.end"])
+        await settle(h)
+        [report] = a.machines.log.reports(to_sid=a.session_id_of(name), state="open")
+        up = await op(h, "managed.report", token(a, name), kind="decision", evidence="Not mine to decide.", proposal="Approve it.",
+                      forward=report["id"])
+        assert up["ok"] and up["to"] == "you"
+        # while it waits up there, the child asks nothing new of its owner
+        assert (await h.machine_run.evaluate(child, ["turn.end"]))["skipped"] == "a move waits for an approval"
+        [card] = [c for c in h.decisions.open_approvals(name) if c["scope"].get("type") == "report"]
+        # the reporters' words are fields of their own, not quoted inside the hub's sentence
+        assert [r["proposal"] for r in card["scope"]["reports"]] == ["Approve the move from x to y.", "Approve it."]
+        assert "“" not in card["why"] and "Proposal:\nApprove it." in card["why"]
+        await h.effects.answer_approval(card["id"], True, "me")
+        await settle(h)
+        assert a.machines.load(child)[1].state == "y"
+    asyncio.run(go())
+
+
+def test_the_cap_is_what_the_owner_holds_in_force_not_its_states_grant(hub):
+    h, a, _ = hub
+
+    async def go():
+        config = a.defaults(OWNER, "boot", 7)
+        config["hub_tools"] = [t for t in config["hub_tools"] if t != "notes_find"]  # taken off at its launch
+        name = (await a.start(config))["name"]
+        await settle(h)
+        assert "notes_find" not in a.scope(token(a, name))["tools"]
+        # its children's workflow holds notes_find, which the owner no longer does: they wait for an approval above it
+        assert kids(h, a, name) == []
+        cards = [c for c in h.decisions.open_approvals(name) if c["scope"].get("type") == "managed"]
+        assert sorted(c["scope"]["entry"] for c in cards) == ["keeper", "passer", "scout"]
+        assert all("hub_tools notes_find" in c["why"] for c in cards)
+    asyncio.run(go())
+
+
+def test_a_session_above_approves_only_what_it_holds_itself(hub):
+    h, a, _ = hub
+
+    async def go():
+        above = await owner(h, a)  # manages, so it can answer; it doesn't hold list_prs
+        assert "list_prs" not in a.scope(token(a, above))["tools"]
+        o = (await a.start(a.defaults(OWNER, "boot", 8), started_by=above))["name"]
+        await settle(h)
+        assert a.owner_of(o) == above
+        assert not (await op(h, "managed.start", token(a, o), entry="greedy"))["started"]
+        # not a report to `above`, which couldn't grant it: a card for you
+        assert a.machines.log.reports(to_sid=a.session_id_of(above), state="open") == []
+        [card] = [c for c in h.decisions.open_approvals(o) if c["scope"].get("type") == "managed"]
+        assert f"{above}, above it, doesn't hold that much itself" in card["why"]
+        # and an approval report it is sent anyway can't be approved by it: it goes on to you
+        await h.effects.answer_approval(card["id"], False, "me")
+        report = a.machines.log.report("approval", o, a.session_id_of(o), above, a.session_id_of(above), "e", "p", [o],
+                                       action={"type": "start", "owner": o, "owner_sid": a.session_id_of(o), "entry": "greedy",
+                                               "extra": {"hub_tools": ["list_prs"]}})
+        got = await op(h, "managed.answer", token(a, above), id=report["id"], decision="approve")
+        assert got["ok"] and got["to"] == "you" and "more than you hold" in got["why"]
+        await settle(h)
+        assert kids(h, a, o, "greedy") == []
+        assert [c for c in h.decisions.open_approvals(o) if c["scope"].get("type") == "managed"]
+    asyncio.run(go())
+
+
+def test_the_cap_holds_at_all_times_a_narrowed_owner_narrows_its_children(hub):
+    h, a, _ = hub
+
+    async def go():
+        name = await owner(h, a)
+        keeper = kids(h, a, name, "keeper")[0]
+        assert "notes_find" in a.scope(token(a, keeper))["tools"]
+        # the owner loses notes_find (as a move to a narrower state would take it): its running children lose it at once
+        path = a.sessions / name / "session.json"
+        record = json.loads(path.read_text())
+        record["config"]["hub_tools"] = [t for t in record["config"]["hub_tools"] if t != "notes_find"]
+        path.write_text(json.dumps(record))
+        got = a.narrow_to_state(name)
+        assert keeper in [c for c, _r in got["children"]]
+        assert "notes_find" not in a.scope(token(a, keeper))["tools"]
+        assert "notes_find" not in json.loads((a.sessions / keeper / "grant.json").read_text())["hub_tools"]
+        assert "notes_find" not in json.loads((a.sessions / keeper / "session.json").read_text())["config"]["hub_tools"]
+    asyncio.run(go())
+
+
+def test_a_return_needs_its_entry_where_the_owner_is(hub):
+    h, a, _ = hub
+
+    async def go():
+        name = await owner(h, a)
+        keeper = kids(h, a, name, "keeper")[0]
+        a.machines.move(name, "c", "hand")
+        await settle(h)
+        assert running(a, keeper)  # on_exit = keep
+        got = await op(h, "managed.return", token(a, keeper), fields={"found": "yes"})
+        assert not got["ok"] and "doesn't manage keeper any more" in got["error"]
+    asyncio.run(go())
+
+
+def test_a_child_states_entry_stands_for_its_parents_in_the_checks():
+    text = OWNER_WORKFLOW.replace('[state.a]\nparent = "work"\n', '[state.a]\nparent = "work"\n[[state.a.manages]]\nname = "scout"\n'
+                                  'persona = "triager"\nworkflow = "helper"\nreturns = { found = ["maybe"] }\n', 1)
+    found = [str(f) for f in machine.check(machine.parse(text))]
+    # in a, scout is a's own (found is maybe): its exit's `== yes` is refused there
+    assert any("state.a.exit" in f and "managed.scout.found is one of maybe" in f for f in found), found
+
+
+def test_a_handover_needs_the_same_workflow_persona_and_returns():
+    from hubd.managed import _same_entry
+    one = machine.Manage(name="x", persona="triager", workflow="helper")
+    assert _same_entry(one, machine.Manage(name="x", persona="triager", workflow="helper", on_exit="stop"))
+    assert not _same_entry(one, machine.Manage(name="x", persona="triager", workflow="greedy"))
+    assert not _same_entry(one, machine.Manage(name="x", persona="reviewer", workflow="helper"))
+    assert not _same_entry(one, machine.Manage(name="x", persona="triager", workflow="helper", returns={"v": ("a",)}))
+
+
+def test_an_on_request_when_is_judged_at_most_once_a_minute(hub):
+    h, a, judge = hub
+
+    async def go():
+        name = await owner(h, a)
+        asked = len(judge.asked)
+        for _ in range(5):
+            got = await op(h, "managed.start", token(a, name), entry="asked")
+            assert got["ok"] and not got["started"] and "its when doesn't hold" in got["why"]
+        assert len(judge.asked) == asked + 1
+    asyncio.run(go())
+
+
+def test_the_sweep_passes_over_a_record_that_isnt_an_object(hub):
+    h, a, _ = hub
+
+    async def go():
+        await owner(h, a)
+        (a.sessions / "odd").mkdir()
+        (a.sessions / "odd" / "session.json").write_text("[1, 2]")
+        assert await h.managed.sweep() == []
     asyncio.run(go())

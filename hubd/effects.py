@@ -130,6 +130,9 @@ class Effects:
             return
         if narrowed["github_changed"]:
             self._spawn(self._renew_token(name, narrowed["config"], narrowed["state"]))
+        for child, got in narrowed.get("children", ()):  # the sessions it manages, narrowed to their cap again (FR-043)
+            if got["github_changed"]:
+                self._spawn(self._renew_token(child, got["config"], got["state"]))
         if quiet:
             return
         _record, inst = self.machines.load(name)
