@@ -41,14 +41,14 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
-from . import auth, machine, shell_hook, usage
+from . import auth, machine, machinerun, shell_hook, usage
 from .apps import CAPABILITIES, READ_CAPABILITIES, AppError, permissions_for
 from .asks import FOREVER, HOOK_MARGIN, QUESTION_TOOL, WAIT
 from .codemap import UNREADABLE, CodeMaps, MapError
 from .codesearch import CodeSearch, SearchError
 from .ghpolicy import ORG, Refused
 from .history import History
-from .instances import MachineError, Machines
+from .instances import FILE as MACHINE_FILE, MachineError, Machines
 from .results import APPLY_TOOLS
 from .seeds import SeedError, Seeds, remove_tree
 from .shells import ShellError, Shells
@@ -120,6 +120,7 @@ MAX_STEPS, MAX_TOUCHES, MAX_STEP = 12, 8, 300  # a plan's steps (005 FR-006): pl
 MAX_STARTED = 4  # sessions a Steward has working at once
 IDLE_FILE = "idle"  # its turn ended, and it's waiting for nothing but a person's next word
 ASKING_FILE = "asks-open"  # hubd holds a prompt of this session's
+MACHINE_HOOK_TIME = 5  # seconds; it sends one line and goes
 HOOK_MOVED = 10  # seconds; it only tells hubd something
 CONTEXT_FILE = "context"  # where the person is in the hub, joined to each of their turns
 VIEW_FILE = "view.json"  # where the page shows the session: embedded in a view, or in the background
@@ -1472,10 +1473,33 @@ class Agents:
         context = shlex.quote(str(directory / CONTEXT_FILE))
         asks = self._ask_hooks(directory, config, action, [*self._grant_hooks(directory, action), *hook(f"rm -f {marker} {idle}"),
                                                             *self._shell_hooks(directory, config, action)])
-        return {"statusLine": self._status_line(directory), "hooks": {"Notification": hook(f"touch {marker}"), "UserPromptSubmit": hook(f"rm -f {marker} {idle}; {read_outcomes}; cat {context} 2>/dev/null; true"),
-                          **asks, "Stop": [*hook(f"touch {idle}"), *asks.get("Stop", ())], "SessionStart": [{"matcher": "startup", **hook(f"sleep {TOOL_SERVER_WAIT}")[0]},
-                                           # A resume has no first turn, so nothing else would say it's at its prompt.
-                                           {"matcher": "resume", **hook(f"touch {idle}")[0]}]}}
+        hooks = {"Notification": hook(f"touch {marker}"), "UserPromptSubmit": hook(f"rm -f {marker} {idle}; {read_outcomes}; cat {context} 2>/dev/null; true"),
+                 **asks, "Stop": [*hook(f"touch {idle}"), *asks.get("Stop", ())], "SessionStart": [{"matcher": "startup", **hook(f"sleep {TOOL_SERVER_WAIT}")[0]},
+                                  # A resume has no first turn, so nothing else would say it's at its prompt.
+                                  {"matcher": "resume", **hook(f"touch {idle}")[0]}]}
+        for event, entry in self._machine_hooks(directory, action).items():
+            hooks[event] = [*hooks.get(event, ()), entry]
+        return {"statusLine": self._status_line(directory), "hooks": hooks}
+
+    def _machine_hooks(self, directory: Path, action: dict) -> dict:
+        """012 FR-013: the session events its workflow moves on, sent to hubd. Only the events an exit names, so a session
+        whose workflow has no such exit runs no extra process, and one with no `tool.after` none after every tool."""
+        if self.socket is None:
+            return {}
+        texts = [action.get("definition")]
+        try:
+            texts += list(json.loads((directory / MACHINE_FILE).read_text()).get("definitions", {}).values())
+        except (OSError, ValueError, AttributeError):
+            pass
+        signals = set()
+        for text in texts:
+            try:
+                signals |= machinerun.wanted(machine.parse(text)) if isinstance(text, str) else set()
+            except machine.DefinitionError:
+                continue
+        command = shlex.join([sys.executable, "-I", str(Path(__file__).with_name("machine_hook.py")), str(self.socket), str(directory / TOKEN_FILE)])
+        return {event: {"hooks": [{"type": "command", "command": command, "timeout": MACHINE_HOOK_TIME}]}
+                for event, signal in machinerun.HOOK_SIGNALS.items() if signal in signals}
 
     @staticmethod
     def _status_line(directory: Path) -> dict:
@@ -1931,7 +1955,7 @@ class Agents:
         ended = not live or (directory / ENDED_FILE).exists()
         return {"name": name, "state": self._state_word(directory, ended), "queued": len(self._sends.get(name, ())),
                 "lost": self._lost.get(name),
-                "model": self.describe(name)["model"], "sees": self._sees_now(name)}
+                "model": self.describe(name)["model"], "sees": self._sees_now(name), "machine": self.machines.summary(name)}
 
     def _sees_now(self, name) -> list[dict] | None:
         """The chips for the line the session's turns get now (010 FR-004). It's one file per session and the last page
@@ -2293,6 +2317,17 @@ class Agents:
         found = self._prs.get(name)
         return list(found[1]) if found and found[2] == record.get("session_id") else []
 
+    def known_prs(self, name) -> list[dict] | None:
+        """Its pull requests as the hub last saw them, without asking GitHub: None when it hasn't looked for any yet."""
+        try:
+            record = json.loads((self.sessions / name / "session.json").read_text())
+        except (OSError, ValueError, TypeError):
+            return None
+        if record.get("object") == "pr":
+            return self._prs_seen(name, record)
+        found = self._prs.get(name)
+        return list(found[1]) if found and found[2] == record.get("session_id") else None
+
     def _pr_repos(self, record: dict) -> list[str]:
         """Where a session pushes agent/<name>: what was checked out for it, the first item's repository (or the action's own,
         _home) and also_repos. A covered item in another repository has no checkout, so no branch of the session's is there to find."""
@@ -2360,6 +2395,7 @@ class Agents:
                 "posts_as": self.apps.posts_as(config["persona"]) if self.apps else None,
                 "full": record.get("full", False), "waiting": (self.sessions / name / "waiting").exists(), "idle": (self.sessions / name / IDLE_FILE).exists(),
                 "ended": (self.sessions / name / ENDED_FILE).exists(),
+                "machine": self.machines.summary(name),  # 012 FR-080: its state chip
                 "created": record.get("created"), "started_by": record.get("started_by")}
 
     def manifest(self, name) -> dict:
