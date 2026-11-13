@@ -122,6 +122,7 @@ _CHOSEN = ("persona", "model", "effort", "brief", "docs_query", "docs", "steps")
 MAX_DOCS = 8
 MAX_STEPS, MAX_TOUCHES, MAX_STEP = 12, 8, 300  # a plan's steps (005 FR-006): planner text, shown and put in the prompt
 MAX_STARTED = 4  # sessions a Steward has working at once; managed sessions don't count (MAX_MANAGED)
+DESIGN_ACTION = "design"  # the design sessions of 011, whose pull request is in GlassineOS/ui (designs.DESIGN_ACTION)
 MAX_MANAGED = 8  # managed sessions running at once, all owners together; each entry's own `max` holds too
 # The chain of owners' tools (012 FR-040 to FR-053). A session gets them from where it stands, not from a grant: a managed
 # session returns and reports to its owner, a session whose workflow manages sessions starts them on request and answers
@@ -527,6 +528,14 @@ class Library:
                     # A full session uses the host's login and is guarded, not limited; without a shell a token has no use.
                     raise LibraryError(f"workflows/{action['workflow']}.toml: github is a list of GitHub capabilities "
                                        f"({', '.join(CAPABILITIES)}), for a locked action with Bash")
+            for flag in ("managed_only", "per_repo"):
+                if not isinstance(action.get(flag, False), bool):
+                    raise LibraryError(f"actions/{action['id']}.toml: {flag} is true or false")
+            if action.get("per_repo") and action["object"] != "repo":
+                # one session per repository: an action about a repository, not about one item in it
+                raise LibraryError(f"actions/{action['id']}.toml: per_repo is for an action on a repository")
+            if action.get("managed_only") and action.get("verb"):
+                raise LibraryError(f"actions/{action['id']}.toml: an action only a workflow starts has no verb on the item's menu")
             home = action.get("repository")
             if home is not None and not (isinstance(home, str) and _REPO_RE.fullmatch(home) and ".." not in home and home.lstrip(".") != "work"
                                          and _full(action) and _grant(action).checkout == "new-branch"
@@ -879,6 +888,7 @@ class Agents:
         self.search = CodeSearch(state_dir / "search", self.seeds)
         self._resuming = asyncio.Lock()
         self._starting: set[str] = set()
+        self._per_repo: set[tuple[str, str]] = set()  # (action, repository) of a per_repo start under way
         self._prs: dict[str, tuple[float, list, str | None]] = {}  # session name: when looked up, its pull requests, which session id
         self._pr_lookups: dict[str, asyncio.Task] = {}
         self._removing: set[str] = set()
@@ -897,7 +907,9 @@ class Agents:
     # --- what's on offer ---------------------------------------------------------
     def actions(self, kind=None) -> list[dict]:
         # Planners start from the new-work form, not from the list of things to do to an item.
-        offered = [a for a in self.library.actions.values() if kind == a["object"] or (kind is None and a["object"] != "repo")]
+        # An action only a workflow's `manages` starts (managed_only) is on no menu.
+        offered = [a for a in self.library.actions.values() if (kind == a["object"] or (kind is None and a["object"] != "repo"))
+                   and not a.get("managed_only")]
         return [{**{k: a[k] for k in ("id", "object", "title", "summary", "ceiling", "result")}, "when": a.get("when"),
                  "full": _full(a), "plan": a.get("plan", True), "models": a["models"], "needs": a.get("needs"),
                  "verb": a.get("verb"), "result_words": RESULTS[a["result"]], "repository": a.get("repository"),
@@ -1996,10 +2008,40 @@ class Agents:
         action = self.library.action(config["action"], config.get("repo"))  # on the repository's override of its workflow, if any
         self._check_sandbox(config, action)
         self.seeds.refresh_soon()
+        if action.get("managed_only") and owner is None:
+            raise AgentError(f"{action['title']} runs only under another session, whose workflow starts it")
         if action.get("singleton"):
             existing = await self._existing(action)
             if existing:
                 return existing
+        claim = None
+        if action.get("per_repo"):  # 012 FR-070: one at a time for each repository, held from this look to the record
+            claim = (action["id"], str(config["repo"]).lower())
+            if claim in self._per_repo:
+                raise AgentError(f"{action['title']} for {config['repo']} is already starting")
+            if (running := await self._per_repo_running(action["id"], config["repo"])):
+                raise AgentError(f"{config['repo']} has one already: {running}. One runs for each repository at a time.")
+            self._per_repo.add(claim)
+        try:
+            return await self._start(config, action, started_by, origin, owner, context)
+        finally:
+            if claim is not None:
+                self._per_repo.discard(claim)
+
+    async def _per_repo_running(self, action_id: str, repo: str) -> str | None:
+        """A session of this action on this repository whose terminal is running and whose Claude hasn't ended."""
+        live = {s["name"] for s in await self.shells.list()}
+        for directory in sorted(self.sessions.iterdir()) if self.sessions.is_dir() else ():
+            try:
+                config = json.loads((directory / "session.json").read_text())["config"]
+            except (OSError, ValueError, TypeError, KeyError):
+                continue
+            if (isinstance(config, dict) and config.get("action") == action_id and str(config.get("repo")).lower() == repo.lower()
+                    and directory.name in live and not (directory / ENDED_FILE).exists()):
+                return directory.name
+        return None
+
+    async def _start(self, config: dict, action: dict, started_by, origin, owner, context) -> dict:
         mcp = self._prepare_home()
         self.sessions.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.work.mkdir(parents=True, exist_ok=True)
@@ -2655,7 +2697,9 @@ class Agents:
         return list(found[1]) if found and found[2] == record.get("session_id") else []
 
     def known_prs(self, name) -> list[dict] | None:
-        """Its pull requests as the hub last saw them, without asking GitHub: None when it hasn't looked for any yet."""
+        """Its pull requests as the hub last saw them, without asking GitHub: None when it hasn't looked for any yet. A session
+        whose workflow manages one that opens the pull request for its item (an implementor's engineer: on the same repository,
+        not a design session's GlassineOS/ui) carries that pull request as its own (012 FR-070)."""
         try:
             record = json.loads((self.sessions / name / "session.json").read_text())
         except (OSError, ValueError, TypeError):
@@ -2663,7 +2707,46 @@ class Agents:
         if record.get("object") == "pr":
             return self._prs_seen(name, record)
         found = self._prs.get(name)
-        return list(found[1]) if found and found[2] == record.get("session_id") else None
+        own = list(found[1]) if found and found[2] == record.get("session_id") else None
+        for child, child_record in self.managed_children(name, record):
+            config = child_record["config"]
+            action = self.library.actions.get(config.get("action"))
+            if not action or action["id"] == DESIGN_ACTION or _home(config, action) != _home(record["config"], self.library.actions.get(record["config"].get("action")) or {}):
+                continue
+            seen = self._prs.get(child)
+            if seen and seen[2] == child_record.get("session_id"):
+                own = [*(own or []), *(p for p in seen[1] if p not in (own or []))]
+        return own
+
+    def design_prs(self, name) -> list[dict]:
+        """The pull requests of the design sessions this one's workflow manages, as last seen: for `design.accepted`, never for
+        its own pull request's facts (012 FR-073)."""
+        out = []
+        for child, child_record in self.managed_children(name):
+            seen = self._prs.get(child)
+            if child_record["config"].get("action") == DESIGN_ACTION and seen and seen[2] == child_record.get("session_id"):
+                out += seen[1]
+        return out
+
+    def managed_children(self, name, record: dict | None = None) -> list[tuple[str, dict]]:
+        """The latest session of each of the entries its workflow manages, in its current conversation, with their records."""
+        try:
+            record = record or json.loads((self.sessions / name / "session.json").read_text())
+            inst = self.machines.peek(name) if isinstance(name, str) and _NAME_RE.fullmatch(name) else None
+        except (OSError, ValueError, TypeError, MachineError):
+            return []
+        out = []
+        for kept in (inst.managed.values() if inst is not None else ()):
+            child = kept.get("child") or {}
+            try:
+                child_record = json.loads((self.sessions / child["name"] / "session.json").read_text()) if child else None
+            except (OSError, ValueError, TypeError, KeyError):
+                continue
+            owned = (child_record or {}).get("owner") or {}
+            if child_record and child_record.get("session_id") == child.get("session_id") and owned.get("name") == name \
+                    and owned.get("session_id") == record.get("session_id") and isinstance(child_record.get("config"), dict):
+                out.append((child["name"], child_record))
+        return out
 
     def _pr_repos(self, record: dict) -> list[str]:
         """Where a session pushes agent/<name>: what was checked out for it, the first item's repository (or the action's own,
@@ -2681,6 +2764,7 @@ class Agents:
             return
         now = time.monotonic()
         started = []
+        names = list(dict.fromkeys([*names, *(c for n in names for c, _r in self.managed_children(n))]))  # what they carry, too
         for name in names:
             if name in self._pr_lookups:
                 continue

@@ -120,11 +120,35 @@ def build(github: GitHub, docs: DocSearch) -> MCPServer:
 
     @mcp.tool(annotations=WRITE)
     @_says_why
-    async def start_managed(entry: str) -> dict:
+    async def start_managed(entry: str, item: str | None = None) -> dict:
         """Start one of the sessions your current state manages on request, by its entry's name. It starts only if the entry's
         `when` holds and fewer than its `max` run, with the context your state names for it and a grant no wider than yours.
-        Its result comes back to you as facts of your workflow."""
-        return await github.start_managed(entry)
+        Its result comes back to you as facts of your workflow. It works on your own issue or pull request; a session on no
+        single item (a repository's maintainer, the Steward) names one as item: repo#N, or a repository's name alone."""
+        return await github.start_managed(entry, item)
+
+    @mcp.tool(annotations=WRITE)
+    @_says_why
+    async def draft_workflow(name: str, text: str, note: str, scope: str = "org", session: str | None = None) -> dict:
+        """Draft a new text of a workflow: its name, the whole definition as text, a note on what it changes and why, and its scope
+        (org, or GlassineOS__<repo> for one repository's override). The hub checks it as a save would, diffs it, replays it over
+        the past session you name (a conversation id from read_workflow), and keeps it as your newest draft. It saves nothing and
+        proposes nothing: the answer says what the checks found and whether it grants a sensitive item."""
+        return await github.draft_workflow(name, scope, text, note, session)
+
+    @mcp.tool(annotations=READ)
+    @_says_why
+    async def read_draft() -> dict:
+        """Your newest workflow draft, or your owner's if you review one: its text, note, what the checks found, its diff against
+        the version it starts from, and the sensitive items it grants."""
+        return await github.read_draft()
+
+    @mcp.tool(annotations=READ)
+    @_says_why
+    async def read_workflow(name: str, scope: str = "org") -> dict:
+        """One of the hub's workflow definitions as it runs for a scope (org, or GlassineOS__<repo>): its text, its versions, what
+        its checks find, and the past sessions that ran on it, which a draft can be replayed over."""
+        return await github.read_workflow(name, scope)
 
     @mcp.tool(annotations=WRITE)
     @_says_why

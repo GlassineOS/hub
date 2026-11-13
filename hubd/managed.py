@@ -36,13 +36,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import logging
 import secrets
 import sqlite3
 import time
 
 from . import machine, summary
-from .agents import CHAIN_TOOLS, ENDED_FILE, HUB_SENDER, MAX_MANAGED, AgentError, _draws_nothing, covers_of
+from .agents import CHAIN_TOOLS, DESIGN_ACTION, ENDED_FILE, HUB_SENDER, MAX_MANAGED, NO_REPO_OBJECTS, AgentError, _draws_nothing, covers_of
 from .decisions import APPROVE, DecisionError
 from .effects import LABEL, path_of
 from .instances import MachineError
@@ -56,6 +57,8 @@ WHEN_EVERY = 60.0         # seconds: an on-request entry's `when` is judged at m
 DECISIONS = ("approve", "deny")
 REPORT_KINDS = ("blocker", "decision")
 TYPE_REPORT, TYPE_START = "report", "managed"   # the `type` of a Needs-you approval card that isn't an exit's
+TYPE_DESIGN = "design"   # "Look at the design" (012 FR-073): a design session started under a workflow, to look at
+_ITEM = re.compile(r"(\.?[A-Za-z0-9_][A-Za-z0-9._-]{0,99})(?:#([1-9][0-9]{0,9}))?")  # repo, or repo#N
 
 
 class ManagedError(Exception):
@@ -201,6 +204,9 @@ class Managed:
             m = found.get(entry)
             if m is not None and m.start == "auto" and not m.when.strip():
                 self._spawn(self.start(name, entry, by="entry"))
+        if any(m is not None and m.start == "auto" and m.when.strip() for m in (found.get(e) for e in entries)):
+            # its `when` is judged on the owner's turn ends: an owner idle at its prompt is woken, with fixed words, for one
+            self._spawn(self._wake(name, "Your workflow moved: what it says is in this turn, from the hub."))
 
     # --- when: the judge decides, on the owner's turn ends -----------------------------------
     def _round_of(self, inst, entry: str) -> int:
@@ -239,9 +245,19 @@ class Managed:
             raise ManagedError(f"no action runs {m.workflow} as {m.persona}")
         return self.agents.library.resolved(sorted(found, key=lambda a: a["id"])[0], repo)
 
-    async def _item_for(self, owner: str, record: dict, action: dict) -> tuple[str, int]:
-        """What the managed session works on: the owner's pull request, or its issue, as the action's object says."""
+    async def _item_for(self, owner: str, record: dict, action: dict, wanted: str | None = None) -> tuple[str | None, int | None]:
+        """What the managed session works on: the owner's pull request, or its issue, as the action's object says. An owner on
+        no single item (a repository's maintainer, the Steward) names it with start_managed (`wanted`, repo or repo#N): an
+        item of its own repository, or for the Steward, of any of the organisation's."""
         config = record["config"]
+        if wanted is not None:
+            return self._wanted(owner, record, action, wanted)
+        if action["object"] in NO_REPO_OBJECTS:
+            return None, None
+        if action["object"] == "repo":
+            if record.get("object") != "repo":
+                raise ManagedError(f"{action['id']} is about a repository: name it as item")
+            return config["repo"], None
         if action["object"] == "issue":
             issue = next((c for c in covers_of(config)), None) if record.get("object") == "issue" else None
             if issue is None:
@@ -258,6 +274,22 @@ class Managed:
             return prs[0]["repo"], prs[0]["number"]
         raise ManagedError(f"{action['id']} is on {action['object']}, and a managed session works on its owner's pull request or issue")
 
+    @staticmethod
+    def _wanted(owner: str, record: dict, action: dict, wanted) -> tuple[str, int | None]:
+        if record.get("object") not in ("repo", *NO_REPO_OBJECTS):
+            raise ManagedError(f"{owner} is on its own item, which is what the sessions under it work on: name no item")
+        found = _ITEM.fullmatch(wanted) if isinstance(wanted, str) else None
+        if found is None or ".." in found.group(1):
+            raise ManagedError("item is a repository, or repo#N for an issue or pull request")
+        repo, number = found.group(1).removeprefix("GlassineOS/"), int(found.group(2)) if found.group(2) else None
+        if action["object"] in NO_REPO_OBJECTS:
+            raise ManagedError(f"{action['id']} is about the whole project: name no item")
+        if (action["object"] == "repo") != (number is None):
+            raise ManagedError(f"{action['id']} is on " + ("a repository: name it alone" if action["object"] == "repo" else f"an {action['object']}: name it as repo#N"))
+        if record.get("object") == "repo" and repo.lower() != str(record["config"].get("repo")).lower():
+            raise ManagedError(f"{owner} maintains {record['config'].get('repo')}: its sessions work there")
+        return repo, number
+
     async def _head(self, repo: str, number: int) -> str | None:
         try:
             reply = await self.agents.gh.run(["pr", "view", str(number), "-R", f"GlassineOS/{repo}", "--json", "headRefOid"])
@@ -267,7 +299,8 @@ class Managed:
             return None
         return head if isinstance(head, str) and len(head) == 40 else None
 
-    def context(self, owner: str, record: dict, inst, m: machine.Manage, item: tuple[str, int] | None, head: str | None) -> str:
+    def context(self, owner: str, record: dict, inst, m: machine.Manage, item: tuple[str, int] | None, head: str | None,
+                kind: str | None = None) -> str:
         """The first prompt's context for an entry's session (FR-041): only what the hub fills in from named references."""
         d = inst.definition()
         since = inst.managed.get(m.name, {}).get("since")
@@ -276,13 +309,18 @@ class Managed:
         for ref in m.with_:
             if ref == "issue":
                 issue = next(iter(covers_of(record["config"])), None) if record.get("object") == "issue" else None
+                if issue is None and kind == "issue" and repo and number:  # the item the owner named for it
+                    issue = {"repo": repo, "number": number}
                 lines.append(f"- The issue: GlassineOS/{issue['repo']}#{issue['number']}. Read it with get_issue." if issue
                              else "- The issue: none, so the pull request stands for it.")
+            elif ref == "pr" and kind != "pr":  # a session on the issue: the owner's pull request, once there is one
+                prs = sorted(self.agents.known_prs(owner) or [], key=lambda p: p.get("state") not in ("OPEN", "open", None))
+                lines.append(f"- The pull request: GlassineOS/{prs[0]['repo']}#{prs[0]['number']}." if prs else "- The pull request: none is open yet.")
             elif ref == "pr":
-                lines.append(f"- The pull request: GlassineOS/{repo}#{number}" + (f", at head {head}." if head else ".") if repo
+                lines.append(f"- The pull request: GlassineOS/{repo}#{number}" + (f", at head {head}." if head else ".") if repo and kind == "pr"
                              else "- The pull request: none is open yet.")
             elif ref == "diff":
-                lines.append(f"- The diff: the whole of GlassineOS/{repo}#{number}'s, with get_pr_diff." if repo else "- The diff: none yet.")
+                lines.append(f"- The diff: the whole of GlassineOS/{repo}#{number}'s, with get_pr_diff." if repo and kind == "pr" else "- The diff: none yet.")
             elif ref == "diff.since_last_round":
                 if since and head and since != head:
                     lines.append(f"- The diff since the last round: from {since} to {head}. In your checkout: git diff {since} {head}.")
@@ -318,11 +356,11 @@ class Managed:
         except (KeyError, IndexError, ValueError):
             return f"- The brief {template}: its template can't be filled in."
 
-    async def start(self, owner: str, entry: str, by: str = "entry") -> dict:
+    async def start(self, owner: str, entry: str, by: str = "entry", item: str | None = None) -> dict:
         """Starts (or, with reuse = resume, resumes) a session of one entry, if it holds where the owner is now."""
         async with self._lock:
             try:
-                return await self._start(owner, entry, by)
+                return await self._start(owner, entry, by, item)
             except (ManagedError, AgentError, MachineError) as e:
                 log.info("%s: %s didn't start: %s", owner, entry, e)
                 try:
@@ -333,7 +371,7 @@ class Managed:
                     pass
                 return {"started": False, "why": str(e)}
 
-    async def _start(self, owner: str, entry: str, by: str) -> dict:
+    async def _start(self, owner: str, entry: str, by: str, wanted: str | None = None) -> dict:
         record, inst = self.machines.load(owner)
         d = inst.definition()
         found = dict((m.name, (sid, m)) for sid, m in machine.managed_of(d, inst.state))
@@ -348,7 +386,7 @@ class Managed:
         everywhere = [n for n in self._names() if isinstance((self._record(n) or {}).get("owner"), dict) and self._running(n, live)]
         if len(everywhere) >= MAX_MANAGED:
             raise ManagedError(f"{MAX_MANAGED} managed sessions are running: wait for one to end")
-        item = await self._item_for(owner, record, self._action_for(m))
+        item = await self._item_for(owner, record, self._action_for(m), wanted)
         action = self._action_for(m, item[0])
         # the child's workflow as a session on its repository runs it: the version agents.start resolves too
         # capped by what the owner holds now: its state's grant as narrowed at its launch (what it took off, a GitHub list it lacks)
@@ -362,7 +400,7 @@ class Managed:
             raise ManagedError(f"{m.workflow} holds more than {owner} does ({_words(extra)}): it waits for an approval above {owner}")
         capped = machine.cap(child_grant, owner_grant, allowed)
         head = await self._head(*item) if action["object"] == "pr" else None
-        text = self.context(owner, record, inst, m, item, head)
+        text = self.context(owner, record, inst, m, item, head, action["object"])
         kept = inst.entry(entry)
         previous = kept["child"]
         resumed = None
@@ -395,9 +433,29 @@ class Managed:
                   checks={"started": child, "resumed": bool(resumed), "by": by, "grant": _grant_words(capped)})
         if entry not in {m.name for _s, m in machine.managed_of(inst.definition(), inst.state)} or record_now.get("session_id") != owner_sid:
             await self._end(child, "its owner moved on while it started")  # moved on while it started
+        elif action["id"] == DESIGN_ACTION and not resumed:
+            self._look_at_design(owner, owner_sid, entry, child, item)
         return {"started": True, "name": child, "resumed": bool(resumed)}
 
-    async def request_start(self, scope: dict, entry) -> dict:
+    def _look_at_design(self, owner: str, owner_sid, entry: str, child: str, item) -> None:
+        """FR-073: a design spike started, so the maintainer gets "Look at the design", which opens its design view. The card is
+        the design session's (it never moves, so no move of the owner ends it). Accepting the design is merging its pull
+        request in GlassineOS/ui, which stays the maintainer's; the card only says where to look."""
+        if self.decisions is None:
+            return
+        about = f" for GlassineOS/{item[0]}#{item[1]}" if item and item[1] else ""
+        scope = {"type": TYPE_DESIGN, "session": child, "session_id": (self._record(child) or {}).get("session_id"), "owner": owner,
+                 "owner_sid": owner_sid, "entry": entry, "design": child,
+                 "says": f"Look at the design: {child} works on boards{about}, for {owner}"}
+        why = (f"{owner}'s workflow met a design question no accepted board answers, so it started {child}, a design session on "
+               "GlassineOS/ui. Open its design view to see the boards. Its pull request merged is the accepted design, which "
+               f"{owner}'s workflow waits for; merging it stays yours. Approve when you have looked.")
+        try:
+            self.decisions.approve_request(scope, why)
+        except (DecisionError, OSError):
+            log.exception("%s: its design card couldn't be put in Needs you", child)
+
+    async def request_start(self, scope: dict, entry, item=None) -> dict:
         """start_managed: the owning session asks for one of its state's on-request entries; its `when` and `max` decide."""
         owner = scope["session"]
         record, inst = self.machines.load(owner)
@@ -418,7 +476,7 @@ class Managed:
                 self._judged[key] = (time.monotonic(), holds)
         if not holds:
             return {"started": False, "why": f"its when doesn't hold: {m.when}"}
-        return await self.start(owner, entry, by="request")
+        return await self.start(owner, entry, by="request", item=item)
 
     def _ask_above(self, owner: str, record: dict, inst, entry: str, m, extra: dict) -> None:
         """A workflow that needs more than its owner holds: approved at the level above the owner, or by the maintainer."""
@@ -619,10 +677,10 @@ class Managed:
         self.agents.tell(to, body)
         self._spawn(self._wake(to))
 
-    async def _wake(self, name: str) -> None:
+    async def _wake(self, name: str, words: str = "A report waits for you: it is in this turn, from the hub.") -> None:
         try:
             if (await self.agents.session_state(name))["state"] == "Idle":
-                await self.agents._send(name, "A report waits for you: it is in this turn, from the hub.", by=HUB_SENDER)
+                await self.agents._send(name, words, by=HUB_SENDER)
         except Exception:  # noqa: BLE001 — it reads the report at its next turn anyway
             log.info("%s wasn't woken for its report", name)
 
@@ -761,7 +819,9 @@ class Managed:
             log.exception("%s: its report couldn't be put in Needs you", session)
 
     def answer_card(self, record: dict, accept: bool, who: str | None, words: str | None) -> dict:
-        """The maintainer's answer on a report's or a managed start's card."""
+        """The maintainer's answer on a report's or a managed start's card, or a design card's, which only says they looked."""
+        if record["scope"].get("type") == TYPE_DESIGN:
+            return self.decisions.settle(record["id"], accept, "you looked at the design" if accept else "set aside", words)
         report = self.log.get_report(record["scope"].get("report"))
         if not report or report["state"] != "open":
             self.decisions.settle(record["id"], False, "it was answered another way")
@@ -792,10 +852,20 @@ class Managed:
 
     # --- facts --------------------------------------------------------------------------------
     def facts(self, name: str, record: dict) -> dict:
-        """report.answered: whether the conversation's last report up has its answer. Unknown before its first."""
+        """report.answered: whether the conversation's last report up has its answer. Unknown before its first. And
+        started.<entry> for each entry in force."""
         sid = record.get("session_id")
         mine = [r for r in self.log.reports(from_sid=sid) if r["kind"] != "approval"] if sid else []
-        return {"report.answered": mine[-1]["state"] == "answered"} if mine else {}
+        out = {"report.answered": mine[-1]["state"] == "answered"} if mine else {}
+        try:
+            inst = self.machines.peek(name)
+        except MachineError:
+            inst = None
+        if inst is not None:  # started.<entry>: a session of it started in its current round, for every entry in force
+            for _sid, m in machine.managed_of(inst.definition(), inst.state):
+                kept = inst.managed.get(m.name) or {}
+                out[f"started.{m.name}"] = bool(kept.get("child")) and kept.get("round") == self._round_of(inst, m.name)
+        return out
 
     # --- helpers --------------------------------------------------------------------------------
     def _signal(self, signal: str, owner: str) -> None:

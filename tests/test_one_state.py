@@ -79,7 +79,7 @@ def _differences(got, want, at="") -> list[str]:
 
 
 # The default workflows with steps (FR-072); every other action's has one state.
-STAGED = {"implement"}
+STAGED = {"implement", "implementor", "qa-audit", "workflow-change", "repo-maintainer"}
 
 
 def test_every_action_has_a_one_state_workflow_of_its_name():
