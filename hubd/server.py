@@ -1665,7 +1665,8 @@ class Hubd:
         """What an item's page offers: its pull requests looked up first, so a session that opened one holds it."""
         if kind == "pr" and (unsure := self.agents.unsure_prs(kind, repo, number)):
             await self.agents.refresh_prs(unsure)
-        return self.agents.starts_for(kind, repo, number)
+        fork = await self.agents.pr_fork_state(repo, number) if kind == "pr" else None
+        return self.agents.starts_for(kind, repo, number, fork=fork)
 
     async def ask_owner(self, kind, action_id, repo, number, to=None) -> dict:
         """The maintainer asks the instance holding an item for what a start would do (FR-104): a managed start under it, through

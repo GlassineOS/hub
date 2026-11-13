@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
+import functools
 import json
 import logging
 import os
@@ -204,6 +205,10 @@ class AgentError(Exception):
     pass
 
 
+class ForkError(AgentError):
+    """A fork's pull request or run where a session would push, or run an outsider's tree with your rights."""
+
+
 def _qualified(name: str) -> str:
     return f"mcp__{HUB_SERVER}__{name}"
 
@@ -242,6 +247,30 @@ def _size_of(path: Path) -> int:
 def _grant(action: dict) -> machine.Grant:
     """What a session of the action may do: its workflow's first state's effective grant, as the Library loaded it."""
     return action["grant"]
+
+
+def _tests_pr_state(action: dict | None) -> bool:
+    """Whether a workflow's exits test whether its pull request is open or merged: a session on a pull request then needs its
+    state looked up (one it took on may have nothing new in the feed). Others ask GitHub nothing for it."""
+    return isinstance((action or {}).get("definition"), str) and _definition_traits(action["definition"])[0]
+
+
+def _pushes_on_pr(action: dict) -> bool:
+    """A start on a pull request whose workflow pushes, or works on the pull request's branch, in any state: on a fork's pull
+    request it can't do its work, since nobody here may push to a fork's branch."""
+    return action.get("object") == "pr" and isinstance(action.get("definition"), str) and _definition_traits(action["definition"])[1]
+
+
+@functools.lru_cache(maxsize=256)
+def _definition_traits(text: str) -> tuple[bool, bool]:
+    """(its exits test pr.open or pr.merged, a state pushes or works on a pull request's branch), by the definition's text."""
+    try:
+        d = machine.parse(text)
+    except machine.DefinitionError:
+        return False, False
+    tests = any(re.search(r"\bpr\.(open|merged)\b", r) for st in d.states.values() for e in st.exits for r in e.requires)
+    pushes = any("push" in (g := machine.effective(d, s)).github or g.checkout == "pr-branch" for s in d.states)
+    return tests, pushes
 
 
 def _full(action: dict) -> bool:
@@ -669,6 +698,12 @@ class Library:
                         raise LibraryError(f"workflows/{name}.toml: {m.name} manages {m.workflow}, which has no start or launch of that id")
                     if m.persona not in own["personas"]:
                         raise LibraryError(f"workflows/{name}.toml: {m.name} runs {m.workflow} as {m.persona}, which isn't one of its personas")
+                    if m.on_pr:
+                        alt = dict.get(self.actions, m.on_pr) if isinstance(self.actions, dict) else None
+                        if alt is None or alt["workflow"] != m.on_pr or alt["object"] != "pr":
+                            raise LibraryError(f"workflows/{name}.toml: {m.name}'s on_pr {m.on_pr} is no workflow on a pull request")
+                        if m.persona not in alt["personas"]:
+                            raise LibraryError(f"workflows/{name}.toml: {m.name} runs {m.on_pr} as {m.persona}, which isn't one of its personas")
 
     def family(self, persona) -> dict | None:
         """{name, initials, family} of a persona, or None for one the library doesn't have (an old session's)."""
@@ -1658,6 +1693,19 @@ class Agents:
         except Exception:  # noqa: BLE001: unsure means a fork
             return True
 
+    async def pr_fork_state(self, repo: str, number: int) -> bool | None:
+        """Whether a pull request is a fork's, for an item's page: None when GitHub can't say, so nothing is refused on a guess
+        (a start itself treats unsure as a fork)."""
+        if (repo, number) in self._own_prs:
+            return False
+        try:
+            fork = (await self._pr_head(repo, number)).get("isCrossRepository")
+        except Exception:  # noqa: BLE001: unknown, said as such
+            return None
+        if fork is False:
+            self._own_prs.add((repo, number))
+        return fork if isinstance(fork, bool) else None
+
     async def _on_a_fork(self, config: dict, action: dict, known: bool = False) -> bool:
         """Whether a session is on a fork's pull request, or one GitHub can't confirm as the repository's own (any covered one).
         `known` takes the answers already had for the repository's own, which a pull request keeps."""
@@ -1682,7 +1730,7 @@ class Agents:
         """The pull request's branch, if it is one a full session may work on."""
         pr = await self._pr_head(repo, number)
         if pr.get("isCrossRepository") is not False:
-            raise AgentError("this pull request comes from a fork: a full session would run an outsider's tree with your rights")
+            raise ForkError("this pull request comes from a fork: a full session would run an outsider's tree with your rights, and nobody here may push to its branch")
         branch = pr.get("headRefName")
         if not isinstance(branch, str) or not _BRANCH_RE.fullmatch(branch):
             raise AgentError(f"not a branch name to work on: {branch}")
@@ -1698,7 +1746,7 @@ class Agents:
         run = json.loads(reply["stdout"])
         head = (run.get("head_repository") or {}).get("full_name")
         if not isinstance(head, str) or head.lower() != f"{ORG}/{repo}".lower():
-            raise AgentError("this run is of a fork's branch: a full session would run an outsider's tree with your rights")
+            raise ForkError("this run is of a fork's branch: a full session would run an outsider's tree with your rights")
         branch = run.get("head_branch")
         if not isinstance(branch, str) or not _BRANCH_RE.fullmatch(branch) or ".." in branch:
             raise AgentError(f"not a branch name to start from: {branch}")
@@ -2265,6 +2313,10 @@ class Agents:
             if existing:
                 return existing
         held_by, claims = None, []
+        # Refused here only when GitHub says it is a fork's; unsure, the branch checkout that would push refuses it (fails closed)
+        if owner is None and _pushes_on_pr(action) and any([await self.pr_fork_state(c["repo"], c["number"]) for c in covers_of(config)]):
+            raise ForkError(f"{action['title']} can't run on a fork's pull request: its workflow pushes to the pull request's "
+                            "branch, and nobody here may push to a fork's")
         if owner is None and action["object"] in machine.START_ON:  # a managed session is its owner's: the owner holds the item
             if action["object"] == "pr" and action.get("when_held", "ask") != "beside":
                 unsure = sorted({n for c in covers_of(config) for n in self.unsure_prs("pr", c["repo"], c["number"])})
@@ -3037,10 +3089,13 @@ class Agents:
         return {"view": view}
 
     def _prs_seen(self, name: str, record: dict) -> list[dict]:
-        """Its pull requests: on a pull request, that one; with a branch of its own, what refresh_prs last found for it."""
+        """Its pull requests: on a pull request, that one, with its state as refresh_prs last looked it up; with a branch of its
+        own, what refresh_prs last found for it."""
         config = record["config"]
         if record.get("object") == "pr":
-            return [{"repo": c["repo"], "number": c["number"], "state": None} for c in covers_of(config)]
+            found = self._prs.get(name)
+            states = {(p["repo"], p["number"]): p["state"] for p in found[1]} if found and found[2] == record.get("session_id") else {}
+            return [{"repo": c["repo"], "number": c["number"], "state": states.get((c["repo"], c["number"]))} for c in covers_of(config)]
         found = self._prs.get(name)
         return list(found[1]) if found and found[2] == record.get("session_id") else []
 
@@ -3219,10 +3274,11 @@ class Agents:
                             "requires": list(e.requires)})
         return out
 
-    def starts_for(self, kind, repo=None, number=None) -> dict:
+    def starts_for(self, kind, repo=None, number=None, fork: bool | None = None) -> dict:
         """The starts on an item (012 FR-102 to FR-104), lead first, each with what it does now: runs, asks the holding
-        instance's owner, or is hidden (and why). Read from the files and what the hub has seen: nothing is asked of GitHub
-        here, so look up the pull requests first (unsure_prs, refresh_prs)."""
+        instance's owner, is hidden (and why), or is refused (on a fork's pull request, a start whose workflow pushes there).
+        Read from the files and what the hub has seen: nothing is asked of GitHub here, so look up the pull requests first
+        (unsure_prs, refresh_prs) and whether the pull request is a fork's (`fork`, None if not known)."""
         if kind not in machine.START_ON:
             raise AgentError(f"not a kind of item: {kind}")
         held, unsure = self.holders(kind, repo, number)
@@ -3244,7 +3300,10 @@ class Agents:
                    "models": a["models"], "efforts": a["efforts"], "writes": machine.writes_on_item(_grant(a)),
                    "verb": a.get("verb"), "when": a.get("when"), "needs": a.get("needs"), "plan": a.get("plan", True),
                    "availability": "runs"}
-            if holder is not None or unsure:
+            if fork and _pushes_on_pr(a):
+                row.update(availability="refused", why="this pull request comes from a fork, and this start's workflow pushes to "
+                                                        "its branch, which nobody here may push to")
+            elif holder is not None or unsure:
                 if a.get("when_held") == "beside":
                     row["availability"] = "runs"
                 elif a.get("when_held") == "ask" and holder is not None and (route := self._ask_route(holder, a)):
@@ -3304,13 +3363,30 @@ class Agents:
             if seen and now - seen[0] < PRS_FOR and seen[2] == record.get("session_id"):
                 continue
             repos = self._pr_repos(record)
-            if repos:
-                task = asyncio.ensure_future(self._look_up_prs(name, record, repos, seen))
+            if repos or (record.get("object") == "pr" and _tests_pr_state(self.library.actions.get(record["config"].get("action")))):
+                task = asyncio.ensure_future(self._look_up_prs(name, record, repos, seen) if repos else self._look_up_item_prs(name, record, seen))
                 self._pr_lookups[name] = task
                 task.add_done_callback(lambda _t, name=name: self._pr_lookups.pop(name, None))
                 started.append(task)
         if started:
             await asyncio.wait(started, timeout=wait)
+
+    async def _look_up_item_prs(self, name: str, record: dict, seen) -> None:
+        """A session on a pull request: the state of the ones it covers, so pr.open is known for one it took on that the feed
+        hasn't seen change. One that fails keeps the state it had."""
+        old = {(p["repo"], p["number"]): p["state"] for p in (seen[1] if seen and seen[2] == record.get("session_id") else [])}
+        found = []
+        for cover in covers_of(record["config"]):
+            key, state = (cover["repo"], cover["number"]), None
+            try:
+                reply = await self.gh.run(["pr", "view", str(int(cover["number"])), "-R", f"{ORG}/{cover['repo']}", "--json", "state"], timeout=PRS_ASK)
+                state = json.loads(reply["stdout"]).get("state") if reply["code"] == 0 else None
+            except Exception as e:  # noqa: BLE001: only shown, so nothing here may fail a list
+                log.info("pull request %s#%s of %s: %s", *key, name, e)
+            found.append({"repo": key[0], "number": key[1], "state": state if state in ("OPEN", "CLOSED", "MERGED") else old.get(key)})
+        if self.session_id_of(name) != record.get("session_id"):
+            return
+        self._prs[name] = (time.monotonic(), found, record.get("session_id"))
 
     async def _look_up_prs(self, name: str, record: dict, repos: list[str], seen) -> None:
         """Every repository at once, each with its own time limit; one that fails or is slow keeps what it had."""

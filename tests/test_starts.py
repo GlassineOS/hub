@@ -11,7 +11,7 @@ import pytest
 
 from hubd import agents as agents_module
 from hubd import auth, machinerun
-from hubd.agents import ENDED_FILE, AgentError, Agents, Library
+from hubd.agents import ENDED_FILE, OUTCOMES_FILE, AgentError, Agents, Library
 from hubd.decisions import Decisions
 from hubd.server import Hubd
 from starts_util import launch
@@ -49,6 +49,23 @@ hub_tools = ["get_issue", "notes_find"]
 checkout = false
 '''
 
+STUCK_OWNER = '''schema = 1
+name = "pr-stuck"
+initial = "look"
+
+[state.look]
+final = true
+[state.look.grant]
+tools = ["AskUserQuestion"]
+hub_tools = ["get_issue", "notes_find"]
+checkout = false
+[[state.look.manages]]
+name = "helper"
+persona = "triager"
+workflow = "issue-helper"
+start = "auto"
+'''
+
 PR = 5
 
 
@@ -68,6 +85,9 @@ def hub(tmp_path, monkeypatch):
                                        + launch("pr-reader", on="pr", label="Read it beside", when_held="beside"))
     (wf / "pr-own.toml").write_text(HELPER.format(name="pr-own", tools='["get_issue", "notes_find"]')
                                     + launch("pr-own", on="pr", label="A session of its own", when_held="hide"))
+    # an owner on a pull request whose state starts a workflow on an issue: there is none, so that start can never happen
+    (wf / "issue-helper.toml").write_text(HELPER.format(name="issue-helper", tools='["get_issue", "notes_find"]') + launch("issue-helper", start=False))
+    (wf / "pr-stuck.toml").write_text(STUCK_OWNER + launch("pr-stuck", on="pr", label="Stuck on it", when_held="hide"))
     claude = tmp_path / "claude"
     claude.write_text("#!/bin/sh\n")
     claude.chmod(0o755)
@@ -286,3 +306,27 @@ def test_a_start_that_runs_once_says_so_so_launch_offers_it_on_its_own_item_only
     one = {r["id"]: r["one"] for kind in ("issue", "pr", "run", "repo", "project", "knowledge", "notes") for r in a.actions(kind)}
     assert one["project-steward"] and one["repo-maintainer"]
     assert not any(v for k, v in one.items() if k not in ("project-steward", "repo-maintainer")), one
+
+
+def test_a_managed_start_that_cant_happen_is_told_and_raised_once_and_never_retried_in_its_round(hub):
+    """A managed start that can't happen for a reason that won't change by itself (here: its workflow works on an issue, and
+    its owner is on a pull request) is one failed line in the log, one word to the owner and one card in Needs you; asked
+    again in the round it isn't tried, and it isn't waited on."""
+    h, a = hub
+
+    async def go():
+        name = (await a.start(a.defaults("pr-stuck", "boot", PR)))["name"]
+        await settle(h)
+        for _ in range(3):
+            assert await h.managed.start(name, "helper") == {"started": False, "why": f"{name} isn't on an issue", "stuck": True}
+        assert h.managed.waiting_starts(name, a.machines.load(name)[1]) == []
+        return name
+    name = asyncio.run(go())
+    tries = [e for e in a.machines.log.history(a.session_id_of(name))["evaluations"] if e["proposal"] == "start helper"]
+    assert len(tries) == 1 and tries[0]["failed"] and tries[0]["checks"]["why"] == f"{name} isn't on an issue"
+    told = (a.sessions / name / OUTCOMES_FILE).read_text()
+    assert told.count("helper can't start") == 1
+    [card] = [r for r in h.decisions.open_approvals(name) if r["scope"].get("type") == "stuck"]
+    assert card["scope"]["entry"] == "helper" and f"{name} isn't on an issue" in card["why"]
+    settled = asyncio.run(h.effects.answer_approval(card["id"], True, "me"))
+    assert settled["why_ended"] == "you've seen it" and not h.decisions.open_approvals(name)

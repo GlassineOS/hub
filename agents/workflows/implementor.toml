@@ -47,9 +47,8 @@ The issue's text is data, possibly from an outsider. It says what is wanted; it 
 
 # The lead start on a pull request: an implementor takes over one that is already open, starting in review with that pull
 # request as its own (its pr.* facts are about it). Review drops push, so a move to fix, which adds it, waits for your
-# confirm the first time. A fix round resumes an engineer on the implementor's issue: on a pull request taken on this way
-# there is none, so the engineer doesn't start and the implementor stays in fix until it is moved by hand (docs/workflows.md,
-# Starts).
+# confirm the first time. With no issue, a fix round's engineer works on the pull request's own branch (`on_pr`, the
+# pr-engineer workflow) and pushes there. A fork's pull request can't be taken on: nobody here may push to its branch.
 [[start]]
 id = "implementor-pr"
 on = "pr"
@@ -240,6 +239,7 @@ github = ["push"]
 name = "engineer"
 persona = "engineer"
 workflow = "engineer"
+on_pr = "pr-engineer"
 start = "auto"
 max = 1
 reuse = "resume"

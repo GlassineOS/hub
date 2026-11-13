@@ -77,6 +77,7 @@ A state can run other sessions under it, each an entry in its `manages` list; a 
 name = "reviewer"             # the entry, and the fact prefix: managed.reviewer.<field>
 persona = "reviewer"
 workflow = "pr-review"        # an action that runs this workflow as this persona starts it
+on_pr = ""                    # the workflow it runs instead when the owner is on a pull request and no issue (the engineer's: pr-engineer)
 start = "auto"                # on entering the state, or "on-request": the owner's start_managed tool
 when = ""                     # for start = "auto": a plain-language condition the judge tests on the owner's turn end
 max = 1                       # how many of this entry run at once
@@ -90,7 +91,8 @@ returns = { verdict = ["pass", "fail"], findings = "text-list" }  # what it hand
   the owner's issue or pull request, the head the last round reviewed (`diff.since_last_round`), a brief from the library,
   and with `owner.summary` the owner's rolling summary between marks, as data. Never the owner's transcript.
 - **Its grant is capped by what its owner holds**, at all times: when the owner narrows, so do the sessions it manages. Each list is the intersection of the two, each level the lower, and a checkout it
-  can't push to fits under any checkout. A workflow that needs more than that waits for an approval above the owner
+  can't push to fits under any checkout, as does a pull request's own branch under an owner on a new branch (the pull
+  request is always the owner's own). A workflow that needs more than that waits for an approval above the owner
   (its own owner's session if that holds the extra items itself, else the maintainer), and the start comes after the yes;
   the instance keeps what was approved.
 - **Returns** are checked against `returns`: every field, each one of its values, or for `"text-list"` up to 20 lines of
@@ -106,6 +108,10 @@ returns = { verdict = ["pass", "fail"], findings = "text-list" }  # what it hand
   At most 20 managed sessions run at once in all, not counting one of a staged workflow that is idle in a final state (an
   implementor that is merge-ready). A start that this holds back tells the owner once, and an automatic entry that didn't
   start in its round is tried again on the owner's next signals, and when a managed session ends.
+- **A start that can't happen.** One that can't start for a reason that won't change by itself (its workflow works on an
+  issue and the owner is on none, the workflow is gone, a fork's branch to push to) is one failed line in the machine log,
+  one word to the owner and one card in Needs you that says why. It isn't tried again in that round, nor waited on: the
+  owner stays where it is until it is moved by hand or a new round comes.
 - **Naming the item.** An owner on no single item (a repository's maintainer, the Steward) names what a managed session
   works on with `start_managed`'s `item`: a repository alone for an action on a repository, `repo#N` (with or without
   `GlassineOS/`) for one on an issue or pull request. A maintainer names only items of its own repository; an owner on its
@@ -120,7 +126,7 @@ returns = { verdict = ["pass", "fail"], findings = "text-list" }  # what it hand
   isn't: it only feeds the owner's `design.accepted`.
 - **Waking for a `when`.** An auto entry's `when` is judged on the owner's turn ends; on entering a state with one, an owner
   idle at its prompt is woken with fixed words, so it gets a turn to judge.
-- **Actions only for managed sessions.** An action with `managed_only = true` (the engineer, the QA audit, the design check,
+- **Actions only for managed sessions.** An action with `managed_only = true` (the engineer, on an issue or a pull request, the QA audit, the design check,
   the workflow review) is on no menu and starts only under an owner. One with `per_repo = true` (the repository maintainer)
   runs once per repository at a time.
 
@@ -256,10 +262,13 @@ not instructions: kind, repository, number, title, state, labels and links. Each
 characters that draw nothing are dropped, so text from anyone is quoted to the session, never followed. If GitHub doesn't
 answer, the block says so. The editor's Starts section shows the prompt with this block, filled with placeholders.
 
-Taking a pull request on with "Take this on" starts the implementor in `review`. A fail there asks you to confirm `fix`, which
-adds `push`. In `fix` the engineer is started on the implementor's issue, and a pull request taken on this way has none: the
-engineer doesn't start, each try is a failed line in the session's machine log ("isn't on an issue"), once per turn, and the
-implementor stays in `fix` until you move it by hand.
+Taking a pull request on with "Take this on" starts the implementor in `review`, with that pull request as its own: the hub
+looks its state up, so `pr.open` is known though the feed may have seen nothing change. A fail asks you to confirm `fix`,
+which adds `push`. With no issue, `fix` runs its engineer entry's `on_pr` workflow, `pr-engineer`: an engineer on the pull
+request's own branch, whose token may push there, never merge. Its fix pushed and its checks passing, the implementor goes
+back to `review` for a fresh reviewer. A fork's pull request can't be taken on, nor any start whose workflow pushes or works
+on its branch: nobody here may push to a fork's branch. Its page says so beside the start, and a start is refused with the
+same words; when GitHub can't say whether it is a fork's, the engineer's checkout refuses it.
 
 ## Versions and the editor
 
