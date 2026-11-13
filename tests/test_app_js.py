@@ -140,3 +140,112 @@ def test_the_theme_follows_the_browser_scheme():
     bare = "globalThis.window = {}; globalThis.document = { documentElement: { dataset: {} } };" + theme + \
         "console.log(JSON.stringify(document.documentElement.dataset.theme));"
     assert json.loads(subprocess.run([NODE, "-e", bare], capture_output=True, text=True, timeout=30, check=True).stdout) == "white-paper"
+
+
+def test_the_state_chip_says_the_path_and_the_kind_in_words():
+    """012 FR-080: the path of states and its kind in words, for every kind; a one-state workflow shows its action's name,
+    quietly, and is over once Claude has ended; a final state is over; a move waiting for a confirm waits for you."""
+    got = run(["chipKindWords", "chipOf"], """
+        const m = (over) => ({ workflow: "implement", state: "review", path: ["work", "review"], one_state: false, final: false, paused: false, waits: false, ...over });
+        const one = { workflow: "issue-triage", state: "session", path: ["session"], one_state: true, final: true, paused: false, waits: false };
+        const pick = (c) => c && [c.kind, c.label, c.sub, c.quiet];
+        return [
+          ["holds", "moving", "waits", "up", "over"].map(chipKindWords),
+          pick(chipOf(m({}), false)),
+          pick(chipOf(m({ waits: true }), false)),
+          pick(chipOf(m({ state: "merged", path: ["merged"], final: true }), false)),
+          pick(chipOf(m({ paused: true }), false)),
+          pick(chipOf(one, false)),
+          pick(chipOf(one, true)),
+          pick(chipOf({ ...one, waits: true }, false)),
+          chipOf(null, false),
+          chipOf(m({}), false).said,
+        ];""")
+    assert got == [["holds", "moving", "waits for you", "sent up", "over"],
+                   ["holds", "work › review", "holds", False],
+                   ["waits", "work › review", "waits for you", False],
+                   ["over", "merged", "over", False],
+                   ["holds", "work › review", "holds · paused", False],
+                   ["holds", "issue-triage", "holds", True],
+                   ["over", "issue-triage", "over", True],
+                   ["waits", "issue-triage", "waits for you", False],
+                   None,
+                   "workflow implement, in work › review, holds"]
+
+
+STATES = [
+    {"id": "work", "parent": None, "initial": "implement", "final": False, "manages": [],
+     "exits": [{"to": "escalated", "decided_by": "judge", "when": "Stuck", "requires": ["time.work > 7200"], "enter": "first", "move": "auto", "approve": "none"}]},
+    {"id": "implement", "parent": "work", "initial": None, "final": False, "manages": [],
+     "exits": [{"to": "review", "decided_by": "facts", "when": "", "requires": ["pr.open"], "enter": "first", "move": "auto", "approve": "none"}]},
+    {"id": "review", "parent": "work", "initial": None, "final": False, "manages": [{"name": "reviewer", "persona": "reviewer", "workflow": "pr-review", "start": "auto"}],
+     "exits": [{"to": "work", "decided_by": "counter", "when": "", "requires": ["rounds.review >= 3"], "enter": "history", "move": "auto", "approve": "none"}]},
+    {"id": "escalated", "parent": None, "initial": None, "final": False, "manages": [], "exits": []},
+    {"id": "merged", "parent": None, "initial": None, "final": True, "manages": [], "exits": []},
+]
+
+
+def test_the_outline_lists_children_before_their_parents_exits():
+    """012 FR-081: the outline in place of the diagram: depth, where it is now, and how far each exit tried now holds."""
+    tried = [{"from": "review", "place": 1, "result": "fails"}, {"from": "work", "place": 1, "result": "unknown"}]
+    got = run(["exitWhy", "outlineRows"], f"""
+        return outlineRows({json.dumps(STATES)}, "work", ["work", "review"], {json.dumps(tried)})
+          .map((r) => r.row === "state" ? ["state", r.id, r.depth, r.tags.join(","), r.sub] : ["exit", r.n, r.to, r.depth, r.why, r.holds]);""")
+    assert got == [
+        ["state", "work", 0, "inside it now,parent,starts here", "Its grant and its exits apply in implement, review."],
+        ["state", "implement", 1, "starts here", ""],
+        ["exit", "1", "review", 2, "facts · requires pr.open", ""],
+        ["state", "review", 1, "now", "Runs reviewer (pr-review, starts on entry)."],
+        ["exit", "1", "work", 2, "counter · requires rounds.review >= 3 · back to where it was", "doesn’t hold"],
+        ["exit", "then, in any of them", "escalated", 1, "judged · “Stuck” · requires time.work > 7200", "not known yet"],
+        ["state", "escalated", 0, "", ""],
+        ["state", "merged", 0, "final", ""],
+    ]
+
+
+def test_a_move_by_hand_can_go_anywhere_but_where_it_is():
+    got = run(["statePath", "moveTargets"], f"return moveTargets({json.dumps(STATES)}, 'review');")
+    assert [(t["id"], t["label"], t["parent"]) for t in got] == [
+        ("work", "work", True), ("implement", "work › implement", False), ("escalated", "escalated", False), ("merged", "merged (final)", False)]
+
+
+def test_a_check_the_hub_has_no_value_for_is_not_known_not_failed():
+    got = run(["checkWords"], """
+        return [
+          checkWords({ requires: "rounds.review < 3", result: "holds", terms: [{ fact: "rounds.review", have: 1 }] }),
+          checkWords({ requires: "pr.open", result: "unknown", terms: [{ fact: "pr.open", have: null }] }),
+          checkWords({ requires: "rounds.review >= 3", result: "fails", terms: [{ fact: "rounds.review", have: 1 }] }),
+        ].map((w) => [w.mark, w.value, w.result]);""")
+    assert got == [["✓", "rounds.review is 1", "holds"], ["?", "pr.open: no value yet", "not known yet"], ["✗", "rounds.review is 1", "doesn’t hold"]]
+
+
+def test_the_confirm_marks_each_sensitive_item_and_what_was_never_held():
+    """012 FR-024: what the new state adds, with the mark from hubd's list of sensitive items, and which items the
+    instance never held."""
+    sensitive = {"github": {"merge": "merging to the default branch"}, "hub_tools": {"merge_pr": "merging to the default branch"}}
+    got = run(["grantRows"], f"""
+        return grantRows({{ github: ["merge", "pr.comment"], hub_tools: ["merge_pr"], permission_mode: ["acceptEdits"], checkout: [false], all_repos: [true] }},
+                         {json.dumps(sensitive)}, {{ github: ["merge"] }}).map((r) => [r.kind, r.what, r.sens, r.first]);""")
+    assert got == [["GitHub", "merge", "merging to the default branch", True], ["GitHub", "pr.comment", "", False],
+                   ["Hub tools", "merge_pr", "merging to the default branch", False], ["Permission mode", "acceptEdits", "", False],
+                   ["Checkout", "none", "", False], ["All repositories", "every repository", "", False]]
+
+
+def test_the_history_puts_moves_and_evaluations_together_newest_first():
+    h = {"moves": [{"seq": 1, "at": 10, "from": "implement", "to": "review", "by": "hand", "who": "maintainer", "widening": False, "confirmed_by": None, "change": {"adds": {}, "removes": {"github": ["push"]}}},
+                   {"seq": 2, "at": 30, "from": "review", "to": "merge-ready", "by": "hand", "who": "maintainer", "widening": True, "confirmed_by": "maintainer", "change": {"adds": {"github": ["merge"]}}},
+                   {"seq": 3, "at": 40, "from": "merge-ready", "to": "merge-ready", "by": "pause", "who": "maintainer", "widening": False, "change": {}}],
+         "evaluations": [{"seq": 1, "at": 20, "signal": "turn.end", "state": "review", "proposal": "fix", "evidence": "<b>x</b>", "checks": [{"t": 1}], "judge": "default", "ms": 5, "failed": False}]}
+    got = run(["historyRows"], f"return historyRows({json.dumps(h)}).map((r) => [r.title, r.by, r.result, r.details.map((d) => d.join(': '))]);")
+    assert got == [["paused automatic moves · in merge-ready", "maintainer", "", []],
+                   ["moved by hand · review → merge-ready", "maintainer", "widened: confirmed by maintainer · adds merge", []],
+                   ["tried the exits of review", "judge default", "proposed: fix", ["Signal: turn.end", "Evidence: <b>x</b>", 'Checks: {"t":1}', "Judge: default, 5 ms"]],
+                   ["moved by hand · implement → review", "maintainer", "takes away push", []]]
+    assert run(["historyRows"], "return historyRows(undefined);") == []
+
+
+def test_the_page_parses_as_a_module(tmp_path):
+    """`node --check` on a .js file reads it as a script: a stray brace can hide there that a module rejects."""
+    copy = tmp_path / "app.mjs"
+    copy.write_text(APP.read_text())
+    subprocess.run([NODE, "--check", str(copy)], check=True, capture_output=True, timeout=30)

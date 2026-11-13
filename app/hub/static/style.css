@@ -580,6 +580,38 @@ table.diff tr.notes td { padding: 6px 8px; white-space: normal; background: var(
 .design-canvas { display: block; touch-action: none; cursor: default; }
 .design-canvas:focus-visible, .design-canvas:focus { outline: 3px solid var(--pen); outline-offset: -3px; }
 
+/* Workflow machines (012): the state chip is Interleaf's Chip, the confirm its Dialog; this is only their layout here.
+   The kind is in the chip's edge and its words, never its fill alone. */
+.il-chip { max-width: 100%; }
+.wfquiet { min-height: 20px; border-width: 1px; font-weight: 500; color: var(--ink-soft); }
+.sesschip .il-chip { min-height: 20px; font-size: 11px; }
+.svwf { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 16px; border-bottom: 1px dotted var(--ink); }
+.svwf .il-btn { min-height: 40px; }
+.il-btn.wfwaits { background: var(--highlight); font-weight: 600; }
+.svmachine { padding: 14px 16px; border-bottom: 1.5px solid var(--ink); }
+.mpanel { gap: 18px; }
+.mpcols { display: grid; grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr); gap: 24px; align-items: start; }
+.wfh3 { font-size: 16px; font-weight: 600; }
+.wfexit { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--rule); border-radius: 10px; }
+.wfexit[data-result="holds"] { border: 2px solid var(--ink); }
+.wfquote { font-style: italic; overflow-wrap: anywhere; }
+.wfchecks { display: flex; flex-direction: column; gap: 2px; }
+.wfchecks li { display: flex; gap: 8px; overflow-wrap: anywhere; }
+.wftree { display: flex; flex-direction: column; gap: 4px; }
+.wftree li { display: flex; flex-direction: column; gap: 2px; padding-left: calc(var(--depth, 0) * 20px); overflow-wrap: anywhere; }
+.wftree li[data-row="exit"] { display: block; }
+.wftree li[data-at="now"] > .row > b { text-decoration: underline; text-decoration-thickness: 2px; }
+.wfdef summary, .wfhist summary { cursor: pointer; }
+.wfdef .il-code { margin-top: 8px; max-height: 360px; overflow: auto; }
+.wfhist { display: flex; flex-direction: column; }
+.wfhist > li { display: grid; grid-template-columns: 7.5em minmax(0, 1fr); gap: 10px; padding: 8px 0; border-top: 1px dotted var(--ink); overflow-wrap: anywhere; }
+.wfbox { padding: 14px; border: 1.5px solid var(--ink); border-radius: 12px; }
+.wfenter { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 10px; }
+dialog.wfconfirm { width: min(680px, calc(100vw - 32px)); max-width: none; max-height: calc(100vh - 48px); padding: 0; border: 0; overflow: auto; }
+dialog.wfconfirm:not([open]) { display: none; }
+dialog.wfconfirm .row { margin-top: 0; }
+dialog.wfconfirm .il-code pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
 }
@@ -637,4 +669,12 @@ dialog.menu { padding: 0; }
   .crumbs a, .crumbline a { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; }
   .searchbox input { min-height: 40px; }
   .svspec summary { min-height: 44px; display: flex; align-items: center; }
+  /* The machine panel in one column, the outline in place of a diagram; the confirm fills the screen. */
+  .mpcols { grid-template-columns: minmax(0, 1fr); }
+  .svwf, .svmachine { padding-left: 12px; padding-right: 12px; }
+  .svwf .il-btn, .wfdef summary, .wfhist summary { min-height: 44px; }
+  .wfhist > li { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .wftree li { padding-left: calc(var(--depth, 0) * 12px); }
+  .wfenter label { min-height: 44px; }
+  dialog.wfconfirm { width: 100%; height: 100%; max-height: none; margin: 0; border-radius: 0; }
 }
