@@ -171,7 +171,9 @@ def _tried_exit(owner: str, place: int, e: machine.Exit, facts: dict) -> dict:
 def _state_json(s: machine.State) -> dict:
     return {"id": s.id, "parent": s.parent, "initial": s.initial, "final": s.final, "personas": list(s.personas),
             "context": s.context, "exits": [_exit_json(e) for e in s.exits],
-            "manages": [{"name": m.name, "persona": m.persona, "workflow": m.workflow, "start": m.start} for m in s.manages]}
+            "manages": [{"name": m.name, "persona": m.persona, "workflow": m.workflow, "start": m.start, "max": m.max, "reuse": m.reuse,
+                         "on_exit": m.on_exit, "with": list(m.with_), "returns": {k: list(v) for k, v in m.returns.items()}}
+                        for m in s.manages]}
 
 
 # ---- the instance ----
@@ -192,6 +194,10 @@ class Instance:
     trail: list[dict] = field(default_factory=list)        # {from, from_version, to, to_version}, newest last
     pending: dict | None = None
     created: float = 0.0
+    # entry -> what its managed sessions left for this round: {"returns": {field: value}, "child": {name, session_id} or None,
+    # "round": the owner's rounds of the entry's state when its child last started, "allowed": what an approval above the owner
+    # let its sessions have beyond the owner's grant, "since": the pull request's head its last round started from}
+    managed: dict[str, dict] = field(default_factory=dict)
 
     @classmethod
     def new(cls, text: str, now: float) -> Instance:
@@ -215,6 +221,8 @@ class Instance:
         if not isinstance(raw, dict) or raw.get("schema") != SCHEMA:
             raise bad
         names = {f.name for f in dataclasses.fields(cls)}
+        if isinstance(raw, dict) and "managed" not in raw:  # a record from before managed sessions: it had none
+            raw = {**raw, "managed": {}}
         if set(raw) - {"schema"} != names:
             raise bad
         try:
@@ -244,6 +252,8 @@ class Instance:
             raise bad
         if inst.pending is not None and not (isinstance(inst.pending, dict) and inst.pending.get("to_version") in defs):
             raise bad
+        if not (isinstance(inst.managed, dict) and all(isinstance(k, str) and _managed_ok(v) for k, v in inst.managed.items())):
+            raise bad
         return inst
 
     @property
@@ -259,7 +269,30 @@ class Instance:
             out[f"rounds.{sid}"] = int(self.counters["rounds"].get(sid, 0))
             out[f"time.{sid}"] = int(self.counters["time"].get(sid, 0) + (max(0.0, now - self.entered) if sid in chain and self.ticking else 0))
             out[f"tokens.{sid}"] = int(self.counters["tokens"].get(sid, 0))
+        for entry, kept in self.managed.items():  # what its managed sessions returned this round (FR-042)
+            for name, value in kept["returns"].items():
+                out[f"managed.{entry}.{name}"] = value
         return out
+
+    def entry(self, name: str) -> dict:
+        """The record of one `manages` entry, made empty the first time."""
+        return self.managed.setdefault(name, _empty_entry())
+
+
+def _empty_entry() -> dict:
+    return {"returns": {}, "child": None, "round": 0, "allowed": {}, "since": None}
+
+
+def _managed_ok(v) -> bool:
+    if not (isinstance(v, dict) and set(v) == set(_empty_entry())):
+        return False
+    child = v["child"]
+    return (isinstance(v["returns"], dict) and all(isinstance(k, str) and isinstance(x, str) for k, x in v["returns"].items())
+            and (child is None or (isinstance(child, dict) and set(child) == {"name", "session_id"}
+                                   and all(isinstance(x, str) for x in child.values())))
+            and type(v["round"]) is int and isinstance(v["allowed"], dict)
+            and all(k in (*_LISTS, *_LEVELS, "checkout") and isinstance(x, list) for k, x in v["allowed"].items())
+            and (v["since"] is None or isinstance(v["since"], str)))
 
 
 def add_tokens(inst: Instance, tokens: int) -> None:
@@ -273,8 +306,23 @@ def add_tokens(inst: Instance, tokens: int) -> None:
 # ---- moves ----
 # Each returns what happened. A move that happened carries "log": the row for the machine log, which the caller writes.
 
+def as_run(d: Definition, leaf: str, inst: Instance, grant_of=None) -> Grant:
+    """A state's effective grant with the grants of the sessions it manages as they run (FR-023): each capped at the state's
+    own, plus what an approval above the owner allowed it. `grant_of(workflow)` gives a workflow's grant as a session starts
+    in it, or None. Only for telling a widening move: the owner's own launch, token and high-water grant stay its own."""
+    own = machine.effective(d, leaf)
+    if grant_of is None:
+        return own
+    parts = [own]
+    for _sid, m in machine.managed_of(d, leaf):
+        child = grant_of(m.workflow)
+        if child is not None:
+            parts.append(machine.cap(child, own, inst.managed.get(m.name, {}).get("allowed")))
+    return machine.union(*parts)
+
+
 def move(inst: Instance, to: str, by: str, *, enter: str = "first", latest: str | None = None, who: str | None = None,
-         now: float | None = None) -> dict:
+         now: float | None = None, grant_of=None) -> dict:
     """Move to `to` (a parent enters its first state, or with enter = "history" where it last was). `latest` is the
     definition's newest text: a move to a state it has takes it. Once a machine's move finds the current state gone from
     the newest text, the instance keeps its version until a move by hand."""
@@ -301,19 +349,19 @@ def move(inst: Instance, to: str, by: str, *, enter: str = "first", latest: str 
     target = _parse(text)
     if to not in target.states:
         raise MachineError(f"{to[:64]!r} isn't a state of {inst.workflow}")
-    return _propose(inst, text, _enter(target, to, inst.history, enter), by, who, now)
+    return _propose(inst, text, _enter(target, to, inst.history, enter), by, who, now, grant_of)
 
 
-def rollback(inst: Instance, who: str | None = None, now: float | None = None) -> dict:
+def rollback(inst: Instance, who: str | None = None, now: float | None = None, grant_of=None) -> dict:
     """Back to the state before the last move, on the version it was on."""
     now = time.time() if now is None else now
     if not inst.trail:
         raise MachineError("there's no move to roll back")
     last = inst.trail[-1]
-    return _propose(inst, inst.definitions[last["from_version"]], last["from"], "rollback", who, now)
+    return _propose(inst, inst.definitions[last["from_version"]], last["from"], "rollback", who, now, grant_of)
 
 
-def confirm_move(inst: Instance, pending_id, who: str | None, accept: bool = True, now: float | None = None) -> dict:
+def confirm_move(inst: Instance, pending_id, who: str | None, accept: bool = True, now: float | None = None, grant_of=None) -> dict:
     """Completes the move that waits for a confirm, or drops it. Refused if the session has moved since it was asked."""
     now = time.time() if now is None else now
     p = inst.pending
@@ -327,7 +375,7 @@ def confirm_move(inst: Instance, pending_id, who: str | None, accept: bool = Tru
         _prune(inst)
         return {"moved": False, "declined": True}
     text = inst.definitions[p["to_version"]]
-    change = machine.compare(machine.effective(inst.definition(), inst.state), machine.effective(_parse(text), p["to"]))
+    change = machine.compare(as_run(inst.definition(), inst.state, inst, grant_of), as_run(_parse(text), p["to"], inst, grant_of))
     return _apply(inst, text, p["to"], p["kind"], p["who"], who, change, now)
 
 
@@ -345,11 +393,11 @@ def pause(inst: Instance, paused: bool, who: str | None = None, now: float | Non
                     "by": "pause" if paused else "resume", "who": who}}
 
 
-def _propose(inst: Instance, text: str, leaf: str, by: str, who, now: float) -> dict:
+def _propose(inst: Instance, text: str, leaf: str, by: str, who, now: float, grant_of=None) -> dict:
     new_d = _parse(text)
-    old_grant, new_grant = machine.effective(inst.definition(), inst.state), machine.effective(new_d, leaf)
-    change = machine.compare(old_grant, new_grant)
-    adds = unheld(inst.held, new_grant)
+    new_grant = machine.effective(new_d, leaf)
+    change = machine.compare(as_run(inst.definition(), inst.state, inst, grant_of), as_run(new_d, leaf, inst, grant_of))
+    adds = unheld(inst.held, new_grant)  # the confirm is about the session's own grant: its managed sessions are capped by it
     if not adds:
         return _apply(inst, text, leaf, by, who, None, change, now)
     to_version = version_of(text)
@@ -381,6 +429,7 @@ def set_stopped(inst: Instance, stopped: bool, at: float) -> bool:
 
 def _apply(inst: Instance, text: str, leaf: str, by: str, who, confirmed_by, change: machine.Change, now: float) -> dict:
     old_d, old, old_version = inst.definition(), inst.state, inst.version
+    own_widens = machine.compare(machine.effective(old_d, old), machine.effective(_parse(text), leaf)).widens
     _bank(inst, now)
     chain = machine.ancestors(old_d, old)
     for parent in chain[1:]:
@@ -401,7 +450,9 @@ def _apply(inst: Instance, text: str, leaf: str, by: str, who, confirmed_by, cha
     inst.held = _raised(inst.held, machine.effective(new_d, leaf))
     inst.pending = None
     _prune(inst)
-    return {"moved": True, "from": old, "to": leaf, "widening": change.widens, "change": change_json(change),
+    # own_widening: what the session's own launch has to take, which a relaunch is for; widening also counts what the
+    # sessions the new state manages run with (FR-023)
+    return {"moved": True, "from": old, "to": leaf, "widening": change.widens, "own_widening": own_widens, "change": change_json(change),
             "log": {"from_state": old, "to_state": leaf, "from_version": old_version, "to_version": to_version, "by": by,
                     "who": who, "widening": change.widens, "confirmed_by": confirmed_by, "change": change_json(change)}}
 
@@ -419,7 +470,8 @@ class Machines:
     """The instances of the sessions under `sessions`. `action_of(id)` gives an action as the library has it now, or None;
     `is_session(name)` says whether a name is a session's."""
 
-    def __init__(self, sessions: Path, log_path: Path, action_of, is_session, clock=time.time):
+    def __init__(self, sessions: Path, log_path: Path, action_of, is_session, clock=time.time, grant_of=None):
+        self.grant_of = grant_of  # (workflow) -> its grant as a session starts in it, for the managed part of a widening (FR-023)
         self.sessions = Path(sessions)
         self.log_path = log_path
         self.action_of = action_of
@@ -427,6 +479,7 @@ class Machines:
         self.clock = clock
         self._log: Log | None = None
         self._watchers: list = []
+        self.children_of = None  # (name, session_id) -> the managed sessions it runs, for the machine panel (managed.py)
 
     def on_move(self, callback) -> None:
         """callback(name, result) after each move, confirm and roll-back that was saved, by hand or by the machine: one
@@ -582,7 +635,17 @@ class Machines:
                 "path": list(reversed(machine.ancestors(d, inst.state))), "initial": d.initial,
                 "states": [_state_json(s) for s in d.states.values()],
                 "sensitive": {"github": machine.SENSITIVE, "hub_tools": machine.SENSITIVE_HUB_TOOLS},
-                "facts": facts, "newer": newer}
+                "facts": facts, "newer": newer, "managed": self._children(record),
+                "returns": {entry: dict(kept["returns"]) for entry, kept in inst.managed.items() if kept["returns"]}}
+
+    def _children(self, record: dict) -> list[dict]:
+        if self.children_of is None:
+            return []
+        try:
+            return list(self.children_of(record.get("name"), record.get("session_id")))
+        except Exception:  # noqa: BLE001: the panel shows the machine without them
+            log.exception("%s: its managed sessions couldn't be listed", record.get("name"))
+            return []
 
     def summary(self, name: str) -> dict | None:
         """What a state chip shows, for the session lists: read from the file only, so it creates and writes nothing
@@ -618,15 +681,16 @@ class Machines:
         return result
 
     def move(self, name, to, by: str = "machine", enter: str = "first", who: str | None = None) -> dict:
-        return self._act(name, lambda record, inst, now: move(inst, to, by, enter=enter, latest=self.latest(record), who=who, now=now), by)
+        return self._act(name, lambda record, inst, now: move(inst, to, by, enter=enter, latest=self.latest(record), who=who, now=now,
+                                                                     grant_of=self.grant_of), by)
 
     def rollback(self, name, who: str | None = None) -> dict:
-        return self._act(name, lambda _record, inst, now: rollback(inst, who, now), "rollback")
+        return self._act(name, lambda _record, inst, now: rollback(inst, who, now, self.grant_of), "rollback")
 
     def confirm_move(self, name, pending_id, who: str | None, accept: bool = True) -> dict:
         if not isinstance(accept, bool):
             raise MachineError("accept is true or false")
-        return self._act(name, lambda _record, inst, now: confirm_move(inst, pending_id, who, accept, now), "confirm")
+        return self._act(name, lambda _record, inst, now: confirm_move(inst, pending_id, who, accept, now, self.grant_of), "confirm")
 
     def pause(self, name, paused, who: str | None = None) -> dict:
         return self._act(name, lambda _record, inst, now: pause(inst, paused, who, now))

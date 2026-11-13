@@ -53,9 +53,45 @@ The exits of a state are tried in order, its own before its parents', and the fi
   the judge; `requires` and `approve` still decide. Such an exit needs no `on`.
 - `approve`: `none`, or a level that must agree first: `me` (the maintainer), `owner`, `maintainer`, `steward`. An exit
   that holds and needs one doesn't move; it becomes a "Workflow approval" card in Needs you, and approving it makes the
-  move if the session is still there and `requires` still holds. Until sessions above it exist, `owner`, `maintainer` and
-  `steward` ask the maintainer too.
+  move if the session is still there and `requires` still holds. `owner` asks the session that manages it, as an approval
+  report it answers with `answer_report`; `steward` asks the Steward session the same way. With no such session running (or,
+  for `maintainer`, always) the card goes to the maintainer.
 - `enter`: for a parent target, `first` (its first state) or `history` (where the session last was under it).
+
+## Managed sessions
+
+A state can run other sessions under it, each an entry in its `manages` list; a parent's entries run in every state under it.
+
+```toml
+[[state.review.manages]]
+name = "reviewer"             # the entry, and the fact prefix: managed.reviewer.<field>
+persona = "reviewer"
+workflow = "pr-review"        # an action that runs this workflow as this persona starts it
+start = "auto"                # on entering the state, or "on-request": the owner's start_managed tool
+when = ""                     # for start = "auto": a plain-language condition the judge tests on the owner's turn end
+max = 1                       # how many of this entry run at once
+reuse = "fresh"               # or "resume": the entry's last session, when it has stopped, gets the new round
+on_exit = "stop"              # when the owner leaves the state: stop, keep, or handover (to an entry of the same name)
+with = ["pr", "diff.since_last_round"]   # what its first prompt names
+returns = { verdict = ["pass", "fail"] } # what it may hand back with return_result
+```
+
+- **What a managed session starts with** is its action's prompt and a hub-written block that names the references in `with`:
+  the owner's issue or pull request, the head the last round reviewed (`diff.since_last_round`), a brief from the library,
+  and with `owner.summary` the owner's rolling summary between marks, as data. Never the owner's transcript.
+- **Its grant is capped by its owner's** where the owner is when it starts (not again on later moves). Each list is the intersection of the two, each level the lower, and a checkout it
+  can't push to fits under any checkout. A workflow that needs more than that waits for an approval above the owner
+  (its own owner's session, or the maintainer), and the start comes after the yes; the instance keeps what was approved.
+- **Returns** are checked against `returns` (every field, one of its values) and kept as the owner's facts
+  `managed.<entry>.<field>`, cleared when a new round starts; each return signals `hub:managed.return`, and the end of a
+  managed session `hub:managed.end`.
+- **When the owner ends**, crashes or is lost, its managed sessions end with it; hubd checks on start and every 30 seconds.
+- **Reports**: a managed session sends a `blocker` or `decision` up with `report_up` (evidence and a proposal); the owner
+  answers with `answer_report` (`approve` or `deny`, a note) or sends it on with `report_up` and `forward`. A report from the
+  top of the chain is a decision in Needs you. Every report and answer is in the machine log.
+- Tools that come with the role, not the grant: `start_managed` (a state with on-request entries), `answer_report` (a state
+  that manages), `return_result` and `report_up` (a managed session; `report_up` also for any session whose workflow moves).
+  At most 8 managed sessions run at once in all.
 
 ## Facts and signals
 

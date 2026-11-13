@@ -26,6 +26,7 @@ from pathlib import Path
 from . import auth, decisions, devices, interactions, machinerun, newwork, notes, results, usage
 from . import judge as judgelib
 from .effects import Effects
+from .managed import Managed, ManagedError
 from . import feed as feedlib
 from .designs import TICK as DESIGN_TICK, DesignError, Designs, Tools as DesignTools
 from .agents import MAX_ALSO, MAX_NOTES, NOTES_TOOL, PLANNER_MODELS, RESULTS as RESULTS_WORDS, SCREENS, AgentError, Agents, Library, _full, load_environment, screen_of, validate, with_also
@@ -63,6 +64,9 @@ def state_dir() -> Path:
 
 TIDY_FIRST, TIDY_EVERY = 600, 6 * 3600  # seconds
 RENEW_EVERY = 120  # seconds: well inside apps.RENEW_BEFORE, so a session's GitHub token never runs out
+SWEEP_EVERY = 30  # seconds between looks for managed sessions whose owner has ended (012 FR-044)
+# The chain of owners' tools (012 FR-040 to FR-053), by a session's own token and conversation, each on its tool list
+CHAIN_OPS = {"managed.start": "start_managed", "managed.return": "return_result", "managed.report": "report_up", "managed.answer": "answer_report"}
 PING_FIRST, PING_EVERY = 60, 30  # seconds: how often to look; the interval of a ping is its own setting
 PUBLIC_KNOWN, PUBLIC_UNSURE = 600, 60  # seconds a repository's visibility is kept, when GitHub said and when it didn't
 COPIES_EVERY = 1800  # seconds between refreshes of the repository copies
@@ -167,6 +171,10 @@ class Hubd:
             machine_run.on_blocked = self.effects.ask_approval
             machine_run.approval_open = self.effects.approval_open
             self.effects.approve_move = machine_run.approved
+        # The sessions a state manages and the chain of owners' reports (012 FR-040 to FR-053)
+        self.managed = Managed(agents, machine_run, decision_store) if self.effects is not None else None
+        if self.effects is not None:
+            self.effects.managed = self.managed
         self.work = work
         self._work_tasks: set[asyncio.Task] = set()  # or they could be collected mid-run
         self.apps = apps
@@ -226,6 +234,8 @@ class Hubd:
             return self.session_signal(req)
         if op == "session.request_move":
             return await self.request_move(req)
+        if op in CHAIN_OPS:
+            return await self.chain_tool(op, req)
         if op == "feed.changes":
             return await self.feed_changes(req)
         if op == "gh" and is_merge(req.get("argv")):
@@ -367,6 +377,33 @@ class Hubd:
         if scope.get("instance") != self.agents.session_id_of(scope["session"]):
             return {"ok": False, "refused": True, "error": "that token is from an earlier conversation of this session"}
         return {"ok": True, **await self.machine_run.request(scope["session"], scope.get("instance"), req.get("to"))}
+
+    async def chain_tool(self, op: str, req: dict) -> dict:
+        """start_managed, return_result, report_up and answer_report: by a session's own token, from its current conversation,
+        with the tool on its list. What each may touch is decided in managed.py from the session's own record."""
+        scope = self.agents.scope(req.get("agent_token")) if self.agents else None
+        tool = CHAIN_OPS[op]
+        if not scope or not scope.get("session"):
+            return {"ok": False, "refused": True, "error": "not a session's token"}
+        if not self._lists(scope, tool):
+            return {"ok": False, "refused": True, "error": f"this session can't use {tool}"}
+        if self.managed is None:
+            return {"ok": False, "error": "managed sessions aren't set up here"}
+        if scope.get("instance") != self.agents.session_id_of(scope["session"]):
+            return {"ok": False, "refused": True, "error": "that token is from an earlier conversation of this session"}
+        try:
+            if op == "managed.start":
+                return {"ok": True, **await self.managed.request_start(scope, req.get("entry"))}
+            if op == "managed.return":
+                return {"ok": True, **self.managed.returned(scope, req.get("fields"))}
+            if op == "managed.report":
+                return {"ok": True, **self.managed.report_up(scope, req.get("kind"), req.get("evidence"), req.get("proposal"), req.get("forward"))}
+            return {"ok": True, **self.managed.answer(scope, req.get("id"), req.get("decision"), req.get("note"))}
+        except ManagedError as e:
+            return {"ok": False, "error": str(e)}
+        except sqlite3.Error:
+            log.exception("the machine log can't be written")
+            return {"ok": False, "error": "the machine log can't be written"}
 
     def _decision_answered(self, record: dict) -> None:
         """hub:decision for the session a decision names, if it names one."""
@@ -1737,6 +1774,17 @@ async def _renew_tokens(hubd: Hubd) -> None:
         await asyncio.sleep(RENEW_EVERY)
 
 
+async def _sweep(hubd: Hubd) -> None:
+    """Managed sessions whose owner ended, crashed or is gone end too (012 FR-044): at once, since hubd may have been down
+    while an owner went, and then on a tick."""
+    while hubd.managed:
+        try:
+            await hubd.managed.sweep()
+        except Exception:  # the next round may go better
+            log.exception("managed sessions weren't swept")
+        await asyncio.sleep(SWEEP_EVERY)
+
+
 async def _ping(hubd: Hubd) -> None:
     """The Stewards' pings: a count, when something they haven't read has changed, at most once an interval each."""
     await asyncio.sleep(PING_FIRST)
@@ -1793,6 +1841,7 @@ async def serve(hubd: Hubd, path: Path) -> None:
     pinging = asyncio.ensure_future(_ping(hubd))
     designing = asyncio.ensure_future(_watch_designs(hubd))
     renewing = asyncio.ensure_future(_renew_tokens(hubd))
+    sweeping = asyncio.ensure_future(_sweep(hubd))
     # systemctl stop sends SIGTERM: close the server so the cleanup below runs and no renderer outlives hubd.
     asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, server.close)
     try:
@@ -1811,6 +1860,7 @@ async def serve(hubd: Hubd, path: Path) -> None:
                 await hubd.designs.stop(name)
         tidying.cancel()
         renewing.cancel()
+        sweeping.cancel()
         copying.cancel()
         pinging.cancel()
 

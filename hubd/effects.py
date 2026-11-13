@@ -20,9 +20,12 @@ for sessions whose workflow has more than one state. A one-state session never m
 - **Approvals** (FR-025, FR-052): an exit that holds and whose `approve` asks someone first doesn't move on its own. The
   runner hands it here (`ask_approval`) and it becomes a `machine.approve` card in Needs you, one per session, state,
   version and exit; the maintainer's yes makes the move through the runner (`answer_approval`), after it checks the session
-  is still where it was asked from and the exit's `requires` still hold. The levels owner, maintainer and steward name
-  sessions that don't exist yet, so until they do each asks the maintainer too, and the card says so. While it is up the
-  runner tries nothing else for that instance, as for a pending confirm. A card ends when the session moves any other way.
+  is still where it was asked from and the exit's `requires` still hold. The levels owner and steward
+  go to that session first, when it is running and can answer (managed.py, `route_approval`): an approval report, whose yes
+  makes the move the same way. No repository maintainer session exists, so `maintainer` asks the maintainer, as does a level
+  whose session isn't there, and the card says so. While either is up the runner tries nothing else for that instance, as
+  for a pending confirm. A card ends when the session moves any other way. Cards of the same kind with a `type` (a report
+  sent up to Needs you, a managed session's start that needs more than its owner holds) are managed.py's.
 
 The status line of FR-025 isn't posted.
 """
@@ -99,6 +102,7 @@ class Effects:
         self._tasks: set[asyncio.Task] = set()
         self._quiet: set[str] = set()  # sessions being moved back by this module: only their grant follows
         self._answering: str | None = None  # the card being answered, which the move it confirms mustn't end as stale
+        self.managed = None  # managed.Managed: approvals at a level a session above can give, and its own cards
         self.machines.on_move(self.on_move)
 
     # --- the watcher ----------------------------------------------------------------
@@ -137,7 +141,8 @@ class Effects:
             context = "keep"
         state = narrowed["state"]
         record = self._record(name)
-        relaunch = bool(result.get("widening")) or (_full(state) and record.get("permission_mode") != _mode(state))
+        # Its own launch takes what its own grant adds; what the sessions it manages add comes with their own launches (FR-023).
+        relaunch = bool(result.get("own_widening", result.get("widening"))) or (_full(state) and record.get("permission_mode") != _mode(state))
         if relaunch:
             self._spawn(self._relaunch(name, result, words, focus if context == "compact" else None))
             return
@@ -206,10 +211,12 @@ class Effects:
     # --- approvals ---------------------------------------------------------------------
     def ask_approval(self, name: str, wait: dict) -> None:
         """The runner found an exit that holds and waits for an approval: a card, unless one for it is up already."""
+        if self.managed is not None and wait.get("approve") in ("owner", "steward") and self.managed.route_approval(name, wait):
+            return
         if self.decisions is None:
             return
         same = ("session_id", "state", "version", "exit")
-        if any(all(r["scope"].get(k) == wait[k] for k in same) for r in self.decisions.open_approvals(name)):
+        if any(all(r["scope"].get(k) == wait[k] for k in same) for r in self._exit_cards(name)):
             return
         _record, inst = self.machines.load(name)
         if (inst.state, inst.version) != (wait["state"], wait["version"]):
@@ -222,18 +229,23 @@ class Effects:
                  "level": LEVELS.get(level, level), "approve": level, "checks": wait["checks"]}
         why = f"{name}'s workflow can move it from {scope['from']} to {to}: every requirement holds, and its workflow leaves this move to {scope['level']}."
         if level != "me":
-            why += f" There is no {scope['level']} session yet, so it asks you."
+            why += f" There is no {scope['level']} session that can answer, so it asks you."
         why += " If you approve, it moves, if it is still there and its requirements still hold."
         try:
             self.decisions.approve_request(scope, why)
         except (DecisionError, OSError):
             log.exception("%s: its approval couldn't be put in Needs you", name)
 
+    def _exit_cards(self, name: str) -> list[dict]:
+        return [r for r in self.decisions.open_approvals(name) if not r["scope"].get("type")]
+
     def approval_open(self, name: str, session_id, state: str, version: str) -> bool:
+        if self.managed is not None and self.managed.approval_open(name, session_id, state, version):
+            return True
         if self.decisions is None:
             return False
         return any(r["scope"].get("session_id") == session_id and r["scope"].get("state") == state and r["scope"].get("version") == version
-                   for r in self.decisions.open_approvals(name))
+                   for r in self._exit_cards(name))
 
     async def answer_approval(self, decision_id, accept: bool, who: str | None, words: str | None = None) -> dict:
         """The maintainer's answer on a `machine.approve` card: a yes makes the move it names, a no leaves the session where it is."""
@@ -243,6 +255,8 @@ class Effects:
         if self.decisions.current_state(record) != "requested":
             raise DecisionError("that isn't waiting for an answer any more")
         scope = record["scope"]
+        if scope.get("type") and self.managed is not None:  # a report or a managed start: the chain's own
+            return self.managed.answer_card(record, accept, who, words)
         if self.agents.session_id_of(scope["session"]) != scope["session_id"]:
             self.decisions.settle(decision_id, False, "the session it was for has gone")
             raise DecisionError("the session it was for has gone")
@@ -344,6 +358,8 @@ class Effects:
         if self.decisions is None:
             return
         for record in self.decisions.open_widenings(name, kind):
+            if record["scope"].get("type") == "report":  # a report up stays until it is answered, wherever the session moves
+                continue
             if record["id"] != self._answering:
                 self.decisions.settle(record["id"], False, why)
 
