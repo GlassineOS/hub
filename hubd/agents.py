@@ -237,7 +237,8 @@ def _session_scope(name: str, config: dict, full: bool, all_repos: bool = False,
     # reports: the kept reports the person pinned when starting it, the only ones read_report gives it (008 FR-008).
     return {"session": name, "instance": instance, "tools": None if full else [*config["hub_tools"], *asks_first],
             "persona": config["persona"], "all_repos": all_repos, "asks_first": list(asks_first),
-            "reports": [p["label"] for p in config.get("pins", ()) if p["kind"] == "report"]}
+            "reports": [p["label"] for p in config.get("pins", ()) if p["kind"] == "report"],
+            "design": config.get("action") == "design"}  # the design view's tools are its alone (011 FR-014, FR-015)
 
 
 REMOVE_AFTER_DAYS = 7
@@ -676,6 +677,7 @@ class Agents:
         self.history = History(state_dir / "history")
         self.cleanup_file = state_dir / "cleanup.json"
         self.steward_file = state_dir / "steward.json"
+        self.before_remove = None  # awaited with a session's name before its worktree goes: the design view stops its renderer
 
     # --- what's on offer ---------------------------------------------------------
     def actions(self, kind=None) -> list[dict]:
@@ -2080,7 +2082,15 @@ class Agents:
             else:
                 await self._git("branch", "-q", "-D", f"agent/{name}", cwd=main)
 
+    async def _before_remove(self, name: str) -> None:
+        if self.before_remove is not None:
+            try:
+                await self.before_remove(name)
+            except Exception:  # the worktree goes all the same
+                log.exception("before removing %s", name)
+
     async def _remove(self, name: str) -> None:
+        await self._before_remove(name)
         self._drop_sends(name, "the session ended")  # or they'd go into the next session of that name
         for checkout in self._present(name):
             try:
@@ -2621,6 +2631,7 @@ class Agents:
             row = await self._cleanup_row(name, folders[name], live, open_in) if name in folders else {"state": "gone"}
             if row["state"] != "safe":
                 return row.get("what") or "It's gone already."
+            await self._before_remove(name)
             try:
                 for argv in row["_argv"]:
                     await self._git(*argv[1:])

@@ -23,7 +23,7 @@ from starlette.responses import JSONResponse
 from . import tools, web
 from .docsearch import DocSearch
 from .github import GitHub
-from .hubd_client import ALL_REPOS, CALLER, INSTANCE, SEES, SESSION
+from .hubd_client import ALL_REPOS, CALLER, DESIGN, INSTANCE, SEES, SESSION
 from .hubd_client import Hubd, HubdError
 from .watchdog import Requests, Watchdog, stack_dump_on_signal
 from .workstore import WorkStore
@@ -67,6 +67,7 @@ class AgentAuth:
         instance = (reply.get("scope") or {}).get("instance")
         INSTANCE.set(instance if isinstance(instance, str) and instance else None)
         ALL_REPOS.set((reply.get("scope") or {}).get("all_repos") is True)
+        DESIGN.set((reply.get("scope") or {}).get("design") is True)
         tools = (reply.get("scope") or {}).get("tools")
         SEES.set(tools)
         if tools is None:
