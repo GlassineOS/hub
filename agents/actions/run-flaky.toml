@@ -9,6 +9,3 @@ personas = ["ci-diagnostician"]
 prompt = "run-flaky"
 models = ["sonnet", "opus"]
 efforts = ["low", "medium", "high"]
-tools = ["AskUserQuestion"]
-hub_tools = ["plan_work", "get_run", "get_run_log", "list_runs", "docs_search", "work_search"]
-checkout = false

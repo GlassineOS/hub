@@ -10,8 +10,8 @@ same permission card as any other prompt.
 
 ## The session
 
-- **Action:** `agents/actions/project-steward.toml`, with `object = "project"`, no checkout and no
-  planner step. Today every action needs a repository and a number (`validate`, `defaults`, `_name`
+- **Action:** `agents/actions/project-steward.toml`, with `object = "project"` and no planner step; its rights (no checkout,
+  `all_repos`, its tools and `asks_first`) are in its workflow, `agents/workflows/project-steward.toml`. Today every action needs a repository and a number (`validate`, `defaults`, `_name`
   and `describe` in `hubd/agents.py`, and the action list), so this is the one change to session code.
 - **One instance,** under the fixed tmux name `steward`. Starting it again opens the one there is.
 - **Stopping and resuming:** as for every session. It keeps running if the browser, the app or `hubd`
@@ -25,7 +25,7 @@ same permission card as any other prompt.
 
 ## Writes ask first
 
-Its action lists its write tools under `asks_first`. Those aren't on its allowed list, so under dontAsk
+Its workflow lists its write tools under `asks_first`. Those aren't on its allowed list, so under dontAsk
 nothing runs them except a `PreToolUse` hook saying allow.
 
 - **The hook asks hubd,** as for a question, and hubd puts up a card. Sessions counts it under Needs you, and the
@@ -146,7 +146,7 @@ so an old `pr-review` session may still post its review itself; resumed, it has 
 
 - `spawn_session(action, repo, number)` asks first like any write, then goes through the same planner and
   action limits as a click in the UI.
-- **Locked actions only.** hubd refuses `access = "full"` from a token, whatever else allows it, since a
+- **Locked actions only.** hubd refuses an action whose workflow grants `access = "full"` from a token, whatever else allows it, since a
   full session has your rights and a misleading issue could shape its brief.
 - **Full actions** are refused before they reach you, and the Steward tells you which to start. This includes
   `issue-docs`.

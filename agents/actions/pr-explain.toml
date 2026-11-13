@@ -9,6 +9,3 @@ personas = ["reviewer"]
 prompt = "pr-explain"
 models = ["sonnet", "opus"]
 efforts = ["low", "medium", "high"]
-tools = ["Read", "Grep", "Glob", "AskUserQuestion"]
-hub_tools = ["request_repository", "map_overview", "map_definition", "map_usages", "map_string", "code_search", "plan_work", "get_pr", "get_pr_diff", "get_pr_threads", "docs_search", "work_search"]
-checkout = "pr"

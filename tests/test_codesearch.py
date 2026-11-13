@@ -780,14 +780,14 @@ def test_the_tool_goes_where_the_other_repository_readers_go():
     assert SEARCH_TOOLS == ("code_search",) and set(SEARCH_TOOLS) <= READS_ONLY
     assert all(set(SEARCH_TOOLS) <= set(tools) for tools in PLANNER_TOOLS.values())
     assert not any(set(SEARCH_TOOLS) & set(tools) for tools in DRAFT_TOOLS.values())
-    assert set(SEARCH_TOOLS) <= set(LIBRARY.action("project-steward")["hub_tools"])
+    assert set(SEARCH_TOOLS) <= set(LIBRARY.action("project-steward")["grant"].hub_tools)
     for action in LIBRARY.actions.values():
-        if "request_repository" in action["hub_tools"] or set(MAP_TOOLS) & set(action["hub_tools"]):
-            assert set(SEARCH_TOOLS) <= set(action["hub_tools"]), action["id"]
+        if "request_repository" in action["grant"].hub_tools or set(MAP_TOOLS) & set(action["grant"].hub_tools):
+            assert set(SEARCH_TOOLS) <= set(action["grant"].hub_tools), action["id"]
         else:
-            assert not set(SEARCH_TOOLS) & set(action["hub_tools"]), action["id"]
-        if action.get("access") == "full":
-            assert action["hub_tools"] == []  # a full session has no list: hubd lets it use any tool, this one too
+            assert not set(SEARCH_TOOLS) & set(action["grant"].hub_tools), action["id"]
+        if action["grant"].access == "full":
+            assert action["grant"].hub_tools == ()  # a full session has no list: hubd lets it use any tool, this one too
 
 
 def test_hubd_holds_each_token_to_its_list():
