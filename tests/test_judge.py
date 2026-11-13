@@ -74,6 +74,22 @@ def decide(answer, req=None, cost=None):
 
 # ---- the request and the prompt ----
 
+def test_an_exit_a_judge_doesnt_decide_is_never_offered():
+    d = machine.parse('''
+schema = 1
+name = "w"
+initial = "a"
+[state.a]
+[[state.a.exit]]
+to = "b"
+decided_by = "hand"
+when = "Someone asked for it"
+[state.b]
+final = true
+''')
+    assert JudgeRequest.of(d, "a", {}, "", "").exits == ()
+
+
 def test_the_request_offers_only_exits_with_a_question_by_their_place():
     assert request().exits == ((0, "review", "The change is done and pushed"),
                                (2, "stuck", "The session is waiting on something it can't do"))

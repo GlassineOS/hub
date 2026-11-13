@@ -104,15 +104,18 @@ class ConfigError(Exception):
 class JudgeRequest:
     workflow: str
     state_id: str
-    exits: tuple[tuple[int, str, str], ...]   # (index in exits_of, to, when), only exits with a `when`
+    exits: tuple[tuple[int, str, str], ...]   # (index in exits_of, to, when), only exits a judge decides
     facts: dict
     summary: str
     turn: str
 
     @classmethod
     def of(cls, d: machine.Definition, state_id: str, facts: dict, summary: str, turn: str) -> JudgeRequest:
-        """The request for a state of a definition: its exits in the order they're tried, those with a question."""
-        exits = tuple((i, e.to, e.when) for i, e in enumerate(machine.exits_of(d, state_id)) if e.when.strip())
+        """The request for a state of a definition: its exits in the order they're tried, those a judge decides.
+
+        An exit decided by facts, a counter or by hand is never offered, even if it carries a `when`."""
+        exits = tuple((i, e.to, e.when) for i, e in enumerate(machine.exits_of(d, state_id))
+                      if e.decided_by == "judge" and e.when.strip())
         return cls(d.name, state_id, exits, dict(facts), summary, turn)
 
 
