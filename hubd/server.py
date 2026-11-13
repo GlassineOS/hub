@@ -23,7 +23,8 @@ import sys
 import time
 from pathlib import Path
 
-from . import auth, decisions, devices, interactions, newwork, notes, results, usage
+from . import auth, decisions, devices, interactions, machinerun, newwork, notes, results, usage
+from . import judge as judgelib
 from .effects import Effects
 from . import feed as feedlib
 from .designs import TICK as DESIGN_TICK, DesignError, Designs, Tools as DesignTools
@@ -142,7 +143,9 @@ class Hubd:
                  apps: Apps | None = None, work: newwork.NewWork | None = None, device_reports: devices.Devices | None = None,
                  decision_store: decisions.Decisions | None = None, notes_search: notes.Notes | None = None,
                  change_feed: feedlib.Feed | None = None, ping_seconds: float = feedlib.DEFAULT_PING,
-                 usage_allowance: float | None = None, result_store: results.Results | None = None, designs: Designs | None = None):
+                 usage_allowance: float | None = None, result_store: results.Results | None = None, designs: Designs | None = None,
+                 machine_run: machinerun.Runner | None = None):
+        self.machine_run = machine_run  # 012 FR-013: signals to the workflow instances; None tries no exit on its own
         self.designs = designs
         self.results = result_store
         self.feed = change_feed
@@ -214,6 +217,8 @@ class Hubd:
             return await self.decision_tool(op, req)
         if op == "feed.record":
             return self.feed_record(req)
+        if op == "session.signal":
+            return self.session_signal(req)
         if op == "feed.changes":
             return await self.feed_changes(req)
         if op == "gh" and is_merge(req.get("argv")):
@@ -302,13 +307,35 @@ class Hubd:
         if self.feed is None:
             return {"ok": False, "error": "the change feed isn't set up"}
         try:
+            before = self.feed.issued()
             kept, refused = self.feed.record(req.get("events"))
         except feedlib.FeedError as e:
             return {"ok": False, "error": str(e)}
         except sqlite3.Error as e:
             log.exception("the change feed failed")
             return {"ok": False, "error": f"the change feed failed: {e}"}
+        if kept and self.machine_run:  # only what was stored now: an event seen before signals nothing again
+            try:
+                self.machine_run.feed(self.feed.changes(None, before, feedlib.MAX_READ, None)["changes"])
+            except (sqlite3.Error, feedlib.FeedError):
+                log.exception("the change feed's new rows can't be read for the workflows")
         return {"ok": True, "kept": kept, "refused": refused}
+
+    def session_signal(self, req: dict) -> dict:
+        """A session's hook: its own token says which session, and the event is one of a closed list. Answered at once;
+        the evaluation runs later, so the hook never waits for it."""
+        scope = self.agents.scope(req.get("agent_token")) if self.agents else None
+        if not scope or not scope.get("session"):
+            return {"ok": False, "refused": True, "error": "not a session's token"}
+        if self.machine_run:
+            self.machine_run.hook(scope["session"], req.get("how"))
+        return {"ok": True}
+
+    def _decision_answered(self, record: dict) -> None:
+        """hub:decision for the session a decision names, if it names one."""
+        session = record.get("scope", {}).get("session")
+        if self.machine_run and isinstance(session, str) and session != decisions.ANY:
+            self.machine_run.signal("hub:decision", session)
 
     async def feed_changes(self, req: dict) -> dict:
         """A login sees all of it and moves no cursor. A session needs the tool on its list, and has its own cursor: what it
@@ -564,9 +591,13 @@ class Hubd:
                     now = await self._with_base(record["scope"])  # it may have moved while the card was up
                     if now["base"] != record["scope"].get("base"):
                         raise decisions.DecisionError(f"this card shows a merge into {record['scope'].get('base')}, and it now targets {now['base']}. Say no: the session can ask again")
-                return {"ok": True, "decision": self.decisions.view(self.decisions.approve(req.get("id"), req.get("words"), req.get("scope"), req.get("ends")))}
+                record = self.decisions.approve(req.get("id"), req.get("words"), req.get("scope"), req.get("ends"))
+                self._decision_answered(record)
+                return {"ok": True, "decision": self.decisions.view(record)}
             if op == "decision.deny":
-                return {"ok": True, "decision": self.decisions.view(self.decisions.deny(req.get("id"), req.get("why")))}
+                record = self.decisions.deny(req.get("id"), req.get("why"))
+                self._decision_answered(record)
+                return {"ok": True, "decision": self.decisions.view(record)}
             if op == "decision.end":
                 return {"ok": True, "decision": self.decisions.view(self.decisions.end(req.get("id"), req.get("why")))}
             if op == "decision.have_device":
@@ -1790,7 +1821,9 @@ def main(argv=None) -> int:
                     change_feed=change_feed, ping_seconds=feedlib.ping_interval(ping_setting), usage_allowance=allowance,
                     work=newwork.NewWork(state_dir() / "newwork"), result_store=results.Results(state_dir() / "results"), device_reports=devices.Devices(state_dir() / "devices"),
                     decision_store=decisions.Decisions(state_dir() / "decisions"), notes_search=notes.Notes(agents.workspace),
-                    designs=Designs(agents, DesignTools(cache_dir(), Path(__file__).resolve().parents[1] / "app" / "ui.ref")))
+                    designs=Designs(agents, DesignTools(cache_dir(), Path(__file__).resolve().parents[1] / "app" / "ui.ref")),
+                    machine_run=machinerun.for_hub(agents, change_feed, lambda: judgelib.judges(
+                        judgelib.load(config_dir() / judgelib.CONFIG_FILE), claude=claude, home=state_dir() / "judge", environment=keep)))
         await serve(hubd, a.socket)
 
     try:

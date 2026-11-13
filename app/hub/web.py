@@ -552,6 +552,28 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
             except (RuntimeError, WebSocketDisconnect):
                 pass
 
+    # 012 FR-026: a session's workflow machine, for the maintainer only. Not in the tool server: an agent doesn't move its
+    # own machine by hand. Moves here are by hand and logged as the login's user, which hubd takes from the token, not from
+    # the request.
+    machine_moves = {"move": ("to", "enter"), "confirm": ("pending", "accept"), "rollback": (), "pause": ("paused",)}
+
+    async def machine_get(r, _b, token):
+        reply = await hubd.call(op="machine.get", token=token, name=p(r, "name"))
+        reply.pop("ok", None)
+        return reply
+
+    async def machine_history(r, _b, token):
+        reply = await hubd.call(op="machine.history", token=token, name=p(r, "name"))
+        return {"evaluations": reply["evaluations"], "moves": reply["moves"]}
+
+    async def machine_move(r, b, token):
+        move = p(r, "move")
+        if move not in machine_moves:
+            raise BadRequest(f"unknown move: {move}")
+        reply = await hubd.call(op=f"machine.{move}", token=token, name=p(r, "name"), **{k: b[k] for k in machine_moves[move] if k in b})
+        reply.pop("ok", None)
+        return reply  # a move that widens the grant comes back with needs_confirm and its pending id, and waits
+
     routes = [
         Route("/api/login", login, methods=["POST"]),
         Route("/api/logout", api(logout), methods=["POST"]),
@@ -614,6 +636,9 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         Route("/api/asks", api(asks)),
         Route("/api/asks/{id}/answer", api(ask_answer), methods=["POST"]),
         Route("/api/agents/{step}", api(agent_step), methods=["POST"]),
+        Route("/api/machines/{name}", api(machine_get)),
+        Route("/api/machines/{name}/history", api(machine_history)),
+        Route("/api/machines/{name}/{move}", api(machine_move), methods=["POST"]),
         Route("/api/shells", api(shells)),
         Route("/api/shells", api(shell_new), methods=["POST"]),
         Route("/api/shells/{name}", api(shell_kill), methods=["DELETE"]),
