@@ -271,10 +271,15 @@ def _session(a):
     return asyncio.run(a.start({**a.defaults("issue-implement", "boot", 1), "name": "s"}))["name"]
 
 
-def _as_implement(a, name):
+def _as_implement(a, name, text=IMPLEMENT):
     """The session's machine put on a workflow with steps, as a later version of its action would be."""
     path = a.sessions / name / FILE
-    path.write_text(json.dumps(new().to_json()))
+    path.write_text(json.dumps(new(text).to_json()))
+
+
+# The implement workflow as a full session on a new branch runs it: a session is governed by the definition its machine
+# runs on, and a conversation keeps its access and checkout, so a resume only fits a definition that keeps them.
+FULL_IMPLEMENT = _with(_with(IMPLEMENT, 'access = "locked"', 'access = "full"'), 'checkout = "pr-branch"', 'checkout = "new-branch"')
 
 
 def test_a_session_starts_with_its_machine(world):
@@ -288,7 +293,7 @@ def test_a_session_starts_with_its_machine(world):
 def test_the_machine_survives_a_resume_and_a_resume_after_the_folder_went(world):
     a, tmp = world
     name = _session(a)
-    _as_implement(a, name)
+    _as_implement(a, name, FULL_IMPLEMENT)
     hub = a.machines
     assert hub.request("machine.move", {"name": name, "to": "review"}, "m")["state"] == "review"
     a.shells.live.discard(name)
@@ -515,3 +520,22 @@ def test_the_session_list_carries_the_state_chip_without_writing(world):
     # A session from before instances shows no chip, and describing it doesn't make one.
     (a.sessions / name / FILE).unlink()
     assert a.describe(name)["machine"] is None and not (a.sessions / name / FILE).exists()
+
+
+def test_watchers_hear_each_saved_move_confirm_and_rollback_and_cant_undo_one(world):
+    a, _ = world
+    name = _session(a)
+    _as_implement(a, name)
+    m = a.machines
+    heard = []
+    m.on_move(lambda n, result: (_ for _ in ()).throw(RuntimeError("a broken watcher")))
+    m.on_move(lambda n, result: heard.append((n, {k: result.get(k) for k in ("moved", "needs_confirm", "declined", "by", "state")})))
+    asked = m.move(name, "merge-ready", "machine")
+    m.confirm_move(name, asked["pending"], "me", accept=False)
+    assert m.move(name, "review", "machine")["state"] == "review"
+    m.pause(name, True, "me")
+    m.rollback(name, "me")
+    assert heard == [(name, {"moved": False, "needs_confirm": True, "declined": None, "by": "machine", "state": "implement"}),
+                     (name, {"moved": False, "needs_confirm": None, "declined": True, "by": "confirm", "state": "implement"}),
+                     (name, {"moved": True, "needs_confirm": None, "declined": None, "by": "machine", "state": "review"}),
+                     (name, {"moved": True, "needs_confirm": None, "declined": None, "by": "rollback", "state": "implement"})]

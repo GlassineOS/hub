@@ -2896,7 +2896,7 @@ function WidenConfirm({ name, pending, sensitive, busy, error, onAnswer, onClose
       ${removes.length > 0 && html`<${GrantBlock} title=${`${pending.to} takes away`} rows=${removes} sign="del" id="wc-rm" />`}
       <p class="small"><span class="eyebrow">Keeps</span> ${keeps.length ? keeps.map((r) => `${r.kind} · ${r.what}`).join(", ") : "nothing of the grant it has now"}</p>
       <div class="wfbox small"><span class="eyebrow">How it resumes</span>
-        <p>The hub records the move and the new grant at once, logged as yours. It doesn’t apply a state’s grant to a session yet: the session goes on with the tools it was started with, now and after a resume.</p></div>
+        <p>The hub records the move at once, logged as yours. What the new state takes away goes from the session at once; what it adds comes when the same conversation resumes under a new launch with the new state’s grant, once the session is at its prompt. A stopped session takes it at its next resume. A move that would change its access or checkout goes back, and the log says why.</p></div>
       <${Err} text=${error} /></div>
     <div class="il-dialog__actions">
       <button type="button" class="link wfnotnow" disabled=${busy} onClick=${onClose}>Not now</button>
@@ -3671,7 +3671,8 @@ function DecisionRow({ d, onChanged, where = "Needs you" }) {
     ${d.kind === "merge" && html`<p class="small">Applies to head <span class="mono">${d.scope.head.slice(0, 12)}</span> only. If the pull request's head moves, it ends (003 FR-008).</p>`}
     ${eye && html`<p class="small"><b>Eye test:</b> you look at the device yourself. It ends with its runs or hours, and is never granted for good.</p>`}
     ${d.words && html`<p class="small" style="overflow-wrap: anywhere"><span class="soft">Your words: </span>${d.words}</p>`}
-    ${d.asked_by && html`<p class="small soft">Asked for by ${d.asked_by}, in its own words, which aren't yours: <span style="overflow-wrap: anywhere">${d.why}</span></p>`}
+    ${d.asked_by && d.kind !== "machine.widen" && html`<p class="small soft">Asked for by ${d.asked_by}, in its own words, which aren't yours: <span style="overflow-wrap: anywhere">${d.why}</span></p>`}
+    ${d.kind === "machine.widen" && html`<p class="small" style="overflow-wrap: anywhere">From the hub: ${d.why}</p>`}
     ${!d.asked_by && d.why && html`<p class="small soft" style="overflow-wrap: anywhere">Asked for by a hub shell, in its own words: ${d.why}</p>`}
     ${d.why_ended && html`<p class="small">Ended: ${d.why_ended}</p>`}
     ${(d.state === "current" || d.state === "using") && html`<p class="small">Left: ${leftWords(left)}.</p>`}
@@ -3702,7 +3703,7 @@ function InteractionCard({ item, dense, where, reload }) {
   const body = () => {
     if (item.kind === "permission" || item.kind === "question") return html`<${Ask} ask=${d} compact=${settled} onDone=${reload} where=${where} />`;
     if (item.kind === "result" && d.type) return html`<${ResultView} r=${d} reload=${reload} where=${where} />`;
-    if (item.kind === "decision") return html`<div class="ask calm ${settled ? "done" : ""}"><div class="ask-head"><span class="ask-kind">${d.kind === "go" ? (d.scope.actions.includes("eye-test") ? "GO · EYE TEST" : "GO") : "MERGE"}</span>
+    if (item.kind === "decision") return html`<div class="ask calm ${settled ? "done" : ""}"><div class="ask-head"><span class="ask-kind">${d.kind === "go" ? (d.scope.actions.includes("eye-test") ? "GO · EYE TEST" : "GO") : d.kind === "machine.widen" ? "WORKFLOW MOVE" : "MERGE"}</span>
       <span class="small mono">${d.asked_by || "you"}</span></div><div class="ask-body"><${DecisionRow} key=${`${d.id}-${d.state}`} d=${d} onChanged=${reload} where=${where} /></div></div>`;
     if (settled && d.state === "dismissed" && (d.drafts || []).length) return html`<${SetAside} item=${d} reload=${reload} />`;
     if (settled) return html`<div class="ask calm done"><div class="ask-head"><span class="ask-kind">${KIND_LABEL[item.kind].toUpperCase()}</span><span class="small mono">${d.by}</span></div>

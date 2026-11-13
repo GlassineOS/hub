@@ -34,7 +34,7 @@ public. A person's approval can't reliably break that chain, because a steered a
 | Browser attacks | `SameSite=Strict`, `HttpOnly` session cookie. Host must be on the allowlist, against DNS rebinding. Origin must match for writes and for the terminal's WebSocket. Content-Security-Policy without inline or remote scripts |
 | Network | Loopback by default. The app won't start on another address without TLS, as long as `HUB_BIND` names the address; `HUB_LISTEN` is for the container and overrides what the app binds. The tool server stays on loopback under compose |
 | The container | Runs as your uid, read-only, no capabilities, no credentials. Its only way to the host is the socket |
-| A session's rights | Its action's workflow (`agents/workflows/<name>.toml`) holds them: the grant of the state it starts in, which for every action today is its one state. The action file holds none (hubd refuses one that sets any), so they are said once. hubd builds the tool lists, the permission mode, the checkout and the token's scope from that grant, and won't start on a workflow its checks refuse. The action's `ceiling` is that grant in plain words |
+| A session's rights | Its action's workflow (`agents/workflows/<name>.toml`) holds them: the effective grant of the state the session is in, its first at launch (every action's default workflow has one state). The action file holds none (hubd refuses one that sets any), so they are said once. hubd builds the tool lists, the permission mode, the checkout and the token's scope from that grant, and won't start on a workflow its checks refuse. The action's `ceiling` is that grant in plain words |
 
 ## Guards, not limits
 
@@ -45,6 +45,8 @@ The table above lists limits: each one stops a threat named at the top. Guards a
 - **`art rm` retention** (`workspace#2`) stops a kept file being deleted by mistake.
 - **Ignored-file checks on removal** stop files being lost with a worktree.
 - **The prompt rule in `agents/private.md`** helps against a session posting private text by mistake. It isn't a limit on a steered one.
+- **A full session's workflow grant.** A state that grants `access = "full"` runs the agent with your rights: its tool list and the
+  check before each tool use (Workflow moves) don't hold it, and its confirm marks that.
 
 A new restriction has to name the threat it stops, or be listed here as a guard.
 
@@ -187,7 +189,8 @@ A new restriction has to name the threat it stops, or be listed here as a guard.
   login, guarded by hubd and not limited by a token.
 - **Resuming a session.** A session that has stopped keeps its record, tool token and checkout until
   you discard it, and Resume starts it again with its conversation. It needs a login, like starting
-  one. Its rights are checked again against its action's workflow as it is now, and it refuses if they don't
+  one. Its rights are checked again against its action's workflow as it is now (for a session that can move, its current
+  state's grant), and it refuses if they don't
   fit. The conversation itself comes back as it was, including any outsider's text it had read.
 - **Personas on GitHub.** A persona with a GitHub App (`apps.toml`, made by
   `deploy/create-app.py`) makes its writes as that App: GitHub limits it to the App's
@@ -224,6 +227,36 @@ A new restriction has to name the threat it stops, or be listed here as a guard.
 - **Workflow inputs.** Whoever reaches the socket can start a workflow with inputs of their
   choice. Workflows must not put `inputs.*` directly into a `run:` step, or those inputs
   become code running with the repository's `GITHUB_TOKEN`.
+
+## Workflow moves
+
+A session whose workflow has more than one state can move between them (spec 012), by the machine or by your hand. What it may do is
+its current state's effective grant and nothing else; `hubd/effects.py` applies each move to the running session.
+
+- **Narrowing is at once.** What the new state doesn't grant goes from the session's tool token (the tool server refuses it on the next
+  call) and from `grant.json` in its folder, 0600, which `hubd/grant_hook.py` reads before every tool use and refuses any tool not
+  on it. The hook only refuses (exit 2) or says nothing, never allows, so the shell's sandbox hook still decides a command; it refuses
+  when it can't read the file, and its command ends in `|| exit 2`, so one that can't start refuses too. A hook past its 10 s timeout
+  is ended by Claude Code, which then runs the tool: for Claude Code's own tools the check is a guard there, and the tool server still
+  refuses a hub tool by the token. A session whose grant can't be worked out after a move is locked: its token and the hook refuse
+  everything, kept on disk across a restart of hubd, until a resume.
+- **A session whose workflow can move never falls back to its first state.** Whether it can move is read from the definition its
+  machine runs on. One whose machine record is lost or can't be read is refused (resume, a resume from the history) rather than given
+  a fresh machine in the first state, whose grant may be wider than what it was in. A move while a resume is set up makes the resume
+  start over from the new state, and a GitHub token made for a list that is no longer in force isn't written. A GitHub token is made again with fewer capabilities; the old one works until it expires, up to an hour. The
+  session's record says what is in force, so a restart of hubd or a renewal doesn't give back what went. Nothing is added this way.
+- **Widening is deliberate.** A move to a capability the instance has never held waits for your confirm, a `machine.widen` card in
+  Needs you that hubd alone makes (`decision.add` and a token's `decision_request` refuse the kind). It names the move, what it adds,
+  takes away and keeps, and marks the sensitive items and a full grant; approving it confirms that move and nothing else, and it ends
+  at once. A move that adds anything, confirmed now or before in the instance, takes effect only by resuming the same conversation
+  under a new launch with the new state's grant, once the session is at its prompt. A stopped session isn't started for it. A
+  relaunch still waiting when hubd stops is lost: the session keeps the old launch until it is resumed, which takes the new grant.
+- **A conversation keeps its access and its checkout.** A move to a state with other ones fails back: one that waits is declined,
+  one that happened is rolled back (logged as the hub's), and the evaluation log says why. Resume refuses the same.
+- **The words a move adds** are the definition's instructions, marked as the hub's, never text from a transcript.
+- **A full session's state is guarded, not limited** (Guards, not limits): it has your rights in any state.
+- **The notes** stay with sessions that can't carry them out: a workflow whose states can read them only loads if every state only
+  reads (Notes).
 
 ## Device reports
 
@@ -511,7 +544,7 @@ A tab under Work, over the work store and your decisions. It merges, reviews and
 
 - The history tab shows transcripts to whoever is logged in, for sessions the hub ran only. A transcript can hold
   anything the session read, an outsider's text included, and it's shown as plain text.
-- A resume reads the session's rights from its action's workflow as they are now. A restored checkout comes from GitHub:
+- A resume reads the session's rights from its action's workflow as they are now (its current state's, for one that can move). A restored checkout comes from GitHub:
   uncommitted files from a removed worktree don't come back, so the hub doesn't remove one that has them. Ignored files
   count too: a full session holding more than 1 MiB of them stays when it ends, and discarding it has to name them on a second card.
 - `agent.worktrees` (a login op) lists the folders a plain shell can start in for a repository: its workspace checkout and
