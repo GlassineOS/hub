@@ -227,11 +227,12 @@ class Managed:
         return holds
 
     # --- starting -----------------------------------------------------------------------------
-    def _action_for(self, m: machine.Manage) -> dict:
+    def _action_for(self, m: machine.Manage, repo=None) -> dict:
+        """The action that runs the entry's workflow as its persona, as a session on `repo` has it (its override, if any)."""
         found = [a for a in self.agents.library.actions.values() if a.get("workflow") == m.workflow and m.persona in a["personas"]]
         if not found:
             raise ManagedError(f"no action runs {m.workflow} as {m.persona}")
-        return sorted(found, key=lambda a: a["id"])[0]
+        return self.agents.library.resolved(sorted(found, key=lambda a: a["id"])[0], repo)
 
     async def _item_for(self, owner: str, record: dict, action: dict) -> tuple[str, int]:
         """What the managed session works on: the owner's pull request, or its issue, as the action's object says."""
@@ -342,15 +343,18 @@ class Managed:
         everywhere = [n for n in self._names() if isinstance((self._record(n) or {}).get("owner"), dict) and self._running(n, live)]
         if len(everywhere) >= MAX_MANAGED:
             raise ManagedError(f"{MAX_MANAGED} managed sessions are running: wait for one to end")
-        action = self._action_for(m)
-        child_grant, owner_grant = self.agents.workflow_grant(m.workflow), machine.effective(d, inst.state)
+        item = await self._item_for(owner, record, self._action_for(m))
+        action = self._action_for(m, item[0])
+        # the child's workflow as a session on its repository runs it: the version agents.start resolves too
+        child_grant, owner_grant = self.agents.workflow_grant(m.workflow, item[0]), machine.effective(d, inst.state)
+        if child_grant is None:
+            raise ManagedError(f"there is no workflow {m.workflow}")
         allowed = inst.entry(entry)["allowed"]
         extra = {k: v for k, v in machine.beyond(child_grant, owner_grant).items() if any(x not in allowed.get(k, ()) for x in v)}
         if extra:
             self._ask_above(owner, record, inst, entry, m, extra)
             raise ManagedError(f"{m.workflow} holds more than {owner} does ({_words(extra)}): it waits for an approval above {owner}")
         capped = machine.cap(child_grant, owner_grant, allowed)
-        item = await self._item_for(owner, record, action)
         head = await self._head(*item) if action["object"] == "pr" else None
         text = self.context(owner, record, inst, m, item, head)
         kept = inst.entry(entry)

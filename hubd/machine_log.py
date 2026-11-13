@@ -171,6 +171,17 @@ class Log:
             self.db.execute(f"DELETE FROM {table} WHERE seq <= ?", (newest - KEEP_ROWS,))
 
     # --- reading -------------------------------------------------------------------
+    def sessions(self, limit: int = 200) -> list[dict]:
+        """The conversations the log has rows for, newest first: the name each last had, when, how many evaluations, and
+        the versions it ran on. What a replay can be run on."""
+        with self.lock:
+            rows = self.db.execute(
+                "SELECT session_id, max(at) AS last, count(*) AS n, group_concat(DISTINCT version) AS versions, "
+                "(SELECT name FROM evaluations e2 WHERE e2.session_id = e.session_id ORDER BY seq DESC LIMIT 1) AS name "
+                "FROM evaluations e GROUP BY session_id ORDER BY last DESC LIMIT ?", (max(1, min(MAX_READ, limit)),)).fetchall()
+        return [{"session_id": r["session_id"], "name": r["name"], "last": r["last"], "evaluations": r["n"],
+                 "versions": (r["versions"] or "").split(",")} for r in rows]
+
     def history(self, session_id: str, limit: int = MAX_READ) -> dict:
         """The session's evaluations and moves, oldest first, each list the newest `limit` rows."""
         limit = max(1, min(MAX_READ, limit)) if isinstance(limit, int) and not isinstance(limit, bool) else MAX_READ
