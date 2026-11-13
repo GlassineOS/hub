@@ -127,7 +127,7 @@ def hub(tmp_path, monkeypatch):
     claude.chmod(0o755)
     gh, apps, shells = FakeGh(), FakeApps(), FakeShells()
     a = Agents(Library(REPO / "agents"), shells, tmp_path / "state", gh=gh, claude=str(claude), mcp_url="u", agent_token="shared",
-               clone_base=f"file://{tmp_path / 'remote'}/", apps=apps, workspace=tmp_path / "ws",
+               clone_base=f"file://{tmp_path / 'remote'}/", apps=apps, workspace=tmp_path / "ws", socket=tmp_path / "hubd.sock",
                environment={"CLAUDE_CONFIG_DIR": str(tmp_path / "claude-config")})
     feed, judge = Feed(":memory:"), Judge()
     runner = machinerun.for_hub(a, feed, lambda: {"default": judge})
@@ -250,6 +250,11 @@ def test_implement_runs_from_a_branch_through_review_rounds_to_its_bound(hub):
             assert h.decisions.open_widenings(name) == []
             assert push_allowed(apps.asked[-1]) and a.shells.killed.count(name) == round_
             assert "push" in json.loads((a.sessions / name / "session.json").read_text())["config"]["github"]
+            # the reviewed head's checks still pass, but nothing was pushed since the review: it can't go back yet
+            got = await h.request({"op": "session.request_move", "agent_token": token_of(a, name), "to": "review"})
+            assert not got["moved"] and "pr.reviewed" in got["why"]
+            await turn_ends(h, a, name)
+            assert state_of(a, name) == "fix"
             # it pushes the fix: a new head, whose checks pass. The judge moves it back to review, except in round 2, where
             # the judge isn't sure and the session asks for the move itself
             judge.done = round_ != 2
@@ -319,6 +324,9 @@ def test_the_happy_path_ends_merge_ready_waiting_for_the_merge_decision(hub):
         assert state_of(a, name) == "merge-ready" and a.machines.summary(name)["final"]
         assert "Merging is the maintainer's decision" in told(a, name)
         scope = a.scope(token_of(a, name))
+        # its call of merge_pr goes through the ask hook, which puts it to you on a card: allowing that is the merge decision
+        held = json.loads((a.sessions / name / "settings.json").read_text())["hooks"]["PreToolUse"]
+        assert any(h.get("matcher") == "mcp__glassine-hub__merge_pr" and "ask_hook.py" in h["hooks"][0]["command"] for h in held)
         assert scope["asks_first"] == ["merge_pr"] and "merge_pr" not in json.loads((a.sessions / name / "session.json").read_text())["config"]["hub_tools"]
         # the session can't merge: without a merge decision for the head, hubd refuses its merge and nothing runs
         got = await h.request({"op": "gh", "agent_token": token_of(a, name),

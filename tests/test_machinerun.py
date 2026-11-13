@@ -339,7 +339,7 @@ def test_feed_checks_map_to_the_words_requires_uses(checks, want):
 
 @pytest.mark.parametrize("review, want", [("APPROVED", "approved"), ("CHANGES_REQUESTED", "changes_requested"), ("REVIEW_REQUIRED", "none")])
 def test_feed_reviews_map_to_the_words_requires_uses(review, want):
-    assert pr_facts(None, {"review": review}, False) == {"pr.review": want}
+    assert pr_facts(None, {"review": review}, False) == {"pr.review": want, "pr.reviewed": True}
 
 
 def test_hub_facts_come_from_the_lookup_and_the_feed(tmp_path):
@@ -755,3 +755,31 @@ def test_hubd_takes_a_move_request_only_from_the_sessions_own_conversation():
     agents.conversation = "a later one"
     assert "earlier conversation" in ask("session-token")["error"]
     assert r.got == [("s", "conv", "b")]  # its own session, never the name it sent
+
+
+def test_a_hand_move_while_an_approval_looks_its_facts_up_wins(tmp_path):
+    async def go():
+        gate = asyncio.Event()
+        w = World(tmp_path)
+
+        async def slow(_name):
+            await gate.wait()
+        w.runner._refresh = slow
+        w.session("s", text=ON_REQUEST)
+        w.facts["s"] = {"pr.open": True}
+        wait = {"session_id": "id-s", "state": "a", "version": w.machines.load("s")[1].version, "exit": 2, "to": "d"}
+        task = asyncio.ensure_future(w.runner.approved("s", wait, "me"))
+        await asyncio.sleep(0)
+        w.machines.move("s", "c", by="hand", who="m")
+        gate.set()
+        with pytest.raises(machinerun.MachineError, match="has moved"):
+            await task
+        return w
+    w = run(go())
+    assert w.state("s") == "c" and [m["to"] for m in w.moves("s")] == ["c"]
+
+
+def test_a_push_since_the_review_is_a_fact():
+    assert "pr.reviewed" not in pr_facts("OPEN", {}, False)  # the feed hasn't seen it: unknown
+    assert pr_facts("OPEN", {"review": "CHANGES_REQUESTED", "checks": "passing"}, False)["pr.reviewed"] is True
+    assert pr_facts("OPEN", {"head": True, "checks": "passing"}, False)["pr.reviewed"] is False

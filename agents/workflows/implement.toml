@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # From an issue to a merge-ready pull request (spec 012, User Story 1). The session runs sandboxed: its file tools read the
 # checkout as it was, and its edits, commits and pushes happen in the shell, whose changes stay in a private layer. So "no
-# edits" in review means no push: review's grant has no `push`, and its token can't change the branch.
+# edits" in review means no push: review's grant has no `push`, so its new token can't change the branch.
 # Every state keeps the same access (locked) and checkout (new-branch): a conversation can't change either.
+# Fix goes back to review only after a push since the review (`not pr.reviewed`): the reviewed head's passing checks
+# would otherwise send it straight back, and spend a round.
 schema = 1
 name = "implement"
 initial = "work"
@@ -68,12 +70,12 @@ github = ["push"]
 to = "review"
 decided_by = "judge"
 when = "Every point of the review is addressed, and the fixes are committed and pushed."
-requires = ["pr.open", "pr.checks == pass"]
+requires = ["pr.open", "pr.checks == pass", "not pr.reviewed"]
 on = ["turn.end", "feed:pr.checks"]
 [[state.fix.exit]]
 to = "review"
 decided_by = "facts"
-requires = ["pr.open", "pr.checks == pass"]
+requires = ["pr.open", "pr.checks == pass", "not pr.reviewed"]
 move = "on-request"
 
 [state.merge-ready]
