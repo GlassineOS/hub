@@ -521,23 +521,26 @@ def _copy_of_the_library(tmp_path):
     return root
 
 
-def test_the_library_adds_the_search_only_where_it_cant_carry_a_note_out(tmp_path):
-    """An action added later with a post tool, a shell or a card to ask doesn't pick the tool up by being new."""
+def test_the_library_holds_the_search_to_the_actions_that_cant_carry_a_note_out(tmp_path):
+    """An action added later that only reads must list the tool; one with a post tool, a shell or a card to ask loads without it."""
     root = _copy_of_the_library(tmp_path)
-    action, base = (root / "actions" / "new-issue.toml").read_text(), (root / "workflows" / "new-issue.toml").read_text()
+    action = (root / "actions" / "new-issue.toml").read_text()
+    base = (root / "workflows" / "new-issue.toml").read_text().replace(', "notes_find"]', "]")
     variants = {"posts": base.replace('"submit_drafts"]', '"submit_drafts", "comment_issue"]'),
                 "writes": base.replace('"submit_drafts"]', '"submit_drafts", "create_issue"]'),
                 "shell": base.replace('tools = ["Read", "Grep", "Glob", "AskUserQuestion"]', 'tools = ["Read", "Grep", "Glob", "AskUserQuestion", "Bash"]'),
                 "plans": base.replace('"submit_drafts"]', '"submit_drafts", "plan_work"]'),
                 "asks": base + 'asks_first = ["comment_issue"]\n'}
-    for name, text in {**variants, "reads": base}.items():
-        assert text != base or name == "reads", name
+    for name, text in variants.items():
+        assert text != base and "notes_find" not in text, name
         (root / "actions" / f"x-{name}.toml").write_text(action.replace('verb = "issue"', f'verb = "{name}"'))
         (root / "workflows" / f"x-{name}.toml").write_text(text.replace('name = "new-issue"', f'name = "x-{name}"'))
     library = Library(root)
-    assert "notes_find" in library.action("x-reads")["grant"].hub_tools
     for name in variants:
         assert "notes_find" not in library.action(f"x-{name}")["grant"].hub_tools, name
+    (root / "workflows" / "new-issue.toml").write_text(base)
+    with pytest.raises(LibraryError, match="only reads has notes_find"):
+        Library(root)
 
 
 def test_the_library_refuses_a_hand_listed_search_on_an_action_that_can_post(tmp_path):
