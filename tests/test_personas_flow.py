@@ -524,3 +524,258 @@ def test_managed_only_actions_are_on_no_menu_and_need_an_owner(team):
 
 
 assert APPROVE  # the card kind every Needs-you card above is
+
+
+# --- review fixes: items, waiting starts, the cap, one per repository, drafts ----------------------------------------
+
+async def a_maintainer(h, a):
+    steward = (await a.start(a.defaults("project-steward", None, None)))["name"]
+    got = await h.request({"op": "managed.start", "agent_token": token_of(a, steward), "entry": "repo-maintainer", "item": "GlassineOS/boot"})
+    await settle(h)
+    assert got["ok"] and got["started"], got  # the organisation's prefix is taken too
+    return steward, got["name"]
+
+
+def test_an_approved_start_starts_the_item_it_was_asked_for_and_holds_for_that_item_only(team):
+    h, a, _gh, _apps, judge = team
+
+    async def go():
+        _steward, m = await a_maintainer(h, a)
+        mtok = token_of(a, m)
+        judge.yes = {"is ready"}
+        base.said(a, m)
+        await h.request({"op": "managed.start", "agent_token": mtok, "entry": "implementor", "item": "boot#7"})
+        await settle(h)
+        [card] = h.decisions.open_approvals(m)
+        assert card["scope"]["item"] == "boot#7" and "GlassineOS/boot#7" in card["scope"]["says"]
+        assert any("start implementor for GlassineOS/boot#7" in q for q in judge.asked)  # the judge was asked about that issue
+        assert (await h.request({"op": "decision.approve", "token": h.sessions.create(), "id": card["id"]}))["ok"]
+        await settle(h)
+        [child] = children(h, a, m, "implementor")
+        rec = json.loads((a.sessions / child / "session.json").read_text())
+        assert (rec["config"]["repo"], rec["config"]["number"]) == ("boot", 7)
+        # another issue is judged again, not on boot#7's word: not ready, it doesn't start
+        judge.yes, asked = set(), len(judge.asked)
+        got = await h.request({"op": "managed.start", "agent_token": mtok, "entry": "implementor", "item": "boot#8"})
+        assert not got["started"] and "when doesn't hold" in got["why"] and len(judge.asked) > asked
+        # ready, it asks again: the approval held for boot#7 only
+        judge.yes = {"is ready"}
+        h.managed._judged.clear()
+        got = await h.request({"op": "managed.start", "agent_token": mtok, "entry": "implementor", "item": "boot#8"})
+        await settle(h)
+        assert not got["started"] and "waits for an approval" in got["why"]
+        assert [c["scope"]["item"] for c in h.decisions.open_approvals(m)] == ["boot#8"]
+    asyncio.run(go())
+
+
+def test_a_start_waiting_for_approval_survives_the_owners_moves_while_its_entry_is_in_force(team):
+    h, a, _gh, _apps, judge = team
+
+    async def go():
+        _steward, m = await a_maintainer(h, a)
+        judge.yes = {"is ready"}
+        base.said(a, m)
+        await h.request({"op": "managed.start", "agent_token": token_of(a, m), "entry": "implementor", "item": "boot#7"})
+        await settle(h)
+        [card] = h.decisions.open_approvals(m)
+        judge.yes = {"has stalled"}
+        await turn_ends(h, a, m)
+        assert state_of(a, m) == "stalled" and [c["id"] for c in h.decisions.open_approvals(m)] == [card["id"]]
+    asyncio.run(go())
+
+
+def test_a_design_spike_waiting_for_your_approval_holds_implement_and_leaving_withdraws_it(team):
+    h, a, gh, _apps, judge = team
+
+    async def go():
+        name = (await a.start(a.defaults("implementor", "boot", 7)))["name"]
+        await settle(h)
+        [engineer] = children(h, a, name, "engineer")
+        judge.yes = {"design question"}
+        await turn_ends(h, a, name)
+        [card] = [c for c in h.decisions.open_approvals(name) if c["scope"].get("type") == "managed"]
+        judge.yes = set()
+        gh.branches[engineer] = [pr()]
+        await feed(h, ev("opened", "OPEN"), ev("checks", "passing"))
+        assert (await give(h, engineer, status="done", summary=["Done."]))["ok"]
+        await turn_ends(h, a, name)
+        facts = await h.machine_run.facts_now(name, *a.machines.load(name))
+        assert facts["started.design-spike"] is True and state_of(a, name) == "implement"
+        assert [c["id"] for c in h.decisions.open_approvals(name) if c["scope"].get("type") == "managed"] == [card["id"]]
+        # it waits for nothing more once the owner has left implement: the card and its report are withdrawn
+        a.machines.move(name, "review", "hand")
+        await settle(h)
+        assert [c for c in h.decisions.open_approvals(name) if c["scope"].get("type") == "managed"] == []
+        assert [r for r in a.machines.log.reports(state="open") if (r.get("action") or {}).get("entry") == "design-spike"] == []
+    asyncio.run(go())
+
+
+def test_a_start_the_cap_held_back_is_told_tried_again_and_qa_isnt_skipped_for_it(team, monkeypatch):
+    from hubd import managed as managed_mod  # noqa: PLC0415
+    h, a, gh, _apps, judge = team
+
+    async def go():
+        blocker = (await a.start(a.defaults("implementor", "boot", 8)))["name"]
+        await settle(h)
+        [held] = children(h, a, blocker, "engineer")
+        monkeypatch.setattr(managed_mod, "MAX_MANAGED", 1)
+        name = (await a.start(a.defaults("implementor", "boot", 7)))["name"]
+        await settle(h)
+        assert children(h, a, name, "engineer") == []
+        assert "engineer hasn't started: 1 managed sessions are running" in base.told(a, name)
+        a.shells.live.discard(held)  # room again
+        await turn_ends(h, a, name)
+        [engineer] = children(h, a, name, "engineer")
+        # in qa, a user-facing change whose QA engineer can't start yet waits; it isn't taken for one that needs none
+        gh.branches[engineer] = [pr()]
+        await feed(h, ev("opened", "OPEN"), ev("checks", "passing"))
+        assert (await give(h, engineer, status="done", summary=["Done."]))["ok"]
+        await turn_ends(h, a, name)
+        [reviewer] = children(h, a, name, "reviewer")
+        (a.sessions / name / IDLE_FILE).touch()
+        assert (await give(h, reviewer, verdict="pass", findings=[]))["ok"]
+        await base.at_prompt(h, a, name)
+        assert state_of(a, name) == "qa"
+        a.shells.live.add(held)  # full again
+        judge.yes = {"is user-facing: a person", "isn't user-facing"}
+        await turn_ends(h, a, name)
+        facts = await h.machine_run.facts_now(name, *a.machines.load(name))
+        assert facts["when.qa"] is True and facts["started.qa"] is False
+        assert state_of(a, name) == "qa" and children(h, a, name, "qa") == []
+    asyncio.run(go())
+
+
+def _peak(name: str, seen=()) -> int:
+    """The most managed sessions a session of this workflow has running under it at once, its own and theirs."""
+    if name in seen:
+        raise AssertionError(f"{name} manages itself")
+    d = LIBRARY.workflows[name]
+    return max([sum(m.max * (1 + _peak(m.workflow, (*seen, name))) for _sid, m in machine.managed_of(d, sid))
+                for sid, st in d.states.items() if st.initial is None] or [0])
+
+
+def test_the_default_tree_fits_the_most_managed_sessions_at_once():
+    from hubd.agents import MAX_MANAGED  # noqa: PLC0415
+    # the Steward's maintainers, each with its implementors, each with an engineer and a design spike, or a QA engineer and a designer
+    assert _peak("implementor") == 2 and _peak("repo-maintainer") == 9
+    assert _peak("project-steward") <= MAX_MANAGED
+    assert all(_peak(n) <= MAX_MANAGED for n in LIBRARY.workflows)
+
+
+def test_one_maintainer_per_repository_through_concurrent_starts_resumes_and_after_a_final_state(team):
+    h, a, _gh, _apps, _judge = team
+
+    async def go():
+        orig = a.shells.list
+
+        async def slow():
+            await asyncio.sleep(0)
+            return await orig()
+        a.shells.list = slow
+        got = await asyncio.gather(*(a.start(a.defaults("repo-maintainer", "boot", None)) for _ in range(2)), return_exceptions=True)
+        a.shells.list = orig
+        [first] = [x["name"] for x in got if isinstance(x, dict)]
+        assert any(isinstance(x, agents_module.AgentError) for x in got)
+        a.shells.live.discard(first)  # it stopped; another may start, and the stopped one can't be resumed beside it
+        second = (await a.start(a.defaults("repo-maintainer", "boot", None)))["name"]
+        with pytest.raises(agents_module.AgentError, match="One runs for each repository"):
+            await a.resume(first)
+        # one in a final state (its budget spent) does nothing more: it doesn't hold the repository
+        a.machines.move(second, "spent", "hand")
+        third = (await a.start(a.defaults("repo-maintainer", "boot", None)))["name"]
+        assert third not in (first, second)
+    asyncio.run(go())
+
+
+def test_the_engineers_pull_request_comes_before_one_the_implementor_opened(team):
+    h, a, gh, _apps, judge = team
+
+    async def go():
+        name = (await a.start(a.defaults("implementor", "boot", 7)))["name"]
+        await settle(h)
+        [engineer] = children(h, a, name, "engineer")
+        gh.branches[name] = [pr(number=40)]
+        gh.branches[engineer] = [pr(number=PR)]
+        await feed(h, ev("opened", "OPEN"))
+        await turn_ends(h, a, name)
+        assert [p["number"] for p in a.known_prs(name)] == [PR, 40]
+    asyncio.run(go())
+
+
+def test_the_drafting_states_are_named_in_the_action_and_checked_on_load(tmp_path):
+    import shutil  # noqa: PLC0415
+    lib = tmp_path / "agents"
+    shutil.copytree(REPO / "agents", lib)
+    path = lib / "actions" / "workflow-change.toml"
+    path.write_text(path.read_text().replace('propose = "propose"', 'propose = "draft"'))
+    with pytest.raises(agents_module.LibraryError, match="propose is a final state"):
+        Library(lib)
+    assert LIBRARY.actions["workflow-change"]["drafting"] == {"draft": "draft", "review": "review", "reviewer": "reviewer", "propose": "propose"}
+    d = LIBRARY.workflows["workflow-change"]
+    assert any(e.to == "stopped" and any("tokens.work" in r for r in e.requires) for e in d.states["work"].exits)
+
+
+def test_a_refused_call_counts_as_a_failed_draft_and_a_replay_that_cant_run_fails_the_draft(team):
+    h, a, gh, _apps, judge = team
+
+    async def go():
+        done, _engineer = await through_implement(h, a, gh, judge)  # a session that ran on implementor, to replay over
+        name = (await a.run("workflow-change", None, None, notes="The workflow: implementor."))["name"]
+        await settle(h)
+        tok = token_of(a, name)
+        bad = await h.request({"op": "wfdraft.make", "agent_token": tok, "name": "nosuch", "text": "x", "note": "x"})
+        assert not bad["ok"]
+        facts = await h.machine_run.facts_now(name, *a.machines.load(name))
+        assert facts["drafts.failed"] == 1 and facts["draft.ok"] is False
+        text = (REPO / "agents" / "workflows" / "implementor.toml").read_text().replace("Don't edit, commit or push yourself.", "Never edit.", 1)
+        replayed = []
+        real = h.workflows._replay
+
+        def spy(req, who):
+            replayed.append(req["session"])
+            return real(req, who)
+        h.workflows._replay = spy
+        got = await h.request({"op": "wfdraft.make", "agent_token": tok, "name": "implementor", "text": text, "note": "Shorter."})
+        assert got["passes"] and replayed == [a.session_id_of(done)] and got["replay"]["session"] == a.session_id_of(done)
+
+        def broken(req, who):
+            raise machinestore.StoreError("the log can't be read")
+        h.workflows._replay = broken
+        got = await h.request({"op": "wfdraft.make", "agent_token": tok, "name": "implementor", "text": text, "note": "Shorter."})
+        assert not got["passes"] and any("the replay couldn't run" in p["text"] for p in got["problems"])
+    asyncio.run(go())
+
+
+def test_a_re_review_needs_a_new_draft_and_a_stale_draft_goes_back_to_drafting(team):
+    h, a, _gh, _apps, _judge = team
+
+    async def go():
+        name = (await a.run("workflow-change", None, None, notes="The workflow: implement."))["name"]
+        await settle(h)
+        tok = token_of(a, name)
+        good = _implement_text(lambda t: t.replace("Your pull request waits for review.", "It waits for review.", 1))
+        assert (await h.request({"op": "wfdraft.make", "agent_token": tok, "name": "implement", "text": good, "note": "Shorter."}))["passes"]
+        assert (await h.request({"op": "session.request_move", "agent_token": tok, "to": "review"}))["moved"]
+        await settle(h)
+        [reviewer] = [n for n, _r in h.managed.children(name, a.session_id_of(name), "reviewer")]
+        (a.sessions / name / IDLE_FILE).touch()
+        assert (await give(h, reviewer, verdict="fail", findings=["Too short."]))["ok"]
+        await base.at_prompt(h, a, name)
+        assert state_of(a, name) == "draft"
+        # the same draft can't go to review again
+        assert not (await h.request({"op": "session.request_move", "agent_token": tok, "to": "review"}))["moved"]
+        again = good.replace("It waits for review.", "It waits for a review.", 1)
+        assert (await h.request({"op": "wfdraft.make", "agent_token": tok, "name": "implement", "text": again, "note": "Shorter."}))["passes"]
+        assert (await h.request({"op": "session.request_move", "agent_token": tok, "to": "review"}))["moved"]
+        await settle(h)
+        [_old, reviewer2] = [n for n, _r in h.managed.children(name, a.session_id_of(name), "reviewer")]
+        # a version saved meanwhile: the draft is stale, so it isn't proposed and the author drafts again
+        h.workflows.save("implement", "org", _implement_text(lambda t: t.replace("Your pull request waits for review.", "It waits.", 1)), 0, "me", "Mine.")
+        (a.sessions / name / IDLE_FILE).touch()
+        assert (await give(h, reviewer2, verdict="pass", findings=[]))["ok"]
+        await base.at_prompt(h, a, name)
+        assert [d for d in h.decisions.list() if d["kind"] == "workflow.change"] == []
+        assert state_of(a, name) == "draft" and "v1 was saved since" in base.told(a, name)
+        facts = await h.machine_run.facts_now(name, *a.machines.load(name))
+        assert facts["draft.ok"] is False
+    asyncio.run(go())

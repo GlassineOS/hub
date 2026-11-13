@@ -29,18 +29,6 @@ checkout = "new-branch"
 github = ["read", "issues.comment", "pr.write"]
 # Held from the start, so merge-ready asks no confirm: a call shows a card, and allowing it is the merge decision.
 asks_first = ["merge_pr"]
-# A design question no accepted board answers: a design session (011) on GlassineOS/ui, as this session's. While one runs
-# this round, implement moves on only once its pull request is merged; merging it stays the maintainer's.
-[[state.work.manages]]
-name = "design-spike"
-persona = "designer"
-workflow = "design"
-start = "auto"
-when = "The work meets a design question that no accepted design board answers."
-max = 1
-reuse = "resume"
-on_exit = "stop"
-with = ["issue", "owner.summary"]
 
 [state.implement]
 parent = "work"
@@ -60,6 +48,19 @@ reuse = "resume"
 on_exit = "stop"
 with = ["issue", "pr"]
 returns = { status = ["done", "blocked"], summary = "text-list" }
+# A design question no accepted board answers: a design session (011) on GlassineOS/ui, as this session's. While one runs
+# this round, or its start waits for your approval, implement moves on only once its pull request is merged; it lives in
+# implement only, so it stops when the work moves on; merging it stays the maintainer's.
+[[state.implement.manages]]
+name = "design-spike"
+persona = "designer"
+workflow = "design"
+start = "auto"
+when = "The work meets a design question that no accepted design board answers."
+max = 1
+reuse = "resume"
+on_exit = "stop"
+with = ["issue", "owner.summary"]
 [[state.implement.exit]]
 to = "review"
 decided_by = "facts"
@@ -145,13 +146,13 @@ decided_by = "facts"
 requires = ["managed.qa.verdict == pass", "pr.checks == pass", "not started.designer or managed.designer.verdict == pass"]
 on = ["hub:managed.return", "feed:pr.checks", "turn.end"]
 # Both exits to merge-ready wait for a designer started on request, as for the QA engineer.
-# No QA engineer started this round: the judge, asked on the same turn end as the QA entry's `when`, finds it isn't user-facing.
+# Not user-facing: the judge said this round that the QA entry's `when` doesn't hold. A QA start that didn't happen (the most
+# managed sessions at once were running) isn't that: it is tried again, and the work waits for it.
 [[state.qa.exit]]
 to = "merge-ready"
-decided_by = "judge"
-when = "The change isn't user-facing: nothing in it is something a person sees or uses."
-requires = ["not started.qa", "pr.checks == pass", "not started.designer or managed.designer.verdict == pass"]
-on = ["turn.end"]
+decided_by = "facts"
+requires = ["not when.qa", "pr.checks == pass", "not started.designer or managed.designer.verdict == pass"]
+on = ["turn.end", "feed:pr.checks", "hub:managed.return"]
 
 [state.fix]
 parent = "work"

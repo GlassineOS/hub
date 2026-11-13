@@ -11,3 +11,10 @@ prompt = "workflow-change"
 models = ["sonnet", "opus"]
 efforts = ["medium", "high"]
 plan = false
+# The states and the entry the hub acts on (hubd/drafts.py): the author drafts in `draft`; entering `review` marks the newest
+# draft as the one `reviewer` reads; entering `propose` (a final state) puts the newest passing draft in Needs you.
+[drafting]
+draft = "draft"
+review = "review"
+reviewer = "reviewer"
+propose = "propose"

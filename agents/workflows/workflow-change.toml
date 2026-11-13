@@ -4,7 +4,8 @@
 # saves nothing and makes no decision. A draft that grants a sensitive item goes to a code reviewer first. When the draft is
 # ready the hub, not the author, proposes it: entering `propose` puts the newest passing draft in Needs you as a Workflow
 # change, the same card the editor's proposal makes. Only the maintainer saves it. No state has a tool that saves.
-# Three failed drafts in a round send the author to ask the maintainer (report_up), at most twice.
+# Three failed drafts in a round send the author to ask the maintainer (report_up), at most twice. The states the hub acts on
+# are named in the action (actions/workflow-change.toml, `drafting`), and the library checks them on load.
 schema = 1
 name = "workflow-change"
 initial = "work"
@@ -16,6 +17,12 @@ personas = ["workflow-author"]
 tools = ["AskUserQuestion"]
 hub_tools = ["read_workflow", "read_draft", "docs_search"]
 checkout = false
+# A bound on the whole run, whatever loops it goes through.
+[[state.work.exit]]
+to = "stopped"
+decided_by = "counter"
+requires = ["tokens.work >= 3000000"]
+on = ["turn.end"]
 
 [state.draft]
 parent = "work"
@@ -38,7 +45,8 @@ on = ["tool.after", "turn.end"]
 [[state.draft.exit]]
 to = "review"
 decided_by = "facts"
-requires = ["draft.ok", "draft.sensitive"]
+# a reviewed draft that failed goes back to review only as a new draft
+requires = ["draft.ok", "draft.sensitive", "not draft.reviewed"]
 move = "on-request"
 [[state.draft.exit]]
 to = "propose"
@@ -89,7 +97,8 @@ on = ["hub:managed.return"]
 parent = "work"
 final = true
 instructions = """The hub has put your newest passing draft in Needs you as a Workflow change, with your note. The maintainer \
-saves it, asks for changes or discards it. Change nothing; answer questions if you are asked."""
+saves it, asks for changes or discards it. Change nothing; answer questions if you are asked. If the hub couldn't propose it \
+(a newer version was saved since it was drafted), you are moved back to drafting with the reason."""
 
 [state.stopped]
 parent = "work"
