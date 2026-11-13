@@ -52,11 +52,13 @@ def test_library_is_complete():
         for persona in action["personas"]:
             assert LIBRARY.text("personas", persona)
         assert not {"Write", "Edit", "Agent"} & set(action["grant"].tools)
-        # A plain shell would walk around the tool server and the host's policy. These two get the sandbox.
-        assert ("Bash" in action["grant"].tools) == (action["id"] in ("pr-review", "pr-security-audit"))
+        # A plain shell would walk around the tool server and the host's policy. These get the sandbox.
+        assert ("Bash" in action["grant"].tools) == (action["id"] in ("pr-review", "pr-security-audit", "implement"))
         assert "merge_pr" not in action["grant"].hub_tools
         if action["grant"].access == "full":
             assert action["grant"].checkout in ("pr-branch", "new-branch") and action["grant"].permission_mode == "auto"
+        elif action["id"] == "implement":  # sandboxed on its own branch, which it pushes with its own token (012 FR-031)
+            assert action["grant"].checkout == "new-branch" and "push" in action["grant"].github
         else:
             assert action["grant"].access == "locked" and action["grant"].checkout in ("pr", "default", False)
 
@@ -129,7 +131,7 @@ def test_every_persona_has_a_family_and_every_action_a_result():
                      "research": "knowledge-research", "design": "design"}
     assert verbs[("run", "fix")] == "run-fix"  # fix on a run, beside fix on a pull request
     # The rest stay in the library, under "More…". Those that post or open a PR say so.
-    handed = {"pr-security-audit": "comment", "issue-docs": "pr", "notes-compact": "notes", "notes-sweep": "drafts"}  # the last two open from Notes
+    handed = {"pr-security-audit": "comment", "issue-docs": "pr", "implement": "pr", "notes-compact": "notes", "notes-sweep": "drafts"}  # the last two open from Notes
     assert all(a["result"] == handed.get(a["id"], "none") for a in LIBRARY.actions.values() if not a.get("verb"))
     assert LIBRARY.action("pr-fix-checks")["personas"] == ["ci-fixer", "engineer"]
 
@@ -2173,9 +2175,10 @@ def test_a_summary_reads_only_started_sessions_and_only_what_they_said(tmp_path,
 def test_the_steward_is_told_real_actions_in_the_right_groups():
     text = LIBRARY.text("personas", "steward")
     locked, full = text.split("These are full sessions")
+    named = lambda name, words: re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", words) is not None  # noqa: E731: implement isn't issue-implement
     for action in LIBRARY.actions.values():
-        if action["id"] in text:
-            assert (action["id"] in locked) == (action["grant"].access != "full"), action["id"]
+        if named(action["id"], text):
+            assert named(action["id"], locked) == (action["grant"].access != "full"), action["id"]
     assert all(n in LIBRARY.actions for n in ("pr-review", "issue-triage", "run-slow", "pr-fix-checks", "issue-docs"))
 
 

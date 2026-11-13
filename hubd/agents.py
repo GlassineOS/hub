@@ -361,7 +361,10 @@ class Library:
             raise LibraryError(f"{where}: workflow {name!r} isn't one of workflows/*.toml")
         definition = self.workflows[name]
         action["definition"] = self.workflow_texts[name]  # what a session's instance runs on
-        return machine.effective(definition, definition.initial)
+        first = definition.initial
+        while definition.states[first].initial is not None:  # a parent starts in its first state, down to a leaf
+            first = definition.states[first].initial
+        return machine.effective(definition, first)
 
     def states_of(self, action: dict) -> list[dict]:
         """The action as a session has it in each state of its workflow it can be in (a session is always in a leaf): the action

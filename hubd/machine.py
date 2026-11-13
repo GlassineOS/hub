@@ -598,6 +598,11 @@ def _is_parent(d: Definition, state_id: str) -> bool:
     return d.states[state_id].initial is not None
 
 
+def _is_pr_open(req: Requirement) -> bool:
+    """A requirement that holds only while a pull request is open: `pr.open` alone, not one side of an `or`."""
+    return len(req.terms) == 1 and req.terms[0] in (Term("pr.open", "==", True), Term("pr.open", "!=", False))
+
+
 def _counter_states(req: Requirement) -> set[str]:
     return {t.name.split(".")[1] for t in req.terms if t.name.split(".")[0] in COUNTERS and t.name.count(".") == 1}
 
@@ -671,7 +676,7 @@ def check(d: Definition) -> list[Finding]:
                 problem(where, "decided by facts, so it needs `requires`")
             if e.decided_by == "counter" and not any(_counter_states(r) for r in reqs):
                 problem(where, "decided by a counter, so a `requires` tests rounds., time. or tokens.")
-            if e.decided_by != "hand" and not e.on:
+            if e.decided_by != "hand" and e.move == "auto" and not e.on:
                 problem(where, "names no signal in `on`, so it is never tried")
 
     # Reachability over states: entering a state enters its ancestors and its first-child chain.
@@ -708,6 +713,20 @@ def check(d: Definition) -> list[Finding]:
         else:
             pending += _sccs(keep, edges)
 
+    # FR-012: a session that may push can't leave the states that let it without a pull request. An exit from a state whose
+    # effective grant has `push` to one whose grant hasn't (a final state aside) needs a `requires` that is `pr.open` alone.
+    # A move by hand is the maintainer's and checks no `requires`, so it isn't held to this.
+    pushing = {sid for sid in leaves if "push" in effective(d, sid).github}
+    for sid in sorted(pushing):
+        for owner, place, e in _owners(d, sid):
+            if e.decided_by == "hand" or any(_is_pr_open(r) for r in parsed.get((owner, place), ())):
+                continue
+            targets = [lf for lf in leaves if e.to in ancestors(d, lf)] if e.enter == "history" else [_leaf(d, e.to)]
+            if any(t not in pushing and not d.states[t].final for t in targets):
+                where = f"state.{owner}.exit.{place}"
+                if not any(f.where == where and "pr.open" in f.text for f in found):
+                    problem(where, "leaves the states that may push without a pull request: it requires pr.open (FR-012)")
+
     # Shadowed exits: an earlier exit decided by facts alone, moving on its own, whose requirements are among a later
     # exit's and whose signals cover the later one's, always moves first.
     # A parent's exit counts only when it is shadowed in every state under it: a child may override it on purpose.
@@ -715,7 +734,7 @@ def check(d: Definition) -> list[Finding]:
     for sid in leaves:
         tried = _owners(d, sid)
         for j, (owner_j, place_j, later) in enumerate(tried):
-            if later.decided_by == "hand":
+            if later.decided_by == "hand" or later.move == "on-request":  # tried only by hand or on a request, never after those
                 continue
             req_j = {frozenset(r.terms) for r in parsed.get((owner_j, place_j), ())}
             for owner_i, place_i, earlier in tried[:j]:

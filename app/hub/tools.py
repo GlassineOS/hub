@@ -109,6 +109,15 @@ def build(github: GitHub, docs: DocSearch) -> MCPServer:
         """End a go, by its id, as it's no longer needed or no longer safe. Any session may: that only narrows."""
         return await github.decision_end(id, why)
 
+    @mcp.tool(annotations=WRITE)
+    @_says_why
+    async def request_move(to: str) -> dict:
+        """Ask your workflow to move you to the state `to` by one of your current state's exits that move on request. It moves
+        only if that exit's requirements hold (facts the hub checks itself, such as an open pull request with passing checks),
+        and an exit that needs an approval waits for it; the answer says which, or why not. You get the new state's
+        instructions at your next turn."""
+        return await github.request_move(to)
+
     @mcp.tool(annotations=READ)
     @_says_why
     async def roadmap() -> dict:

@@ -598,3 +598,95 @@ def test_the_hubs_confirms_dont_use_up_a_sessions_room_to_ask(world):
         decisions.widen_request({"session": name, "session_id": a.session_id_of(name), "pending": "p", "from": "a", "to": "b",
                                  "change": {}, "adds": {"hub_tools": ["x"]}, "sensitive": {}, "resumes": ""}, "the hub's")
     assert decisions.request("merge", {"repo": "boot", "number": 1, "head": "a" * 40, "session": name}, "please", name)["state"] == "requested"
+
+
+# ---- approvals: an exit whose `approve` asks the maintainer (012 FR-025, FR-052) --------------------
+
+def approvals(a, effects):
+    from hubd.machinerun import Runner
+    runner = Runner(a.machines)
+    runner.on_blocked = effects.ask_approval
+    effects.approve_move = runner.approved
+    return runner
+
+
+def wait_of(a, name, exit_=0, to="write", approve="me"):
+    inst = a.machines.load(name)[1]
+    return {"session_id": a.session_id_of(name), "state": inst.state, "version": inst.version, "exit": exit_, "to": to,
+            "approve": approve, "checks": []}
+
+
+def test_an_exit_waiting_for_approval_is_one_card_whose_yes_moves_the_session(world):
+    a, decisions, effects = world
+    approvals(a, effects)
+
+    async def go():
+        name = await start(a)
+        effects.ask_approval(name, wait_of(a, name))
+        effects.ask_approval(name, wait_of(a, name))  # the next signal finds it again: still one card
+        card, = decisions.open_approvals(name)
+        assert decisions.open_widenings(name) == []
+        assert card["kind"] == "machine.approve" and card["scope"]["level"] == "you" and card["scope"]["to"] == "write"
+        assert decisions.view(card)["says"] == f"Workflow approval for {name}: research to write, which its workflow leaves to you"
+        for refused in (lambda: decisions.approve(card["id"]), lambda: decisions.deny(card["id"]),
+                        lambda: effects.answer(card["id"], True, "me")):
+            with pytest.raises(DecisionError):
+                refused()
+        ended = await effects.answer_approval(card["id"], True, "me", "go on")
+        await effects.drain()
+        return name, ended
+    name, ended = run(go())
+    assert ended["state"] == "ended" and ended["approved"] and ended["why_ended"] == "approved: the session moved"
+    assert a.machines.load(name)[1].state == "write" and told(a, name).startswith(f"{LABEL} Workflow: now in write.")
+    assert [(m["to"], m["who"]) for m in a.machines.log.history(a.session_id_of(name))["moves"]] == [("write", "me")]
+
+
+def test_a_level_above_the_session_asks_you_for_now_and_a_no_keeps_it_there(world):
+    a, decisions, effects = world
+    approvals(a, effects)
+
+    async def go():
+        name = await start(a)
+        effects.ask_approval(name, wait_of(a, name, approve="steward"))
+        card, = decisions.open_approvals(name)
+        assert card["scope"]["level"] == "the Steward" and "no the Steward session yet, so it asks you" in card["why"]
+        return name, await effects.answer_approval(card["id"], False, "me", "not yet")
+    name, ended = run(go())
+    assert ended["why_ended"] == "you said no: not yet" and a.machines.load(name)[1].state == "research"
+
+
+def test_an_approval_card_ends_when_the_session_moves_another_way(world):
+    a, decisions, effects = world
+    approvals(a, effects)
+
+    async def go():
+        name = await start(a)
+        effects.ask_approval(name, wait_of(a, name))
+        card, = decisions.open_approvals(name)
+        a.machines.move(name, "write", "hand")
+        await effects.drain()
+        assert decisions.open_approvals(name) == []
+        with pytest.raises(DecisionError, match="isn't waiting"):
+            await effects.answer_approval(card["id"], True, "me")
+        return decisions._get(card["id"])
+    assert run(go())["why_ended"] == "the session moved before it was answered"
+
+
+def test_an_approval_for_a_session_that_moved_since_isnt_applied(world):
+    a, decisions, effects = world
+    approvals(a, effects)
+
+    async def go():
+        name = await start(a)
+        wait = wait_of(a, name)
+        effects.ask_approval(name, wait)
+        card, = decisions.open_approvals(name)
+        a.machines._watchers.clear()  # a move nothing watched, so its card stayed up
+        a.machines.move(name, "wide", "hand")
+        a.machines.confirm_move(name, a.machines.load(name)[1].pending["id"], "me")
+        with pytest.raises(DecisionError, match="has moved"):
+            await effects.answer_approval(card["id"], True, "me")
+        return name, decisions._get(card["id"])
+    name, card = run(go())
+    assert card["why_ended"] == "not applied: the session has moved since that was asked"
+    assert a.machines.load(name)[1].state == "wide"
