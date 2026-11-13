@@ -1698,10 +1698,18 @@ async def serve(hubd: Hubd, path: Path) -> None:
     copying = asyncio.ensure_future(_keep_copies(hubd))
     pinging = asyncio.ensure_future(_ping(hubd))
     designing = asyncio.ensure_future(_watch_designs(hubd))
+    # systemctl stop sends SIGTERM: close the server so the cleanup below runs and no renderer outlives hubd.
+    asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, server.close)
     try:
         async with server:
-            await server.serve_forever()
+            try:
+                await server.serve_forever()
+            except asyncio.CancelledError:
+                if server.is_serving():  # cancelled from outside, not stopped by SIGTERM
+                    raise
+                log.info("stopping on SIGTERM")
     finally:
+        asyncio.get_running_loop().remove_signal_handler(signal.SIGTERM)
         designing.cancel()
         if hubd.designs:
             for name in hubd.designs.running():
