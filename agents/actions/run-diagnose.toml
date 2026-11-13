@@ -10,6 +10,3 @@ personas = ["ci-diagnostician"]
 prompt = "run-diagnose"
 models = ["sonnet", "opus"]
 efforts = ["low", "medium", "high"]
-tools = ["Skill", "AskUserQuestion"]
-hub_tools = ["plan_work", "get_run", "get_run_log", "submit_result", "docs_search", "work_search"]
-checkout = false

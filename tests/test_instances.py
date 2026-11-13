@@ -201,13 +201,16 @@ def test_a_tampered_record_isnt_read(change):
         Instance.from_json(raw)
 
 
-def test_every_action_gives_a_one_state_definition_with_its_grant():
+def test_every_action_runs_on_its_workflows_own_text():
     for action in LIBRARY.actions.values():
-        d = machine.parse(definition_for(action))
+        text = definition_for(action)
+        assert text == (LIBRARY.root / "workflows" / f"{action['workflow']}.toml").read_text()
+        d = machine.parse(text)
         g = machine.effective(d, "session")
-        assert d.states["session"].final and g.tools == tuple(action["tools"]) and g.hub_tools == tuple(action["hub_tools"])
-        assert g.checkout == action.get("checkout", False) and g.access == action.get("access", "locked")
-        assert new(definition_for(action)).state == "session"
+        assert d.states["session"].final and g.tools == action["grant"].tools and g.checkout == action["grant"].checkout
+        assert g.access == action["grant"].access and g.permission_mode == action["grant"].permission_mode
+        assert g == action["grant"]
+        assert new(text).state == "session" and new(text).version == version_of(text)
 
 
 # --- the log --------------------------------------------------------------------------------------
@@ -450,9 +453,15 @@ def test_the_ended_marker_is_the_agents_own():
     assert instances.ENDED == ENDED_FILE
 
 
-def test_the_grant_carries_every_github_capability_of_the_action():
-    action = {**LIBRARY.actions["pr-review"], "github": ["read", "pr.read", "runs.read"]}
+def test_the_grant_carries_every_github_capability_of_the_workflow(tmp_path):
+    import shutil
+    root = tmp_path / "agents"
+    shutil.copytree(LIBRARY.root, root)
+    path = root / "workflows" / "pr-review.toml"
+    path.write_text(path.read_text().replace('checkout = "pr"', 'checkout = "pr"\ngithub = ["read", "pr.read", "runs.read"]'))
+    action = Library(root).action("pr-review")
     assert machine.effective(machine.parse(definition_for(action)), "session").github == ("read", "pr.read", "runs.read")
+    assert action["grant"].github == ("read", "pr.read", "runs.read")
 
 
 def test_every_github_capability_maps_to_permissions():

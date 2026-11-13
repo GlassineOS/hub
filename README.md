@@ -50,7 +50,7 @@ gh project create --owner GlassineOS --title "GlassineOS roadmap"
 ## Agents
 
 Each shell the hub starts has `GLASSINE_HUB_MCP_URL` and `GLASSINE_HUB_MCP_TOKEN` set. (Managed
-sessions get a token of their own instead, good only for the tools their action lists, and only
+sessions get a token of their own instead, good only for the tools their action's workflow grants, and only
 until the session ends.) The
 `.mcp.json` here picks them up for work in this repository; for other directories:
 
@@ -91,11 +91,14 @@ each touches, and the briefing, which you can edit), the run (the session, its a
 result. Every Launch is a record in hubd, and the session shows it as its origin. The session runs in
 tmux and opens below the item, or in Sessions; "Send to background" lets it go on without you, and its
 asks and result come to Needs you. Actions with `plan = false` skip the planner: their plan is the action's
-own. The library is in `agents/`: actions, personas, prompts and a plugin with skills. Each
-action names its short `verb` and its `result` type; each persona has a display name, initials and
+own. The library is in `agents/`: actions, workflows, personas, prompts and a plugin with skills. Each
+action names its short `verb` and its `result` type, and its `workflow` (`agents/workflows/<name>.toml`, by default the one of its
+own name) holds what it may do: each action's is one state whose grant has its tools, hub tools, `asks_first`, access,
+permission mode, checkout and `all_repos`. hubd won't start on a workflow the checks refuse, nor on an action that sets any of
+those itself. Each persona has a display name, initials and
 one of five families in `agents/personas/families.toml`, and hubd won't start if one is missing.
 
-- **Review, Security audit, Triage, Diagnose and the other read-and-report actions** are locked: only the tools the action lists.
+- **Review, Security audit, Triage, Diagnose and the other read-and-report actions** are locked: only the tools the action's workflow grants.
   Review, Triage and Diagnose hand in a result (a review, labels, findings) that you post or apply from its card.
 - **Implement, Fix checks, Open a session** are full Claude Code, with your rights. They start
   in the workspace with a worktree in `work/<session>/<repo>`, on its own `agent/<session>` branch. They don't run on a fork's pull request. Ending one with work

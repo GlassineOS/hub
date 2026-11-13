@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Managed agent sessions: one click on an object, one Claude Code session working on it.
 
-An action (agents/actions/*.toml) says what an agent may do. A short planner run reads the
-object and fills in the rest of the invocation, and the session then starts in tmux.
+An action (agents/actions/*.toml) says what an agent is for, and its workflow (agents/workflows/*.toml, by
+default the one of the action's name) what it may do: the grant of the workflow's first state. A short planner
+run reads the object and fills in the rest of the invocation, and the session then starts in tmux.
 
 The planner reads text that outsiders can write, so its output isn't trusted: the schema
-offers only what the action lists, `validate` checks that again in code, and the command
+offers only what the action's grant lists, `validate` checks that again in code, and the command
 line is built here from the validated fields. The advanced form goes through the same check.
 
 Two kinds of session:
@@ -13,7 +14,7 @@ Two kinds of session:
 - Locked (the default): read and report. Only the listed tools, run from a fixed directory
   with the checkout added by --add-dir and with only the user's settings, so a pull request
   can't bring its own CLAUDE.md, .mcp.json or hooks.
-- Full (access = "full"): the Claude Code you'd start yourself, from the workspace, with the
+- Full (the grant's access = "full"): the Claude Code you'd start yourself, from the workspace, with the
   checkout added. It works on a branch and can push, so it never runs on a fork's pull
   request, whose tree is an outsider's. A full session that ends with work not on GitHub
   keeps its checkout.
@@ -35,11 +36,12 @@ import time
 import tomllib
 import unicodedata
 import uuid
+from dataclasses import fields
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
-from . import auth, shell_hook, usage
+from . import auth, machine, shell_hook, usage
 from .apps import CAPABILITIES, READ_CAPABILITIES, AppError, permissions_for
 from .asks import FOREVER, HOOK_MARGIN, QUESTION_TOOL, WAIT
 from .codemap import UNREADABLE, CodeMaps, MapError
@@ -214,8 +216,13 @@ def _size_of(path: Path) -> int:
     return total
 
 
+def _grant(action: dict) -> machine.Grant:
+    """What a session of the action may do: its workflow's first state's effective grant, as the Library loaded it."""
+    return action["grant"]
+
+
 def _full(action: dict) -> bool:
-    return action.get("access") == "full"
+    return _grant(action).access == "full"
 
 
 def _home(config: dict, action: dict) -> str | None:
@@ -229,9 +236,9 @@ def _may_search_notes(action: dict) -> bool:
     tool that writes or posts (`comment_issue`, `comment_pr`, `create_issue` ...), nothing that asks first, and not plan_work,
     which is read-only but whose words reach a planner as yours once you press Start. What it reads leaves only in what it
     hands in, which you read before anything happens (SECURITY.md, Notes)."""
-    return (not _full(action) and isinstance(action.get("hub_tools"), list) and not action.get("asks_first")
-            and set(action.get("tools", ())) <= READING_TOOLS
-            and not set(action["hub_tools"]) - (READS_ONLY - {"plan_work"}) - {"submit_drafts"})
+    grant = _grant(action)
+    return (not _full(action) and not grant.asks_first and set(grant.tools) <= READING_TOOLS
+            and not set(grant.hub_tools) - (READS_ONLY - {"plan_work"}) - {"submit_drafts"})
 
 
 def _session_scope(name: str, config: dict, full: bool, all_repos: bool = False, asks_first=(), instance=None) -> dict:
@@ -303,22 +310,56 @@ MAX_PERSONA_NAME = 40
 
 
 class LibraryError(Exception):
-    """The action and persona files don't fit together. hubd won't start on them."""
+    """The action, workflow and persona files don't fit together. hubd won't start on them."""
+
+
+_GRANT_KEYS = tuple(f.name for f in fields(machine.Grant))
 
 
 class Library:
     def __init__(self, root: Path):
         self.root = root
+        loaded = self._workflows(root / "workflows")
+        self.workflows = {name: definition for name, (definition, _text) in loaded.items()}
+        self.workflow_texts = {name: text for name, (_definition, text) in loaded.items()}  # what an instance keeps and hashes
         self.actions = {p.stem: {**tomllib.loads(p.read_text()), "id": p.stem}
                         for p in sorted((root / "actions").glob("*.toml"))}
-        # The notes are kept for agents to read (SECURITY.md, Notes), so a locked action that only reads gets the search. One that
-        # can post, send or ask first doesn't: nothing technical stops a steered session putting a note in public. A full
-        # session has no list to add it to: hubd lets it use any tool.
         for action in self.actions.values():
-            if NOTES_TOOL not in action.get("hub_tools", ()) and _may_search_notes(action):
-                action["hub_tools"] = [*action["hub_tools"], NOTES_TOOL]
+            action["grant"] = self._grant_of(action)
         self.families = tomllib.loads((root / "personas" / "families.toml").read_text())
         self._check()
+
+    @staticmethod
+    def _workflows(folder: Path) -> dict[str, tuple[machine.Definition, str]]:
+        """Each definition with the text of its file, refused whole on any problem the checks find. Marks only show."""
+        found = {}
+        for path in sorted(folder.glob("*.toml")):
+            text = path.read_text()
+            try:
+                definition = machine.parse(text)
+            except machine.DefinitionError as e:
+                raise LibraryError(f"workflows/{path.name}: {e}") from None
+            if definition.name != path.stem:
+                raise LibraryError(f"workflows/{path.name}: its name is {definition.name!r}, not the file's")
+            if problems := [f for f in machine.check(definition) if f.kind == "problem"]:
+                raise LibraryError(f"workflows/{path.name}: " + "; ".join(f"{f.where}: {f.text}" for f in problems))
+            found[path.stem] = (definition, text)
+        return found
+
+    def _grant_of(self, action: dict) -> machine.Grant:
+        """The grant of the action's workflow as a session starts in it. The action itself holds no rights, so they are said once."""
+        where = f"actions/{action['id']}.toml"
+        if held := [k for k in _GRANT_KEYS if k in action]:
+            raise LibraryError(f"{where}: {', '.join(held)} belong to its workflow's grant, not the action")
+        name = action.setdefault("workflow", action["id"])
+        if not isinstance(name, str) or name not in self.workflows:
+            raise LibraryError(f"{where}: workflow {name!r} isn't one of workflows/*.toml")
+        definition = self.workflows[name]
+        action["definition"] = self.workflow_texts[name]  # what a session's instance runs on
+        # Nothing moves a session from one state to another yet, so it would keep the first one's rights for good.
+        if len(definition.states) != 1:
+            raise LibraryError(f"{where}: workflow {name} has more than one state, and a session stays in its first")
+        return machine.effective(definition, definition.initial)
 
     def _check(self) -> None:
         """A new persona can't ship without its badge, nor an action without its result type."""
@@ -348,18 +389,22 @@ class Library:
             if not isinstance(result_tools, list) or set(result_tools) - set(APPLY_TOOLS.get(action["result"], ())):
                 raise LibraryError(f"actions/{action['id']}.toml: result_tools for a {action['result']} result are among "
                                    f"{', '.join(APPLY_TOOLS.get(action['result'], ())) or 'none'}")
-            if NOTES_TOOL in action.get("hub_tools", ()) and not _may_search_notes(action):  # listed by hand, on an action that can post
-                raise LibraryError(f"actions/{action['id']}.toml: {NOTES_TOOL} is for a locked action that only reads: no shell, no write "
+            # The notes are kept for agents to read (SECURITY.md, Notes), so a locked action that only reads has the search. One that
+            # can post, send or ask first doesn't: nothing technical stops a steered session putting a note in public. A full
+            # session has no list to put it on: hubd lets it use any tool. A grant that changes either way doesn't load.
+            if NOTES_TOOL in _grant(action).hub_tools and not _may_search_notes(action):
+                raise LibraryError(f"workflows/{action['workflow']}.toml: {NOTES_TOOL} is for a locked action that only reads: no shell, no write "
                                    "or post tool, no plan_work, nothing that asks first")
-            github = action.get("github")
-            if github is not None and (not isinstance(github, list) or not all(isinstance(c, str) for c in github)
-                                       or set(github) - set(CAPABILITIES) or _full(action) or "Bash" not in action["tools"]):
+            if NOTES_TOOL not in _grant(action).hub_tools and _may_search_notes(action):
+                raise LibraryError(f"workflows/{action['workflow']}.toml: a locked action that only reads has {NOTES_TOOL} in its hub_tools")
+            github = _grant(action).github
+            if github and (set(github) - set(CAPABILITIES) or _full(action) or "Bash" not in _grant(action).tools):
                 # A full session uses the host's login and is guarded, not limited; without a shell a token has no use.
-                raise LibraryError(f"actions/{action['id']}.toml: github is a list of GitHub capabilities "
+                raise LibraryError(f"workflows/{action['workflow']}.toml: github is a list of GitHub capabilities "
                                    f"({', '.join(CAPABILITIES)}), for a locked action with Bash")
             home = action.get("repository")
             if home is not None and not (isinstance(home, str) and _REPO_RE.fullmatch(home) and ".." not in home and home.lstrip(".") != "work"
-                                         and _full(action) and action.get("checkout") == "new-branch"
+                                         and _full(action) and _grant(action).checkout == "new-branch"
                                          and action["object"] not in (*NO_REPO_OBJECTS, "repo")):
                 # Its worktree is a new branch there whatever the item's repository: only a full session on an item opens one.
                 raise LibraryError(f"actions/{action['id']}.toml: repository is a repository name, for a full session on an item "
@@ -446,7 +491,7 @@ def validate(library: Library, config) -> dict:
         chosen = config.get(field)
         if not isinstance(chosen, list) or not all(isinstance(t, str) for t in chosen):
             raise AgentError(f"{field} must be a list")
-        beyond = set(chosen) - set(action[field])
+        beyond = set(chosen) - set(getattr(_grant(action), field))
         if beyond:
             raise AgentError(f"{action['title']} doesn't allow {', '.join(sorted(beyond))}")
     brief = config.get("brief", "")
@@ -466,7 +511,7 @@ def validate(library: Library, config) -> dict:
     if not isinstance(also, list):
         raise AgentError("also_repos must be a list")
     if also:
-        if not _full(action) or not action.get("checkout"):
+        if not _full(action) or not _grant(action).checkout:
             raise AgentError(f"{action['title']} works on one repository")
         if not isinstance(also, list) or not all(isinstance(n, str) for n in also) or len(also) > MAX_ALSO or len(set(also)) != len(also):
             raise AgentError(f"also_repos must be a list of at most {MAX_ALSO} different repositories")
@@ -494,13 +539,13 @@ def validate(library: Library, config) -> dict:
                          f"{MAX_STEP} characters each")
     github = config.get("github")
     if github is not None:  # absent: no GitHub token, as before there were any
-        if "github" not in action:  # even an empty list is a token
+        if not _grant(action).github:  # an empty list in the config is still a token, for an action whose grant has one
             raise AgentError(f"{action['title']} gives no GitHub token")
         if not isinstance(github, list) or not all(isinstance(c, str) for c in github):
             raise AgentError("github must be a list of capabilities")
         if unknown := sorted(set(github) - set(CAPABILITIES)):
             raise AgentError(f"unknown GitHub capabilities: {', '.join(unknown)}")
-        if beyond := sorted(set(github) - set(action.get("github", ()))):
+        if beyond := sorted(set(github) - set(_grant(action).github)):
             raise AgentError(f"{action['title']} doesn't allow GitHub {', '.join(beyond)}")
         if "Bash" not in config["tools"]:
             raise AgentError("a GitHub token is for a session with a shell")
@@ -520,7 +565,7 @@ def with_also(config: dict, numbers) -> dict:
 
 def _mode(action: dict) -> str:
     """The permission mode a session of this action runs with."""
-    return action["permission_mode"] if _full(action) else "dontAsk"
+    return _grant(action).permission_mode if _full(action) else "dontAsk"
 
 
 def _small_file(path: Path, limit: int = 512) -> str | None:
@@ -621,7 +666,7 @@ def _covers(action: dict, config: dict, repo, number) -> list[dict]:
         raise AgentError("covers names one item twice")
     if len(items) > 1 and (not _full(action) or action["object"] != "issue"):
         raise AgentError(f"{action['title']} works on one item")
-    if any(i["repo"] != repo for i in items) and action.get("checkout") != "new-branch":
+    if any(i["repo"] != repo for i in items) and _grant(action).checkout != "new-branch":
         raise AgentError(f"{action['title']} doesn't open a pull request of its own, so it covers items of one repository")
     return items
 
@@ -716,8 +761,10 @@ class Agents:
     def action(self, action_id) -> dict:
         """Everything the advanced form may choose from."""
         a = self.library.action(action_id)
-        return {**{k: a[k] for k in ("id", "object", "title", "summary", "ceiling", "models", "efforts", "tools", "hub_tools")},
-                "full": _full(a), "checkout": a["checkout"], "skills": self.library.skills(),
+        grant = _grant(a)
+        return {**{k: a[k] for k in ("id", "object", "title", "summary", "ceiling", "models", "efforts")},
+                "tools": list(grant.tools), "hub_tools": list(grant.hub_tools),
+                "full": _full(a), "checkout": grant.checkout, "skills": self.library.skills(),
                 "personas": [{"id": p, "text": self.library.text("personas", p)} for p in a["personas"]]}
 
     def _usual_model(self, action: dict) -> str:
@@ -745,8 +792,8 @@ class Agents:
         action = self.library.action(action_id)
         return validate(self.library, {
             "action": action["id"], "repo": repo, "number": number, "persona": action["personas"][0],
-            "model": self._usual_model(action), "effort": action["efforts"][0], "tools": action["tools"],
-            "hub_tools": action["hub_tools"], "brief": "", **({"github": action["github"]} if "github" in action else {})})
+            "model": self._usual_model(action), "effort": action["efforts"][0], "tools": list(_grant(action).tools),
+            "hub_tools": list(_grant(action).hub_tools), "brief": "", **({"github": list(_grant(action).github)} if _grant(action).github else {})})
 
     def _prepare_home(self) -> Path:
         self.home.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -787,8 +834,9 @@ class Agents:
                                                  record.get("session_id"))
 
     def _asks_first(self, config: dict) -> list[str]:
-        """Read from the action, as it is now, like _all_repos."""
-        return list(self.library.actions.get(config.get("action"), {}).get("asks_first", ()))
+        """Read from the action's grant, as it is now, like _all_repos."""
+        action = self.library.actions.get(config.get("action"))
+        return list(_grant(action).asks_first) if action else []
 
     def tell(self, session: str, text: str, made: float = float("inf")) -> None:
         """For the session's next turn, through its UserPromptSubmit hook. Not for a later session
@@ -803,8 +851,9 @@ class Agents:
                 f.write(text + "\n")
 
     def _all_repos(self, config: dict) -> bool:
-        """Read from the action, as it is now. An action that's gone has no such right."""
-        return self.library.actions.get(config.get("action"), {}).get("all_repos") is True
+        """Read from the action's grant, as it is now. An action that's gone has no such right."""
+        action = self.library.actions.get(config.get("action"))
+        return bool(action) and _grant(action).all_repos is True
 
     def _session_token(self, directory: Path, config: dict, full: bool, instance=None) -> None:
         token = secrets.token_urlsafe(32)
@@ -994,10 +1043,10 @@ class Agents:
 
     def _checkouts(self, name: str, config: dict, action: dict) -> list[tuple[str, Path]]:
         """Each repository a session gets, and where. The first is the object's, or the action's own repository (_home)."""
-        if not action.get("checkout"):
+        if not _grant(action).checkout:
             return []
         # A pull request under review may be an outsider's tree: not in the workspace, which you trust.
-        base = self.sessions / name / "checkout" if action["checkout"] in _DETACHED else self.work / name
+        base = self.sessions / name / "checkout" if _grant(action).checkout in _DETACHED else self.work / name
         return [(r, base / r.lstrip(".")) for r in [_home(config, action), *config.get("also_repos", [])]]
 
     async def _main(self, repo: str) -> Path:
@@ -1405,7 +1454,7 @@ class Agents:
         checkout = checkouts[0][1] if checkouts else None
         argv = self._argv(config, action, directory, checkout, "<session id>", self.home / "hub-mcp.json")
         worktree = {"pr": "detached at the pull request's head", "default": "detached at the default branch", "pr-branch": "the pull request's branch",
-                    "new-branch": f"new branch agent/{directory.name}", False: "none"}[action["checkout"]]
+                    "new-branch": f"new branch agent/{directory.name}", False: "none"}[_grant(action).checkout]
         return {"command": shlex.join(argv), "prompt": self._prompt(config, action, checkout, checkouts[1:]),
                 "name": directory.name, "worktree": worktree, "checkouts": [str(p) for _, p in checkouts],
                 "cwd": str(self.workspace if _full(action) else self.home)}
@@ -1502,10 +1551,10 @@ class Agents:
             checkouts = self._checkouts(name, config, action)
             beside = None
             # A fix of a run starts from the branch it ran on, looked up before anything is fetched.
-            from_run = await self._run_branch(config["repo"], config["number"]) if checkouts and action["object"] == "run" and action["checkout"] == "new-branch" else None
+            from_run = await self._run_branch(config["repo"], config["number"]) if checkouts and action["object"] == "run" and _grant(action).checkout == "new-branch" else None
             for index, (repo, into) in enumerate(checkouts):
                 # What else a session works on starts from that repository's default branch.
-                placed = await self._checkout(action["checkout"] if index == 0 else "new-branch", repo, config["number"], name, into,
+                placed = await self._checkout(_grant(action).checkout if index == 0 else "new-branch", repo, config["number"], name, into,
                                               start=from_run if index == 0 else None)
                 if index == 0:
                     beside = placed
@@ -1584,13 +1633,14 @@ class Agents:
         if action is None:
             return config  # validate says so
         if action.get("singleton"):
-            return {**config, "model": self._usual_model(action), "tools": action["tools"], "hub_tools": action["hub_tools"]}
-        narrowed = {**config, **{field: [t for t in config[field] if t in action[field]] if isinstance(config.get(field), list) else config.get(field)
+            return {**config, "model": self._usual_model(action), "tools": list(_grant(action).tools), "hub_tools": list(_grant(action).hub_tools)}
+        grant = _grant(action)
+        narrowed = {**config, **{field: [t for t in config[field] if t in getattr(grant, field)] if isinstance(config.get(field), list) else config.get(field)
                                  for field in ("tools", "hub_tools")}}
-        if "github" not in action:
+        if not grant.github:
             narrowed.pop("github", None)
         elif isinstance(config.get("github"), list):
-            narrowed["github"] = [c for c in config["github"] if c in action["github"]]
+            narrowed["github"] = [c for c in config["github"] if c in grant.github]
         return narrowed
 
     async def resume(self, name) -> dict:
@@ -2080,8 +2130,8 @@ class Agents:
         """Where a session pushes agent/<name>: what was checked out for it, the first item's repository (or the action's own,
         _home) and also_repos. A covered item in another repository has no checkout, so no branch of the session's is there to find."""
         config = record["config"]
-        action = self.library.actions.get(config.get("action")) or {}
-        if record.get("object") == "pr" or action.get("checkout") != "new-branch" or not config.get("repo"):
+        action = self.library.actions.get(config.get("action"))
+        if record.get("object") == "pr" or not action or _grant(action).checkout != "new-branch" or not config.get("repo"):
             return []
         return list(dict.fromkeys([_home(config, action), *config.get("also_repos", ())]))
 
@@ -2445,7 +2495,7 @@ class Agents:
 
     def _worktree_word(self, name: str, config: dict) -> str:
         action = self.library.actions.get(config.get("action"))
-        if action is None or not action.get("checkout"):
+        if action is None or not _grant(action).checkout:
             return "none"
         return "kept" if len(self._present(name)) >= len(self._checkouts(name, config, action)) else "removed"
 
@@ -2500,7 +2550,7 @@ class Agents:
         seen = {r["id"] for r in rows}
         for record in self.history.records():
             if record["session_id"] not in seen and record["config"].get("action") in self.library.actions:
-                checkout = self.library.actions[record["config"]["action"]].get("checkout")
+                checkout = _grant(self.library.actions[record["config"]["action"]]).checkout
                 rows.append(self._past_row(record, {"you": "ended", "interrupted": "interrupted"}.get(record.get("how"), "finished"), record["ended"], "removed" if checkout else "none"))
         for r in rows:
             r["running_again"] = r["id"] in running
@@ -2568,7 +2618,7 @@ class Agents:
         try:
             for index, (repo, into) in enumerate(self._checkouts(name, config, action)):
                 if not (into / ".git").exists():
-                    kind = action["checkout"] if index == 0 else "new-branch"
+                    kind = _grant(action).checkout if index == 0 else "new-branch"
                     await self._checkout("resume-branch" if kind == "new-branch" else kind, repo, config["number"], name, into, restoring=True)
             if restored:  # the files a session runs from went with its folder
                 checkouts = self._checkouts(name, config, action)
