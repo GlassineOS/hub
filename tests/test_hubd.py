@@ -767,14 +767,10 @@ def test_device_status_is_by_list(tmp_path, fake_gh):
 
 
 def test_no_action_lists_the_tools_a_reports_text_could_steer():
-    import tomllib
-    from pathlib import Path
-    actions = list((Path(__file__).resolve().parents[1] / "agents" / "actions").glob("*.toml"))
-    assert actions
-    for path in actions:
-        action = tomllib.loads(path.read_text())
+    assert LIBRARY.actions
+    for action in LIBRARY.actions.values():
         for tool in ("device_status", "decision_check", "decision_request", "decision_end"):
-            assert tool not in action.get("hub_tools", []) and tool not in action.get("asks_first", []), f"{path.name} lists {tool}"
+            assert tool not in action["grant"].hub_tools and tool not in action["grant"].asks_first, f"{action['id']} lists {tool}"
 
 
 # --- what a device report can't do to the view -------------------------------------------------
@@ -1098,9 +1094,9 @@ class ResultAgents:
     def __init__(self):
         self.sessions = {"pr-review-boot-5": ("pr-review", "pr", 5, "reviewer"), "issue-triage-boot-7": ("issue-triage", "issue", 7, "triager"),
                          "issue-implement-boot-9": ("issue-implement", "issue", 9, "engineer")}
-        self.tools = {"review-token": ("pr-review-boot-5", RESULT_LIBRARY.actions["pr-review"]["hub_tools"]),
+        self.tools = {"review-token": ("pr-review-boot-5", RESULT_LIBRARY.actions["pr-review"]["grant"].hub_tools),
                       "old-review-token": ("pr-review-boot-5", ["get_pr", "review_pr"]),  # started before results
-                      "triage-token": ("issue-triage-boot-7", RESULT_LIBRARY.actions["issue-triage"]["hub_tools"]),
+                      "triage-token": ("issue-triage-boot-7", RESULT_LIBRARY.actions["issue-triage"]["grant"].hub_tools),
                       "full-token": ("issue-implement-boot-9", None)}
         self.ended = set()
 
@@ -1334,7 +1330,7 @@ def test_a_restart_while_applying_puts_it_back_with_a_note(tmp_path):
 
 def test_findings_and_reports_arent_applied_and_a_report_is_kept(result_hub):
     result_hub.agents.sessions["run-diagnose-boot-3"] = ("run-diagnose", "run", 3, "ci-diagnostician")
-    result_hub.agents.tools["diag-token"] = ("run-diagnose-boot-3", RESULT_LIBRARY.actions["run-diagnose"]["hub_tools"])
+    result_hub.agents.tools["diag-token"] = ("run-diagnose-boot-3", RESULT_LIBRARY.actions["run-diagnose"]["grant"].hub_tools)
     rid = _submit(result_hub, "diag-token", "findings", {"cause": "A flaky mirror.", "fix": "Retry the fetch.", "run": "boot#3"})["id"]
     assert "start a fix session" in run(result_hub.request({"op": "result.apply", "token": "login", "id": rid}))["error"]
     assert "only a report" in run(result_hub.request({"op": "result.keep", "token": "login", "id": rid}))["error"]
@@ -1382,7 +1378,7 @@ def test_a_result_names_a_run_by_its_11_digit_id():
 
 def test_read_report_gives_a_kept_report_only_to_a_session_started_with_it_pinned(result_hub):
     """008 FR-008, SECURITY.md: a report can hold private text, so only the session it was pinned for reads it."""
-    research = RESULT_LIBRARY.actions["knowledge-research"]["hub_tools"]
+    research = RESULT_LIBRARY.actions["knowledge-research"]["grant"].hub_tools
     assert "read_report" in research
 
     def report(session, question):

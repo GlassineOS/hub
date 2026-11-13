@@ -39,7 +39,6 @@ log = logging.getLogger("hubd.instances")
 SCHEMA = 1
 FILE = "machine.json"
 MAX_TRAIL = 50                  # moves that can be rolled back, newest last
-ONE_STATE = "session"           # the state of a definition made from an action
 ENDED = "ended"                 # the marker a session's terminal leaves when Claude ends (agents.ENDED_FILE)
 OPS = ("machine.get", "machine.history", "machine.move", "machine.confirm", "machine.rollback", "machine.pause")
 
@@ -56,11 +55,9 @@ def version_of(text: str) -> str:
 
 
 def definition_for(action: dict) -> str:
-    """The definition text a session of this action runs on: one final state whose grant is the action's own fields."""
-    keys = [f.name for f in dataclasses.fields(Grant)]
-    grant = Grant(**{k: tuple(action[k]) if isinstance(action[k], list) else action[k] for k in keys if k in action})
-    state = machine.State(ONE_STATE, personas=tuple(action.get("personas", ())), final=True, grant=grant)
-    return machine.emit(Definition(action["id"], ONE_STATE, {ONE_STATE: state}))
+    """The definition text a session of this action runs on: its workflow's file as the library loaded it. The version is
+    the hash of that text, so it changes only when the file does."""
+    return action["definition"]
 
 
 _parsed: dict[str, Definition] = {}

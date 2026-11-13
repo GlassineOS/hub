@@ -766,7 +766,7 @@ def test_the_tool_asks_hubd_with_the_sessions_own_token_and_only_reads():
 
 def test_only_the_steward_has_the_tool():
     library = agents_module.Library(Path(__file__).resolve().parents[1] / "agents")
-    having = {a["id"] for a in library.actions.values() if "changes_since" in a["hub_tools"]}
+    having = {a["id"] for a in library.actions.values() if "changes_since" in a["grant"].hub_tools}
     assert having == {"project-steward"}
     # Not among what a session may use with no card: it isn't read-only for a session that could be misled by what it says.
     assert "changes_since" not in agents_module.READS_ONLY

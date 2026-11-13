@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+schema = 1
+name = "pr-session"
+initial = "session"
+
+[state.session]
+final = true
+[state.session.grant]
+access = "full"
+permission_mode = "auto"
+checkout = "pr-branch"

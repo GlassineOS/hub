@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from hubd import seeds as seeds_module
+from hubd import machine, seeds as seeds_module
 from hubd.agents import AgentError, Agents, Library, REPOS_FOLDER
 from hubd.seeds import SeedError, Seeds, make_root, remove_tree, snapshot
 from hubd.server import Hubd
@@ -308,20 +308,21 @@ def test_a_locked_session_can_reach_its_snapshots_and_a_full_one_needs_no_list(t
     a = Agents(LIBRARY, Shells(default_cwd=str(tmp_path)), tmp_path / "state", agent_token="t")
     directory = tmp_path / "state" / "sessions" / "s"
     config = {"model": "opus", "effort": "high", "tools": ["Read"], "hub_tools": ["request_repository"]}
-    argv = a._argv(config, {}, directory, tmp_path / "checkout", "id", tmp_path / "mcp.json")
+    locked = {"grant": machine.Grant()}
+    argv = a._argv(config, locked, directory, tmp_path / "checkout", "id", tmp_path / "mcp.json")
     assert argv[argv.index("--add-dir") + 1:] == [str(tmp_path / "checkout"), str(directory / REPOS_FOLDER)]
-    without = a._argv({**config, "hub_tools": []}, {}, directory, None, "id", tmp_path / "mcp.json")
+    without = a._argv({**config, "hub_tools": []}, locked, directory, None, "id", tmp_path / "mcp.json")
     assert "--add-dir" not in without
 
 
 def test_everyone_with_file_tools_can_ask_and_the_rest_read_through_tools():
     for action in LIBRARY.actions.values():
-        if action.get("access") == "full":
+        if action["grant"].access == "full":
             continue
-        if "Read" in action["tools"]:
-            assert "request_repository" in action["hub_tools"], action["id"]
+        if "Read" in action["grant"].tools:
+            assert "request_repository" in action["grant"].hub_tools, action["id"]
     steward = LIBRARY.action("project-steward")
-    assert {"list_repo_files", "read_repo_file"} <= set(steward["hub_tools"]) and "request_repository" not in steward["hub_tools"]
+    assert {"list_repo_files", "read_repo_file"} <= set(steward["grant"].hub_tools) and "request_repository" not in steward["grant"].hub_tools
 
 
 def test_planners_read_copies_and_the_drafter_doesnt(tmp_path):
