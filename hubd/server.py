@@ -29,7 +29,7 @@ from .effects import Effects
 from . import feed as feedlib
 from .designs import TICK as DESIGN_TICK, DesignError, Designs, Tools as DesignTools
 from .agents import MAX_ALSO, MAX_NOTES, NOTES_TOOL, PLANNER_MODELS, RESULTS as RESULTS_WORDS, SCREENS, AgentError, Agents, Library, _full, load_environment, screen_of, validate, with_also
-from .apps import AppError, Apps, is_write
+from .apps import AppError, Apps, Creation, is_write
 from .asks import GRANT_LIFE, MAX_INPUT, TOOL_PREFIX, AskError, Asks
 from .ghpolicy import ORG, Refused, check, is_merge, merge_request
 from .ghrun import Gh
@@ -144,7 +144,8 @@ class Hubd:
                  decision_store: decisions.Decisions | None = None, notes_search: notes.Notes | None = None,
                  change_feed: feedlib.Feed | None = None, ping_seconds: float = feedlib.DEFAULT_PING,
                  usage_allowance: float | None = None, result_store: results.Results | None = None, designs: Designs | None = None,
-                 machine_run: machinerun.Runner | None = None):
+                 machine_run: machinerun.Runner | None = None, app_creation: Creation | None = None):
+        self.app_creation = app_creation  # FR-032: a persona's App made through GitHub's manifest flow, by a login only
         self.machine_run = machine_run  # 012 FR-013: signals to the workflow instances; None tries no exit on its own
         self.designs = designs
         self.results = result_store
@@ -248,9 +249,11 @@ class Hubd:
             return await self.design_tool(op, req)
         if op in REPO_OPS:
             return await self.repo_request(op, req)
-        if op in ("shell.list", "shell.new", "shell.kill") or op.startswith(("agent.", "ask.", "work.", "decision.", "notes.", "interaction.", "usage.", "result.", "machine.")):
+        if op in ("shell.list", "shell.new", "shell.kill") or op.startswith(("agent.", "ask.", "work.", "decision.", "notes.", "interaction.", "usage.", "result.", "machine.", "apps.")):
             if not self.sessions.check(req.get("token")):
                 return {"ok": False, "error": "login required", "denied": True}
+            if op.startswith("apps."):
+                return await self.apps_request(op, req)
             if op.startswith("interaction."):
                 return await self.interaction_request(op, req)
             if op.startswith("machine."):  # 012 FR-026: the maintainer's moves, logged as theirs
@@ -299,6 +302,20 @@ class Hubd:
             if kept and req.get("discard") is True:
                 reply["ignored"] = await self.agents.ignored_in(req.get("name"))
             return reply
+        return {"ok": False, "error": f"unknown request: {op}"}
+
+    # --- the personas' GitHub Apps (FR-032) -------------------------------------------------
+    async def apps_request(self, op: str, req: dict) -> dict:
+        """Behind the login check, and never on the tool server: GitHub's code turns into the App's private key here, which
+        stays beside apps.toml. The page only relays the manifest out and the code back."""
+        if self.app_creation is None:
+            return {"ok": False, "error": "GitHub Apps aren't set up"}
+        if op == "apps.list":
+            return {"ok": True, "apps": self.app_creation.list()}
+        if op == "apps.manifest":
+            return {"ok": True, **self.app_creation.manifest(req.get("persona"), req.get("origin"), req.get("replace") is True)}
+        if op == "apps.convert":
+            return {"ok": True, **await self.app_creation.convert(req.get("code"), req.get("state"))}
         return {"ok": False, "error": f"unknown request: {op}"}
 
     # --- the change feed ---------------------------------------------------------------
@@ -1823,7 +1840,8 @@ def main(argv=None) -> int:
                     decision_store=decisions.Decisions(state_dir() / "decisions"), notes_search=notes.Notes(agents.workspace),
                     designs=Designs(agents, DesignTools(cache_dir(), Path(__file__).resolve().parents[1] / "app" / "ui.ref")),
                     machine_run=machinerun.for_hub(agents, change_feed, lambda: judgelib.judges(
-                        judgelib.load(config_dir() / judgelib.CONFIG_FILE), claude=claude, home=state_dir() / "judge", environment=keep)))
+                        judgelib.load(config_dir() / judgelib.CONFIG_FILE), claude=claude, home=state_dir() / "judge", environment=keep)),
+                    app_creation=Creation(apps, agents.library))
         await serve(hubd, a.socket)
 
     try:

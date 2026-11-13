@@ -192,12 +192,13 @@ A new restriction has to name the threat it stops, or be listed here as a guard.
   one. Its rights are checked again against its action's workflow as it is now (for a session that can move, its current
   state's grant), and it refuses if they don't
   fit. The conversation itself comes back as it was, including any outsider's text it had read.
-- **Personas on GitHub.** A persona with a GitHub App (`apps.toml`, made by
-  `deploy/create-app.py`) makes its writes as that App: GitHub limits it to the App's
+- **Personas on GitHub.** A persona with a GitHub App (`apps.toml`, made from the GitHub Apps page or by
+  `deploy/create-app.py`; see "Creating a persona's App") makes its writes as that App: GitHub limits it to the App's
   permissions and the repositories it's installed on, and its name shows it's an agent. Its
   reads stay on the hub's login. hubd chooses the App from the session's tool token, and if it
   can't get a token the write fails rather than going out as you. Private keys stay on this
-  computer, 0600. Full sessions and personas without an App post as you. The reviewer's App can
+  computer, 0600. A full session's hub tool writes go out as its persona's App too; the `gh` in its own shell uses your login.
+  Personas without an App post as you. The reviewer's App can
   approve, so if an approval ever counts toward merging, a misled reviewer could give one.
 - **Results are handed in, then applied by you.** A session's own token can hand in one result of its action's type
   (`submit_result`), in a closed shape with every string capped; a labels result names only the items the session was started on.
@@ -227,6 +228,39 @@ A new restriction has to name the threat it stops, or be listed here as a guard.
 - **Workflow inputs.** Whoever reaches the socket can start a workflow with inputs of their
   choice. Workflows must not put `inputs.*` directly into a `run:` step, or those inputs
   become code running with the repository's `GITHUB_TOKEN`.
+
+## Creating a persona's App
+
+- **GitHub's manifest flow, with one confirm on GitHub.** The GitHub Apps page asks hubd for a persona's manifest and posts it,
+  as a plain form from your browser, to GitHub's new-App form for the organization; you press Create there. The page's CSP lets a
+  form go to `https://github.com` and nowhere else, and the page refuses a manifest URL that isn't GitHub's. The manifest is
+  private, with no webhook and no events, and asks for what the persona's workflows need: the union, over every state its
+  sessions can be in, of the state's `github` capabilities, the hub tools it may write through (its list and what it may ask
+  for; a full session may call any) and its actions' result tools, as `permissions_for` turns them into permissions, plus the
+  reads. The organization's project board has no capability name, so the board tools add `organization_projects` themselves.
+  A tool that writes to GitHub can't ship without a place in that table (`tests/test_apps.py`).
+- **The code becomes the key only in hubd.** GitHub sends you back to the hub's `/apps/callback` with a code and a state. That
+  redirect is a cross-site navigation, so the login cookie isn't sent: the callback asks for no login and only moves the two
+  into the page's fragment. The page then posts them, with your login, to hubd, which exchanges the code
+  (`/app-manifests/{code}/conversions`) and writes the private key, 0600, to `apps/<persona>-<app id>.pem` beside `apps.toml`
+  (a 0700 folder), then `apps.toml` whole, 0600, renamed into place, so a reader sees the old table or the new one. The page
+  gets back the App's name, id and install link, never the key, the client secret or the webhook secret.
+- **The nonce.** The state is a random nonce hubd made with the manifest. It is good once, for 15 minutes, for the persona it
+  was made for, and both ends need a login. It isn't tied to the login token: GitHub has made the App before it sends you back,
+  and signing in again on the way mustn't strand it. It is used up before the exchange, so a failed or refused try needs a new
+  one, and the error says to delete the App GitHub made. The persona comes from
+  the nonce, never from the request. A persona that has an App is refused at the manifest and again before the exchange,
+  unless you chose Replace; the old App stays on GitHub until you delete it there, and its key file stays until you remove it.
+- **The redirect URL is the hub's own.** GitHub's code alone turns into the App's private key, for an hour, so the manifest's
+  `redirect_url` is the origin your browser reached the hub at (the same-origin check has already matched it to an allowed
+  Host) with a fixed path. hubd takes only a bare origin, https, or http on this computer.
+- **What this doesn't protect against.** The code passes through the app on its way to hubd, and through the address bar
+  and the app's access log on the way in. Something in control of the app at that moment could exchange it first and take the
+  key; hubd's exchange then fails with GitHub's refusal, which is your sign to delete that App on GitHub. Installing the App
+  is GitHub's page, where you choose all repositories or some. Whether an App is installed is shown only once hubd holds a
+  token from it.
+- **Logins only.** The `apps.` requests need a login token; a session's tool token or the general one is refused, and the
+  tool server has no tool for them.
 
 ## Workflow moves
 
