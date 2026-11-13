@@ -61,14 +61,19 @@ class FakeShells:
 
 
 class FakeGh:
+    """Comments as GitHub keeps them: on an item, by the App whose token posted them."""
     def __init__(self):
-        self.runs, self.edits, self.edit_fails, self.next_id = [], [], False, 100
+        self.runs, self.edits, self.edit_fails, self.next_id, self.comments = [], [], False, 100, {}
 
     async def run(self, argv, stdin=None, timeout=None, token=None):
         self.runs.append((list(argv), stdin, token))
         if argv[0] == "api":
-            return {"code": 0, "stdout": json.dumps({"node_id": f"IC_{argv[1].rsplit('/', 1)[1]}"}), "stderr": ""}
+            cid = argv[1].rsplit("/", 1)[1]
+            repo, number, by = self.comments.get(cid, ("gone", 0, None))
+            return {"code": 0, "stdout": json.dumps({"node_id": f"IC_{cid}", "issue_url": f"https://api.github.com/repos/GlassineOS/{repo}/issues/{number}",
+                                                     "user": {"login": by}}), "stderr": ""}
         self.next_id += 1
+        self.comments[str(self.next_id)] = (argv[4].split("/")[1], int(argv[2]), f"{token.removeprefix('token-of-')}[bot]" if token else "the-login")
         kind = "pull" if argv[0] == "pr" else "issues"
         return {"code": 0, "stdout": f"https://github.com/GlassineOS/{argv[4].split('/')[1]}/{kind}/{argv[2]}#issuecomment-{self.next_id}\n", "stderr": ""}
 
@@ -81,12 +86,15 @@ class FakeGh:
 
 class FakeApps:
     def __init__(self):
-        self.broken = False
+        self.broken, self.none = False, False
 
     async def token(self, persona, repositories=None, permissions=None):
         if self.broken:
             raise AppError("no installation")
-        return f"token-of-{persona}"
+        return None if self.none else f"token-of-{persona}"
+
+    def posts_as(self, persona):
+        return None if self.none else f"{persona}[bot]"
 
 
 @pytest.fixture
@@ -157,6 +165,42 @@ def test_a_persona_whose_app_fails_posts_nothing_rather_than_as_the_login(world)
         await lines.drain()
     asyncio.run(go())
     assert gh.runs == []
+
+
+def test_a_persona_without_an_app_posts_nothing_rather_than_as_the_login(world):
+    a, gh, apps, lines, _slept = world
+    apps.none = True
+
+    async def go():
+        name = (await a.start(a.defaults(ACTION, "boot", 7)))["name"]
+        a.machines.move(name, "done", "hand")
+        await lines.drain()
+    asyncio.run(go())
+    assert gh.runs == []
+
+
+def test_a_kept_comment_is_edited_only_while_it_is_the_apps_own_on_that_item(world):
+    """The kept id is read back before an edit: a comment by another author, or one on another item, is left alone, and a
+    new one is posted."""
+    a, gh, _apps, lines, _slept = world
+
+    async def go():
+        name = (await a.start(a.defaults(ACTION, "boot", 7)))["name"]
+        a.machines.move(name, "done", "hand")
+        await lines.drain()
+        [cid] = list(gh.comments)
+        gh.comments[cid] = ("boot", 7, "someone[bot]")  # not the App's own any more
+        a.machines.move(name, "look", "hand")
+        await lines.drain()
+        kept = json.loads((a.sessions / name / "status-line.json").read_text())
+        gh.comments[str(kept["id"])] = ("boot", 8, gh.comments[str(kept["id"])][2])  # on another item
+        lines._posted.clear()
+        a.machines.move(name, "done", "hand")
+        await lines.drain()
+        return name
+    asyncio.run(go())
+    assert gh.edits == []
+    assert [c[0] for c in comments(gh)] == [["issue", "comment", "7"]] * 3
 
 
 @pytest.mark.parametrize("world", [""], indirect=True)

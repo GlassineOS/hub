@@ -2,12 +2,13 @@
 """The status line (spec 012, FR-025): with `status = true` in its workflow, a session's moves post one line to its pull
 request, or its issue while it has none: "Workflow: now in <path> (<why>)".
 
-- **Who posts it**: hubd, as the session's persona's GitHub App, as an applied result goes out (server.py, apply): the
-  App's token when the persona has one, the hub's own login when it has none. An App that can't give a token posts
-  nothing; it never falls back to the login.
+- **Who posts it**: hubd, as the session's persona's GitHub App, and only so. A persona without an App, or whose App can't
+  give a token, posts nothing: nothing goes out as the person's own login without them pressing a button.
 - **One comment per item**: the first move posts it, and each later move edits that comment (through the comment's node
-  id and the `comment_edit` document) for as long as the target is the same item and persona. If the edit fails, because
-  the comment was deleted say, a new one is posted. Posts are at most one a THROTTLE per session; edits aren't held.
+  id and the `comment_edit` document) while the target is the same item. Before an edit, the comment is read back: it must
+  be on that issue or pull request and written by the persona's App now. If not (deleted, another item, another App
+  after the persona changed), the kept id is forgotten and a new comment is posted. Posts are at most one a THROTTLE per
+  session; edits aren't held.
 - **What it says** is the definition's own words: the path of states, and the exit's question for a judge's move or the
   facts it requires, "by hand", "rolled back" or "moved back by the hub". Never a judge's evidence, never a transcript.
 - **Moves come in bursts**: they are posted one at a time per session, and only the newest line of a burst goes out.
@@ -133,10 +134,15 @@ class StatusLines:
         except AppError as e:  # never as the login instead
             log.warning("%s: its status line wasn't posted: %s", name, e)
             return None
+        if not token:  # no App: nothing goes out as the login
+            log.info("%s: no status line, its persona %s has no GitHub App", name, persona)
+            return None
+        author = self.apps.posts_as(persona) if hasattr(self.apps, "posts_as") else None
         kept = self._kept(name)
-        if kept and (kept.get("kind"), kept.get("repo"), kept.get("number"), kept.get("persona")) == (kind, repo, number, persona):
-            if await self._edit(repo, kept["id"], text, token):
+        if kept and (kept.get("kind"), kept.get("repo"), kept.get("number")) == (kind, repo, number):
+            if await self._edit(repo, number, kept["id"], text, token, author):
                 return {"edited": kept["id"]}
+            self._forget(name)
         wait = self.throttle - (self._clock() - self._posted.get(name, -self.throttle))
         if wait > 0:
             await self._sleep(wait)
@@ -151,11 +157,18 @@ class StatusLines:
         self._keep(name, {"kind": kind, "repo": repo, "number": number, "id": int(found.group(1)), "persona": persona})
         return {"posted": int(found.group(1))}
 
-    async def _edit(self, repo: str, comment_id: int, text: str, token) -> bool:
+    async def _edit(self, repo: str, number: int, comment_id: int, text: str, token, author: str | None) -> bool:
+        """The kept comment, edited, if it is still the one: on this item, and written by this App."""
         try:
             got = await self.gh.run(["api", f"repos/{ORG}/{repo}/issues/comments/{int(comment_id)}"])
-            node = json.loads(got["stdout"]).get("node_id") if got.get("code") == 0 else None
-            if not isinstance(node, str):
+            comment = json.loads(got["stdout"]) if got.get("code") == 0 else {}
+            node = comment.get("node_id")
+            on = str(comment.get("issue_url") or "").lower().endswith(f"/repos/{ORG}/{repo}/issues/{int(number)}".lower())
+            via = comment.get("performed_via_github_app") or {}
+            by = (comment.get("user") or {}).get("login")
+            mine = author is not None and (by == author or (isinstance(via, dict) and via.get("slug") and f"{via['slug']}[bot]" == author))
+            if not isinstance(node, str) or not on or not mine:
+                log.info("the status line comment %s in %s isn't the App's own on #%s any more: posting a new one", comment_id, repo, number)
                 return False
             done = await self.gh.graphql("comment_edit", {"commentId": node, "body": text}, token)
             return done.get("code") == 0 and "errors" not in json.loads(done.get("stdout") or "{}")
@@ -169,6 +182,9 @@ class StatusLines:
         except (OSError, ValueError):
             return None
         return kept if isinstance(kept, dict) and isinstance(kept.get("id"), int) else None
+
+    def _forget(self, name: str) -> None:
+        (self.agents.sessions / name / FILE).unlink(missing_ok=True)
 
     def _keep(self, name: str, value: dict) -> None:
         path = self.agents.sessions / name / FILE
