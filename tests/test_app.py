@@ -3102,3 +3102,15 @@ def test_no_tool_moves_a_machine(hubd, github):
         for path in ("/api/machines/s", "/api/machines/s/move"):
             assert c.post(path, json={"to": "x"}, headers={"authorization": "Bearer agent"}).status_code in (401, 404)
     assert not [cmd for cmd in hubd.commands if str(cmd[0]).startswith("machine.")]
+
+
+def test_the_confirm_declines_or_leaves_the_move_waiting():
+    """012 FR-024: Decline answers no; Not now and Esc close the confirm and the move keeps waiting. A session pill shows
+    only the current state, with the whole path in its label."""
+    script = _app_js()
+    confirm = _component(script, "WidenConfirm")
+    assert 'onClick=${() => onAnswer(false)}>Decline</button>' in confirm and 'onClick=${onClose}>Not now</button>' in confirm
+    assert "onClose=${onClose}" in confirm  # Esc
+    assert "Cancel" not in confirm
+    chip = _component(script, "SessionChip")
+    assert "<${StateChip} machine=${a.machine} ended=${a.ended} short />" in chip and "chip.said" in chip
