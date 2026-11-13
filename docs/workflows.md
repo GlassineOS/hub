@@ -177,6 +177,12 @@ version was saved since the one the editor opened. Only a login saves. A change 
 card, with the outline diff (state by state, exit by exit), the text diff, the checks, the sensitive marks and a replay: Approve
 saves it, and waits while a problem stands; Ask for changes and Discard end it.
 
+On a wide screen the editor's Diagram view and the session's machine panel draw the statechart: parents as boxes around
+their states, the start dot, H where an exit goes back to where it was, a double border for a final state, and each exit
+labelled with how it decides (≈ a judge, = facts, # a counter, dotted by hand). The panel marks where the session is and the
+exits its machine took, in the shapes and in a line of words under it; the outline beside it is its text, and stands alone on
+a phone. The layout is worked out the same way every time, from the definition alone.
+
 The editor's Text view is the definition. Its outline and inspector read what hubd parsed; ↑ and ↓ on a state's exits write the
 text again through hubd, which drops its comments.
 

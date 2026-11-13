@@ -2855,6 +2855,7 @@ def test_yellow_marks_only_what_waits_for_the_maintainer():
         ".icard.dense[data-waits] .icard-line .ask-kind",
         ".needs-open[data-waits], .needs-open[data-waits]:hover:not(:disabled)",
         ".il-btn.wfwaits",  # "Show the workflow" while its machine waits for your confirm, below
+        '.wf-dg .wf-dg-ed[data-at="pending"] .wf-dg-lab rect',  # the diagram's exit whose move waits for your confirm
     ]), yellow
     assert 'chip && chip.kind === "waits" && !machineOpen ? " wfwaits" : ""' in script
     for calm in (".ask.steward .ask-head", ".ask.done .ask-head", ".ask.calm .ask-head"):

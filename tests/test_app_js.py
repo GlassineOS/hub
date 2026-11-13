@@ -300,3 +300,35 @@ def test_approve_says_why_it_waits_while_a_problem_stands():
 def test_a_text_diff_line_says_its_sign_in_words():
     got = run(["textDiffLines"], """return textDiffLines([{ kind: "hunk", text: "@@ -1 +1 @@" }, { kind: "del", text: "a" }, { kind: "add", text: "b" }, { kind: "ctx", text: "c" }]);""")
     assert [(l["cls"], l["sr"], l["text"]) for l in got] == [("hunk", "", "@@ -1 +1 @@"), ("del", "removed: ", "a"), ("add", "added: ", "b"), ("", "", "c")]
+
+
+def test_the_diagram_is_laid_out_the_same_every_time_with_parents_around_their_states():
+    """012 FR-061, FR-081: boxes in columns by distance from the start, a parent around its own, the start dot, H for an
+    entry back to where it was, and the session's marks: now, the way it came, the exit waiting for a confirm."""
+    moves = [{"by": "machine", "from": "implement", "to": "review", "at": 1}, {"by": "hand", "from": "review", "to": "implement", "at": 2},
+             {"by": "machine", "from": "implement", "to": "review", "at": 3}]
+    body = f"""
+        const states = {json.dumps(STATES)};
+        const marks = diagramMarks(states, "review", ["work", "review"], {json.dumps(moves)}, {{ to: "escalated" }});
+        const a = diagramLayout(states, "work", marks), b = diagramLayout(states, "work", marks);
+        const down = diagramLayout(states, "work", marks, true);
+        const at = (g, id) => [...g.states, ...g.parents].find((s) => s.id === id);
+        return {{ same: JSON.stringify(a) === JSON.stringify(b), marks, a, stacked: at(down, "implement").y < at(down, "review").y && at(down, "work").y < at(down, "escalated").y }};"""
+    got = run(["statePath", "diagramLayout", "diagramMarks"], body)
+    assert got["same"] and got["stacked"], "top to bottom, a rank is a row"
+    marks, a = got["marks"], got["a"]
+    assert marks["taken"] == ["implement:1"] and marks["pendingExit"] == "work:1" and marks["way"] == ["implement", "review", "implement", "review"]
+    boxes = {s["id"]: s for s in a["states"] + a["parents"]}
+    work, implement, review = boxes["work"], boxes["implement"], boxes["review"]
+    assert [p["id"] for p in a["parents"]] == ["work"] and work["parent"] and work["sub"].startswith("parent · 2 states")
+    for child in (implement, review):  # inside its parent's box
+        assert work["x"] < child["x"] and child["x"] + child["w"] < work["x"] + work["w"] and work["y"] < child["y"] < work["y"] + work["h"]
+    assert implement["x"] < review["x"], "one exit from the first state: the next column"
+    assert work["x"] + work["w"] <= boxes["escalated"]["x"], "the parent's exit goes to the next column at the top"
+    assert review["at"] == "now" and review["tag"] == "NOW" and work["at"] == "visited" and boxes["escalated"]["tag"] == "PROPOSED"
+    assert boxes["merged"]["final"] and boxes["merged"]["sub"] == "final"
+    edges = {e["key"]: e for e in a["edges"]}
+    assert edges["implement:1"]["at"] == "taken" and edges["implement:1"]["text"] == "= pr.open"
+    assert edges["work:1"]["at"] == "pending" and edges["work:1"]["text"] == "≈ Stuck"
+    assert edges["review:1"]["history"] and len(a["holds"]) == 1 and edges["review:1"]["text"].startswith("# rounds.review")
+    assert len(a["starts"]) == 2 and a["w"] >= max(b["x"] + b["w"] for b in boxes.values())

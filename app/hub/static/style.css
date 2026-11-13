@@ -611,6 +611,38 @@ table.diff tr.notes td { padding: 6px 8px; white-space: normal; background: var(
 .wfhist { display: flex; flex-direction: column; }
 .wfhist > li { display: grid; grid-template-columns: 7.5em minmax(0, 1fr); gap: 10px; padding: 8px 0; border-top: 1px dotted var(--ink); overflow-wrap: anywhere; }
 .wfbox { padding: 14px; border: 1.5px solid var(--ink); border-radius: 12px; }
+/* The statechart (012 FR-061, FR-081), after the design system's workflow diagram: where it is, in shape and in words. */
+.wf-dgbox { margin: 0; }
+.wf-dg { display: block; width: 100%; height: auto; overflow: visible; }
+.wf-dg text { font-family: var(--font-mono); font-size: 13px; fill: var(--ink); }
+.wf-dg .wf-dg-name { font-size: 15px; font-weight: 600; }
+.wf-dg .wf-dg-sub { font-size: 11.5px; fill: var(--ink-soft); }
+.wf-dg .wf-dg-pa > rect { fill: var(--sheet); stroke: var(--ink); stroke-width: 1.5; rx: 14px; }
+.wf-dg .wf-dg-st > rect { fill: var(--paper); stroke: var(--ink); stroke-width: 1.25; rx: 10px; }
+.wf-dg .wf-dg-st > rect.wf-dg-inner { fill: none; stroke-width: 1.25; rx: 7px; }
+.wf-dg [data-at="visited"] > rect:first-child { stroke-width: 2; }
+.wf-dg [data-at="now"] > rect:first-child { stroke-width: 4; }
+.wf-dg [data-at="next"] > rect:first-child { stroke-width: 2.5; stroke-dasharray: 7 4; }
+.wf-dg [data-sel="true"] > rect:first-child { stroke: var(--focus); stroke-width: 4; }
+.wf-dg .wf-dg-tag rect { fill: var(--ink); }
+.wf-dg .wf-dg-tag text { fill: var(--paper); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; }
+.wf-dg .wf-dg-ed path, .wf-dg .wf-dg-start { fill: none; stroke: var(--ink); stroke-width: 1.25; }
+.wf-dg .wf-dg-ed[data-at="taken"] path { stroke-width: 2.5; }
+.wf-dg .wf-dg-ed[data-at="pending"] path { stroke-width: 3.5; stroke-dasharray: 8 5; }
+.wf-dg .wf-dg-ed[data-by="hand"] path { stroke-dasharray: 2 4; }
+.wf-dg .wf-dg-lab rect { fill: var(--paper); stroke: var(--rule); stroke-width: 1; rx: 4px; }
+.wf-dg .wf-dg-ed[data-at="taken"] .wf-dg-lab rect { stroke: var(--ink); stroke-width: 1.5; }
+.wf-dg .wf-dg-ed[data-at="pending"] .wf-dg-lab rect { stroke: var(--ink); stroke-width: 2.5; fill: var(--highlight); }
+.wf-dg .wf-dg-ed[data-sel="true"] .wf-dg-lab rect { stroke: var(--focus); stroke-width: 3; }
+.wf-dg .wf-dg-arrow { fill: var(--ink); stroke: none; }
+.wf-dg .wf-dg-dot { fill: var(--ink); }
+.wf-dg .wf-dg-h circle { fill: var(--paper); stroke: var(--ink); stroke-width: 1.5; }
+.wf-dg .wf-dg-h text { font-weight: 600; }
+.wf-dg [role="button"] { cursor: pointer; }
+.wf-dg [role="button"]:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.wf-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12.5px; color: var(--ink-soft); }
+.wf-legend b { color: var(--ink); font-family: var(--font-mono); font-weight: 600; }
+.wfcost li { display: flex; flex-direction: column; gap: 1px; padding-top: 4px; border-top: 1px dotted var(--rule); overflow-wrap: anywhere; }
 .wfenter { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 10px; }
 dialog.wfconfirm { width: min(680px, calc(100vw - 32px)); max-width: none; max-height: calc(100vh - 48px); padding: 0; border: 0; overflow: auto; }
 dialog.wfconfirm:not([open]) { display: none; }
