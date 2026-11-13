@@ -88,6 +88,9 @@ def hub(tmp_path, monkeypatch):
     # an owner on a pull request whose state starts a workflow on an issue: there is none, so that start can never happen
     (wf / "issue-helper.toml").write_text(HELPER.format(name="issue-helper", tools='["get_issue", "notes_find"]') + launch("issue-helper", start=False))
     (wf / "pr-stuck.toml").write_text(STUCK_OWNER + launch("pr-stuck", on="pr", label="Stuck on it", when_held="hide"))
+    # an owner that runs beside the holder: what it manages doesn't share the holder's hold
+    (wf / "pr-beside.toml").write_text(PR_OWNER.replace('name = "pr-owner"', 'name = "pr-beside"')
+                                       + launch("pr-beside", on="pr", label="Look beside", when_held="beside"))
     claude = tmp_path / "claude"
     claude.write_text("#!/bin/sh\n")
     claude.chmod(0o755)
@@ -403,3 +406,26 @@ def test_a_failed_pull_request_lookup_with_no_earlier_answer_keeps_the_item_unsu
     a._prs[name] = (a._prs[name][0] - agents_module.PRS_FOR - 1, *a._prs[name][1:])
     asyncio.run(a.refresh_prs([name]))
     assert name not in a._prs_unknown and a.holders("pr", "boot", PR) == ([], [])
+
+
+def test_a_managed_start_is_refused_on_an_item_held_by_a_session_outside_its_chain(hub):
+    """The holder may start sessions on its item through what it manages; an owner beside it may not: the approval card names
+    the holder, and approved, the start is refused while the holder holds the item."""
+    h, a = hub
+
+    async def go():
+        holder = await owner_on_pr(h, a)
+        beside = (await a.start(a.defaults("pr-beside", "boot", PR)))["name"]
+        await settle(h)
+        got = await h.managed.start(beside, "fixer")
+        assert not got["started"]
+        [card] = [c for c in h.decisions.open_approvals(beside) if c["scope"].get("type") == "managed"]
+        assert f"{holder} holds that item now" in card["why"]
+        await h.effects.answer_approval(card["id"], True, "me")
+        await settle(h)
+        assert kids(h, a, beside, "fixer") == []
+        with pytest.raises(AgentError, match=f"{holder} holds boot#{PR}: {beside} doesn't hold it"):
+            await a.start(a.defaults("pr-fixer", "boot", PR), owner={"name": beside, "session_id": a.session_id_of(beside),
+                                                                         "entry": "fixer", "round": 1})
+        assert a.chain_of(beside) == [beside] and a.foreign_holder("pr", "boot", PR, a.chain_of(beside)) == holder
+    asyncio.run(go())

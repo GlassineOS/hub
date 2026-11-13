@@ -502,7 +502,10 @@ class Managed:
         allowed = _merged(inst.entry(entry)["allowed"], inst.entry(entry)["allowed_items"].get(item_key or "", {}))
         extra = {k: v for k, v in machine.beyond(child_grant, owner_grant).items() if any(x not in allowed.get(k, ()) for x in v)}
         if extra:
-            self._ask_above(owner, record, inst, entry, m, extra, item_key)
+            holder = None
+            if action["object"] in machine.START_ON and action.get("when_held", "ask") != "beside":
+                holder = self.agents.foreign_holder(action["object"], item[0], item[1], self.agents.chain_of(owner))
+            self._ask_above(owner, record, inst, entry, m, extra, item_key, holder)
             raise ManagedError(f"{m.workflow} holds more than {owner} does ({_words(extra)}): it waits for an approval above {owner}")
         capped = machine.cap(child_grant, owner_grant, allowed)
         head = await self._head(*item) if action["object"] == "pr" else None
@@ -590,7 +593,7 @@ class Managed:
             return {"started": False, "why": f"its when doesn't hold: {m.when}"}
         return await self.start(owner, entry, by="request", item=item)
 
-    def _ask_above(self, owner: str, record: dict, inst, entry: str, m, extra: dict, item: str | None = None) -> None:
+    def _ask_above(self, owner: str, record: dict, inst, entry: str, m, extra: dict, item: str | None = None, holder: str | None = None) -> None:
         """A workflow that needs more than its owner holds: approved at the level above the owner, or by the maintainer. A start
         for a named item asks for that item: the approval carries it, and what it adds holds for that item only."""
         owner_sid = record.get("session_id")
@@ -605,7 +608,8 @@ class Managed:
             why, above = f"{above[0]}, above it, doesn't hold that much itself, so it asks you", None
         about = f" for GlassineOS/{item}" if item else ""
         evidence = f"{owner}'s state {path_of(inst.definition(), inst.state)} manages {entry} ({m.persona} on {m.workflow}), " \
-                   f"whose grant holds more than {owner}'s: {_words(extra)}." + (f" It asks to start it for GlassineOS/{item}." if item else "")
+                   f"whose grant holds more than {owner}'s: {_words(extra)}." + (f" It asks to start it for GlassineOS/{item}." if item else "") \
+                   + (f" {holder} holds that item now, so even approved, {entry} doesn't start while it does." if holder else "")
         proposal = (f"Let {entry} run with that much for GlassineOS/{item} only." if item
                     else f"Let {entry} run with that much, for the rest of {owner}'s workflow.")
         if above:
