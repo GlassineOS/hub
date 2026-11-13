@@ -114,7 +114,7 @@ class Drafts:
         problems = machinestore.problems_of(found["findings"])
         if before == text:
             problems = [*problems, {"kind": "problem", "where": "text", "text": "it's the same as the version it starts from"}]
-        changed = machinestore.diff(before, text)
+        changed = machinestore.diff(before, text, machinestore._file_starts(self.workflows.library, name))
         marks = machinestore.sensitive_marks(before, found["findings"])
         replay = None
         if session is None:  # FR-062: replayed over the newest session that ran on it, when there is one
@@ -135,7 +135,8 @@ class Drafts:
         failed = self._failed(self.drafts(sid), state, round_)
         # `passes`, not `ok`: the op's own `ok` says whether the call worked, and a failing draft is a call that worked
         return {"id": draft["id"], "passes": draft["ok"], "problems": draft["problems"], "sensitive": [m["text"] for m in marks],
-                "stat": changed["stat"], "replay": replay, "failed_in_a_row": failed, "saved": False,
+                "stat": changed["stat"], "starts": [r for r in changed["starts"] or () if r["kind"] != "same"],
+                "replay": replay, "failed_in_a_row": failed, "saved": False,
                 "next": ("It passes. Ask to move on: to review, as it grants a sensitive item." if draft["ok"] and marks else
                          "It passes. Ask to move on to propose." if draft["ok"] else "Fix what the checks found and draft again.")}
 
