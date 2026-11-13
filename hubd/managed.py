@@ -465,6 +465,12 @@ class Managed:
             can = sorted(n for n, x in found.items() if x.start == "on-request")
             raise ManagedError(f"{path_of(inst.definition(), inst.state)} has no entry {str(entry)[:64]!r} that starts on request"
                                + (f"; those that do: {', '.join(can)}" if can else ""))
+        if item is not None:
+            # a wrong item is refused before the judge is asked, so it neither costs a judgement nor holds its answer
+            try:
+                self._wanted(owner, record, self._action_for(m), item)
+            except ManagedError as e:
+                return {"started": False, "why": str(e)}
         key = (record.get("session_id"), entry, self._round_of(inst, entry))
         last = self._judged.get(key)
         if m.when.strip() and last and time.monotonic() - last[0] < WHEN_EVERY:
