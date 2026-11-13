@@ -146,6 +146,8 @@ async def settle(h):
         await h.machine_run.idle()
         await h.effects.drain()
         await h.managed.drain()
+        if getattr(h, "drafts", None) is not None:
+            await h.drafts.drain()
 
 
 def state_of(a, name) -> str:

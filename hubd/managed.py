@@ -43,7 +43,7 @@ import sqlite3
 import time
 
 from . import machine, summary
-from .agents import CHAIN_TOOLS, DESIGN_ACTION, ENDED_FILE, HUB_SENDER, MAX_MANAGED, NO_REPO_OBJECTS, AgentError, _draws_nothing, covers_of
+from .agents import CHAIN_TOOLS, DESIGN_ACTION, ENDED_FILE, HUB_SENDER, IDLE_FILE, MAX_MANAGED, NO_REPO_OBJECTS, AgentError, _draws_nothing, covers_of
 from .decisions import APPROVE, DecisionError
 from .effects import LABEL, path_of
 from .instances import MachineError
@@ -58,7 +58,7 @@ DECISIONS = ("approve", "deny")
 REPORT_KINDS = ("blocker", "decision")
 TYPE_REPORT, TYPE_START = "report", "managed"   # the `type` of a Needs-you approval card that isn't an exit's
 TYPE_DESIGN = "design"   # "Look at the design" (012 FR-073): a design session started under a workflow, to look at
-_ITEM = re.compile(r"(\.?[A-Za-z0-9_][A-Za-z0-9._-]{0,99})(?:#([1-9][0-9]{0,9}))?")  # repo, or repo#N
+_ITEM = re.compile(r"(?:GlassineOS/)?(\.?[A-Za-z0-9_][A-Za-z0-9._-]{0,99})(?:#([1-9][0-9]{0,9}))?")  # repo or repo#N, GlassineOS/ or not
 
 
 class ManagedError(Exception):
@@ -109,7 +109,8 @@ class Managed:
             runner.try_starts = self.try_starts
             runner.more_facts = self.facts
             runner.on_head = self.on_head
-        self._judged: dict[tuple, tuple[float, bool]] = {}  # (conversation, entry, round) -> when a request's `when` was judged, and how
+        self._judged: dict[tuple, tuple[float, bool]] = {}  # (conversation, entry, round, item) -> when a request's `when` was judged, and how
+        self._full: set[tuple] = set()  # (owner, conversation, entry, round) told that MAX_MANAGED held its start back: told once, signalled on room
 
     @property
     def log(self):
@@ -178,6 +179,9 @@ class Managed:
             if how == "keep":
                 continue
             self._spawn(self._stop_entry(name, record.get("session_id"), entry, f"{name} left {path_of(d, before[entry][0])}"))
+        for entry in before:
+            if entry not in after:  # an approval to start it is about a state the owner has left: nobody need answer it
+                self._withdraw_starts(name, record.get("session_id"), entry, f"{name} left {path_of(d, before[entry][0])}")
         self._entered(name, [e for e in after if e not in before or after[e][0] != before[e][0]])
 
     def after_start(self, name: str) -> None:
@@ -214,28 +218,71 @@ class Managed:
         return int(inst.counters["rounds"].get(owner_state, 0)) if owner_state else 0
 
     def waiting_starts(self, name: str, inst) -> list[str]:
-        """Entries here that start on their own once their `when` holds and haven't this round."""
+        """Automatic entries here that haven't started this round: one with a `when` once it holds, one without because its start
+        on entering didn't happen (MAX_MANAGED was reached, its pull request wasn't there yet), so it is tried again on the
+        owner's signals. Not one whose start waits for an approval."""
+        sid = self._sid_of(name)
         return [m.name for _sid, m in machine.managed_of(inst.definition(), inst.state)
-                if m.start == "auto" and m.when.strip() and inst.managed.get(m.name, {}).get("round") != self._round_of(inst, m.name)]
+                if m.start == "auto" and inst.managed.get(m.name, {}).get("round") != self._round_of(inst, m.name)
+                and not self._pending(sid, m.name)]
+
+    def _sid_of(self, name: str) -> str | None:
+        return (self._record(name) or {}).get("session_id")
 
     async def try_starts(self, name: str, record: dict, inst, signals) -> None:
         for entry in self.waiting_starts(name, inst):
             if await self._when_holds(name, record, inst, entry, ", ".join(signals)):
                 await self.start(name, entry, by="when")
 
-    async def _when_holds(self, name, record, inst, entry: str, signal: str) -> bool:
+    async def _when_holds(self, name, record, inst, entry: str, signal: str, item: str | None = None) -> bool:
         m = next(m for _sid, m in machine.managed_of(inst.definition(), inst.state) if m.name == entry)
         if not m.when.strip():
             return True
         if self.runner is None:
             return False
         facts = await self.runner.facts_now(name, record, inst)
-        verdict, _fold = await self.runner.judge_when(name, record, inst, facts, f"start {entry}", m.when)
+        # a named item is in the question, so what the judge says is about that issue or repository
+        label = f"start {entry} for GlassineOS/{item}" if item else f"start {entry}"
+        verdict, _fold = await self.runner.judge_when(name, record, inst, facts, label, m.when)
         holds = not verdict.failed and verdict.exit == 0
+        if item is None and not verdict.failed:
+            self._keep_when(name, entry, holds)
         self._log(name, record, inst, f"hub:managed.when ({signal})", proposal=f"start {entry}" if verdict.exit == 0 else None,
                   evidence=verdict.evidence or None, checks={"when": m.when, "holds": holds, "note": verdict.note},
                   judge=verdict.judge, ms=verdict.ms, cost=verdict.cost, failed=bool(verdict.failed))
         return holds
+
+    def _keep_when(self, name: str, entry: str, holds: bool) -> None:
+        """when.<entry>: what the judge said of the entry's `when` this round, so an exit can go on when it was judged not to
+        hold, which isn't the same as the entry not having started (MAX_MANAGED, a start waiting for approval)."""
+        try:
+            _record, inst = self.machines.load(name)
+        except (MachineError, OSError):
+            return
+        if entry not in {m.name for _sid, m in machine.managed_of(inst.definition(), inst.state)}:
+            return
+        inst.entry(entry)["when"] = {"round": self._round_of(inst, entry), "holds": holds}
+        self.machines.save(name, inst)
+
+    def _pending(self, owner_sid, entry: str, item: str | None = None, any_item: bool = True) -> bool:
+        """Whether an approval to start the entry waits for its answer (a card in Needs you, or a session above)."""
+        if not owner_sid:
+            return False
+        for r in self.log.reports(state="open"):
+            a = r.get("action") or {}
+            if a.get("type") == "start" and a.get("owner_sid") == owner_sid and a.get("entry") == entry \
+                    and (any_item or a.get("item") == item) and self._alive(r):
+                return True
+        return False
+
+    def _withdraw_starts(self, owner: str, owner_sid, entry: str, why: str) -> None:
+        for r in self.log.reports(state="open"):
+            a = r.get("action") or {}
+            if a.get("type") == "start" and a.get("owner_sid") == owner_sid and a.get("entry") == entry:
+                self.log.settle_report(r["id"], "answered", "deny", why, "the hub")
+                for card in self.decisions.open_approvals(owner) if self.decisions is not None else ():
+                    if card["scope"].get("report") == r["id"]:
+                        self.decisions.settle(card["id"], False, why)
 
     # --- starting -----------------------------------------------------------------------------
     def _action_for(self, m: machine.Manage, repo=None) -> dict:
@@ -281,7 +328,7 @@ class Managed:
         found = _ITEM.fullmatch(wanted) if isinstance(wanted, str) else None
         if found is None or ".." in found.group(1):
             raise ManagedError("item is a repository, or repo#N for an issue or pull request")
-        repo, number = found.group(1).removeprefix("GlassineOS/"), int(found.group(2)) if found.group(2) else None
+        repo, number = found.group(1), int(found.group(2)) if found.group(2) else None
         if action["object"] in NO_REPO_OBJECTS:
             raise ManagedError(f"{action['id']} is about the whole project: name no item")
         if (action["object"] == "repo") != (number is None):
@@ -383,20 +430,29 @@ class Managed:
         running = [n for n, _r in self.children(owner, owner_sid, entry) if self._running(n, live)]
         if len(running) >= m.max:
             raise ManagedError(f"{entry} has {len(running)} running, its most at once")
-        everywhere = [n for n in self._names() if isinstance((self._record(n) or {}).get("owner"), dict) and self._running(n, live)]
+        # one idle in a final state (an implementor that is merge-ready) holds no room: it does nothing more until it is answered
+        everywhere = [n for n in self._names() if isinstance((self._record(n) or {}).get("owner"), dict) and self._running(n, live)
+                      and not self._done_waiting(n)]
         if len(everywhere) >= MAX_MANAGED:
+            key = (owner, owner_sid, entry, self._round_of(inst, entry))
+            if key not in self._full:
+                self._full.add(key)
+                self.agents.tell(owner, f"{LABEL} {entry} hasn't started: {MAX_MANAGED} managed sessions are running, the most at "
+                                        "once. It starts when one ends.")
             raise ManagedError(f"{MAX_MANAGED} managed sessions are running: wait for one to end")
         item = await self._item_for(owner, record, self._action_for(m), wanted)
+        item_key = _item_key(item) if wanted is not None else None
         action = self._action_for(m, item[0])
         # the child's workflow as a session on its repository runs it: the version agents.start resolves too
         # capped by what the owner holds now: its state's grant as narrowed at its launch (what it took off, a GitHub list it lacks)
         child_grant, owner_grant = self.agents.workflow_grant(m.workflow, item[0]), self.agents.in_force_grant(owner)
         if child_grant is None:
             raise ManagedError(f"there is no workflow {m.workflow}")
-        allowed = inst.entry(entry)["allowed"]
+        # what an approval added: for the instance, and for a named item only for that item
+        allowed = _merged(inst.entry(entry)["allowed"], inst.entry(entry)["allowed_items"].get(item_key or "", {}))
         extra = {k: v for k, v in machine.beyond(child_grant, owner_grant).items() if any(x not in allowed.get(k, ()) for x in v)}
         if extra:
-            self._ask_above(owner, record, inst, entry, m, extra)
+            self._ask_above(owner, record, inst, entry, m, extra, item_key)
             raise ManagedError(f"{m.workflow} holds more than {owner} does ({_words(extra)}): it waits for an approval above {owner}")
         capped = machine.cap(child_grant, owner_grant, allowed)
         head = await self._head(*item) if action["object"] == "pr" else None
@@ -468,15 +524,15 @@ class Managed:
         if item is not None:
             # a wrong item is refused before the judge is asked, so it neither costs a judgement nor holds its answer
             try:
-                self._wanted(owner, record, self._action_for(m), item)
+                item = _item_key(self._wanted(owner, record, self._action_for(m), item))
             except ManagedError as e:
                 return {"started": False, "why": str(e)}
-        key = (record.get("session_id"), entry, self._round_of(inst, entry))
+        key = (record.get("session_id"), entry, self._round_of(inst, entry), item)
         last = self._judged.get(key)
         if m.when.strip() and last and time.monotonic() - last[0] < WHEN_EVERY:
             holds = last[1]  # asked again soon after: the judge's last word stands, so a session can't make it run without end
         else:
-            holds = await self._when_holds(owner, record, inst, entry, "request")
+            holds = await self._when_holds(owner, record, inst, entry, "request", item)
             if m.when.strip():
                 self._judged = {k: v for k, v in self._judged.items() if time.monotonic() - v[0] < WHEN_EVERY}
                 self._judged[key] = (time.monotonic(), holds)
@@ -484,30 +540,32 @@ class Managed:
             return {"started": False, "why": f"its when doesn't hold: {m.when}"}
         return await self.start(owner, entry, by="request", item=item)
 
-    def _ask_above(self, owner: str, record: dict, inst, entry: str, m, extra: dict) -> None:
-        """A workflow that needs more than its owner holds: approved at the level above the owner, or by the maintainer."""
+    def _ask_above(self, owner: str, record: dict, inst, entry: str, m, extra: dict, item: str | None = None) -> None:
+        """A workflow that needs more than its owner holds: approved at the level above the owner, or by the maintainer. A start
+        for a named item asks for that item: the approval carries it, and what it adds holds for that item only."""
         owner_sid = record.get("session_id")
-        action = {"type": "start", "owner": owner, "owner_sid": owner_sid, "entry": entry, "extra": {k: list(v) for k, v in extra.items()}}
-        for r in self.log.reports(state="open"):
-            if (r["action"] or {}).get("type") == "start" and r["action"].get("owner_sid") == owner_sid and r["action"].get("entry") == entry:
-                if self._alive(r):
-                    return
+        action = {"type": "start", "owner": owner, "owner_sid": owner_sid, "entry": entry, "extra": {k: list(v) for k, v in extra.items()},
+                  "item": item}
+        if self._pending(owner_sid, entry, item, any_item=False):
+            return
         above = self._answerer(self.agents.owner_of(owner))
         why = f"there is no session above {owner}, so it asks you"
         if above and not self._holds(above[0], extra):
             # the session above may approve only what it holds itself (FR-051): it goes to you
             why, above = f"{above[0]}, above it, doesn't hold that much itself, so it asks you", None
+        about = f" for GlassineOS/{item}" if item else ""
         evidence = f"{owner}'s state {path_of(inst.definition(), inst.state)} manages {entry} ({m.persona} on {m.workflow}), " \
-                   f"whose grant holds more than {owner}'s: {_words(extra)}."
-        proposal = f"Let {entry} run with that much, for the rest of {owner}'s workflow."
+                   f"whose grant holds more than {owner}'s: {_words(extra)}." + (f" It asks to start it for GlassineOS/{item}." if item else "")
+        proposal = (f"Let {entry} run with that much for GlassineOS/{item} only." if item
+                    else f"Let {entry} run with that much, for the rest of {owner}'s workflow.")
         if above:
             report = self.log.report("approval", owner, owner_sid, above[0], above[1], evidence, proposal, [owner], action=action)
             self._deliver(report)
             return
         report = self.log.report("approval", owner, owner_sid, YOU, None, evidence, proposal, [owner], action=action)
-        self._card(report, owner, owner_sid, TYPE_START, f"Workflow approval for {owner}: start {entry} with more than {owner} holds",
+        self._card(report, owner, owner_sid, TYPE_START, f"Workflow approval for {owner}: start {entry}{about} with more than {owner} holds",
                    f"{evidence} A session may start another only within its own grant, so this asks the level above {owner}: {why}. "
-                   f"If you approve, {entry} starts.", entry=entry)
+                   f"If you approve, {entry} starts{about}.", entry=entry, item=item)
 
     # --- returns ------------------------------------------------------------------------------
     def returned(self, scope: dict, fields) -> dict:
@@ -592,6 +650,13 @@ class Managed:
             return
         self._log(owner, owner_record, inst, "hub:managed.end", proposal=f"{owned.get('entry')} ended", checks={"ended": name, "why": why})
         self._signal("hub:managed.end", owner)
+        self._room()
+
+    def _room(self) -> None:
+        """A managed session ended: the owners whose start MAX_MANAGED held back get a signal, so their entries are tried again."""
+        waiting, self._full = {k[0] for k in self._full}, set()
+        for owner in waiting:
+            self._signal("hub:managed.end", owner)
 
     async def sweep(self) -> list[str]:
         """Ends every managed session whose owner ended, crashed or is gone (FR-044), and says each end once. A session
@@ -719,7 +784,8 @@ class Managed:
         self.log.settle_report(report["id"], "forwarded", answered_by=by)
         self._card(up, report["from_name"], report["from_sid"], TYPE_START if (report.get("action") or {}).get("type") == "start" else TYPE_REPORT,
                    f"Workflow approval for {report['from_name']}: {report['proposal']}"[:200], self._card_words(up),
-                   **({"entry": report["action"]["entry"]} if (report.get("action") or {}).get("type") == "start" else {}))
+                   **({"entry": report["action"]["entry"], "item": report["action"].get("item")}
+                      if (report.get("action") or {}).get("type") == "start" else {}))
         return {"id": up["id"], "to": YOU}
 
     def _alive(self, report: dict) -> bool:
@@ -765,11 +831,13 @@ class Managed:
                 return
             if record.get("session_id") != action.get("owner_sid"):
                 return
-            allowed = inst.entry(action["entry"])["allowed"]
+            kept = inst.entry(action["entry"])
+            item = action.get("item")
+            allowed = kept["allowed_items"].setdefault(item, {}) if item else kept["allowed"]
             for key, items in action["extra"].items():
                 allowed[key] = [*allowed.get(key, []), *(x for x in items if x not in allowed.get(key, []))]
             self.machines.save(action["owner"], inst)
-            await self.start(action["owner"], action["entry"], by=f"approved by {by}")
+            await self.start(action["owner"], action["entry"], by=f"approved by {by}", item=item)
 
     # --- approve levels (FR-052) --------------------------------------------------------------
     def route_approval(self, name: str, wait: dict) -> bool:
@@ -859,7 +927,7 @@ class Managed:
     # --- facts --------------------------------------------------------------------------------
     def facts(self, name: str, record: dict) -> dict:
         """report.answered: whether the conversation's last report up has its answer. Unknown before its first. And
-        started.<entry> for each entry in force."""
+        started.<entry> for each entry in force, and when.<entry> for one whose `when` was judged this round."""
         sid = record.get("session_id")
         mine = [r for r in self.log.reports(from_sid=sid) if r["kind"] != "approval"] if sid else []
         out = {"report.answered": mine[-1]["state"] == "answered"} if mine else {}
@@ -867,11 +935,28 @@ class Managed:
             inst = self.machines.peek(name)
         except MachineError:
             inst = None
-        if inst is not None:  # started.<entry>: a session of it started in its current round, for every entry in force
+        if inst is not None:
             for _sid, m in machine.managed_of(inst.definition(), inst.state):
                 kept = inst.managed.get(m.name) or {}
-                out[f"started.{m.name}"] = bool(kept.get("child")) and kept.get("round") == self._round_of(inst, m.name)
+                this_round = self._round_of(inst, m.name)
+                # started.<entry>: a session of it started in its current round, or its start waits for an approval, so work that
+                # waits for it waits while you decide
+                out[f"started.{m.name}"] = (bool(kept.get("child")) and kept.get("round") == this_round) or self._pending(sid, m.name)
+                when = kept.get("when")
+                if m.when.strip() and when and when["round"] == this_round:  # when.<entry>: what the judge said of its `when` this round
+                    out[f"when.{m.name}"] = when["holds"]
         return out
+
+    def _done_waiting(self, name: str) -> bool:
+        """A session of a workflow with more than one state, at a final state and idle at its prompt: it does nothing more
+        until it is answered, so it takes no room. A one-state session is always in its final state, and does count."""
+        try:
+            inst = self.machines.peek(name)
+            d = inst.definition() if inst is not None else None
+            return bool(d is not None and len(d.states) > 1 and d.states[inst.state].final
+                        and (self.agents.sessions / name / IDLE_FILE).exists())
+        except (MachineError, KeyError, OSError):
+            return False
 
     # --- helpers --------------------------------------------------------------------------------
     def _signal(self, signal: str, owner: str) -> None:
@@ -903,11 +988,22 @@ class Managed:
     async def drain(self) -> None:
         while self._tasks:
             await asyncio.gather(*list(self._tasks), return_exceptions=True)
+            await asyncio.sleep(0)  # a finished task leaves the set in its done callback, which runs only once the loop turns
 
 
 def _same_entry(a: machine.Manage, b: machine.Manage) -> bool:
     """Whether a session of entry a may go on as entry b: the same workflow, persona and returns."""
     return (a.workflow, a.persona, a.returns) == (b.workflow, b.persona, b.returns)
+
+
+def _item_key(item) -> str:
+    """An item as approvals and the judge's question name it: repo#N, or a repository alone."""
+    repo, number = item
+    return f"{repo}#{number}" if number else str(repo)
+
+
+def _merged(a: dict, b: dict) -> dict:
+    return {k: [*a.get(k, []), *(x for x in b.get(k, []) if x not in a.get(k, []))] for k in {*a, *b}}
 
 
 def _words(extra: dict) -> str:
