@@ -8,8 +8,9 @@ and end a go, as that only narrows. Nothing a token can do makes one current.
 
 Each move is on disk before anything acts on it. Answers come in words, with a plain yes or no for a script to act on.
 
-A widening confirm (`machine.widen`) is made by hubd alone, never by a request or a token: approving it confirms the move it
-names and nothing else, so it never becomes current. It goes from requested straight to ended.
+A widening confirm (`machine.widen`) and a workflow approval (`machine.approve`) are made by hubd alone, never by a request
+or a token: approving one confirms or makes the move it names and nothing else, so it never becomes current. It goes from
+requested straight to ended.
 
 This stops mistakes, relayed quotes and misled locked agents. A full session runs as the same user, and could write these
 files: see SECURITY.md.
@@ -31,7 +32,8 @@ log = logging.getLogger("hubd.decisions")
 
 KINDS = ("go", "merge")
 WIDEN = "machine.widen"
-HUB_KINDS = (WIDEN,)  # made by hubd itself: `add` and `request` refuse them
+APPROVE = "machine.approve"  # a workflow exit that holds and whose `approve` asks you first (012 FR-025, FR-052)
+HUB_KINDS = (WIDEN, APPROVE)  # made by hubd itself: `add` and `request` refuse them
 STATES = ("requested", "current", "using", "ended")  # using: its merge is running
 EYE_TEST = "eye-test"  # you hold the device while a session holds the lock: "I've got the device" leaves it alone
 ANY = "any"
@@ -153,6 +155,8 @@ def describe(record: dict) -> str:
     if record["kind"] == WIDEN:
         adds = "; ".join(f"{k} {', '.join(map(str, v))}" for k, v in scope["adds"].items())
         return f"Workflow move for {scope['session']}: {scope['from']} to {scope['to']}, which adds {adds}"
+    if record["kind"] == APPROVE:
+        return f"Workflow approval for {scope['session']}: {scope['from']} to {scope['to']}, which its workflow leaves to {scope['level']}"
     if record["kind"] == "go":
         line = f"Go for {', '.join(scope['actions'])}, on {'any device' if scope['device'] == ANY else scope['device']}, for {'any session' if scope['session'] == ANY else scope['session']}"
         if "runs" in ends:
@@ -271,6 +275,11 @@ class Decisions:
         conversation, the pending move's id, the states and the change. `why` is the hub's words, not the session's."""
         return self._new(WIDEN, scope, {}, "requested", None, asked_by=scope["session"], why=why)
 
+    def approve_request(self, scope: dict, why: str) -> dict:
+        """hubd's card for a workflow exit that holds and waits for an approval. The scope is the hub's own: the session, the
+        conversation, the state and version it was asked from, the exit's place and target, and the level."""
+        return self._new(APPROVE, scope, {}, "requested", None, asked_by=scope["session"], why=why)
+
     def settle(self, decision_id, accepted: bool, why: str, words: str | None = None) -> dict:
         """A widening confirm answered or dropped: it ends, saying how."""
         record = self._get(decision_id)
@@ -281,9 +290,12 @@ class Decisions:
         more = {"approved": self.clock(), "words": words or "Confirmed on its card."} if accepted else {}
         return self._end({**record, **more}, why)
 
-    def open_widenings(self, session: str) -> list[dict]:
-        return [r for r in list(self._all.values()) if r["kind"] == WIDEN and r["scope"].get("session") == session
+    def open_widenings(self, session: str, kind: str = WIDEN) -> list[dict]:
+        return [r for r in list(self._all.values()) if r["kind"] == kind and r["scope"].get("session") == session
                 and self.current_state(r) == "requested"]
+
+    def open_approvals(self, session: str) -> list[dict]:
+        return self.open_widenings(session, APPROVE)
 
     def approve(self, decision_id, words=None, scope=None, ends=None) -> dict:
         """A login, on the card. It can narrow what was asked, and doesn't widen a go's actions."""

@@ -15,8 +15,12 @@ a signal that arrives during a pass gets one more pass after it. A pass tries th
 - `judge` exits are put to the judge once per pass, after the session's rolling summary has taken the last turn, and
   hold only when the judge picks that exit and every `requires` holds as well;
 - `hand` exits and `move = "on-request"` exits are never tried here;
-- the first exit that holds ends the pass. If its `approve` asks for anyone, nothing moves and the evaluation says what
-  it waits for; otherwise the instance moves by the machine.
+- the first exit that holds ends the pass. If its `approve` asks for anyone, nothing moves, the evaluation says what
+  it waits for, and `on_blocked` hears of it (effects.py puts it to the maintainer as a `machine.approve` card, whose yes
+  comes back through `approved`); otherwise the instance moves by the machine.
+
+An exit with `move = "on-request"` is tried only when the session asks for it (`request`, the `request_move` tool): the
+request stands in for the judge, and the exit's `requires` and `approve` are checked as above.
 
 A fact the hub can't tell is missing from the facts, so a requirement on it doesn't hold either way. Every pass that tried
 an exit is logged, with each check and the value it saw. This module only decides: what a move does to the running
@@ -81,6 +85,8 @@ def pr_facts(state: str | None, seen: dict, own_branch: bool) -> dict:
         out["pr.checks"] = CHECKS[seen["checks"]]
     if seen.get("review") in REVIEWS:
         out["pr.review"] = REVIEWS[seen["review"]]
+    if seen:  # the feed has seen it: whether a review came since its newest head, so a push since a review shows
+        out["pr.reviewed"] = seen.get("review") in REVIEWS
     if own_branch:  # found by the session's own branch, so that branch is on GitHub
         out["branch.pushed"] = True
     return out
@@ -123,7 +129,7 @@ class Runner:
     `items(name, record)` the (repository, number) pairs a session is on, `names()` the sessions. `sleep` and the
     machines' clock are injectable, so tests don't wait."""
 
-    def __init__(self, machines: Machines, *, facts=None, judges=None, turn=None, items=None, names=None,
+    def __init__(self, machines: Machines, *, facts=None, judges=None, turn=None, items=None, names=None, refresh=None,
                  debounce: float = DEBOUNCE, sleep=asyncio.sleep):
         self.machines = machines
         self._facts = facts or (lambda _name, _record: {})
@@ -131,6 +137,9 @@ class Runner:
         self._turn = turn or (lambda _name, _record: "")
         self._items = items or (lambda _name, _record: ())
         self._names = names or (lambda: ())
+        self._refresh = refresh  # async (name): look up what facts need a look first (its pull requests), if it's due
+        self.on_blocked = None   # (name, wait) when an exit holds and its `approve` asks someone first
+        self.approval_open = None  # (name, session_id, state, version): whether its card for that is still up
         self.debounce = debounce
         self._sleep = sleep
         self._waiting: dict[str, list[str]] = {}       # signals that came since the last pass began
@@ -187,9 +196,20 @@ class Runner:
 
     def _listens(self, name: str, signal: str) -> bool:
         try:
-            _record, inst = self.machines.load(name)
-            return not inst.paused and not inst.pending and bool(tried(inst.definition(), inst.state, [signal]))
+            record, inst = self.machines.load(name)
+            return (not inst.paused and not inst.pending and not self._approval_waits(name, record, inst)
+                    and bool(tried(inst.definition(), inst.state, [signal])))
         except (MachineError, OSError):
+            return False
+
+    def _approval_waits(self, name: str, record: dict, inst) -> bool:
+        """An approval card is up for where the instance is: like a pending confirm, nothing else is tried until it's answered."""
+        if self.approval_open is None:
+            return False
+        try:
+            return bool(self.approval_open(name, record.get("session_id"), inst.state, inst.version))
+        except Exception:  # noqa: BLE001 — unsure means evaluate: the card is deduplicated anyway
+            log.exception("%s: its approval card couldn't be looked at", name)
             return False
 
     def _schedule(self, name: str, signal: str) -> bool:
@@ -240,11 +260,13 @@ class Runner:
             return {"skipped": "paused"}
         if inst.pending:  # another proposal would replace the one waiting for the maintainer's confirm
             return {"skipped": "a move waits for a confirm"}
+        if self._approval_waits(name, record, inst):
+            return {"skipped": "a move waits for an approval"}
         d, state, version = inst.definition(), inst.state, inst.version
         candidates = tried(d, state, signals)
         if not candidates:
             return {"skipped": "no exit names the signal"}
-        facts = {**inst.facts(self.machines.clock()), **self._facts_of(name, record)}
+        facts = await self._facts_now(name, record, inst)
         verdict, fold, failed, chosen, rows = None, None, None, None, []
         for i, e in candidates:
             picked = True
@@ -267,10 +289,106 @@ class Runner:
             exit_ = chosen[1]
             if exit_.approve != "none":
                 blocked = f"approve {exit_.approve}"
+                self._ask(name, record, state, version, chosen[0], exit_, rows[-1]["checks"])
             else:
                 result = self._move(name, state, version, exit_)
         self._log(record, name, signals, state, version, d, verdict, fold, failed, chosen, rows, blocked, result)
         return {"exit": chosen[0] if chosen else None, "failed": failed, "blocked": blocked, "move": result, "checks": rows}
+
+    async def _facts_now(self, name: str, record: dict, inst) -> dict:
+        if self._refresh is not None:
+            try:
+                await self._refresh(name)
+            except Exception:  # noqa: BLE001 — a look that fails leaves what was known, which may be nothing
+                log.exception("%s: its pull requests couldn't be looked up", name)
+        return {**inst.facts(self.machines.clock()), **self._facts_of(name, record)}
+
+    def _ask(self, name, record, state, version, index, exit_, checks) -> None:
+        if self.on_blocked is None:
+            return
+        try:
+            self.on_blocked(name, {"session_id": record.get("session_id"), "state": state, "version": version, "exit": index,
+                                   "to": exit_.to, "approve": exit_.approve, "checks": checks})
+        except Exception:  # noqa: BLE001 — the evaluation stands and is logged; the card is tried again on the next signal
+            log.exception("%s: its approval couldn't be asked for", name)
+
+    # --- moves the session or the maintainer asks for -----------------------------------
+    async def request(self, name: str, session_id, to) -> dict:
+        """The session asks to take one of its state's `move = "on-request"` exits to `to`. Only its own conversation's
+        token gets here (the caller checks it); the request is the proposal, and `requires` and `approve` decide."""
+        lock = self._locks.setdefault(name, asyncio.Lock())
+        async with lock:
+            try:
+                record, inst = self.machines.load(name)
+            except (MachineError, OSError) as e:
+                return {"moved": False, "why": str(e)}
+            if not isinstance(session_id, str) or record.get("session_id") != session_id:
+                return {"moved": False, "why": "that isn't this session's conversation"}
+            d, state, version = inst.definition(), inst.state, inst.version
+            here = " › ".join(reversed(machine.ancestors(d, state)))
+            if inst.paused:
+                return {"moved": False, "why": f"the machine is paused in {here}"}
+            if inst.pending:
+                return {"moved": False, "why": "a move already waits for the maintainer's confirm"}
+            offered = [(i, e) for i, e in enumerate(machine.exits_of(d, state)) if e.move == "on-request" and e.decided_by != "hand"]
+            if not isinstance(to, str) or not any(e.to == to for _i, e in offered):
+                can = sorted({e.to for _i, e in offered})
+                return {"moved": False, "why": f"no exit of {here} to {str(to)[:64]!r} moves on request"
+                        + (f"; those that do go to {', '.join(can)}" if can else "; none of its exits does")}
+            facts = await self._facts_now(name, record, inst)
+            rows, chosen = [], None
+            for i, e in offered:
+                if e.to != to:
+                    continue
+                reqs = [check(expr, facts) for expr in e.requires]
+                holds = all(r["holds"] for r in reqs)
+                rows.append({"exit": i, "to": e.to, "decided_by": e.decided_by, "checks": reqs, "holds": holds})
+                if holds:
+                    chosen = (i, e)
+                    break
+            blocked, result = None, None
+            if chosen and chosen[1].approve != "none":
+                blocked = f"approve {chosen[1].approve}"
+                self._ask(name, record, state, version, chosen[0], chosen[1], rows[-1]["checks"])
+            elif chosen:
+                result = self._move(name, state, version, chosen[1])
+            self._log(record, name, ["request"], state, version, d, None, None, None, chosen, rows, blocked, result)
+        if result is not None:
+            if result.get("needs_confirm"):
+                return {**result, "why": "the move waits for the maintainer's confirm: the new state gives what you haven't held"}
+            return {**result, "why": None} if result.get("moved") else {**result, "moved": False, "why": "the machine changed meanwhile"}
+        if blocked:
+            return {"moved": False, "waits": blocked, "why": f"the exit to {to} holds and waits for the maintainer's approval"}
+        failed = [t["fact"] for r in rows for c in r["checks"] if not c["holds"] for t in c["terms"]]
+        return {"moved": False, "why": f"its requirements don't hold: {', '.join(dict.fromkeys(failed))}", "checks": rows}
+
+    async def approved(self, name: str, wait: dict, who: str | None) -> dict:
+        """The maintainer approved the move a `machine.approve` card asked about: it happens if the session is still where it
+        was asked from and the exit's `requires` still hold. The judge isn't asked again: the approval is the decision."""
+        lock = self._locks.setdefault(name, asyncio.Lock())
+        async with lock:
+            record, inst = self.machines.load(name)
+            if record.get("session_id") != wait.get("session_id"):
+                raise MachineError("the session it was for has gone")
+            if (inst.state, inst.version) != (wait.get("state"), wait.get("version")):
+                raise MachineError("the session has moved since that was asked")
+            d = inst.definition()
+            exits = machine.exits_of(d, inst.state)
+            index = wait.get("exit")
+            if not isinstance(index, int) or not 0 <= index < len(exits) or exits[index].to != wait.get("to"):
+                raise MachineError("that exit isn't there any more")
+            exit_ = exits[index]
+            facts = await self._facts_now(name, record, inst)
+            reqs = [check(expr, facts) for expr in exit_.requires]
+            row = {"exit": index, "to": exit_.to, "decided_by": exit_.decided_by, "checks": reqs, "holds": all(r["holds"] for r in reqs)}
+            result = self._move(name, inst.state, inst.version, exit_, who) if row["holds"] else None
+            self._log(record, name, ["hub:approved"], inst.state, inst.version, d, None, None, None, (index, exit_), [row], None, result)
+        if result is None:
+            failed = [t["fact"] for c in reqs if not c["holds"] for t in c["terms"]]
+            raise MachineError(f"its requirements don't hold any more: {', '.join(dict.fromkeys(failed))}")
+        if result.get("stale"):  # a move by hand while its facts were looked up
+            raise MachineError("the session has moved since that was asked")
+        return result
 
     def _facts_of(self, name: str, record: dict) -> dict:
         try:
@@ -306,13 +424,14 @@ class Runner:
             return ""
         return turn if isinstance(turn, str) else ""
 
-    def _move(self, name: str, state: str, version: str, exit_: machine.Exit) -> dict:
-        """Only if nothing moved the instance while the judge thought. No await between the look and the move."""
+    def _move(self, name: str, state: str, version: str, exit_: machine.Exit, who: str | None = None) -> dict:
+        """Only if nothing moved the instance while the judge thought or the facts were looked up. No await between the
+        look and the move. `who` agreed to it, for an approved exit."""
         try:
             _record, inst = self.machines.load(name)
             if (inst.state, inst.version) != (state, version) or inst.paused or inst.pending:
                 return {"moved": False, "stale": "the machine changed during the evaluation"}
-            return self.machines.move(name, exit_.to, by="machine", enter=exit_.enter)
+            return self.machines.move(name, exit_.to, by="machine", enter=exit_.enter, who=who)
         except (MachineError, OSError) as e:
             return {"moved": False, "error": str(e)}
 
@@ -370,4 +489,7 @@ def for_hub(agents, feed, judges) -> Runner:
         root = Path(agents.sessions)
         return [p.name for p in root.iterdir() if (p / "session.json").exists()] if root.is_dir() else []
 
-    return Runner(agents.machines, facts=HubFacts(agents, feed), judges=judges, turn=turn, items=items, names=names)
+    async def refresh(name):  # at most once a minute a session, so a pull request opened since its last look is found
+        await agents.refresh_prs([name])
+
+    return Runner(agents.machines, facts=HubFacts(agents, feed), judges=judges, turn=turn, items=items, names=names, refresh=refresh)

@@ -17,6 +17,13 @@ for sessions whose workflow has more than one state. A one-state session never m
 - **Context on entry** (FR-021): `keep` does nothing; `compact` types `/compact <focus>` once the session is idle,
   through the queue typed messages wait in. `fresh` isn't done yet: it is logged and kept.
 
+- **Approvals** (FR-025, FR-052): an exit that holds and whose `approve` asks someone first doesn't move on its own. The
+  runner hands it here (`ask_approval`) and it becomes a `machine.approve` card in Needs you, one per session, state,
+  version and exit; the maintainer's yes makes the move through the runner (`answer_approval`), after it checks the session
+  is still where it was asked from and the exit's `requires` still hold. The levels owner, maintainer and steward name
+  sessions that don't exist yet, so until they do each asks the maintainer too, and the card says so. While it is up the
+  runner tries nothing else for that instance, as for a pending confirm. A card ends when the session moves any other way.
+
 The status line of FR-025 isn't posted.
 """
 from __future__ import annotations
@@ -29,7 +36,7 @@ import sqlite3
 
 from . import instances, machine
 from .agents import GITHUB_FOLDER, HUB_SENDER, AgentError, _full, _mode
-from .decisions import DecisionError
+from .decisions import APPROVE, WIDEN, DecisionError
 from .instances import MachineError
 from .machine_log import LogError
 from .shells import ShellError
@@ -41,6 +48,8 @@ POLL = 2  # seconds between looks at whether it has
 LABEL = "[From the hub, not from the person or a session]"
 FAILED_SIGNAL = "hub:relaunch"  # how a move that didn't take effect shows among the evaluations
 FULL_MARK = "runs with your own rights: guarded, not limited"
+# Who an `approve` level names, and who answers it for now: the chain above a session (FR-050) isn't there yet.
+LEVELS = {"me": "you", "owner": "its owner", "maintainer": "the repository maintainer", "steward": "the Steward"}
 
 
 def path_of(d: machine.Definition, sid: str) -> str:
@@ -81,6 +90,7 @@ def sensitive_of(adds: dict, grant: machine.Grant) -> dict[str, str]:
 
 class Effects:
     def __init__(self, agents, decisions=None, relaunch_wait: float = RELAUNCH_WAIT, poll: float = POLL):
+        self.approve_move = None  # async (name, wait, who): the runner's move for an approved card (Runner.approved)
         self.agents = agents
         self.machines = agents.machines
         self.decisions = decisions
@@ -102,6 +112,7 @@ class Effects:
         self._end_cards(name, "you said no" if result.get("declined") else "the session moved before it was answered")
         if not result.get("moved"):
             return
+        self._end_cards(name, "the session moved before it was answered", APPROVE)
         quiet = name in self._quiet
         try:
             problem = None if quiet else self.agents.launch_problem(name)
@@ -172,7 +183,7 @@ class Effects:
     def answer(self, decision_id, accept: bool, who: str | None, words: str | None = None) -> dict:
         """The maintainer's answer on a `machine.widen` card: the move it names is confirmed or dropped."""
         record = self.decisions._get(decision_id)
-        if record["kind"] != "machine.widen":
+        if record["kind"] != WIDEN:
             raise DecisionError("that isn't a workflow move's confirm")
         if self.decisions.current_state(record) != "requested":
             raise DecisionError("that isn't waiting for an answer any more")
@@ -191,6 +202,69 @@ class Effects:
         if accept:
             return self.decisions.settle(decision_id, True, "confirmed: the session resumes with the new state's grant", words)
         return self.decisions.settle(decision_id, False, f"you said no: {words}" if words else "you said no")
+
+    # --- approvals ---------------------------------------------------------------------
+    def ask_approval(self, name: str, wait: dict) -> None:
+        """The runner found an exit that holds and waits for an approval: a card, unless one for it is up already."""
+        if self.decisions is None:
+            return
+        same = ("session_id", "state", "version", "exit")
+        if any(all(r["scope"].get(k) == wait[k] for k in same) for r in self.decisions.open_approvals(name)):
+            return
+        _record, inst = self.machines.load(name)
+        if (inst.state, inst.version) != (wait["state"], wait["version"]):
+            return
+        d = inst.definition()
+        level = wait["approve"]
+        to = path_of(d, wait["to"]) if wait["to"] in d.states else wait["to"]
+        scope = {"session": name, "session_id": wait["session_id"], "state": wait["state"], "version": wait["version"],
+                 "exit": wait["exit"], "to_state": wait["to"], "from": path_of(d, wait["state"]), "to": to,
+                 "level": LEVELS.get(level, level), "approve": level, "checks": wait["checks"]}
+        why = f"{name}'s workflow can move it from {scope['from']} to {to}: every requirement holds, and its workflow leaves this move to {scope['level']}."
+        if level != "me":
+            why += f" There is no {scope['level']} session yet, so it asks you."
+        why += " If you approve, it moves, if it is still there and its requirements still hold."
+        try:
+            self.decisions.approve_request(scope, why)
+        except (DecisionError, OSError):
+            log.exception("%s: its approval couldn't be put in Needs you", name)
+
+    def approval_open(self, name: str, session_id, state: str, version: str) -> bool:
+        if self.decisions is None:
+            return False
+        return any(r["scope"].get("session_id") == session_id and r["scope"].get("state") == state and r["scope"].get("version") == version
+                   for r in self.decisions.open_approvals(name))
+
+    async def answer_approval(self, decision_id, accept: bool, who: str | None, words: str | None = None) -> dict:
+        """The maintainer's answer on a `machine.approve` card: a yes makes the move it names, a no leaves the session where it is."""
+        record = self.decisions._get(decision_id)
+        if record["kind"] != APPROVE:
+            raise DecisionError("that isn't a workflow approval")
+        if self.decisions.current_state(record) != "requested":
+            raise DecisionError("that isn't waiting for an answer any more")
+        scope = record["scope"]
+        if self.agents.session_id_of(scope["session"]) != scope["session_id"]:
+            self.decisions.settle(decision_id, False, "the session it was for has gone")
+            raise DecisionError("the session it was for has gone")
+        if not accept:
+            return self.decisions.settle(decision_id, False, f"you said no: {words}" if words else "you said no")
+        if self.approve_move is None:
+            raise DecisionError("the workflows don't move on their own here, so this can't be applied")
+        self._answering = decision_id
+        try:
+            result = await self.approve_move(scope["session"], {k: scope[k] for k in ("session_id", "state", "version", "exit")}
+                                             | {"to": scope["to_state"]}, who)
+        except MachineError as e:
+            self.decisions.settle(decision_id, False, f"not applied: {e}")
+            raise DecisionError(str(e)) from None
+        finally:
+            self._answering = None
+        if result.get("needs_confirm"):
+            return self.decisions.settle(decision_id, True, "approved: the move now waits for your confirm of what it adds", words)
+        if not result.get("moved"):
+            self.decisions.settle(decision_id, False, "not applied: the machine didn't move")
+            raise DecisionError("the machine didn't move")
+        return self.decisions.settle(decision_id, True, "approved: the session moved", words)
 
     async def _relaunch(self, name: str, result: dict, words: str | None, focus: str | None) -> None:
         loop = asyncio.get_running_loop()
@@ -266,10 +340,10 @@ class Effects:
             log.warning("%s: its compaction wasn't queued: %s", name, e)
 
     # --- helpers ------------------------------------------------------------------------
-    def _end_cards(self, name: str, why: str) -> None:
+    def _end_cards(self, name: str, why: str, kind: str = WIDEN) -> None:
         if self.decisions is None:
             return
-        for record in self.decisions.open_widenings(name):
+        for record in self.decisions.open_widenings(name, kind):
             if record["id"] != self._answering:
                 self.decisions.settle(record["id"], False, why)
 

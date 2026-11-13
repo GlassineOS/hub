@@ -1,0 +1,12 @@
+# Carries an issue from a new branch to a merge-ready pull request through the implement workflow's states: implement,
+# review and fix, then merge-ready. Its rights change with its state; see agents/workflows/implement.toml.
+order = 4
+ceiling = "Branch + draft PR, in a sandboxed shell with its own GitHub token: reads, comments, opens and updates pull requests, and pushes its own branch while implementing or fixing. Never merges on its own: at merge-ready it asks you."
+object = "issue"
+result = "pr"
+title = "Implement through review"
+summary = "A sandboxed session on a new branch that implements, opens a draft pull request, waits for review, fixes what it asks, and asks you to merge once approved."
+personas = ["engineer"]
+prompt = "implement"
+models = ["opus", "sonnet"]
+efforts = ["high", "xhigh", "medium"]
