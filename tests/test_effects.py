@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from starts_util import with_launch
 from hubd import agents as agents_module
 from hubd import decisions as decisions_module
 from hubd import grant_hook
@@ -104,7 +105,7 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(agents_module, "SANDBOX_TOOLS", ())
     root = tmp_path / "agents"
     shutil.copytree(REPO / "agents", root)
-    (root / "workflows" / f"{ACTION}.toml").write_text(WORKFLOW)
+    (root / "workflows" / f"{ACTION}.toml").write_text(with_launch(WORKFLOW, ACTION))
     claude = tmp_path / "claude"
     claude.write_text("#!/bin/sh\n")
     claude.chmod(0o755)

@@ -702,11 +702,11 @@ def test_the_engineers_pull_request_comes_before_one_the_implementor_opened(team
     asyncio.run(go())
 
 
-def test_the_drafting_states_are_named_in_the_action_and_checked_on_load(tmp_path):
+def test_the_drafting_states_are_named_in_the_launch_and_checked_on_load(tmp_path):
     import shutil  # noqa: PLC0415
     lib = tmp_path / "agents"
     shutil.copytree(REPO / "agents", lib)
-    path = lib / "actions" / "workflow-change.toml"
+    path = lib / "workflows" / "workflow-change.toml"
     path.write_text(path.read_text().replace('propose = "propose"', 'propose = "draft"'))
     with pytest.raises(agents_module.LibraryError, match="propose is a final state"):
         Library(lib)

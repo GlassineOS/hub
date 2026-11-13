@@ -5,9 +5,10 @@ Pure data and checks, no I/O. `parse` reads the TOML text form, `emit` writes it
 (problems) and what only shows (marks), and `effective`/`compare` give a state's grant and tell a widening move.
 
 A state's grant holds a session's rights: access, permission_mode, tools, hub_tools, asks_first, checkout and all_repos,
-plus github capabilities. An action (agents/actions/*.toml) holds none of them: they are its workflow's
-(agents/workflows/*.toml), one state for each action. Fields that are not permissions of the session (result_tools,
-asks_paths, asks_describe, asks_wait_for_you) stay on the action.
+plus github capabilities. A workflow also says how its sessions begin: its `[[start]]` tables (spec 012, FR-100 to FR-105),
+each a way to start it from one kind of item, and its `[launch]` table, what every session of it is however it begins
+(its personas, its result type and how a person applies it, what a managed session of it starts with). Neither grants
+anything: a session's rights are its starting state's grant.
 """
 from __future__ import annotations
 
@@ -47,6 +48,23 @@ REUSES = ("resume", "fresh")
 ON_EXIT = ("stop", "keep", "handover")
 WITH = ("issue", "pr", "diff", "diff.since_last_round", "owner.summary")
 WITH_PREFIXES = ("notes:", "brief:")
+# Starts (FR-100 to FR-105): the kinds of item a start applies to, what it does while an instance holds the item, the checks of
+# the item a start is offered on, and the names a prompt may fill in.
+START_ON = ("issue", "pr", "run", "repo", "project", "knowledge", "notes")
+WHEN_HELD = ("beside", "ask", "hide")
+START_WHEN = ("failing", "not-failing")
+START_NEEDS = ("review",)
+PROMPT_FIELDS = ("repo", "number", "checkout")
+# FR-104: what a starting grant may hold and still run beside an instance that holds the item. GitHub's read capabilities
+# (apps.READ_CAPABILITIES), and hub tools that write nothing outside the hub or only hand in what a person applies (the
+# session's read-only tools, agents.READS_ONLY, and these). Anything else, full access included, can write on the item.
+READ_GITHUB = ("read", "issues.read", "pr.read", "runs.read")
+READ_HUB_TOOLS = frozenset({
+    "code_search", "docs_index_status", "docs_search", "get_issue", "get_pr", "get_pr_diff", "get_pr_diff_summary", "get_pr_threads",
+    "get_run", "get_run_log", "list_issues", "list_prs", "list_repo_files", "list_runs", "list_workflows", "map_definition",
+    "map_overview", "map_string", "map_usages", "notes_find", "overview", "plan_work", "rate_limit", "read_repo_file", "read_report",
+    "request_repository", "roadmap", "run_history", "submit_result", "work_search", "work_status"})
+QUIET_HUB_TOOLS = READ_HUB_TOOLS | {"submit_drafts", "request_move", "draft_workflow", "read_draft", "read_workflow"}
 
 
 def _feed_signals() -> tuple[str, ...]:
@@ -157,6 +175,60 @@ class State:
 
 
 @dataclass(frozen=True)
+class Start:
+    """A way to begin the workflow from one kind of item (FR-100). An empty field takes the workflow's `[launch]` value."""
+    on: str
+    label: str
+    summary: str = ""
+    id: str | None = None          # the action id sessions keep; one start of a workflow may leave it out and has its name
+    ceiling: str = ""              # its starting grant in plain words, as the item's page shows it
+    state: str | None = None       # where it starts: the initial state when none is named
+    lead: bool = False
+    when_held: str = "ask"
+    ask_move: str | None = None    # asked of a holding instance: a move request to this state of its workflow
+    order: int | None = None
+    verb: str | None = None
+    when: str | None = None
+    needs: str | None = None
+    asks_describe: bool = False
+    asks_paths: bool = False
+    models: tuple[str, ...] = ()
+    efforts: tuple[str, ...] = ()
+    prompt: str = ""
+
+
+@dataclass(frozen=True)
+class Launch:
+    """What a session of the workflow is however it begins. A workflow without starts is started only as a managed session,
+    which takes `on`, `label`, `summary`, `ceiling`, `models`, `efforts` and `prompt` from here."""
+    personas: tuple[str, ...] = ()
+    result: str = ""
+    result_tools: tuple[str, ...] = ()
+    plan: bool = True
+    per_repo: bool = False
+    singleton: str | None = None
+    repository: str | None = None
+    repo: str | None = None
+    roadmap: bool = False
+    asks_wait_for_you: bool = False
+    drafting: dict[str, str] | None = None
+    on: str | None = None
+    label: str = ""
+    summary: str = ""
+    ceiling: str = ""
+    order: int | None = None
+    models: tuple[str, ...] = ()
+    efforts: tuple[str, ...] = ()
+    prompt: str = ""
+
+
+_START_ORDER = ("id", "on", "label", "summary", "ceiling", "state", "lead", "when_held", "ask_move", "order", "verb", "when", "needs",
+                "asks_describe", "asks_paths", "models", "efforts", "prompt")
+_LAUNCH_ORDER = ("personas", "result", "result_tools", "plan", "per_repo", "singleton", "repository", "repo", "roadmap",
+                 "asks_wait_for_you", "on", "label", "summary", "ceiling", "order", "models", "efforts", "prompt", "drafting")
+
+
+@dataclass(frozen=True)
 class Definition:
     name: str
     initial: str
@@ -164,6 +236,8 @@ class Definition:
     judge: str | None = None
     schema: int = SCHEMA
     status: bool = False           # a move posts a one-line status comment to the session's pull request or issue (FR-025)
+    launch: Launch | None = None   # None: the text has none, and a saved version takes the file's
+    starts: tuple[Start, ...] | None = None  # None: the text names none, and a saved version takes the file's; () none at all
 
 
 # ---- requires ----
@@ -320,7 +394,7 @@ def parse(text: str) -> Definition:
     except (tomllib.TOMLDecodeError, TypeError) as e:
         raise DefinitionError([Problem("text", f"not valid TOML: {e}")]) from None
     r = _Reader()
-    r.table(top, "workflow", ("schema", "name", "initial", "judge", "status", "state"))
+    r.table(top, "workflow", ("schema", "name", "initial", "judge", "status", "state", "launch", "start"))
     if top.get("schema") != SCHEMA or type(top.get("schema")) is not int:
         r.problems.append(Problem("workflow.schema", f"must be {SCHEMA}"))
     name = r.get(top, "name", "workflow", str, "", pattern=_NAME)
@@ -348,9 +422,47 @@ def parse(text: str) -> Definition:
             exits=tuple(_exit(r, e, f"{where}.exit.{i}") for i, e in enumerate(_array(r, t, "exit", where), 1)),
             manages=tuple(_manage(r, m, f"{where}.manages.{i}") for i, m in enumerate(_array(r, t, "manages", where), 1)))
     _structure(r, initial, states)
+    launch = _launch(r, top["launch"], "launch") if "launch" in top else None
+    starts = tuple(_start(r, t, f"start.{i}") for i, t in enumerate(_array(r, top, "start", "workflow"), 1)) if "start" in top else None
     if r.problems:
         raise DefinitionError(r.problems)
-    return Definition(name=name, initial=initial, states=states, judge=judge, status=status)
+    return Definition(name=name, initial=initial, states=states, judge=judge, status=status, launch=launch, starts=starts)
+
+
+def _start(r: _Reader, raw, where: str) -> Start:
+    t = r.table(raw, where, _START_ORDER)
+    for key in ("on", "label"):
+        if key not in t:
+            r.problems.append(Problem(f"{where}.{key}", "is missing"))
+    order = r.get(t, "order", where, int, None)
+    return Start(on=r.get(t, "on", where, str, "issue", START_ON), label=r.get(t, "label", where, str, ""),
+                 summary=r.get(t, "summary", where, str, ""), id=r.get(t, "id", where, str, None, pattern=_NAME),
+                 ceiling=r.get(t, "ceiling", where, str, ""), state=r.get(t, "state", where, str, None, pattern=_ID),
+                 lead=r.get(t, "lead", where, bool, False), when_held=r.get(t, "when_held", where, str, "ask", WHEN_HELD),
+                 ask_move=r.get(t, "ask_move", where, str, None, pattern=_ID), order=order,
+                 verb=r.get(t, "verb", where, str, None, pattern=re.compile(r"[a-z]{2,20}")),
+                 when=r.get(t, "when", where, str, None, START_WHEN), needs=r.get(t, "needs", where, str, None, START_NEEDS),
+                 asks_describe=r.get(t, "asks_describe", where, bool, False), asks_paths=r.get(t, "asks_paths", where, bool, False),
+                 models=r.get(t, "models", where, list, (), pattern=_NAME), efforts=r.get(t, "efforts", where, list, (), pattern=_NAME),
+                 prompt=r.get(t, "prompt", where, str, ""))
+
+
+def _launch(r: _Reader, raw, where: str) -> Launch:
+    t = r.table(raw, where, _LAUNCH_ORDER)
+    drafting = t.get("drafting")
+    if "drafting" in t and not (isinstance(drafting, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in drafting.items())):
+        r.problems.append(Problem(f"{where}.drafting", "is a table of state and entry names"))
+        drafting = None
+    return Launch(personas=r.get(t, "personas", where, list, (), pattern=_NAME), result=r.get(t, "result", where, str, "", pattern=_NAME),
+                  result_tools=r.get(t, "result_tools", where, list, (), pattern=_TOOL), plan=r.get(t, "plan", where, bool, True),
+                  per_repo=r.get(t, "per_repo", where, bool, False), singleton=r.get(t, "singleton", where, str, None, pattern=_NAME),
+                  repository=r.get(t, "repository", where, str, None), repo=r.get(t, "repo", where, str, None),
+                  roadmap=r.get(t, "roadmap", where, bool, False), asks_wait_for_you=r.get(t, "asks_wait_for_you", where, bool, False),
+                  drafting=dict(drafting) if drafting is not None else None, on=r.get(t, "on", where, str, None, START_ON),
+                  label=r.get(t, "label", where, str, ""), summary=r.get(t, "summary", where, str, ""),
+                  ceiling=r.get(t, "ceiling", where, str, ""), order=r.get(t, "order", where, int, None),
+                  models=r.get(t, "models", where, list, (), pattern=_NAME), efforts=r.get(t, "efforts", where, list, (), pattern=_NAME),
+                  prompt=r.get(t, "prompt", where, str, ""))
 
 
 def _array(r: _Reader, t: dict, key: str, where: str) -> list:
@@ -499,6 +611,28 @@ def _v(value) -> str:
     return "[" + ", ".join(_v(v) for v in value) + "]"
 
 
+def _text_value(value: str) -> str:
+    """A long text with line breaks as a literal multi-line string, so it reads as it is; anything else as a basic string.
+    TOML drops the line break right after the opening quotes, so the text reads back the same."""
+    if "\n" in value and "'''" not in value and not value.endswith("'") and not any(
+            (ord(c) < 0x20 and c not in "\n\t") or ord(c) == 0x7F for c in value):
+        return "'''\n" + value + "'''"
+    return _s(value)
+
+
+def _ordered_lines(obj, order: tuple[str, ...]) -> list[str]:
+    out = []
+    defaults = {f.name: f.default for f in fields(obj)}
+    for key in order:
+        value = getattr(obj, key)
+        if value is None or (key in defaults and defaults[key] is not MISSING and value == defaults[key]) or value == ():
+            continue
+        if isinstance(value, dict):
+            continue
+        out.append(f"{key} = {_text_value(value) if key == 'prompt' else _v(value)}")
+    return out
+
+
 def _lines(obj, skip=(), rename=None) -> list[str]:
     """`key = value` for each required field and each that differs from its default."""
     out = []
@@ -517,6 +651,14 @@ def emit(d: Definition) -> str:
         out.append(f"judge = {_s(d.judge)}")
     if d.status:  # only when set, so a text without it reads back the same
         out.append("status = true")
+    if d.starts == ():  # no starts at all, which a text without the key doesn't say
+        out.append("start = []")
+    if d.launch is not None:
+        out += ["", "[launch]", *_ordered_lines(d.launch, _LAUNCH_ORDER)]
+        if d.launch.drafting is not None:
+            out += ["[launch.drafting]", *(f"{k} = {_s(v)}" for k, v in d.launch.drafting.items())]
+    for st in d.starts or ():
+        out += ["", "[[start]]", *_ordered_lines(st, _START_ORDER)]
     for s in d.states.values():
         out += ["", f"[state.{s.id}]", *_lines(s, skip=("id", "grant", "exits", "manages"))]
         if grant := _lines(s.grant):
@@ -734,10 +876,94 @@ def _sccs(nodes: list[str], edges: dict[str, set[str]]) -> list[list[str]]:
     return out
 
 
+def start_state(d: Definition, start: Start) -> str:
+    """The leaf a session of this start begins in: its state, or the workflow's initial one, down its first states."""
+    return _leaf(d, start.state if start.state is not None else d.initial)
+
+
+def writes_on_item(grant: Grant) -> list[str]:
+    """What in an effective grant can write on the item a session works on (FR-104), in words; empty if nothing can. Full access
+    is the maintainer's own rights. A GitHub capability beyond the reads, or a hub tool (listed or asked first) other than the
+    read-only ones and those that only reach the hub, writes. A result a person applies isn't the session writing: the person's
+    press is."""
+    out = []
+    if grant.access == "full":
+        out.append("full access")
+    out += [f"GitHub {c}" for c in grant.github if c not in READ_GITHUB]
+    out += [t for t in dict.fromkeys((*grant.hub_tools, *grant.asks_first)) if t not in QUIET_HUB_TOOLS]
+    return out
+
+
+def prompt_problem(prompt: str) -> str | None:
+    """Why a start's prompt can't be filled in, or None. Only {repo}, {number} and {checkout}, with {{ and }} for braces."""
+    import string
+    try:
+        parts = list(string.Formatter().parse(prompt))
+    except ValueError as e:
+        return f"a brace doesn't close or open ({e}): write {{{{ and }}}} for a brace"
+    for _text, field_name, spec, conversion in parts:
+        if field_name is None:
+            continue
+        if field_name not in PROMPT_FIELDS or spec or conversion:
+            return f"{{{field_name}}} isn't one of {', '.join('{' + f + '}' for f in PROMPT_FIELDS)}: write {{{{ and }}}} for a brace"
+    return None
+
+
+def effective_starts(d: Definition, inherited: tuple[Start, ...] | None) -> tuple[Start, ...]:
+    """The starts in force: the text's own, or with none named (None) those `inherited` gives, the file's."""
+    return d.starts if d.starts is not None else (inherited or ())
+
+
+def start_id(d: Definition, start: Start, place: int = 0) -> str:
+    """A start's id is the workflow's name unless it names its own, so only one start of a workflow may leave it out."""
+    return start.id or d.name
+
+
+def check_starts(d: Definition, starts: tuple[Start, ...]) -> list[Finding]:
+    """FR-101 and FR-104 within one workflow. The library checks labels and leads across all of them."""
+    found: list[Finding] = []
+    problem = lambda where, text: found.append(Finding("problem", where, text))  # noqa: E731
+    seen_labels, seen_ids, leads = {}, {}, {}
+    for i, st in enumerate(starts, 1):
+        where = f"start.{i}"
+        if not st.label.strip():
+            problem(f"{where}.label", "a start has a button label")
+        if st.state is not None and st.state not in d.states:
+            problem(f"{where}.state", f"{st.state!r} isn't a state")
+            continue
+        leaf = start_state(d, st)
+        # A one-state workflow's only state is final (FR-010) and is where its sessions start; a state named for a start isn't.
+        if st.state is not None and d.states[leaf].final:
+            problem(f"{where}.state", f"{leaf} is final: a session would start with nothing to do")
+        key = (st.on, st.label.strip().lower())
+        if key in seen_labels:
+            problem(f"{where}.label", f"start {seen_labels[key]} has the label {st.label!r} on a {st.on} too")
+        seen_labels.setdefault(key, i)
+        sid = start_id(d, st, i)
+        if sid in seen_ids:
+            problem(f"{where}.id", f"start {seen_ids[sid]} has the id {sid!r} too: each start after one without an id names its own")
+        seen_ids.setdefault(sid, i)
+        if st.lead:
+            if st.on in leads:
+                problem(f"{where}.lead", f"start {leads[st.on]} leads for a {st.on} already")
+            leads.setdefault(st.on, i)
+        if st.prompt and (why := prompt_problem(st.prompt)):
+            problem(f"{where}.prompt", why)
+        if st.when_held == "beside" and (writes := writes_on_item(effective(d, leaf))):
+            problem(f"{where}.when_held", f"runs beside a holding instance, but {leaf}'s grant can write on the item "
+                    f"({', '.join(writes[:4])}): it asks the owner or is hidden (FR-104)")
+        if st.ask_move is not None and st.when_held != "ask":
+            problem(f"{where}.ask_move", "only a start that asks the owner names a move to ask for")
+    if d.launch is not None and d.launch.prompt and (why := prompt_problem(d.launch.prompt)):
+        problem("launch.prompt", why)
+    return found
+
+
 def check(d: Definition) -> list[Finding]:
     """Problems stop a save or an approval; marks only show (FR-008)."""
     found: list[Finding] = []
     problem = lambda where, text: found.append(Finding("problem", where, text))  # noqa: E731
+    found += check_starts(d, d.starts or ())
     leaves = [s for s in d.states if not _is_parent(d, s)]
     parsed: dict[tuple[str, int], list[Requirement]] = {}
 

@@ -524,7 +524,6 @@ def _copy_of_the_library(tmp_path):
 def test_the_library_holds_the_search_to_the_actions_that_cant_carry_a_note_out(tmp_path):
     """An action added later that only reads must list the tool; one with a post tool, a shell or a card to ask loads without it."""
     root = _copy_of_the_library(tmp_path)
-    action = (root / "actions" / "new-issue.toml").read_text()
     base = (root / "workflows" / "new-issue.toml").read_text().replace(', "notes_find"]', "]")
     variants = {"posts": base.replace('"submit_drafts"]', '"submit_drafts", "comment_issue"]'),
                 "writes": base.replace('"submit_drafts"]', '"submit_drafts", "create_issue"]'),
@@ -533,8 +532,8 @@ def test_the_library_holds_the_search_to_the_actions_that_cant_carry_a_note_out(
                 "asks": base + 'asks_first = ["comment_issue"]\n'}
     for name, text in variants.items():
         assert text != base and "notes_find" not in text, name
-        (root / "actions" / f"x-{name}.toml").write_text(action.replace('verb = "issue"', f'verb = "{name}"'))
-        (root / "workflows" / f"x-{name}.toml").write_text(text.replace('name = "new-issue"', f'name = "x-{name}"'))
+        (root / "workflows" / f"x-{name}.toml").write_text(text.replace('name = "new-issue"', f'name = "x-{name}"')
+                                                           .replace('verb = "issue"', f'verb = "{name}"').replace('label = "Issue"', f'label = "{name}"'))
     library = Library(root)
     for name in variants:
         assert "notes_find" not in library.action(f"x-{name}")["grant"].hub_tools, name

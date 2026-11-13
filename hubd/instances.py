@@ -200,9 +200,10 @@ class Instance:
     managed: dict[str, dict] = field(default_factory=dict)
 
     @classmethod
-    def new(cls, text: str, now: float) -> Instance:
+    def new(cls, text: str, now: float, state: str | None = None) -> Instance:
+        """In the initial state, or in `state` (a start's, FR-100), down its first states."""
         d = _parse(text)
-        leaf = _enter(d, d.initial, {}, "first")
+        leaf = _enter(d, d.initial if state is None else state, {}, "first")
         inst = cls(workflow=d.name, version=version_of(text), state=leaf, definitions={version_of(text): text}, entered=now,
                    held=held_of(machine.effective(d, leaf)), created=now)
         for s in machine.ancestors(d, leaf):
@@ -604,7 +605,7 @@ class Machines:
 
     def start(self, directory: Path, action: dict) -> Instance:
         """When a session starts: its machine, on its action's workflow."""
-        inst = Instance.new(definition_for(action), self.clock())
+        inst = Instance.new(definition_for(action), self.clock(), action.get("state"))
         self._write(directory, inst)
         return inst
 

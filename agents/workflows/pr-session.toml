@@ -3,6 +3,26 @@ schema = 1
 name = "pr-session"
 initial = "session"
 
+[launch]
+personas = ["engineer"]
+result = "none"
+plan = false
+
+[[start]]
+on = "pr"
+label = "Open a session"
+summary = "A full session on the pull request's branch, with the pull request read. Then it's yours."
+ceiling = "A full Claude Code with your rights, on this pull request's branch. Refuses forks."
+order = 9
+models = ["opus", "sonnet"]
+efforts = ["high", "xhigh", "medium"]
+prompt = '''
+This session is for pull request #{number} of GlassineOS/{repo}. You are on its branch, in {checkout}.
+
+Read it with `get_pr`, summarise it in a few lines, then wait for the user.
+'''
+
+
 [state.session]
 final = true
 [state.session.grant]

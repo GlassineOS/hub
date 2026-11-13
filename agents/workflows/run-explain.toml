@@ -3,6 +3,25 @@ schema = 1
 name = "run-explain"
 initial = "session"
 
+[launch]
+personas = ["ci-diagnostician"]
+result = "none"
+
+[[start]]
+on = "run"
+label = "Explain this run"
+summary = "Summarises what the run did and what it published. Reports in the session."
+ceiling = "Read only."
+order = 3
+when = "not-failing"
+models = ["sonnet", "opus"]
+efforts = ["low", "medium", "high"]
+prompt = '''
+Summarise what Actions run {number} of GlassineOS/{repo} did and what it published. Report here,
+in this session. You change nothing.
+'''
+
+
 [state.session]
 final = true
 [state.session.grant]
