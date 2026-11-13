@@ -118,10 +118,23 @@ def test_the_library_refuses_rights_out_of_place_and_a_broken_workflow(tmp_path,
         Library(root)
 
 
-def test_a_session_keeps_to_its_first_state_so_a_workflow_with_more_isnt_used(tmp_path):
+def test_a_workflow_with_more_states_loads_and_starts_in_its_first(tmp_path):
     root = _copy(tmp_path)
     _edit(root / "workflows" / "pr-explain.toml", "final = true", '[[state.session.exit]]\nto = "done"\ndecided_by = "hand"\n\n[state.done]\nfinal = true')
-    with pytest.raises(LibraryError, match="more than one state"):
+    library = Library(root)
+    assert library.action("pr-explain")["grant"] == Library(REPO / "agents").action("pr-explain")["grant"]
+    assert len(library.states_of(library.action("pr-explain"))) == 2
+
+
+def test_the_notes_search_holds_for_every_state_a_session_can_move_to(tmp_path):
+    """A session keeps what it read when it moves, so a state that can post can't follow one that reads the notes."""
+    root = _copy(tmp_path)
+    _edit(root / "workflows" / "knowledge-research.toml", "final = true",
+          '[[state.session.exit]]\nto = "post"\ndecided_by = "hand"\n\n[state.post]\nfinal = true\n[state.post.grant]\nhub_tools = ["comment_issue"]')
+    with pytest.raises(LibraryError, match="in every state"):
+        Library(root)
+    _edit(root / "workflows" / "knowledge-research.toml", 'hub_tools = ["comment_issue"]', 'hub_tools = ["docs_search"]')
+    with pytest.raises(LibraryError, match="has notes_find in its hub_tools, in every state"):
         Library(root)
 
 

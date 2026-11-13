@@ -14,8 +14,8 @@ round. A roll-back undoes the move's place in the trail but not its counters: ro
 Time counts only while the session runs and the machine isn't paused: it is banked when the session ends (the time its
 terminal marked), when hubd finds it stopped, and on a pause, and the clock starts again on a resume or an unpause.
 
-Only state lives here. What a move does to the running session (instructions, context, the grant in force) is not
-applied by this module.
+Only state lives here. What a move does to the running session (instructions, context, the grant in force) is applied
+by whoever watches the moves (`Machines.on_move`, effects.py).
 """
 from __future__ import annotations
 
@@ -39,6 +39,7 @@ log = logging.getLogger("hubd.instances")
 SCHEMA = 1
 FILE = "machine.json"
 MAX_TRAIL = 50                  # moves that can be rolled back, newest last
+UNREADABLE = "machine_unreadable"  # in a history record: the folder's machine couldn't be read when it went
 ENDED = "ended"                 # the marker a session's terminal leaves when Claude ends (agents.ENDED_FILE)
 OPS = ("machine.get", "machine.history", "machine.move", "machine.confirm", "machine.rollback", "machine.pause")
 
@@ -425,6 +426,14 @@ class Machines:
         self.is_session = is_session
         self.clock = clock
         self._log: Log | None = None
+        self._watchers: list = []
+
+    def on_move(self, callback) -> None:
+        """callback(name, result) after each move, confirm and roll-back that was saved, by hand or by the machine: one
+        that moved ("moved"), one that waits for a confirm ("needs_confirm", "pending") and a confirm said no to
+        ("declined"). The result also says who did it ("by") and the state and version after it. A watcher that fails is
+        logged and doesn't undo the move, which is saved before it is called."""
+        self._watchers.append(callback)
 
     @property
     def log(self) -> Log:
@@ -458,18 +467,44 @@ class Machines:
         banked, so the days it spends ended don't count as time in its state."""
         try:
             inst = Instance.from_json(json.loads((Path(directory) / FILE).read_text()))
-        except (OSError, ValueError, MachineError):
+        except FileNotFoundError:  # a session from before instances
             return {}
+        except (OSError, ValueError, MachineError):  # said, so a resume doesn't take it to be in its first state
+            return {UNREADABLE: True}
         set_stopped(inst, True, self._ended_at(Path(directory), inst))
         return {"machine": inst.to_json()}
 
     def restore(self, directory: Path, record: dict) -> None:
-        """When resume brings a folder back from the history: the machine it had, if the record kept one."""
-        if "machine" in record:
-            try:
+        """When resume brings a folder back from the history: the machine it had, if the record kept one. A session whose
+        workflow can move, and whose machine was lost or can't be read, is refused: starting it in its first state would give
+        it that state's grant, whatever it held. One of a one-state workflow starts again from it, on the next look."""
+        try:
+            if record.get(UNREADABLE):
+                raise MachineError("its machine record couldn't be read when it ended")
+            if "machine" in record:
                 self._write(directory, Instance.from_json(record["machine"]))  # stopped: resume starts its clock
-            except MachineError as e:  # it starts again from its workflow's first state, on the next look
-                log.warning("%s: %s", record.get("name"), e)
+        except MachineError as e:
+            if self.staged_record(record):
+                raise
+            log.warning("%s: %s", record.get("name"), e)
+
+    def staged_record(self, record: dict) -> bool:
+        """Whether a session's workflow, as the library has it now, has more than one state."""
+        latest = self.latest(record)
+        try:
+            return latest is not None and len(_parse(latest).states) > 1
+        except MachineError:
+            return True
+
+    def peek(self, name: str) -> Instance | None:
+        """The session's instance as it is on disk, or None if it has none yet. Makes nothing. MachineError if unreadable."""
+        try:
+            raw = json.loads((self.sessions / name / FILE).read_text())
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError) as e:
+            raise MachineError("the session's machine record can't be read") from e
+        return Instance.from_json(raw)
 
     def load(self, name: str) -> tuple[dict, Instance]:
         if not self.is_session(name):
@@ -485,6 +520,9 @@ class Machines:
             latest = self.latest(record)
             if latest is None:
                 raise MachineError(f"{name}'s action is gone, so it has no workflow") from None
+            if self.staged_record(record) and record.get("session_id"):
+                # Every session of a workflow that can move had one from its start: a lost one isn't made up in the first state.
+                raise MachineError("its machine record is missing") from None
             inst = Instance.new(latest, self.clock())
             self._write(directory, inst)
             return record, inst
@@ -559,7 +597,7 @@ class Machines:
                 "waits": inst.pending is not None}
 
     # --- acting on a session's machine: load, change, save, log ---------------------
-    def _act(self, name, change) -> dict:
+    def _act(self, name, change, by: str | None = None) -> dict:
         record, inst = self.load(name)
         result = change(record, inst, self.clock())
         self.save(name, inst)
@@ -569,18 +607,26 @@ class Machines:
                 self.log.move(record["session_id"], name, **row)
             except (sqlite3.Error, LogError, OSError):
                 log.exception("%s: the move wasn't logged", name)
-        return {**result, "state": inst.state, "version": inst.version, "paused": inst.paused}
+        result = {**result, "state": inst.state, "version": inst.version, "paused": inst.paused}
+        if by is not None and (result.get("moved") or result.get("needs_confirm") or result.get("declined")):
+            told = {**result, "by": row["by"] if row else by}
+            for watcher in list(self._watchers):
+                try:
+                    watcher(name, told)
+                except Exception:  # noqa: BLE001: the move is saved; what watches it says what went wrong
+                    log.exception("%s: a watcher of its moves failed", name)
+        return result
 
     def move(self, name, to, by: str = "machine", enter: str = "first", who: str | None = None) -> dict:
-        return self._act(name, lambda record, inst, now: move(inst, to, by, enter=enter, latest=self.latest(record), who=who, now=now))
+        return self._act(name, lambda record, inst, now: move(inst, to, by, enter=enter, latest=self.latest(record), who=who, now=now), by)
 
     def rollback(self, name, who: str | None = None) -> dict:
-        return self._act(name, lambda _record, inst, now: rollback(inst, who, now))
+        return self._act(name, lambda _record, inst, now: rollback(inst, who, now), "rollback")
 
     def confirm_move(self, name, pending_id, who: str | None, accept: bool = True) -> dict:
         if not isinstance(accept, bool):
             raise MachineError("accept is true or false")
-        return self._act(name, lambda _record, inst, now: confirm_move(inst, pending_id, who, accept, now))
+        return self._act(name, lambda _record, inst, now: confirm_move(inst, pending_id, who, accept, now), "confirm")
 
     def pause(self, name, paused, who: str | None = None) -> dict:
         return self._act(name, lambda _record, inst, now: pause(inst, paused, who, now))

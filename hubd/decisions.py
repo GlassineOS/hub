@@ -1,11 +1,15 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""The person's decisions: goes and merge approvals. A file each, in hubd's state folder.
+"""The person's decisions: goes and merge approvals, and the hub's own confirms of a workflow move that widens a session's
+grant (spec 012 FR-024). A file each, in hubd's state folder.
 
 Only a login records the person's word. Every op that makes a decision current sits behind the login check in
 Hubd.request. A session's tool token can ask whether one covers it, spend a run of one that does, ask for one on a card,
 and end a go, as that only narrows. Nothing a token can do makes one current.
 
 Each move is on disk before anything acts on it. Answers come in words, with a plain yes or no for a script to act on.
+
+A widening confirm (`machine.widen`) is made by hubd alone, never by a request or a token: approving it confirms the move it
+names and nothing else, so it never becomes current. It goes from requested straight to ended.
 
 This stops mistakes, relayed quotes and misled locked agents. A full session runs as the same user, and could write these
 files: see SECURITY.md.
@@ -26,6 +30,8 @@ from .agents import _draws_nothing
 log = logging.getLogger("hubd.decisions")
 
 KINDS = ("go", "merge")
+WIDEN = "machine.widen"
+HUB_KINDS = (WIDEN,)  # made by hubd itself: `add` and `request` refuse them
 STATES = ("requested", "current", "using", "ended")  # using: its merge is running
 EYE_TEST = "eye-test"  # you hold the device while a session holds the lock: "I've got the device" leaves it alone
 ANY = "any"
@@ -144,6 +150,9 @@ def _clock(when: float) -> str:
 def describe(record: dict) -> str:
     """A decision in a sentence: what it covers, not how it's stored."""
     scope, ends = record["scope"], record["ends"]
+    if record["kind"] == WIDEN:
+        adds = "; ".join(f"{k} {', '.join(map(str, v))}" for k, v in scope["adds"].items())
+        return f"Workflow move for {scope['session']}: {scope['from']} to {scope['to']}, which adds {adds}"
     if record["kind"] == "go":
         line = f"Go for {', '.join(scope['actions'])}, on {'any device' if scope['device'] == ANY else scope['device']}, for {'any session' if scope['session'] == ANY else scope['session']}"
         if "runs" in ends:
@@ -163,7 +172,7 @@ def describe(record: dict) -> str:
 
 def _kept_whole(record: dict) -> bool:
     """Whether a file has what every answer reads. One that doesn't would break the page and every other go, so it's left out."""
-    if record["kind"] not in KINDS or record["state"] not in STATES or not isinstance(record["ends"], dict) or not isinstance(record["scope"], dict):
+    if record["kind"] not in (*KINDS, *HUB_KINDS) or record["state"] not in STATES or not isinstance(record["ends"], dict) or not isinstance(record["scope"], dict):
         return False
     float(record["made"])
     for field in ("asked_by", "why", "why_ended", "words", "ended"):
@@ -251,14 +260,36 @@ class Decisions:
         for_hours = None
         if kept_ends.pop("until", None) is not None:  # its clock starts when it's approved: a card can stay up for a day
             for_hours = ends["hours"]
-        waiting = [r for r in self._all.values() if self.current_state(r) == "requested" and r["asked_by"] == asked_by]
+        # The hub's own confirms aren't the session's asking, and don't use up its room.
+        waiting = [r for r in self._all.values() if r["kind"] not in HUB_KINDS and self.current_state(r) == "requested" and r["asked_by"] == asked_by]
         if len(waiting) >= MAX_REQUESTS:
             raise DecisionError(f"you have {MAX_REQUESTS} waiting already: wait for an answer")
         return self._new(kind, scope, kept_ends, "requested", None, asked_by=asked_by, why=why, for_hours=for_hours)
 
+    def widen_request(self, scope: dict, why: str) -> dict:
+        """hubd's card for a move that waits for the maintainer's confirm. The scope is the hub's own: the session, the
+        conversation, the pending move's id, the states and the change. `why` is the hub's words, not the session's."""
+        return self._new(WIDEN, scope, {}, "requested", None, asked_by=scope["session"], why=why)
+
+    def settle(self, decision_id, accepted: bool, why: str, words: str | None = None) -> dict:
+        """A widening confirm answered or dropped: it ends, saying how."""
+        record = self._get(decision_id)
+        if record["kind"] not in HUB_KINDS:
+            raise DecisionError("that isn't a confirm of the hub's")
+        if record["state"] == "ended":
+            return record
+        more = {"approved": self.clock(), "words": words or "Confirmed on its card."} if accepted else {}
+        return self._end({**record, **more}, why)
+
+    def open_widenings(self, session: str) -> list[dict]:
+        return [r for r in list(self._all.values()) if r["kind"] == WIDEN and r["scope"].get("session") == session
+                and self.current_state(r) == "requested"]
+
     def approve(self, decision_id, words=None, scope=None, ends=None) -> dict:
         """A login, on the card. It can narrow what was asked, and doesn't widen a go's actions."""
         record = self._get(decision_id)
+        if record["kind"] in HUB_KINDS:
+            raise DecisionError("a workflow move's confirm is answered through its session's machine")
         if self.current_state(record) != "requested":
             raise DecisionError("that isn't waiting for an answer any more")
         kept_scope = record["scope"]
@@ -278,12 +309,16 @@ class Decisions:
 
     def deny(self, decision_id, why=None) -> dict:
         record = self._get(decision_id)
+        if record["kind"] in HUB_KINDS:
+            raise DecisionError("a workflow move's confirm is answered through its session's machine")
         if self.current_state(record) != "requested":
             raise DecisionError("that isn't waiting for an answer any more")
         return self._end(record, f"you said no: {text(why, MAX_WHY, 'why')}" if why else "you said no")
 
     def end(self, decision_id, why, by: str = "you") -> dict:
         record = self._get(decision_id)
+        if record["kind"] in HUB_KINDS:
+            raise DecisionError("a workflow move's confirm is answered, not ended")
         if self.current_state(record) != "current":
             raise DecisionError("that isn't current")
         said = text(why, MAX_WHY, "why") if why else None
