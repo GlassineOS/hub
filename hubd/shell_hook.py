@@ -13,6 +13,10 @@ through pasta, which keeps it away from this host's loopback and abstract socket
 so routes in its namespace refuse private ranges and this host's addresses, set before bubblewrap drops the right to
 change them.
 
+A session whose launch carries GitHub capabilities also gets hubd's token for them, read anew for each command from a
+folder hubd renews it in: as GH_TOKEN, and for git as a credential for https://github.com only. Its scope on GitHub is
+what limits it. Other sessions get none.
+
 Commands take turns: overlays can't share their upper and work folders. The git store below an overlay is the clone the
 hub fetches into for other sessions, which the kernel leaves undefined. That can give odd git results in here and no
 harm outside, for as long as one command runs.
@@ -30,6 +34,14 @@ GATEWAY = "169.254.1.2"
 ADDRESS = "169.254.1.3"
 PREFIX = "29"
 MARKER = "marker"
+GITHUB_TOKEN = "token"  # the file in the folder hubd renews
+GITHUB_MOUNT = "/run/glassine-github"
+# Env-only git config, so nothing is written to the sandbox's home: the host's helpers go, then one for github.com that
+# reads the file at each use, so a long command still gets the renewed token.
+_GIT_HELPER = (f'!f() {{ test "$1" = get || return 0; echo username=x-access-token; '
+               f'printf "password=%s\\n" "$(cat {GITHUB_MOUNT}/{GITHUB_TOKEN})"; }}; f')
+_GIT_CONFIG = (("credential.helper", ""), ("credential.https://github.com.helper", _GIT_HELPER))
+_WITH_TOKEN = f'GH_TOKEN="$(cat {GITHUB_MOUNT}/{GITHUB_TOKEN})" || exit 1; export GH_TOKEN; exec bash -c "$1"'
 TURN_WAIT = 600  # seconds a command waits for the one before it
 REFUSED_RANGES = ("0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "169.254.0.0/16", "172.16.0.0/12", "192.0.0.0/24", "192.168.0.0/16",
                   "198.18.0.0/15", "224.0.0.0/4", "240.0.0.0/4")
@@ -57,7 +69,7 @@ def _overlay(lower: Path, folder: Path) -> list[str]:
     return ["--overlay-src", str(lower), "--overlay", str(folder / "upper"), str(folder / "work"), str(lower)]
 
 
-def sandboxed(command: str, cwd: str, shell: Path, checkouts: list[Path]) -> list[str]:
+def sandboxed(command: str, cwd: str, shell: Path, checkouts: list[Path], github: Path | None = None) -> list[str]:
     home = str(Path.home())
     for part in ("home", "tmp"):
         (shell / part).mkdir(parents=True, exist_ok=True)
@@ -85,14 +97,26 @@ def sandboxed(command: str, cwd: str, shell: Path, checkouts: list[Path]) -> lis
         argv += _overlay(checkout, shell / f"checkout{i}")
     here = Path(cwd)
     inside = any(here == c or c in here.parents for c in checkouts)
-    argv += ["--chdir", str(here if inside else checkouts[0]), "bash", "-c", command]
-    return argv
+    argv += ["--chdir", str(here if inside else checkouts[0])]
+    if github is None:
+        return argv + ["bash", "-c", command]
+    if not (github / GITHUB_TOKEN).is_file():
+        raise ValueError("this session's GitHub token isn't there")
+    # The folder, not the file: hubd replaces the file, and a bind of it would keep the old one.
+    argv += ["--ro-bind", str(github), GITHUB_MOUNT, "--setenv", "GIT_CONFIG_COUNT", str(len(_GIT_CONFIG))]
+    for i, (key, value) in enumerate(_GIT_CONFIG):
+        argv += ["--setenv", f"GIT_CONFIG_KEY_{i}", key, "--setenv", f"GIT_CONFIG_VALUE_{i}", value]
+    # Read inside: the token stays off the command line, which the transcript keeps.
+    return argv + ["sh", "-c", _WITH_TOKEN, "sh", command]
 
 
 def main() -> None:
     event = json.load(sys.stdin)
     tool_input = event["tool_input"]
-    argv = sandboxed(tool_input["command"], event.get("cwd", ""), Path(sys.argv[1]), [Path(p) for p in sys.argv[2:]])
+    args, github = sys.argv[1:], None
+    if args[0] == "--github":
+        github, args = Path(args[1]), args[2:]
+    argv = sandboxed(tool_input["command"], event.get("cwd", ""), Path(args[0]), [Path(p) for p in args[1:]], github)
     # The marker is an assignment, which shlex.join would quote into a command name. Only hex, so it needs no quoting.
     command = f"{argv[0]} {shlex.join(argv[1:])}"
     # Not in the background: it would hold everyone's turn, and the sandbox ends with its command anyway.
