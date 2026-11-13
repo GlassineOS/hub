@@ -1,0 +1,373 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Signals, routing and evaluation: what makes a workflow instance move on its own (spec 012, FR-006, FR-007,
+FR-013 to FR-015, FR-017, FR-018).
+
+A signal is a session event (its hook: `turn.end`, `session.end`, `tool.after`, `compact.before`), a change feed event
+(`feed:<kind>.<what>`, for the sessions that cover the item or hold its pull request) or a hub event (`hub:decision`,
+`hub:managed.return`, `hub:managed.end`). Routing uses no model: a signal reaches an instance only when its current state
+has an exit, its own or a parent's, that moves on its own and names that signal in `on`. A session with no such exit
+costs nothing, not even a look at its transcript.
+
+Evaluations are debounced per instance (signals within the window share one pass) and run one at a time per instance;
+a signal that arrives during a pass gets one more pass after it. A pass tries the matching exits in order:
+
+- `facts` and `counter` exits hold when every `requires` holds;
+- `judge` exits are put to the judge once per pass, after the session's rolling summary has taken the last turn, and
+  hold only when the judge picks that exit and every `requires` holds as well;
+- `hand` exits and `move = "on-request"` exits are never tried here;
+- the first exit that holds ends the pass. If its `approve` asks for anyone, nothing moves and the evaluation says what
+  it waits for; otherwise the instance moves by the machine.
+
+A fact the hub can't tell is missing from the facts, so a requirement on it doesn't hold either way. Every pass that tried
+an exit is logged, with each check and the value it saw. This module only decides: what a move does to the running
+session is for whoever listens to the moves.
+
+Standard library only, as hubd is.
+"""
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import logging
+import sqlite3
+from pathlib import Path
+
+from . import judge as judgelib
+from . import machine, summary
+from .instances import MachineError, Machines
+from .machine_log import LogError
+
+log = logging.getLogger("hubd.machinerun")
+
+DEBOUNCE = 2.0  # seconds a pass waits for more signals after the first
+HOOK_SIGNALS = {"Stop": "turn.end", "SessionEnd": "session.end", "PostToolUse": "tool.after", "PreCompact": "compact.before"}
+SESSION_SIGNALS = tuple(HOOK_SIGNALS.values())
+HUB_SIGNALS = ("hub:decision", "hub:managed.return", "hub:managed.end")
+
+# The change feed's words, in the words `requires` uses. A value not here (no checks at all, say) is not a fact.
+CHECKS = {"passing": "pass", "failing": "fail", "pending": "pending"}
+REVIEWS = {"APPROVED": "approved", "CHANGES_REQUESTED": "changes_requested", "REVIEW_REQUIRED": "none"}
+PR_STATES = ("OPEN", "CLOSED", "MERGED")
+
+
+def wanted(d: machine.Definition, among=SESSION_SIGNALS) -> set[str]:
+    """The signals among `among` that an exit of the definition names: what a session on it needs to send."""
+    return {s for st in d.states.values() for e in st.exits for s in e.on if s in among}
+
+
+def tried(d: machine.Definition, state_id: str, signals) -> list[tuple[int, machine.Exit]]:
+    """The exits a pass tries on these signals, each with its place in `machine.exits_of`, in order: those that move on
+    their own and name one of the signals."""
+    signals = set(signals)
+    return [(i, e) for i, e in enumerate(machine.exits_of(d, state_id))
+            if e.decided_by != "hand" and e.move == "auto" and signals & set(e.on)]
+
+
+def check(expr: str, facts: dict) -> dict:
+    """One `requires` entry against the facts: each term with the value it saw, and whether the entry holds."""
+    req = machine.parse_requires(expr)
+    terms = [{"fact": t.name, "op": t.op, "want": t.value, "value": facts.get(t.name), "holds": t.holds(facts)} for t in req.terms]
+    return {"requires": expr, "terms": terms, "holds": req.holds(facts)}
+
+
+# ---- facts ----
+
+def pr_facts(state: str | None, seen: dict, own_branch: bool) -> dict:
+    """A pull request's facts from its state (as last looked up or fed) and what the feed saw of it since its head."""
+    out = {}
+    if state in PR_STATES:
+        out["pr.open"], out["pr.merged"] = state == "OPEN", state == "MERGED"
+    if seen.get("checks") in CHECKS:
+        out["pr.checks"] = CHECKS[seen["checks"]]
+    if seen.get("review") in REVIEWS:
+        out["pr.review"] = REVIEWS[seen["review"]]
+    if own_branch:  # found by the session's own branch, so that branch is on GitHub
+        out["branch.pushed"] = True
+    return out
+
+
+class HubFacts:
+    """The facts hubd has without asking GitHub: the pull requests the session view last looked up, the change feed's
+    events for them, and what the session was started on. Nothing here makes a call."""
+
+    def __init__(self, agents, feed):
+        self.agents = agents
+        self.feed = feed
+
+    def __call__(self, name: str, record: dict) -> dict:
+        out = {"issue.linked": True} if record.get("object") == "issue" else {}
+        prs = self.agents.known_prs(name)
+        if prs is None:  # never looked up: whether there is one is unknown
+            return out
+        if not prs:
+            return {**out, "pr.open": False, "pr.merged": False}
+        pr = min(prs, key=lambda p: p.get("state") != "OPEN")
+        seen = self._seen(pr["repo"], pr["number"])
+        return {**out, **pr_facts(seen.get("state") or pr.get("state"), seen, record.get("object") != "pr")}
+
+    def _seen(self, repo: str, number: int) -> dict:
+        if self.feed is None:
+            return {}
+        try:
+            return self.feed.latest("pr", repo, number)
+        except sqlite3.Error:
+            log.exception("the change feed can't be read")
+            return {}
+
+
+# ---- the runner ----
+
+class Runner:
+    """Routes signals to instances and evaluates them. `facts(name, record)` gives the facts beyond the counters,
+    `judges()` the judge table (it may raise judge.ConfigError), `turn(name, record)` the turn that just ended,
+    `items(name, record)` the (repository, number) pairs a session is on, `names()` the sessions. `sleep` and the
+    machines' clock are injectable, so tests don't wait."""
+
+    def __init__(self, machines: Machines, *, facts=None, judges=None, turn=None, items=None, names=None,
+                 debounce: float = DEBOUNCE, sleep=asyncio.sleep):
+        self.machines = machines
+        self._facts = facts or (lambda _name, _record: {})
+        self._judges = judges or (lambda: {})
+        self._turn = turn or (lambda _name, _record: "")
+        self._items = items or (lambda _name, _record: ())
+        self._names = names or (lambda: ())
+        self.debounce = debounce
+        self._sleep = sleep
+        self._waiting: dict[str, list[str]] = {}       # signals that came since the last pass began
+        self._tasks: dict[str, asyncio.Task] = {}
+        self._locks: dict[str, asyncio.Lock] = {}
+        self._folded: dict[tuple[str, str], str] = {}  # (name, conversation) -> the hash of the turn last folded
+
+    # --- signals ----------------------------------------------------------------------
+    def signal(self, name: str, session: str | None = None, payload: dict | None = None) -> list[str]:
+        """A signal for one session (session and hub signals) or for the item a payload names (feed signals: repo and
+        number). The sessions it was routed to. Never raises: a signal that reaches nothing is no fault."""
+        if name not in machine.SIGNALS:
+            return []
+        if name.startswith("feed:"):
+            index = self.index()
+            item = _item(payload)
+            return self._route(name, sorted(index.get(item, ()))) if item else []
+        return self._route(name, [session] if isinstance(session, str) and session else [])
+
+    def hook(self, session: str, how) -> list[str]:
+        """A session's hook said this event happened. Only the events in HOOK_SIGNALS are signals."""
+        return self.signal(HOOK_SIGNALS[how], session) if isinstance(how, str) and how in HOOK_SIGNALS else []
+
+    def feed(self, rows) -> list[str]:
+        """Changes the feed has just stored, each a row as Feed.changes gives it. One index for them all."""
+        index, routed = None, []
+        for row in rows:
+            signal = f"feed:{row.get('kind')}.{row.get('what')}"
+            item = _item(row)
+            if signal not in machine.SIGNALS or item is None:
+                continue
+            index = self.index() if index is None else index
+            routed += self._route(signal, sorted(index.get(item, ())))
+        return list(dict.fromkeys(routed))
+
+    def index(self) -> dict[tuple[str, int], set[str]]:
+        """(repository in lower case, number) -> the sessions on that item or holding that pull request."""
+        out: dict[tuple[str, int], set[str]] = {}
+        for name in self._names():
+            try:
+                record, _inst = self.machines.load(name)
+                for repo, number in self._items(name, record):
+                    out.setdefault((str(repo).lower(), number), set()).add(name)
+            except (MachineError, OSError, KeyError, TypeError, ValueError):
+                continue
+        return out
+
+    def _route(self, signal: str, names: list[str]) -> list[str]:
+        out = []
+        for name in names:
+            if self._listens(name, signal) and self._schedule(name, signal):
+                out.append(name)
+        return out
+
+    def _listens(self, name: str, signal: str) -> bool:
+        try:
+            _record, inst = self.machines.load(name)
+            return not inst.paused and not inst.pending and bool(tried(inst.definition(), inst.state, [signal]))
+        except (MachineError, OSError):
+            return False
+
+    def _schedule(self, name: str, signal: str) -> bool:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            log.warning("%s: %s came with no event loop to evaluate it", name, signal)
+            return False
+        waiting = self._waiting.setdefault(name, [])
+        if signal not in waiting:
+            waiting.append(signal)
+        if name not in self._tasks:
+            self._tasks[name] = loop.create_task(self._run(name))
+        return True
+
+    async def _run(self, name: str) -> None:
+        """A fixed window from the first signal, so a stream of them can't put a pass off for good."""
+        try:
+            while self._waiting.get(name):
+                await self._sleep(self.debounce)
+                signals = self._waiting.pop(name, [])
+                if signals:
+                    try:
+                        await self.evaluate(name, signals)
+                    except Exception:  # noqa: BLE001 — one instance's fault mustn't stop the next signal
+                        log.exception("%s: the evaluation broke", name)
+        finally:
+            self._tasks.pop(name, None)
+
+    async def idle(self) -> None:
+        """Until no pass is waiting or running."""
+        while self._tasks:
+            await asyncio.gather(*list(self._tasks.values()), return_exceptions=True)
+
+    # --- evaluation -------------------------------------------------------------------
+    async def evaluate(self, name: str, signals) -> dict:
+        """One pass over the instance's exits that name one of these signals. At most one per instance at a time."""
+        lock = self._locks.setdefault(name, asyncio.Lock())
+        async with lock:
+            return await self._evaluate(name, list(dict.fromkeys(signals)))
+
+    async def _evaluate(self, name: str, signals: list[str]) -> dict:
+        try:
+            record, inst = self.machines.load(name)
+        except (MachineError, OSError) as e:
+            return {"skipped": str(e)}
+        if inst.paused:
+            return {"skipped": "paused"}
+        if inst.pending:  # another proposal would replace the one waiting for the maintainer's confirm
+            return {"skipped": "a move waits for a confirm"}
+        d, state, version = inst.definition(), inst.state, inst.version
+        candidates = tried(d, state, signals)
+        if not candidates:
+            return {"skipped": "no exit names the signal"}
+        facts = {**inst.facts(self.machines.clock()), **self._facts_of(name, record)}
+        verdict, fold, failed, chosen, rows = None, None, None, None, []
+        for i, e in candidates:
+            picked = True
+            if e.decided_by == "judge":
+                if verdict is None:
+                    verdict, fold = await self._judge(name, record, d, state, facts, [c for c in candidates if c[1].decided_by == "judge"])
+                    if verdict.failed:  # no move on a failed judgement, even by a later exit: the order would be broken
+                        failed = verdict.failed
+                        break
+                picked = verdict.exit == i
+            reqs = [check(expr, facts) for expr in e.requires]
+            holds = picked and all(r["holds"] for r in reqs)
+            rows.append({"exit": i, "to": e.to, "decided_by": e.decided_by, **({"picked": picked} if e.decided_by == "judge" else {}),
+                         "checks": reqs, "holds": holds})
+            if holds:
+                chosen = (i, e)
+                break
+        blocked, result = None, None
+        if chosen and not failed:
+            exit_ = chosen[1]
+            if exit_.approve != "none":
+                blocked = f"approve {exit_.approve}"
+            else:
+                result = self._move(name, state, version, exit_)
+        self._log(record, name, signals, state, version, d, verdict, fold, failed, chosen, rows, blocked, result)
+        return {"exit": chosen[0] if chosen else None, "failed": failed, "blocked": blocked, "move": result, "checks": rows}
+
+    def _facts_of(self, name: str, record: dict) -> dict:
+        try:
+            return dict(self._facts(name, record))
+        except Exception:  # noqa: BLE001 — a fact that can't be read is unknown, never a crash
+            log.exception("%s: the facts can't be read", name)
+            return {}
+
+    async def _judge(self, name, record, d, state, facts, offered):
+        try:
+            table = self._judges()
+        except judgelib.ConfigError as e:
+            return judgelib.Verdict(None, "", 0.0, "none", 0, None, f"the judges can't be read: {e}"[:judgelib.MAX_FAULT]), None
+        if not table:
+            return judgelib.Verdict(None, "", 0.0, "none", 0, None, "no judge is set up"), None
+        judge, _note = judgelib.pick(table, d.judge)
+        directory = self.machines.sessions / name
+        turn = self._turn_of(name, record)
+        fold = None
+        key, digest = (name, str(record.get("session_id"))), hashlib.sha256(turn.encode()).hexdigest()
+        if turn and self._folded.get(key) != digest:
+            fold = await summary.update(directory, turn, judge)
+            self._folded[key] = digest
+        request = judgelib.JudgeRequest(d.name, state, tuple((i, e.to, e.when) for i, e in offered), dict(facts),
+                                        summary.read(directory), turn)
+        return await judgelib.decide(table, d.judge, request), fold
+
+    def _turn_of(self, name: str, record: dict) -> str:
+        try:
+            turn = self._turn(name, record)
+        except Exception:  # noqa: BLE001
+            log.exception("%s: the last turn can't be read", name)
+            return ""
+        return turn if isinstance(turn, str) else ""
+
+    def _move(self, name: str, state: str, version: str, exit_: machine.Exit) -> dict:
+        """Only if nothing moved the instance while the judge thought. No await between the look and the move."""
+        try:
+            _record, inst = self.machines.load(name)
+            if (inst.state, inst.version) != (state, version) or inst.paused or inst.pending:
+                return {"moved": False, "stale": "the machine changed during the evaluation"}
+            return self.machines.move(name, exit_.to, by="machine", enter=exit_.enter)
+        except (MachineError, OSError) as e:
+            return {"moved": False, "error": str(e)}
+
+    def _log(self, record, name, signals, state, version, d, verdict, fold, failed, chosen, rows, blocked, result) -> None:
+        proposal = None
+        exits = machine.exits_of(d, state)
+        if verdict is not None and verdict.exit is not None and 0 <= verdict.exit < len(exits):
+            proposal = f"exit {verdict.exit} to {exits[verdict.exit].to}"
+        elif chosen:
+            proposal = f"exit {chosen[0]} to {chosen[1].to}"
+        checks = {"exits": rows}
+        if blocked:
+            checks["blocked"] = blocked
+        if result is not None:
+            checks["move"] = {k: result[k] for k in ("moved", "to", "needs_confirm", "stale", "error") if k in result}
+            if result.get("paused") and not result.get("moved"):
+                checks["move"]["paused"] = True
+        if verdict is not None and verdict.note:
+            checks["note"] = verdict.note
+        if fold is not None:
+            checks["summary"] = {"failed": fold.failed, "ms": fold.ms}
+        costs = [c for c in ((verdict.cost if verdict else None), (fold.cost if fold else None)) if c is not None]
+        try:
+            self.machines.log.evaluation(
+                str(record.get("session_id") or name), name, ", ".join(signals), state, version, proposal=proposal,
+                evidence=verdict.evidence if verdict and verdict.evidence else None, checks=checks,
+                judge=verdict.judge if verdict else None, ms=(verdict.ms + (fold.ms if fold else 0)) if verdict else None,
+                cost=sum(costs) if costs else None, failed=bool(failed))
+        except (sqlite3.Error, LogError, OSError):
+            log.exception("%s: the evaluation wasn't logged", name)
+
+
+def _item(payload) -> tuple[str, int] | None:
+    if not isinstance(payload, dict):
+        return None
+    repo, number = payload.get("repo"), payload.get("number")
+    if not isinstance(repo, str) or not repo or not isinstance(number, int) or isinstance(number, bool):
+        return None
+    return repo.lower(), number
+
+
+def for_hub(agents, feed, judges) -> Runner:
+    """The runner over hubd's own sessions, facts and transcripts. `judges()` gives the judge table as configured now."""
+    from .agents import covers_of
+
+    def items(name, record):
+        found = [(c["repo"], c["number"]) for c in covers_of(record.get("config", {}))]
+        return found + [(p["repo"], p["number"]) for p in agents.known_prs(name) or ()]
+
+    def turn(_name, record):
+        session_id = record.get("session_id")
+        return summary.last_turn(agents._transcript(session_id)) if isinstance(session_id, str) else ""
+
+    def names():
+        root = Path(agents.sessions)
+        return [p.name for p in root.iterdir() if (p / "session.json").exists()] if root.is_dir() else []
+
+    return Runner(agents.machines, facts=HubFacts(agents, feed), judges=judges, turn=turn, items=items, names=names)

@@ -246,6 +246,25 @@ class Feed:
             row = self.db.execute("SELECT seq FROM sqlite_sequence WHERE name = 'events'").fetchone()
         return row["seq"] if row else 0
 
+    def latest(self, kind: str, repo: str, number: int) -> dict:
+        """What the feed last saw of one item: its state, and of a pull request whether its head moved and its checks and
+        review since the newest head. What it hasn't seen since then is missing, not a guess."""
+        with self.lock:
+            rows = self.db.execute("SELECT what, new FROM events WHERE kind = ? AND repo = ? COLLATE NOCASE AND number = ? ORDER BY seq",
+                                   (kind, repo, number)).fetchall()
+        out: dict = {}
+        for row in rows:
+            what, new = row["what"], row["new"]
+            if what in ("opened", "state") and new:
+                out["state"] = new
+            elif what == "head":
+                out["head"] = True
+                out.pop("checks", None)
+                out.pop("review", None)
+            elif what in ("checks", "review"):
+                out[what] = new
+        return out
+
     def repos(self) -> set[str]:
         with self.lock:
             return {r["repo"] for r in self.db.execute("SELECT DISTINCT repo FROM events")}
