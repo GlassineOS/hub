@@ -312,6 +312,10 @@ class Viewer:
             await self.writer.drain()
 
 
+OPEN_SETTLE = 5.0  # seconds a session's open waits for the renderer to report the board; a first start takes ~4 s
+SETTLE_POLL = 0.05
+
+
 # --- one design view ---------------------------------------------------------------------------------
 class View:
     def __init__(self, name: str, worktree: Path, project: str, now: float):
@@ -630,7 +634,25 @@ class Designs:
         view.suggestion = None
         await self._send(view, command)
         self._tell(view)
-        return {"shown": True, **self.session_view(name)}
+        shown = await self._settled(view, command)
+        reply = {"shown": True, **self.session_view(name)}
+        if not shown:
+            reply["message"] = reply["message"] or f"the renderer hadn't shown {command['board']} within {OPEN_SETTLE:g} s: what it shows now is below"
+        return reply
+
+    async def _settled(self, view: View, command: dict) -> bool:
+        """Waits until the renderer reports the opened board (and the asked choices), so the reply says what is shown."""
+        def there() -> bool:
+            state = view.state
+            return state.get("board") == command["board"] and all(
+                state.get(k) == command[k] for k in ("voice", "scheme", "pen", "width", "height") if k in command)
+        loop = asyncio.get_running_loop()  # real time: the idle clock may be a test's
+        deadline = loop.time() + OPEN_SETTLE
+        while not there():
+            if not view.alive() or loop.time() >= deadline:
+                return False
+            await asyncio.sleep(SETTLE_POLL)
+        return True
 
     async def session_look(self, name: str) -> dict:
         """What the view shows, starting the renderer if it isn't running (FR-017: a tool call starts it)."""
