@@ -26,6 +26,7 @@ from pathlib import Path
 from . import auth, decisions, devices, interactions, machinerun, machinestore, newwork, notes, results, usage
 from . import judge as judgelib
 from .effects import Effects
+from .machinecost import Costs
 from .statusline import StatusLines
 from .managed import Managed, ManagedError
 from . import feed as feedlib
@@ -279,6 +280,8 @@ class Hubd:
                 return await self.interaction_request(op, req)
             if op.startswith("workflow."):  # 012 FR-060: only the maintainer saves a version, or approves one proposed
                 return self.workflows.request(op, req, self.sessions.own_user()) if self.workflows else {"ok": False, "error": "agent sessions are not set up"}
+            if op == "machine.costs":  # 012 FR-090, SC-003: what a piece of work cost, and how fast its moves were
+                return Costs(self.agents).request(req) if self.agents else {"ok": False, "error": "agent sessions are not set up"}
             if op.startswith("machine."):  # 012 FR-026: the maintainer's moves, logged as theirs
                 return self.agents.machines.request(op, req, self.sessions.own_user()) if self.agents else {"ok": False, "error": "agent sessions are not set up"}
             if op.startswith("usage."):

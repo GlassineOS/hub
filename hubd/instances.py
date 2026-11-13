@@ -30,7 +30,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import machine
+from . import machine, usage
 from .machine import Definition, DefinitionError, Grant
 from .machine_log import Log, LogError
 
@@ -306,6 +306,65 @@ def add_tokens(inst: Instance, tokens: int) -> None:
         inst.counters["tokens"][s] = inst.counters["tokens"].get(s, 0) + tokens
 
 
+# ---- usage: tokens and cost per state (FR-090) ----
+
+USAGE_FILE = "usage.json"  # beside machine.json: what the status line said when last banked, and the cost per state
+USAGE_KEY = "machine_usage"  # in a history record, the same when the folder went
+
+
+def _usage_kept(directory: Path) -> dict:
+    try:
+        kept = json.loads((Path(directory) / USAGE_FILE).read_text())
+    except (OSError, ValueError):
+        return {"seen": {}, "cost": {}}
+    ok = isinstance(kept, dict) and isinstance(kept.get("seen"), dict) and isinstance(kept.get("cost"), dict)
+    return kept if ok else {"seen": {}, "cost": {}}
+
+
+def bank_usage(directory: Path, inst: Instance, session_id) -> bool:
+    """What the conversation used since the last look, from its status line (usage.py), counted in the state it is in now
+    and its parents: tokens as the `tokens.<state>` counters, cost beside them in USAGE_FILE. Its totals are per
+    conversation: a new conversation, or one whose total went down (a /clear), counts again from zero. Whether the
+    instance changed."""
+    status = usage.read_status(directory)
+    if not status or not isinstance(session_id, str) or status.get("session_id") not in (None, session_id):
+        return False
+    tokens, cost = usage.tokens_of(status), usage._cost(status)
+    kept = _usage_kept(directory)
+    seen = kept["seen"] if kept["seen"].get("session_id") == session_id else {}
+    chain = machine.ancestors(inst.definition(), inst.state)
+    changed = False
+    if tokens is not None:
+        before = seen.get("tokens") if isinstance(seen.get("tokens"), int) else 0
+        delta = tokens - before if tokens >= before else tokens
+        if delta > 0:
+            add_tokens(inst, delta)
+            changed = True
+    if cost is not None:
+        before = seen.get("cost") if isinstance(seen.get("cost"), (int, float)) else 0.0
+        delta = cost - before if cost >= before else cost
+        if delta > 0:
+            for s in chain:
+                kept["cost"][s] = round(kept["cost"].get(s, 0.0) + delta, 6)
+    kept["seen"] = {"session_id": session_id, "tokens": tokens if tokens is not None else seen.get("tokens", 0),
+                    "cost": cost if cost is not None else seen.get("cost", 0.0)}
+    path = Path(directory) / USAGE_FILE
+    scratch = path.with_suffix(".tmp")
+    try:
+        fd = os.open(scratch, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            json.dump(kept, f)
+        scratch.replace(path)
+    except OSError:
+        log.exception("the usage of %s couldn't be kept", directory)
+    return changed
+
+
+def usage_of(directory: Path) -> dict:
+    """The cost per state banked so far."""
+    return dict(_usage_kept(directory)["cost"])
+
+
 # ---- moves ----
 # Each returns what happened. A move that happened carries "log": the row for the machine log, which the caller writes.
 
@@ -532,7 +591,12 @@ class Machines:
         except (OSError, ValueError, MachineError):  # said, so a resume doesn't take it to be in its first state
             return {UNREADABLE: True}
         set_stopped(inst, True, self._ended_at(Path(directory), inst))
-        return {"machine": inst.to_json()}
+        try:
+            record = json.loads((Path(directory) / "session.json").read_text())
+            bank_usage(Path(directory), inst, record.get("session_id"))
+        except (OSError, ValueError, MachineError):
+            pass
+        return {"machine": inst.to_json(), USAGE_KEY: usage_of(directory)}
 
     def restore(self, directory: Path, record: dict) -> None:
         """When resume brings a folder back from the history: the machine it had, if the record kept one. A session whose
@@ -543,6 +607,8 @@ class Machines:
                 raise MachineError("its machine record couldn't be read when it ended")
             if "machine" in record:
                 self._write(directory, Instance.from_json(record["machine"]))  # stopped: resume starts its clock
+                if isinstance(record.get(USAGE_KEY), dict):  # its cost per state; the status line counts again
+                    (Path(directory) / USAGE_FILE).write_text(json.dumps({"seen": {}, "cost": record[USAGE_KEY]}))
         except MachineError as e:
             if self.staged_record(record):
                 raise
@@ -674,8 +740,21 @@ class Machines:
         repo = (record.get("config") or {}).get("repo")
         return lambda workflow: self.grant_of(workflow, repo)
 
+    def bank(self, name) -> None:
+        """What the session used since the last look, into its counters: on a signal, before its exits are tried."""
+        try:
+            record, inst = self.load(name)
+            if bank_usage(self.sessions / name, inst, record.get("session_id")):
+                self.save(name, inst)
+        except (MachineError, OSError, ValueError) as e:
+            log.warning("%s: its usage couldn't be banked: %s", name, e)
+
     def _act(self, name, change, by: str | None = None, why: str | None = None) -> dict:
         record, inst = self.load(name)
+        try:  # what it used goes to the state it used it in, before it moves
+            bank_usage(self.sessions / name, inst, record.get("session_id"))
+        except (OSError, ValueError, MachineError):
+            log.exception("%s: its usage couldn't be banked", name)
         result = change(record, inst, self.clock())
         self.save(name, inst)
         row = result.pop("log", None)
