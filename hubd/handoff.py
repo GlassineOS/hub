@@ -11,10 +11,17 @@ over, under the same name, folder, checkout and workflow instance.
   Never a transcript's words, and never what an evaluation kept as evidence.
 - **The old conversation** goes into the history as a finished session, readable like any other; the machine log reads
   both conversations as one session (`conversations`).
-- **When the switch happens**: a running session at its prompt is switched inside `Agents.resume`, after every check a
-  resume makes, so a session that can't resume keeps its conversation. A stopped one is switched at once and starts the new
-  conversation at its next resume. Until the new conversation has a transcript, every resume launches it again from the
-  prompt (`FRESH_FILE`), so a launch that died doesn't leave a conversation id nothing can resume.
+- **When the switch happens**: always inside `Agents.resume`, after every check a resume makes, so a session that can't
+  resume keeps its conversation. A running session is switched once it is at its prompt (and is checked to be there again
+  just before); a stopped one gets the switch owed (`OWED_FILE`) and takes it at its next resume, whoever resumes it,
+  while it is still in the state that asked for it. Until the new conversation has a transcript, every resume launches it
+  again from the prompt (`FRESH_FILE`), so a launch that died doesn't leave a conversation id nothing can resume.
+- **A switch that stops half way**: `begin` writes its journal (`JOURNAL_FILE`) first and the new id into the record last.
+  Until that last write the old conversation is still the session's, so a journal left behind is undone (`recover`): what
+  was moved to the new id goes back, and the history row goes. The resume that failed does it at once, and the next resume
+  does it if hubd stopped in between.
+- **An old conversation whose transcript is gone** (removed by claude, or never written) is still in the history, by its
+  id and its record; there is just nothing of it to read.
 
 Standard library only, as hubd is.
 """
@@ -33,6 +40,9 @@ log = logging.getLogger("hubd.handoff")
 
 FRESH_FILE = "fresh"              # a new conversation is owed: launched from prompt.md until its transcript exists
 FIRST_PROMPT = "prompt-first.md"  # the session's first prompt as it was written at the start
+OWED_FILE = "fresh-owed.json"     # a switch a stopped session takes at its next resume: {note, persona, state}
+FRESH_SIGNAL = "hub:fresh"        # how a switch shows among a session's evaluations in the machine log
+JOURNAL_FILE = "handoff.json"     # a switch under way: {from, to}, gone once the record names the new id
 MAX_CONVERSATIONS = 20            # earlier conversation ids a session's record keeps
 MAX_MOVES = 30                    # moves the note lists, the newest
 LABEL = "[From the hub, not from the person or a session]"
@@ -145,20 +155,29 @@ def _retarget(agents, name: str, old: str, new: str) -> None:
         if isinstance(owned, dict) and owned.get("name") == name and owned.get("session_id") == old:
             _write(path, {**child, "owner": {**owned, "session_id": new}})
     agents.machines.log.retarget(old, new)
+    for watcher in list(getattr(agents, "switch_watchers", ())):  # the workflow cards waiting on the old conversation (effects.py)
+        try:
+            watcher(name, old, new)
+        except Exception:  # noqa: BLE001: a card left on the old id answers no one; the switch goes on
+            log.exception("%s: a card of its old conversation couldn't be moved over", name)
     seen = agents._prs.get(name)
     if seen and seen[2] == old:
         agents._prs[name] = (seen[0], seen[1], new)
 
 
-def begin(agents, name: str, text: str) -> dict:
+def begin(agents, name: str, text: str, before: dict | None = None) -> dict:
     """The switch: the old conversation into the history, a new id, the prompt with the note, what it owned moved over, and
-    its tool tokens gone (the caller makes the new one). Called with the session not running, or inside a resume."""
-    from .agents import TOKEN_FILE
+    its tool tokens gone (the caller makes the new one). Called inside a resume, after its checks. `before`: the record as it
+    was before the resume rewrote it for the new state and persona, for the history row of the old conversation.
 
+    Journal first, the new id in the record last: until then `recover` undoes it."""
     directory = agents.sessions / name
     record = json.loads((directory / "session.json").read_text())
-    old = record["session_id"]
-    agents.history.add({**record, **agents.machines.remembered(directory)}, "finished")
+    old, new = record["session_id"], str(uuid.uuid4())
+    _write(directory / JOURNAL_FILE, {"from": old, "to": new, "fresh_before": (directory / FRESH_FILE).exists()})
+    agents.machines.bank(name)  # what the old conversation used is the instance's before the row is made
+    row = before if isinstance(before, dict) and before.get("session_id") == old else record
+    agents.history.add({**row, **agents.machines.remembered(directory)}, "finished")
     first = directory / FIRST_PROMPT
     if not first.exists():
         try:
@@ -166,15 +185,83 @@ def begin(agents, name: str, text: str) -> dict:
         except OSError:
             first.write_text("")
     (directory / "prompt.md").write_text(first.read_text().rstrip() + "\n\n" + text)
-    new = str(uuid.uuid4())
-    earlier = [c for c in conversations(record) if c != new][-MAX_CONVERSATIONS:]
-    _write(directory / "session.json", {**record, "session_id": new, "conversations": earlier})
+    _finish(agents, name, record, old, new)
+    log.info("%s: a new conversation %s takes over from %s", name, new, old)
+    return {"from": old, "to": new}
+
+
+def _finish(agents, name: str, record: dict, old: str, new: str) -> None:
+    from .agents import TOKEN_FILE
+
+    directory = agents.sessions / name
     _retarget(agents, name, old, new)
     agents._drop_token(name)
     (directory / TOKEN_FILE).unlink(missing_ok=True)
     (directory / FRESH_FILE).touch(mode=0o600)
-    log.info("%s: a new conversation %s takes over from %s", name, new, old)
-    return {"from": old, "to": new}
+    earlier = [c for c in conversations(record) if c != new][-MAX_CONVERSATIONS:]
+    _write(directory / "session.json", {**record, "session_id": new, "conversations": earlier})
+    (directory / JOURNAL_FILE).unlink(missing_ok=True)
+
+
+def recover(agents, name: str) -> bool:
+    """A switch that stopped before the record named its new id is undone: the old conversation goes on. Whether there was
+    one."""
+    directory = agents.sessions / name
+    try:
+        journal = json.loads((directory / JOURNAL_FILE).read_text())
+        record = json.loads((directory / "session.json").read_text())
+    except FileNotFoundError:
+        return False
+    except (OSError, ValueError):
+        log.exception("%s: its hand-off journal can't be read", name)
+        return False
+    journal = journal if isinstance(journal, dict) else {}
+    old, new = journal.get("from"), journal.get("to")
+    if isinstance(old, str) and isinstance(new, str) and record.get("session_id") == old:
+        _retarget(agents, name, new, old)
+        if not journal.get("fresh_before"):
+            (directory / FRESH_FILE).unlink(missing_ok=True)
+        (agents.history.folder / f"{old}.json").unlink(missing_ok=True)
+        log.warning("%s: undid the switch to %s that had stopped half way", name, new)
+    (directory / JOURNAL_FILE).unlink(missing_ok=True)
+    return True
+
+
+def log_switch(agents, name: str, session_id: str, was: str | None, persona: str, starts: str) -> None:
+    """The switch in the machine log, under the id it is logged for, naming the one it took over from."""
+    try:
+        _record, inst = agents.machines.load(name)
+        agents.machines.log.evaluation(session_id, name, FRESH_SIGNAL, inst.state, inst.version,
+                                       checks={"conversation": {"from": was, "to": session_id if starts == "now" else None,
+                                                                "persona": persona, "starts": starts}})
+    except Exception:  # noqa: BLE001: the switch stands either way
+        log.exception("%s: its new conversation wasn't logged", name)
+
+
+def owe(agents, name: str, note_text: str, persona: str, state: str) -> None:
+    """A stopped session's switch, for its next resume."""
+    _write(agents.sessions / name / OWED_FILE, {"note": note_text, "persona": persona, "state": state})
+
+
+def owed_switch(agents, name: str) -> dict | None:
+    """The switch a resume owes the session, if it is still in the state that asked for it; one it has left goes."""
+    path = agents.sessions / name / OWED_FILE
+    try:
+        owed_ = json.loads(path.read_text())
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError):
+        path.unlink(missing_ok=True)
+        return None
+    try:
+        _record, inst = agents.machines.load(name)
+        here = inst.state
+    except Exception:  # noqa: BLE001: an instance that can't be read owes nothing
+        here = None
+    if not isinstance(owed_, dict) or owed_.get("state") != here or not all(isinstance(owed_.get(k), str) for k in ("note", "persona")):
+        path.unlink(missing_ok=True)
+        return None
+    return {"note": owed_["note"], "persona": owed_["persona"]}
 
 
 def owed(agents, directory: Path, session_id) -> bool:
@@ -189,4 +276,5 @@ def owed(agents, directory: Path, session_id) -> bool:
     return True
 
 
-__all__ = ["FRESH_FILE", "FIRST_PROMPT", "HandoffError", "begin", "conversations", "note", "owed", "persona_for", "set_persona"]
+__all__ = ["FRESH_FILE", "FIRST_PROMPT", "JOURNAL_FILE", "OWED_FILE", "HandoffError", "begin", "conversations", "note", "owe",
+           "owed", "owed_switch", "persona_for", "recover", "set_persona"]

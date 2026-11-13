@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from hubd import agents as agents_module
-from hubd import auth, judge as judgelib, machine, machinerun, summary
+from hubd import auth, handoff, judge as judgelib, machine, machinerun, summary
 from hubd.agents import ENDED_FILE, IDLE_FILE, OUTCOMES_FILE, TOKEN_FILE, Agents, Library
 from hubd.decisions import Decisions
 from hubd.instances import Instance
@@ -897,9 +897,11 @@ def test_a_stopped_session_takes_its_fresh_context_at_its_next_resume(hub_fresh)
         (a.sessions / name / ENDED_FILE).touch()
         a.machines.move(name, "b", "hand")
         await settle(h)
-        new = a.session_id_of(name)
-        assert new != old and (a.sessions / name / "fresh").exists()
+        # owed, not switched: a resume that can't go through keeps the conversation it had
+        assert a.session_id_of(name) == old and (a.sessions / name / handoff.OWED_FILE).exists()
         await a.resume(name)
+        new = a.session_id_of(name)
+        assert new != old and not (a.sessions / name / handoff.OWED_FILE).exists() and a.history.get(old)
         assert f"--session-id {new}" in (a.sessions / name / "resume.sh").read_text()
         _transcript(a, new, "started")
         a.shells.live.discard(name)
@@ -937,3 +939,191 @@ def test_the_persona_of_a_fresh_context_is_the_states():
     assert handoff.persona_for(d, "a", {"id": "x", "personas": ["writer"]}, "writer") == "writer"  # a names none
     with pytest.raises(handoff.HandoffError):
         handoff.persona_for(d, "b", {"id": "x", "personas": ["writer"]}, "writer")
+
+
+def test_a_failed_resume_puts_the_persona_back_even_with_a_marker_left_from_before(hub_fresh, monkeypatch):
+    """The persona goes back unless the switch happened: a FRESH_FILE from an earlier switch doesn't count as one."""
+    h, a, _judge = hub_fresh
+
+    async def go():
+        name = await owner(h, a)
+        was = json.loads((a.sessions / name / "session.json").read_text())["config"]["persona"]
+        (a.sessions / name / handoff.FRESH_FILE).touch()
+
+        def refuse(config, action):
+            raise agents_module.AgentError("no sandbox here")
+        monkeypatch.setattr(a, "_check_sandbox", refuse)
+        with pytest.raises(agents_module.AgentError):
+            await a.resume(name, relaunch=True, fresh={"note": "x", "persona": "someone-else"})
+        return was, json.loads((a.sessions / name / "session.json").read_text())["config"]["persona"]
+    was, now = asyncio.run(go())
+    assert now == was
+
+
+def test_a_stopped_session_resumed_before_the_switch_waits_for_its_prompt_instead(hub_fresh, monkeypatch):
+    """Resumed between the look and the lock: nothing is owed to a running process, it switches at its prompt."""
+    h, a, _judge = hub_fresh
+    h.effects.relaunch_wait, h.effects.poll = 5.0, 0.01
+
+    async def go():
+        name = await owner(h, a)
+        old = a.session_id_of(name)
+        a.shells.live.discard(name)
+        (a.sessions / name / ENDED_FILE).touch()
+        real = h.effects._at_prompt
+        calls = []
+
+        async def at_prompt(n, result):
+            got = await real(n, result)
+            calls.append(got)
+            if len(calls) == 1:
+                await a.resume(n)  # the person resumes it right after the look
+                (a.sessions / n / IDLE_FILE).touch()
+            return got
+        monkeypatch.setattr(h.effects, "_at_prompt", at_prompt)
+        a.machines.move(name, "b", "hand")
+        await settle(h)
+        return name, old, calls
+    name, old, calls = asyncio.run(go())
+    assert calls == ["Stopped", "Idle"] and not (a.sessions / name / handoff.OWED_FILE).exists()
+    assert a.session_id_of(name) != old and running(a, name)
+    assert f"--session-id {a.session_id_of(name)}" in (a.sessions / name / "resume.sh").read_text()
+
+
+def test_an_owed_switch_waits_for_a_resume_that_goes_through_and_goes_if_the_state_is_left(hub_fresh, monkeypatch):
+    h, a, _judge = hub_fresh
+
+    async def go():
+        name = await owner(h, a)
+        old = a.session_id_of(name)
+        was = json.loads((a.sessions / name / "session.json").read_text())["config"]
+        a.shells.live.discard(name)
+        (a.sessions / name / ENDED_FILE).touch()
+        a.machines.move(name, "b", "hand")
+        await settle(h)
+
+        def refuse(config, action):
+            raise agents_module.AgentError("no sandbox here")
+        monkeypatch.setattr(a, "_check_sandbox", refuse)
+        with pytest.raises(agents_module.AgentError):
+            await a.resume(name)
+        record = json.loads((a.sessions / name / "session.json").read_text())
+        assert a.session_id_of(name) == old and record["config"]["persona"] == was["persona"] and a.history.get(old) is None
+        assert (a.sessions / name / handoff.OWED_FILE).exists() and a.machines.load(name)[1].state == "b"  # still owed, not moved back
+        monkeypatch.undo()
+        monkeypatch.setattr(agents_module, "SANDBOX_TOOLS", ())
+        a.machines.move(name, "a", "hand")  # it left b before resuming: nothing is owed now
+        await settle(h)
+        a.shells.live.discard(name)
+        (a.sessions / name / ENDED_FILE).touch()
+        await a.resume(name)
+        return name, old
+    name, old = asyncio.run(go())
+    assert a.session_id_of(name) == old and not (a.sessions / name / handoff.OWED_FILE).exists()
+
+
+def test_a_switch_that_breaks_half_way_is_undone_and_the_old_conversation_goes_on(hub_fresh, monkeypatch):
+    """The journal is written first and the new id last: a failure between is undone in the resume that failed, and a
+    journal hubd left behind is undone by the next resume."""
+    h, a, _judge = hub_fresh
+
+    async def go():
+        name = await owner(h, a)
+        old = a.session_id_of(name)
+        scout = kids(h, a, name, "scout")[0]
+        real = a.machines.log.retarget
+        broke = []
+
+        def retarget(o, n):
+            if not broke:
+                broke.append(n)
+                raise OSError("disk full")
+            return real(o, n)
+        monkeypatch.setattr(a.machines.log, "retarget", retarget)
+        with pytest.raises(OSError):
+            await a.resume(name, relaunch=True, fresh={"note": "x", "persona": "triager"})
+        assert a.session_id_of(name) == old and a.history.get(old) is None and not (a.sessions / name / handoff.JOURNAL_FILE).exists()
+        assert not (a.sessions / name / handoff.FRESH_FILE).exists() and kids(h, a, name, "scout") == [scout]
+        # hubd stopped half way through a switch: the next resume undoes it before anything else
+        handoff._write(a.sessions / name / handoff.JOURNAL_FILE, {"from": old, "to": "f" * 8, "fresh_before": False})
+        (a.sessions / name / handoff.FRESH_FILE).touch()
+        await a.resume(name, relaunch=True)
+        assert not (a.sessions / name / handoff.JOURNAL_FILE).exists() and not (a.sessions / name / handoff.FRESH_FILE).exists()
+        return name, old
+    name, old = asyncio.run(go())
+    assert a.session_id_of(name) == old and f"--resume {old}" in (a.sessions / name / "resume.sh").read_text()
+
+
+def test_the_switch_banks_what_the_old_conversation_used_and_its_history_row_is_as_it_was(hub_fresh):
+    h, a, _judge = hub_fresh
+
+    async def go():
+        name = await owner(h, a)
+        old = a.session_id_of(name)
+        config = json.loads((a.sessions / name / "session.json").read_text())["config"]
+        a.machines.move(name, "b", "hand")
+        (a.sessions / name / "status.json").write_text(json.dumps({"session_id": old, "cost": {"total_cost_usd": 0.4},
+                                                                  "context_window": {"total_input_tokens": 500, "total_output_tokens": 0}}))
+        (a.sessions / name / IDLE_FILE).touch()
+        await settle(h)
+        return name, old, config
+    name, old, config = asyncio.run(go())
+    assert a.session_id_of(name) != old
+    assert a.machines.load(name)[1].counters["tokens"].get("b") == 500  # on the live instance, not only in the row
+    assert a.history.get(old)["config"] == config
+
+
+def test_a_busy_session_by_the_switch_waits_for_its_prompt_again(hub_fresh, monkeypatch):
+    h, a, _judge = hub_fresh
+    h.effects.poll = 0.01
+
+    async def go():
+        name = await owner(h, a)
+        old = a.session_id_of(name)
+        real = a.session_state
+        seen = []
+
+        async def state(n):
+            got = await real(n)
+            if n == name and len(seen) < 2 and got["state"] == "Idle":
+                seen.append(1)
+                if len(seen) == 2:  # the check inside the resume, just before the switch: a turn started meanwhile
+                    return {**got, "state": "Working"}
+            return got
+        monkeypatch.setattr(a, "session_state", state)
+        (a.sessions / name / IDLE_FILE).touch()
+        a.machines.move(name, "b", "hand")
+        await settle(h)
+        return name, old, seen
+    name, old, seen = asyncio.run(go())
+    assert len(seen) == 2 and a.session_id_of(name) != old and a.machines.load(name)[1].state == "b"
+
+
+def test_a_pull_request_lookup_from_before_a_switch_doesnt_overwrite_the_new_conversations(hub_fresh, monkeypatch):
+    h, a, _judge = hub_fresh
+
+    async def go():
+        name = await owner(h, a)
+        before = json.loads((a.sessions / name / "session.json").read_text())
+        new = "n" * 8
+        (a.sessions / name / "session.json").write_text(json.dumps({**before, "session_id": new}))
+        a._prs[name] = (1.0, [{"repo": "boot", "number": 3, "state": "OPEN"}], new)
+
+        async def pr_of(repo, branch, timeout=None):
+            return {"number": 9, "state": "OPEN"}
+        monkeypatch.setattr(a, "_pr_of", pr_of)
+        await a._look_up_prs(name, before, ["boot"], None)
+        return name
+    name = asyncio.run(go())
+    assert a._prs[name][2] == "n" * 8 and a._prs[name][1][0]["number"] == 3
+
+
+def test_retarget_moves_a_start_approval_and_the_workflow_cards_but_not_a_go(tmp_path):
+    from hubd.machine_log import Log
+    log_ = Log(tmp_path / "log.sqlite")
+    rid = log_.report("approval", "o", "old", "you", None, "e", "p", ["o"], action={"type": "start", "owner": "o", "owner_sid": "old", "entry": "x", "extra": {}})
+    log_.retarget("old", "new")
+    assert log_.get_report(rid["id"])["action"]["owner_sid"] == "new"
+    d = Decisions(tmp_path / "decisions")
+    card = d.approve_request({"session": "o", "session_id": "old", "state": "b", "version": "v"}, "why")
+    assert d.retarget("o", "old", "new") == 1 and d._get(card["id"])["scope"]["session_id"] == "new"

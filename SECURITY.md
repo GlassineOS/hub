@@ -296,9 +296,10 @@ its current state's effective grant and nothing else; `hubd/effects.py` applies 
 - **The words a move adds** are the definition's instructions, marked as the hub's, never text from a transcript.
 - **The status line is the hub's, in the definition's words.** A workflow with `status = true` has hubd post each move to the
   session's pull request or issue (`hubd/statusline.py`): the path of states and the exit's question or required facts,
-  never a judge's evidence or a transcript. It goes out as the persona's App, or the hub's login for a persona without one,
-  as an applied result does; an App that fails posts nothing. Its App asks for comment rights for that, and it edits only
-  the comment it posted, by the id it kept.
+  never a judge's evidence or a transcript. It goes out only as the persona's App: a persona without one, or whose App
+  fails, posts nothing, so nothing goes out as your login without you pressing a button. Its App asks for comment rights
+  for that. Before an edit it reads the kept comment back and edits it only if it is on that issue or pull request and
+  written by that App; otherwise it forgets the id and posts a new one.
 - **The costs are a login's.** `machine.costs` (`hubd/machinecost.py`) reads the machine log, the session folders and the
   history, and only a login's token reaches it, as for `machine.history`; a session's token is refused. Its figures are
   counts, times, tokens and money, never an evaluation's evidence.
@@ -307,7 +308,9 @@ its current state's effective grant and nothing else; `hubd/effects.py` applies 
   hub writes from the issue, the pull request, the states' instructions and the moves the log kept (state ids and how each
   was made), with the rolling summary between random marks as data; never what an evaluation kept as evidence. The new
   conversation gets a new tool token, so the old one is refused, and what the old one owned (the sessions it manages,
-  open reports) is moved to the new id inside the resume's lock, so the sweep can't take them for orphans meanwhile.
+  open reports, the workflow cards waiting on it) is moved to the new id inside the resume's lock, so the sweep can't take
+  them for orphans meanwhile. A go keeps to the conversation it was given to. The switch happens only inside a resume
+  that passed every check, so a session that can't resume keeps its conversation.
 - **A full session's state is guarded, not limited** (Guards, not limits): it has your rights in any state.
 - **The notes** stay with sessions that can't carry them out: a workflow whose states can read them only loads if every state only
   reads (Notes).
