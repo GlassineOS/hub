@@ -60,6 +60,7 @@ def state_dir() -> Path:
 
 
 TIDY_FIRST, TIDY_EVERY = 600, 6 * 3600  # seconds
+RENEW_EVERY = 120  # seconds: well inside apps.RENEW_BEFORE, so a session's GitHub token never runs out
 PING_FIRST, PING_EVERY = 60, 30  # seconds: how often to look; the interval of a ping is its own setting
 PUBLIC_KNOWN, PUBLIC_UNSURE = 600, 60  # seconds a repository's visibility is kept, when GitHub said and when it didn't
 COPIES_EVERY = 1800  # seconds between refreshes of the repository copies
@@ -239,11 +240,13 @@ class Hubd:
             return await self.design_tool(op, req)
         if op in REPO_OPS:
             return await self.repo_request(op, req)
-        if op in ("shell.list", "shell.new", "shell.kill") or op.startswith(("agent.", "ask.", "work.", "decision.", "notes.", "interaction.", "usage.", "result.")):
+        if op in ("shell.list", "shell.new", "shell.kill") or op.startswith(("agent.", "ask.", "work.", "decision.", "notes.", "interaction.", "usage.", "result.", "machine.")):
             if not self.sessions.check(req.get("token")):
                 return {"ok": False, "error": "login required", "denied": True}
             if op.startswith("interaction."):
                 return await self.interaction_request(op, req)
+            if op.startswith("machine."):  # 012 FR-026: the maintainer's moves, logged as theirs
+                return self.agents.machines.request(op, req, self.sessions.own_user()) if self.agents else {"ok": False, "error": "agent sessions are not set up"}
             if op.startswith("usage."):
                 if op != "usage.status":
                     return {"ok": False, "error": f"unknown request: {op}"}
@@ -1643,6 +1646,16 @@ async def _tidy(hubd: Hubd) -> None:
         await asyncio.sleep(TIDY_EVERY)
 
 
+async def _renew_tokens(hubd: Hubd) -> None:
+    """The running sessions' GitHub tokens. At once too: after a restart, a session's may be near its end."""
+    while hubd.agents:
+        try:
+            await hubd.agents.renew_github_tokens()
+        except Exception:  # the next round may go better
+            log.exception("GitHub tokens weren't renewed")
+        await asyncio.sleep(RENEW_EVERY)
+
+
 async def _ping(hubd: Hubd) -> None:
     """The Stewards' pings: a count, when something they haven't read has changed, at most once an interval each."""
     await asyncio.sleep(PING_FIRST)
@@ -1698,6 +1711,7 @@ async def serve(hubd: Hubd, path: Path) -> None:
     copying = asyncio.ensure_future(_keep_copies(hubd))
     pinging = asyncio.ensure_future(_ping(hubd))
     designing = asyncio.ensure_future(_watch_designs(hubd))
+    renewing = asyncio.ensure_future(_renew_tokens(hubd))
     # systemctl stop sends SIGTERM: close the server so the cleanup below runs and no renderer outlives hubd.
     asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, server.close)
     try:
@@ -1715,6 +1729,7 @@ async def serve(hubd: Hubd, path: Path) -> None:
             for name in hubd.designs.running():
                 await hubd.designs.stop(name)
         tidying.cancel()
+        renewing.cancel()
         copying.cancel()
         pinging.cancel()
 

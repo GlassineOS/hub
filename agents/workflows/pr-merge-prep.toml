@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 schema = 1
 name = "pr-merge-prep"
-initial = "work"
+initial = "session"
 
-[state.work]
+[state.session]
 final = true
-[state.work.grant]
+[state.session.grant]
 tools = ["AskUserQuestion"]
 hub_tools = ["plan_work", "get_pr", "get_pr_diff", "get_pr_threads", "docs_search", "work_search"]
 checkout = false
