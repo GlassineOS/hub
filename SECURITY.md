@@ -178,9 +178,10 @@ A new restriction has to name the threat it stops, or be listed here as a guard.
   `GH_TOKEN`, and git as a credential for `https://github.com` only, read from the file and never on a command line. What
   fences it is the token's scope on GitHub, not `ghpolicy`: the command can do whatever the token allows. Pushing and
   merging are both contents write, so a grant that can push can merge. Whatever runs in the shell holds it: that includes a pull
-  request's own code, which its tests run, so a fork's code can use every capability the launch carries (with `pr.review`,
-  approve itself as the reviewer's App) and send the token out. It works until it expires, up to an hour after its last
-  renewal, also after the session ends. A launch with a list and no
+  request's own code, which its tests run, so a session on a pull request from a fork keeps only its read capabilities, at start
+  and at resume, and so does one whose pull request GitHub can't confirm as the repository's own (any covered one).
+  A same-repository pull request's code can still use every capability the launch carries and send the token out. It
+  works until it expires, up to an hour after its last renewal, also after the session ends. A launch with a list and no
   token doesn't start; one without a list gets none, as before. Full sessions are unchanged: they use the host's `gh`
   login, guarded by hubd and not limited by a token.
 - **Resuming a session.** A session that has stopped keeps its record, tool token and checkout until
