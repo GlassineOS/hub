@@ -298,10 +298,13 @@ class Managed:
         """The action a managed session of the entry's workflow runs, as a session on `repo` has it (its override, if any): the
         one of the workflow's name, its first start or, for a workflow without starts, its launch. Never another start of it,
         so a workflow with a second start (the implementor's on a pull request) runs its managed sessions as before."""
-        action = self.agents.library.actions.get(m.workflow)
-        if not action or action.get("workflow") != m.workflow or m.persona not in action["personas"]:
+        try:  # only one in force there: a start an override or a later version took out doesn't run on its old definition
+            action = self.agents.library.action(m.workflow, repo)
+        except AgentError as e:
+            raise ManagedStuck(f"no action runs {m.workflow} as {m.persona}: {e}") from None
+        if action.get("workflow") != m.workflow or m.persona not in action["personas"]:
             raise ManagedStuck(f"no action runs {m.workflow} as {m.persona}")
-        return self.agents.library.resolved(action, repo)
+        return action
 
     async def _item_for(self, owner: str, record: dict, action: dict, wanted: str | None = None) -> tuple[str | None, int | None]:
         """What the managed session works on: the owner's pull request, or its issue, as the action's object says. An owner on

@@ -330,3 +330,52 @@ def test_a_managed_start_that_cant_happen_is_told_and_raised_once_and_never_retr
     assert card["scope"]["entry"] == "helper" and f"{name} isn't on an issue" in card["why"]
     settled = asyncio.run(h.effects.answer_approval(card["id"], True, "me"))
     assert settled["why_ended"] == "you've seen it" and not h.decisions.open_approvals(name)
+
+
+def _renamed(text: str, new_id: str, label: str) -> str:
+    import dataclasses
+    from hubd import machine
+    d = machine.parse(text)
+    return machine.emit(dataclasses.replace(d, starts=(dataclasses.replace(d.starts[0], id=new_id, label=label),)))
+
+
+def test_a_start_a_later_version_renamed_starts_no_more_but_its_session_still_resumes(hub, tmp_path):
+    """A start a saved version removes or renames isn't startable on its old definition: only starts in force start. A session
+    that started on it is still found by its id, to describe and resume."""
+    from hubd.machinestore import ORG, Store
+    h, a = hub
+    lib = a.library
+    lib.use_store(Store(tmp_path / "store", lib.defaults))
+    before = asyncio.run(a.start(a.defaults("pr-reader", "boot", PR)))["name"]
+    lib.store.save("pr-reader", ORG, _renamed(lib.workflow_texts["pr-reader"], "pr-reader-2", "Read beside v2"), 0, "me")
+    lib.saved()
+    assert "pr-reader" not in [r["id"] for r in a.starts_for("pr", "boot", PR)["starts"]]
+    with pytest.raises(AgentError, match="pr-reader isn't a start in force any more"):
+        a.defaults("pr-reader", "boot", PR)
+    config = {"action": "pr-reader", "repo": "boot", "number": PR, "persona": "triager", "model": "sonnet", "effort": "low",
+              "tools": [], "hub_tools": []}
+    with pytest.raises(AgentError, match="isn't a start in force"):
+        agents_module.validate(lib, config)
+    assert asyncio.run(a.start(a.defaults("pr-reader-2", "boot", PR)))["name"]
+    assert a.describe(before)["action"] == "pr-reader" and lib.action("pr-reader", "boot", gone=True)["id"] == "pr-reader"
+    assert agents_module.validate(lib, config, gone=True)["action"] == "pr-reader"
+
+
+def test_a_repositorys_override_that_renames_a_start_is_what_starts_there(hub, tmp_path):
+    """starts_for and start agree on a repository with an override: its starts are the override's, a start it renames is
+    refused there, and the organisation's start still runs on other repositories."""
+    from hubd.machinestore import Store
+    h, a = hub
+    lib = a.library
+    lib.use_store(Store(tmp_path / "store", lib.defaults))
+    lib.store.save("pr-reader", "GlassineOS__boot", _renamed(lib.workflow_texts["pr-reader"], "pr-reader-boot", "Read it here"), 0, "me")
+    lib.saved()
+    ids = [r["id"] for r in a.starts_for("pr", "boot", PR)["starts"]]
+    assert "pr-reader-boot" in ids and "pr-reader" not in ids
+    with pytest.raises(AgentError, match="pr-reader isn't a start in force on boot any more"):
+        a.defaults("pr-reader", "boot", PR)
+    assert asyncio.run(a.start(a.defaults("pr-reader-boot", "boot", PR)))["name"]
+    assert a.defaults("pr-reader", "kernel", PR)["action"] == "pr-reader"
+    assert "pr-reader-boot" not in [r["id"] for r in a.starts_for("pr", "kernel", PR)["starts"]]
+    with pytest.raises(AgentError, match="unknown action: pr-reader-boot"):
+        a.defaults("pr-reader-boot", "kernel", PR)
