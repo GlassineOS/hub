@@ -527,3 +527,24 @@ def test_a_numeric_string_is_taken_as_the_number(hub):
     login = h.sessions.create()
     got = asyncio.run(h.request({"op": "agent.starts", "token": login, "object": "pr", "repo": "boot", "number": str(PR)}))
     assert got["ok"] and got["starts"], got
+
+
+def test_a_fork_answer_is_kept_as_an_own_one_is(hub):
+    """A pull request's head repository doesn't change: GitHub is asked once whether it is a fork's, either answer."""
+    h, a = hub
+    asked = []
+
+    class Heads(FakeGh):
+        async def run(self, argv, stdin=None, timeout=None, token=None):
+            if argv[:2] == ["pr", "view"]:
+                asked.append(argv[2])
+                return {"code": 0, "stdout": json.dumps({"isCrossRepository": argv[2] == "7", "headRefName": "x"}), "stderr": ""}
+            return await super().run(argv)
+    a.gh = Heads()
+
+    async def go():
+        for _ in range(3):
+            assert await a.pr_fork_state("boot", 7) is True and await a._from_fork("boot", 7)
+            assert await a.pr_fork_state("boot", 8) is False and not await a._from_fork("boot", 8)
+    asyncio.run(go())
+    assert asked == ["7", "8"]
