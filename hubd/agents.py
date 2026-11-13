@@ -2577,7 +2577,7 @@ class Agents:
         script = directory / ("resume.sh" if (directory / "resume.sh").exists() else "run.sh")
         return {**summary, "config": record["config"], "prompt": (directory / "prompt.md").read_text(),
                 "persona_text": (directory / "persona.md").read_text(), "skills": self.library.skills(),
-                "ceiling": self.library.action(record["config"]["action"])["ceiling"],
+                "ceiling": self.library.action(record["config"]["action"], record["config"].get("repo"))["ceiling"],
                 "checkout": str(checkouts[0]) if checkouts else None, "checkouts": [str(c) for c in checkouts],
                 # 004 FR-009: the branch it's on and the command that started Claude (the launch script's last line), for the Session spec. The token and the prompt are read from files by that line.
                 "branch": _branch_of(checkouts[0]) if checkouts else None, "command": self._invocation(script) or self._command(directory, script)}

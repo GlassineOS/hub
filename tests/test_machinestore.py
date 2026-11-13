@@ -261,6 +261,21 @@ def test_approve_is_refused_while_a_problem_stands_and_sending_back_ends_it(worl
     assert got["decision"]["why_ended"] == "you asked for changes: make it reachable"
 
 
+def test_the_card_answers_through_the_interaction_op_the_app_calls(world):
+    a, _d, hub, login = world
+    cards = [hub.workflows.request("workflow.propose", {"name": ONE, "scope": ORG, "text": narrower(), "note": "x"}, "me")["decision"] for _ in range(3)]
+
+    def answer(card, verdict, **more):
+        return run(hub.request({"op": "interaction.answer", "token": login, "id": card["id"], "verdict": verdict, **more}))
+    assert answer(cards[0], "deny", why="split it", changes=True)["ok"]
+    assert answer(cards[1], "deny", why="not now")["ok"]
+    assert answer(cards[2], "end")["ok"] is False  # a change ends by an answer, not by decision.end
+    ends = [hub.decisions._get(c["id"]).get("why_ended") or "" for c in cards[:2]]
+    assert ends[0] == "you asked for changes: split it" and ends[1].startswith("discarded")
+    assert a.workflow_store.numbers(ONE, ORG) == []
+    assert answer(cards[2], "approve")["ok"] and a.workflow_store.numbers(ONE, ORG) == [1]
+
+
 def test_approving_after_a_newer_save_is_refused(world):
     a, _d, hub, login = world
     card = hub.workflows.request("workflow.propose", {"name": ONE, "scope": ORG, "text": narrower(), "note": "x"}, "me")["decision"]
