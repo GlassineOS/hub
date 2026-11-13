@@ -10,8 +10,8 @@ same permission card as any other prompt.
 
 ## The session
 
-- **Action:** `agents/actions/project-steward.toml`, with `object = "project"` and no planner step; its rights (no checkout,
-  `all_repos`, its tools and `asks_first`) are in its workflow, `agents/workflows/project-steward.toml`. Today every action needs a repository and a number (`validate`, `defaults`, `_name`
+- **Start:** the lead start `on = "project"` in `agents/workflows/project-steward.toml`, with no planner step; its rights
+  (no checkout, `all_repos`, its tools and `asks_first`) are in the same file's state. Today every action needs a repository and a number (`validate`, `defaults`, `_name`
   and `describe` in `hubd/agents.py`, and the action list), so this is the one change to session code.
 - **One instance,** under the fixed tmux name `steward`. Starting it again opens the one there is.
 - **Stopping and resuming:** as for every session. It keeps running if the browser, the app or `hubd`
