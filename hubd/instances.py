@@ -30,7 +30,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import machine
+from . import machine, usage
 from .machine import Definition, DefinitionError, Grant
 from .machine_log import Log, LogError
 
@@ -313,6 +313,85 @@ def add_tokens(inst: Instance, tokens: int) -> None:
         inst.counters["tokens"][s] = inst.counters["tokens"].get(s, 0) + tokens
 
 
+# ---- usage: tokens and cost per state (FR-090) ----
+
+USAGE_FILE = "usage.json"  # beside machine.json: what the status line said when last banked, and the cost per state
+USAGE_KEY = "machine_usage"  # in a history record, the same when the folder went
+
+
+def _usage_kept(directory: Path) -> dict:
+    try:
+        kept = json.loads((Path(directory) / USAGE_FILE).read_text())
+    except (OSError, ValueError):
+        return {"seen": {}, "cost": {}}
+    ok = isinstance(kept, dict) and isinstance(kept.get("seen"), dict) and isinstance(kept.get("cost"), dict)
+    return kept if ok else {"seen": {}, "cost": {}}
+
+
+def bank_usage(directory: Path, inst: Instance, session_id) -> bool:
+    """What the conversation used since the last look, from its status line (usage.py), counted in the state it is in now
+    and its parents: tokens as the `tokens.<state>` counters, cost beside them in USAGE_FILE. Its totals are per
+    conversation: a new conversation, or one whose total went down (a /clear), counts again from zero. Whether the
+    instance changed."""
+    changed, kept = usage_delta(directory, inst, session_id)
+    if kept is not None:
+        keep_usage(directory, kept)
+    return changed
+
+
+def usage_delta(directory: Path, inst: Instance, session_id) -> tuple[bool, dict | None]:
+    """bank_usage's counting into `inst`, without writing USAGE_FILE: (whether the instance changed, what to keep)."""
+    status = usage.read_status(directory)
+    if not status or not isinstance(session_id, str) or status.get("session_id") not in (None, session_id):
+        return False, None
+    tokens, cost = usage.tokens_of(status), usage._cost(status)
+    kept = _usage_kept(directory)
+    seen = kept["seen"] if kept["seen"].get("session_id") == session_id else {}
+    chain = machine.ancestors(inst.definition(), inst.state)
+    changed = False
+    if tokens is not None:
+        before = seen.get("tokens") if isinstance(seen.get("tokens"), int) else 0
+        delta = tokens - before if tokens >= before else tokens
+        if delta > 0:
+            add_tokens(inst, delta)
+            changed = True
+    if cost is not None:
+        before = seen.get("cost") if isinstance(seen.get("cost"), (int, float)) else 0.0
+        delta = cost - before if cost >= before else cost
+        if delta > 0:
+            for s in chain:
+                kept["cost"][s] = round(kept["cost"].get(s, 0.0) + delta, 6)
+    kept["seen"] = {"session_id": session_id, "tokens": tokens if tokens is not None else seen.get("tokens", 0),
+                    "cost": cost if cost is not None else seen.get("cost", 0.0)}
+    return changed, kept
+
+
+def keep_usage(directory: Path, kept: dict) -> None:
+    path = Path(directory) / USAGE_FILE
+    scratch = path.with_suffix(".tmp")
+    try:
+        fd = os.open(scratch, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            json.dump(kept, f)
+        scratch.replace(path)
+    except OSError:
+        log.exception("the usage of %s couldn't be kept", directory)
+
+
+def usage_restarts(directory: Path) -> None:
+    """A resumed process counts its totals from zero again, so what it says next is all new. UNVERIFIED against real
+    claude: if a resumed conversation's status line went on from the old totals, its first look after a resume would
+    count them twice."""
+    kept = _usage_kept(directory)
+    if kept["seen"]:
+        keep_usage(directory, {**kept, "seen": {}})
+
+
+def usage_of(directory: Path) -> dict:
+    """The cost per state banked so far."""
+    return dict(_usage_kept(directory)["cost"])
+
+
 # ---- moves ----
 # Each returns what happened. A move that happened carries "log": the row for the machine log, which the caller writes.
 
@@ -539,7 +618,12 @@ class Machines:
         except (OSError, ValueError, MachineError):  # said, so a resume doesn't take it to be in its first state
             return {UNREADABLE: True}
         set_stopped(inst, True, self._ended_at(Path(directory), inst))
-        return {"machine": inst.to_json()}
+        try:
+            record = json.loads((Path(directory) / "session.json").read_text())
+            bank_usage(Path(directory), inst, record.get("session_id"))
+        except (OSError, ValueError, MachineError):
+            pass
+        return {"machine": inst.to_json(), USAGE_KEY: usage_of(directory)}
 
     def restore(self, directory: Path, record: dict) -> None:
         """When resume brings a folder back from the history: the machine it had, if the record kept one. A session whose
@@ -550,6 +634,8 @@ class Machines:
                 raise MachineError("its machine record couldn't be read when it ended")
             if "machine" in record:
                 self._write(directory, Instance.from_json(record["machine"]))  # stopped: resume starts its clock
+                if isinstance(record.get(USAGE_KEY), dict):  # its cost per state; the status line counts again
+                    (Path(directory) / USAGE_FILE).write_text(json.dumps({"seen": {}, "cost": record[USAGE_KEY]}))
         except MachineError as e:
             if self.staged_record(record):
                 raise
@@ -613,7 +699,13 @@ class Machines:
         self._running(name, False)
 
     def resumed(self, name: str) -> None:
-        """Called as a session starts again, before its markers go: the clock runs from now."""
+        """Called as a session starts again, before its markers go: the clock runs from now, and the status line's totals
+        start again (usage_restarts), after what the last process said is banked."""
+        self.bank(name)
+        try:
+            usage_restarts(self.sessions / name)
+        except (OSError, ValueError) as e:
+            log.warning("%s: %s", name, e)
         self._running(name, True)
 
     def _running(self, name: str, running: bool) -> None:
@@ -681,10 +773,26 @@ class Machines:
         repo = (record.get("config") or {}).get("repo")
         return lambda workflow: self.grant_of(workflow, repo)
 
-    def _act(self, name, change, by: str | None = None) -> dict:
+    def bank(self, name) -> None:
+        """What the session used since the last look, into its counters: on a signal, before its exits are tried."""
+        try:
+            record, inst = self.load(name)
+            if bank_usage(self.sessions / name, inst, record.get("session_id")):
+                self.save(name, inst)
+        except (MachineError, OSError, ValueError) as e:
+            log.warning("%s: its usage couldn't be banked: %s", name, e)
+
+    def _act(self, name, change, by: str | None = None, why: str | None = None) -> dict:
         record, inst = self.load(name)
+        kept = None
+        try:  # what it used goes to the state it used it in, before it moves; kept only once the change is saved
+            _changed, kept = usage_delta(self.sessions / name, inst, record.get("session_id"))
+        except (OSError, ValueError, MachineError):
+            log.exception("%s: its usage couldn't be banked", name)
         result = change(record, inst, self.clock())
         self.save(name, inst)
+        if kept is not None:
+            keep_usage(self.sessions / name, kept)
         row = result.pop("log", None)
         if row is not None:
             try:
@@ -693,7 +801,7 @@ class Machines:
                 log.exception("%s: the move wasn't logged", name)
         result = {**result, "state": inst.state, "version": inst.version, "paused": inst.paused}
         if by is not None and (result.get("moved") or result.get("needs_confirm") or result.get("declined")):
-            told = {**result, "by": row["by"] if row else by}
+            told = {**result, "by": row["by"] if row else by, "who": row.get("who") if row else None, "why": why}
             for watcher in list(self._watchers):
                 try:
                     watcher(name, told)
@@ -701,9 +809,10 @@ class Machines:
                     log.exception("%s: a watcher of its moves failed", name)
         return result
 
-    def move(self, name, to, by: str = "machine", enter: str = "first", who: str | None = None) -> dict:
+    def move(self, name, to, by: str = "machine", enter: str = "first", who: str | None = None, why: str | None = None) -> dict:
+        """`why`: what made the machine move, in the definition's words (the exit's question or its facts), for the watchers."""
         return self._act(name, lambda record, inst, now: move(inst, to, by, enter=enter, latest=self.latest(record), who=who, now=now,
-                                                                     grant_of=self._grant_for(record)), by)
+                                                                     grant_of=self._grant_for(record)), by, why)
 
     def rollback(self, name, who: str | None = None) -> dict:
         return self._act(name, lambda record, inst, now: rollback(inst, who, now, self._grant_for(record)), "rollback")
@@ -726,7 +835,9 @@ class Machines:
             if op == "machine.get":
                 return {"ok": True, **self.view(*self.load(name))}
             if op == "machine.history":
-                return {"ok": True, **self.log.history(self.load(name)[0]["session_id"])}
+                record = self.load(name)[0]  # every conversation it has had: a fresh context starts a new one (handoff.py)
+                earlier = record.get("conversations") if isinstance(record.get("conversations"), list) else []
+                return {"ok": True, **self.log.history([*earlier, record["session_id"]])}
             if op == "machine.move":
                 return {"ok": True, **self.move(name, req.get("to"), "hand", req.get("enter", "first"), who)}
             if op == "machine.confirm":

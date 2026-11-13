@@ -32,13 +32,22 @@ requires = ["pr.open", "pr.checks == pass"]
 on = ["turn.end", "feed:pr.checks"]
 ```
 
-A state has `instructions` (put in the session's next turn when it enters), `personas`, `context` (`keep`, or `compact`
-with a `focus`), its `grant`, its `exit`s, and `final = true` if nothing follows. A grant holds `access` (`locked` or
+A state has `instructions` (put in the session's next turn when it enters), `personas`, `context` (`keep`, `compact`
+with a `focus`, or `fresh`), its `grant`, its `exit`s, and `final = true` if nothing follows. A grant holds `access` (`locked` or
 `full`), `permission_mode`, `tools`, `hub_tools`, `asks_first`, `checkout`, `all_repos` and `github` (the capabilities of
 the session's own token, such as `read`, `pr.write`, `push`).
 
 Every state a session can be in must have the same `access` and `checkout`: a conversation keeps both, and a move that
 would change them fails back. Set them once on the parent, and again on a top-level final state.
+
+With `context = "fresh"` the session's conversation ends once it is at its prompt, and a new one of the state's persona
+(the session's own if the state names it or names none, else the first the state names that the action runs) takes over
+under the same name, checkout and instance: the state, the counters, the managed sessions, their open reports and the
+held grant carry over. It starts from the action's first prompt and a hand-off note the hub writes from named references
+only: the issue, the pull request, the instructions of the states it is in, the moves the log kept, and the rolling
+summary between marks, as data. Never a transcript's words. The old conversation stays in the history, and the machine
+log reads both as one session. A stopped session takes the new conversation at its next resume, and keeps the one it
+had until a resume goes through; a running one that can't resume keeps its conversation, and the move goes back.
 
 ## Exits
 
@@ -114,6 +123,15 @@ returns = { verdict = ["pass", "fail"], findings = "text-list" }  # what it hand
   the workflow review) is on no menu and starts only under an owner. One with `per_repo = true` (the repository maintainer)
   runs once per repository at a time.
 
+## The status line
+
+`status = true` at the top of a workflow makes each move post one line to the session's pull request, or its issue while it
+has none: `Workflow: now in <path> (<why>)`, where the reason is the exit's `when` for a judge's move, its `requires` for
+one by facts or a counter, or "by hand", "rolled back", "moved back by the hub". hubd posts it as the session's persona's
+GitHub App, and only so: a persona without an App, or whose App fails, posts nothing. It edits that one comment on later
+moves while the comment is still the App's own on that item; otherwise it posts a new one, at most once a minute per
+session. It is off in every shipped workflow.
+
 ## Facts and signals
 
 Facts: `pr.open`, `pr.merged`, `pr.checks` (`pass`, `fail`, `pending`), `pr.review` (`approved`, `changes_requested`,
@@ -157,6 +175,21 @@ While a "Workflow approval" card is up for where a session is, nothing else is t
 
 Every evaluation and move is in the machine log, with each check and the value it saw, the judge, its time and its cost.
 
+## What it cost
+
+A session's panel has a **Cost** section for its piece of work: the session and the sessions it manages, over every
+conversation it has had. It shows the most sessions that ran at once, the judge's calls with their time and cost, tokens,
+cost and time per state (tokens and cost as the session's status line reported them, banked into the state it was in before
+each move; a state counts the states inside it), and overrides: a move by hand that rolled back a move of the machine, or
+replaced one within ten minutes. The workflows list shows each workflow's averages over its sessions: judge calls per session,
+the share of the machine's moves that were overridden, and the median time from a signal to its move. Only a login reads them
+(`machine.costs`).
+
+That time, from the first signal of a pass to its move being logged, is kept with each evaluation that moved. Its fixed parts
+are shown beside it: the debounce of 2 seconds, the 3 seconds a pass waits for a pull request lookup, the judge's time limit,
+and the lookup itself, at most once a minute per session. The change feed doesn't carry a pull request's branch, so a new pull
+request reaches its session at the next lookup, not with the feed's event.
+
 ## Versions and the editor
 
 The file under `agents/workflows` is version 0 of the organisation's workflow. Saving one in the editor (`#/workflows`) writes the
@@ -169,6 +202,12 @@ A save is refused while the checks find a problem, or the library's own checks w
 version was saved since the one the editor opened. Only a login saves. A change can also go to Needs you as a "Workflow change"
 card, with the outline diff (state by state, exit by exit), the text diff, the checks, the sensitive marks and a replay: Approve
 saves it, and waits while a problem stands; Ask for changes and Discard end it.
+
+On a wide screen the editor's Diagram view and the session's machine panel draw the statechart: parents as boxes around
+their states, the start dot, H where an exit goes back to where it was, a double border for a final state, and each exit
+labelled with how it decides (≈ a judge, = facts, # a counter, dotted by hand). The panel marks where the session is and the
+exits its machine took, in the shapes and in a line of words under it; the outline beside it is its text, and stands alone on
+a phone. The layout is worked out the same way every time, from the definition alone.
 
 The editor's Text view is the definition. Its outline and inspector read what hubd parsed; ↑ and ↓ on a state's exits write the
 text again through hubd, which drops its comments.

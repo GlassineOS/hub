@@ -207,6 +207,7 @@ _ORPHAN = "If GitHub made the App, delete it on GitHub (Settings, Developer sett
 _TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{8,128}")  # a manifest code and a state nonce both look like this
 _SLUG_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")
 _LOOPBACK = ("127.0.0.1", "localhost", "::1")
+STATUS_CAPABILITIES = ("issues.comment", "pr.comment")  # what a workflow's status line takes (FR-025)
 # The hub tools that write to GitHub, as the capabilities they take. hubd makes these writes as the session's persona, so its
 # App needs them whether the session calls the tool itself or a press applies its result.
 TOOL_CAPABILITIES = {
@@ -252,6 +253,8 @@ def persona_permissions(library, persona: str) -> dict[str, str]:
     for d, sid in _leaves_for(library, persona):
         grant = machine.effective(d, sid)
         caps.update(grant.github)
+        if d.status:  # its moves post a status line as this persona (statusline.py)
+            caps.update(STATUS_CAPABILITIES)
         tools.update(set(TOOL_CAPABILITIES) | set(TOOL_PERMISSIONS) if grant.access == "full" else (*grant.hub_tools, *grant.asks_first))
     for action in library.actions.values():
         if persona in action.get("personas", ()):

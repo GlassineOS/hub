@@ -591,6 +591,23 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         reply = await hubd.call(op="machine.history", token=token, name=p(r, "name"))
         return {"evaluations": reply["evaluations"], "moves": reply["moves"]}
 
+    async def machine_costs(r, _b, token):
+        reply = await hubd.call(op="machine.costs", token=token, session=p(r, "name"))
+        reply.pop("ok", None)
+        return reply
+
+    async def machine_costs_list(r, _b, token):
+        """012 FR-090: each workflow's averages, or every piece of work on one item (?repo=&number=)."""
+        repo, number = r.query_params.get("repo"), r.query_params.get("number")
+        if repo or number:
+            if not repo or not ((number or "").isascii() and (number or "").isdigit()) or len(number) > 9:
+                raise BadRequest("an item is a repository and a number")
+            reply = await hubd.call(op="machine.costs", token=token, repo=repo, number=int(number))
+        else:
+            reply = await hubd.call(op="machine.costs", token=token, workflows=True)
+        reply.pop("ok", None)
+        return reply
+
     async def machine_move(r, b, token):
         move = p(r, "move")
         if move not in machine_moves:
@@ -722,6 +739,8 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         Route("/api/hub-workflows/{name}/{step}", api(wf_step), methods=["POST"]),
         Route("/api/machines/{name}", api(machine_get)),
         Route("/api/machines/{name}/history", api(machine_history)),
+        Route("/api/machines/{name}/costs", api(machine_costs)),
+        Route("/api/machine-costs", api(machine_costs_list)),
         Route("/api/machines/{name}/{move}", api(machine_move), methods=["POST"]),
         Route("/api/shells", api(shells)),
         Route("/api/shells", api(shell_new), methods=["POST"]),

@@ -163,6 +163,7 @@ class Definition:
     states: dict[str, State]
     judge: str | None = None
     schema: int = SCHEMA
+    status: bool = False           # a move posts a one-line status comment to the session's pull request or issue (FR-025)
 
 
 # ---- requires ----
@@ -319,12 +320,13 @@ def parse(text: str) -> Definition:
     except (tomllib.TOMLDecodeError, TypeError) as e:
         raise DefinitionError([Problem("text", f"not valid TOML: {e}")]) from None
     r = _Reader()
-    r.table(top, "workflow", ("schema", "name", "initial", "judge", "state"))
+    r.table(top, "workflow", ("schema", "name", "initial", "judge", "status", "state"))
     if top.get("schema") != SCHEMA or type(top.get("schema")) is not int:
         r.problems.append(Problem("workflow.schema", f"must be {SCHEMA}"))
     name = r.get(top, "name", "workflow", str, "", pattern=_NAME)
     initial = r.get(top, "initial", "workflow", str, "", pattern=_ID)
     judge = r.get(top, "judge", "workflow", str, None, pattern=_NAME)
+    status = r.get(top, "status", "workflow", bool, False)
     for key in ("name", "initial"):
         if key not in top:
             r.problems.append(Problem(f"workflow.{key}", "is missing"))
@@ -348,7 +350,7 @@ def parse(text: str) -> Definition:
     _structure(r, initial, states)
     if r.problems:
         raise DefinitionError(r.problems)
-    return Definition(name=name, initial=initial, states=states, judge=judge)
+    return Definition(name=name, initial=initial, states=states, judge=judge, status=status)
 
 
 def _array(r: _Reader, t: dict, key: str, where: str) -> list:
@@ -513,6 +515,8 @@ def emit(d: Definition) -> str:
     out = [f"schema = {d.schema}", f"name = {_s(d.name)}", f"initial = {_s(d.initial)}"]
     if d.judge is not None:
         out.append(f"judge = {_s(d.judge)}")
+    if d.status:  # only when set, so a text without it reads back the same
+        out.append("status = true")
     for s in d.states.values():
         out += ["", f"[state.{s.id}]", *_lines(s, skip=("id", "grant", "exits", "manages"))]
         if grant := _lines(s.grant):

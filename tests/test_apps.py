@@ -454,3 +454,14 @@ def test_permissions_for_capabilities():
 def test_unknown_capabilities_are_refused(caps):
     with pytest.raises(AppError):
         apps.permissions_for(caps)
+
+
+def test_a_workflow_with_a_status_line_gives_its_personas_app_comments():
+    from hubd import machine
+
+    class Lib:
+        families = {"tester": {"name": "T", "initials": "T", "family": "build"}}
+        actions = {"a": {"id": "a", "personas": ["tester"], "workflow": "w"}}
+        workflows = {"w": machine.parse('schema = 1\nname = "w"\ninitial = "look"\nstatus = true\n'
+                                        '[state.look]\n[[state.look.exit]]\nto = "done"\ndecided_by = "hand"\n[state.done]\nfinal = true\n')}
+    assert apps.persona_permissions(Lib, "tester") == {"contents": "read", "issues": "write", "metadata": "read", "pull_requests": "write"}
