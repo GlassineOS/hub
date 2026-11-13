@@ -154,6 +154,31 @@ waits for the accepted design.
 2. **Given** the spike's pull request is merged, **When** the owner's exits are tried, **Then** the accepted
    design is a fact they can require; accepting stays the maintainer's.
 
+### User Story 7 - Start work where it is (Priority: P1)
+
+The maintainer opens an issue, a pull request, a run or a repository and sees what can be started on it: the
+lifecycle that fits leads, quick tasks follow, and work a lifecycle already holds is run through its owner.
+
+**Why this priority**: Without it, the lifecycles of User Stories 1 and 3 sit beside one-off actions that bypass
+them.
+
+**Independent Test**: Give a workflow two starts on different kinds of item; open an item of each kind and check
+the buttons, their order and the prompt the session receives; open a pull request an instance holds and check
+that a start which writes asks its owner instead.
+
+**Acceptance Scenarios**:
+
+1. **Given** an issue, **When** the maintainer opens it, **Then** the lead start (work on it through the
+   implementor) comes first, the other starts for issues follow as quick tasks, and each names the persona it
+   starts and what it may do.
+2. **Given** a start's prompt edited in the editor and saved, **When** that start is used, **Then** the session
+   receives the edited prompt followed by the item's details, marked as data.
+3. **Given** a pull request an implementor holds, **When** the maintainer opens it, **Then** the page leads with
+   that instance (owner, state, next step), a start that would write on it becomes a request to the owner, and a
+   read-only start runs beside it.
+4. **Given** a pull request no instance holds, **When** the maintainer uses "Take this on", **Then** an
+   implementor starts in its review state with that pull request as its own.
+
 ### Edge Cases
 
 - Two exits of a state hold at once: the first in order moves; the checks flag pairs that can hold together
@@ -169,6 +194,10 @@ waits for the accepted design.
   as data and a move still needs its facts.
 - A move is rolled back by hand: the session returns to the earlier state; effects outside the hub that already
   happened (a push, a comment) stay and the log says so.
+- Two starts would hold one item: the second is refused, naming the instance that holds it; an ended instance
+  holds nothing.
+- An override removes a start, or the state a start names: the start is gone from the item's page, and sessions
+  already started keep their instance.
 - A new version removes the state a session is in: the session keeps its old version until it is moved by hand,
   and its panel says so.
 
@@ -207,7 +236,8 @@ number, as in "Launch (005) FR-012".
   A problem stops a save or an approval; a mark only shows.
 - **FR-009**: A definition, saved or a draft, can be replayed on a past session's history, showing where it would
   have moved differently.
-- **FR-010**: Each action of Launch (005) FR-012 is a default workflow. One whose work has no steps has one state,
+- **FR-010**: Each action of Launch (005) FR-012 is a start (FR-100) of a default workflow. One whose work has no
+  steps has one state,
   whose grant is exactly what the action allows: its tools, its hub tools, its permission mode, its access and its
   checkout. Its ceiling is the plain-words summary of that grant.
 
@@ -356,6 +386,30 @@ number, as in "Launch (005) FR-012".
 - **FR-082**: The editor, the machine panel, the confirm and the two decisions work at phone width (App frame
   (001) SC-003) and by keyboard (App frame (001) SC-004).
 
+#### Starts
+
+- **FR-100**: A workflow names its starts. Each start has: the kind of item it applies to (issue, pull request,
+  run, repository, project, knowledge or notes), a button label, a one-line summary, the state it starts in (the
+  initial state when none is named), whether it is the lead start for its kind, the models and efforts the brief
+  may choose, and a prompt. A workflow without starts is started only as a managed session.
+- **FR-101**: Starts are part of the definition: versioned with it, overridable per repository, shown in a
+  change's diff and replay. The checks (FR-008) refuse a start whose state is missing or final, two starts with
+  one label on one kind, and more than one lead start per kind across the library.
+- **FR-102**: A start's prompt is edited in the workflow editor. The session receives it followed by the item's
+  details (its kind, repository, number, title, state, branch, labels, checks and links), marked as data: text
+  from outsiders never becomes instructions. Editing a prompt grants nothing and needs no confirm (FR-024); it is
+  still part of a definition change.
+- **FR-103**: An item's page lists the starts for its kind: the lead start first, the others as quick tasks. Each
+  shows the persona of its starting state and the plain-words summary of that state's grant.
+- **FR-104**: An instance holds the items its session carries, and the pull requests its managed sessions open in
+  its repository. An item an instance holds leads with that instance: its owner, its state chip and its next
+  step. Each start says what happens then: it runs beside the instance, it asks the owner, or it is hidden. Asking
+  the owner sends the request to the owner session as a move request or a managed start under it, so grants, caps
+  and approvals apply as if the owner had asked. The checks refuse "runs beside" for a start whose starting grant
+  can write on the item.
+- **FR-105**: The Workflows page is reached from the primary navigation, and lists each workflow's starts by
+  kind of item.
+
 #### Cost
 
 - **FR-090**: The hub measures and shows per piece of work: the sessions that ran at once, judge calls, tokens and
@@ -367,6 +421,8 @@ number, as in "Launch (005) FR-012".
 - **State**: a node of the machine with persona, instructions, grant, context on entry, managed sessions, exits;
   may hold states.
 - **Exit**: a possible move from a state, with who decides, `when`, `requires`, `on`, `move` and `approve`.
+- **Start**: a way to begin a workflow from an item: its kind of item, label, summary, starting state, lead
+  flag, prompt, and what it does when an instance holds the item.
 - **Instance**: a session's machine: its workflow version, current state, counters and history.
 - **Grant**: the capabilities a state allows; the effective grant adds those of its parents.
 - **Managed session**: a session a state started, with its owner, context, and what it returns.
