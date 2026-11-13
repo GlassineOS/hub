@@ -363,6 +363,8 @@ class Effects:
         for record in self.decisions.open_widenings(name, kind):
             if record["scope"].get("type") == "report":  # a report up stays until it is answered, wherever the session moves
                 continue
+            if record["scope"].get("type") == "managed":  # a start's approval: managed.py withdraws it when its entry leaves force
+                continue
             if record["id"] != self._answering:
                 self.decisions.settle(record["id"], False, why)
 
@@ -406,6 +408,7 @@ class Effects:
         """Until every effect under way has finished: for a test, or a clean stop."""
         while self._tasks:
             await asyncio.gather(*list(self._tasks), return_exceptions=True)
+            await asyncio.sleep(0)  # a finished task leaves the set in its done callback, which runs only once the loop turns
 
 
 __all__ = ["Effects", "instructions_of", "context_of", "sensitive_of", "path_of"]

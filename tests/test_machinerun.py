@@ -255,11 +255,14 @@ def test_the_hub_index_covers_items_and_known_pull_requests(tmp_path):
 
         def known_prs(self, name):
             return [{"repo": "boot", "number": 9, "state": "OPEN"}] if name == "s" else None
+
+        def design_prs(self, name):
+            return [{"repo": "ui", "number": 30, "state": "OPEN"}] if name == "s" else []
     w = World(tmp_path)
     w.session("s", covers=[("boot", 1)])
     FakeAgents.machines = w.machines
     r = machinerun.for_hub(FakeAgents(), None, lambda: {})
-    assert r.index() == {("boot", 1): {"s"}, ("boot", 9): {"s"}}
+    assert r.index() == {("boot", 1): {"s"}, ("boot", 9): {"s"}, ("ui", 30): {"s"}}
 
 
 # ---- debounce and one at a time -----------------------------------------------------------------

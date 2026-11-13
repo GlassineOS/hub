@@ -12,3 +12,15 @@ hub_tools = ["list_repo_files", "read_repo_file", "map_overview", "map_definitio
 asks_first = ["roadmap_add", "roadmap_move", "create_issue", "comment_issue", "close_issue", "reopen_issue", "label_issue", "edit_issue", "tick_item", "edit_comment", "comment_pr", "merge_pr", "close_pr", "rerun", "cancel_run", "dispatch_workflow", "spawn_session", "message_session"]
 checkout = false
 all_repos = true
+# FR-071: the Steward starts a repository's maintainer, one per repository, with start_managed (entry repo-maintainer, item
+# the repository). The maintainer reads only, within the Steward's grant, so it starts without a card. Managing it also makes
+# the Steward the session that answers what the sessions below it send up, and an exit's `approve = "steward"`. Two at once:
+# with each maintainer's three implementors and what they run, the tree fits MAX_MANAGED.
+[[state.session.manages]]
+name = "repo-maintainer"
+persona = "repo-maintainer"
+workflow = "repo-maintainer"
+start = "on-request"
+max = 2
+reuse = "fresh"
+on_exit = "keep"
