@@ -22,12 +22,13 @@ def with_launch(text: str, name: str, root: Path = AGENTS) -> str:
 
 def launch(name: str, on: str = "issue", label: str | None = None, personas=("triager",), result: str = "comment",
            prompt: str = "Work on #{number} of GlassineOS/{repo}.", order: int = 90, models=("sonnet",), efforts=("low",),
-           start: bool = True) -> str:
+           start: bool = True, when_held: str | None = None, lead: bool = False) -> str:
     """A [launch] and, unless `start` is False, one [[start]] for a test's own workflow."""
     q = lambda xs: "[" + ", ".join(f'"{x}"' for x in xs) + "]"  # noqa: E731
     head = f'\n[launch]\npersonas = {q(personas)}\nresult = "{result}"\n'
     body = (f'on = "{on}"\nlabel = "{label or name}"\nsummary = "A helper on the {on}."\nceiling = "Reads the {on}."\norder = {order}\n'
-            f'models = {q(models)}\nefforts = {q(efforts)}\nprompt = "{prompt}"\n')
+            f'models = {q(models)}\nefforts = {q(efforts)}\nprompt = "{prompt}"\n'
+            + (f'when_held = "{when_held}"\n' if when_held else "") + ("lead = true\n" if lead else ""))
     return head + ("\n[[start]]\n" + body if start else body)
 
 

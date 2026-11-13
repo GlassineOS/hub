@@ -1661,6 +1661,49 @@ class Hubd:
         except DesignError as e:
             return {"ok": False, "error": str(e)}
 
+    async def item_starts(self, kind, repo, number) -> dict:
+        """What an item's page offers: its pull requests looked up first, so a session that opened one holds it."""
+        if kind == "pr" and (unsure := self.agents.unsure_prs(kind, repo, number)):
+            await self.agents.refresh_prs(unsure)
+        return self.agents.starts_for(kind, repo, number)
+
+    async def ask_owner(self, kind, action_id, repo, number, to=None) -> dict:
+        """The maintainer asks the instance holding an item for what a start would do (FR-104): a managed start under it, through
+        its caps and approvals, or a move request its exit's `requires` and `approve` decide. `to`, without a start: one of
+        the holder's on-request moves. Nothing here starts a session beside the holder."""
+        if action_id is not None:
+            kind = self.agents.library.action(action_id, repo)["object"]
+        view = await self.item_starts(kind, repo, number)
+        holder = view["holder"]
+        if holder is None:
+            return {"asked": False, "why": "nothing holds this item: start it instead"}
+        name = holder["session"]
+        if action_id is None:
+            if not any(m["to"] == to for m in view["moves"]):
+                return {"asked": False, "why": f"{name} has no move to {str(to)[:64]!r} it takes on request"}
+            route = {"via": "move", "to": to}
+        else:
+            row = next((r for r in view["starts"] if r["id"] == action_id), None)
+            if row is None or row["availability"] != "asks":
+                return {"asked": False, "why": (row or {}).get("why") or f"{action_id} doesn't ask {name}"}
+            route = row["ask"]
+        if route["via"] == "managed":
+            if self.managed is None:
+                return {"asked": False, "why": "managed sessions are not set up"}
+            record = self.agents.describe(name) or {}
+            item = None
+            if record.get("object") == "repo":  # an owner on no single item names the one it is for
+                item = f"{repo}#{number}" if number else str(repo)
+            try:
+                got = await self.managed.request_start({"session": name}, route["entry"], item)
+            except ManagedError as e:
+                return {"asked": False, "why": str(e), "holder": name}
+            return {"asked": True, "via": "managed", "holder": name, **got}
+        if self.machine_run is None:
+            return {"asked": False, "why": "workflows don't move on their own here"}
+        got = await self.machine_run.request(name, self.agents.session_id_of(name), route["to"], signal="maintainer request")
+        return {"asked": True, "via": "move", "holder": name, **got}
+
     async def agent_request(self, op: str, req: dict) -> dict:
         if self.agents is None:
             return {"ok": False, "error": "agent sessions are not set up"}
@@ -1690,6 +1733,10 @@ class Hubd:
             return {"ok": True, **await self.agents.cleanup_remove(req.get("ids"))}
         if op == "agent.actions":
             return {"ok": True, "actions": self.agents.actions(req.get("object"))}
+        if op == "agent.starts":  # 012 FR-102 to FR-104: an item's starts, and the instance that holds it
+            return {"ok": True, **await self.item_starts(req.get("object"), req.get("repo"), req.get("number"))}
+        if op == "agent.ask_owner":
+            return {"ok": True, **await self.ask_owner(req.get("object"), req.get("action"), req.get("repo"), req.get("number"), req.get("to"))}
         if op == "agent.action":
             return {"ok": True, "action": self.agents.action(req.get("action"))}
         if op == "agent.preview":

@@ -879,6 +879,12 @@ def _number_ok(n) -> bool:
     return isinstance(n, int) and not isinstance(n, bool) and n > 0
 
 
+def _item_words(kind: str, repo, number) -> str:
+    if kind in NO_REPO_OBJECTS:
+        return f"the {kind}"
+    return f"{repo}#{number}" if number else str(repo)
+
+
 def covers_of(config: dict) -> list[dict]:
     """What a session's record says it covers. A record from before covers has its number and also_numbers."""
     if isinstance(config.get("covers"), list):
@@ -1005,6 +1011,7 @@ class Agents:
         self._resuming = asyncio.Lock()
         self._starting: set[str] = set()
         self._per_repo: set[tuple[str, str]] = set()  # (action, repository) of a per_repo start under way
+        self._holding: set[tuple] = set()  # (kind, repository, number) a start of a workflow that will hold it is making
         self._prs: dict[str, tuple[float, list, str | None]] = {}  # session name: when looked up, its pull requests, which session id
         self.switch_watchers: list = []  # called (name, old id, new id) as a fresh context takes over (handoff.py)
         self._pr_lookups: dict[str, asyncio.Task] = {}
@@ -2130,8 +2137,35 @@ class Agents:
             existing = await self._existing(action)
             if existing:
                 return existing
-        async with self._one_per_repo(action, config.get("repo")):
-            return await self._start(config, action, started_by, origin, owner, context)
+        held_by, claims = None, []
+        if owner is None and action["object"] in machine.START_ON:  # a managed session is its owner's: the owner holds the item
+            if action["object"] == "pr" and action.get("when_held", "ask") != "beside":
+                unsure = sorted({n for c in covers_of(config) for n in self.unsure_prs("pr", c["repo"], c["number"])})
+                if unsure:
+                    await self.refresh_prs(unsure)
+            # from here to the claim nothing is awaited, so two starts on one item can't both find it free (FR-103)
+            if (why := self._held_problem(action, config)):
+                raise AgentError(why)
+            held_by = next((h for c in (covers_of(config) or [{}]) for h in self.holders(action["object"], c.get("repo"), c.get("number"))[0]), None)
+            claims = self._claims(action, config)
+            self._holding.update(claims)
+        try:
+            async with self._one_per_repo(action, config.get("repo")):
+                return await self._start(config, action, started_by, origin, owner, context, held_by)
+        finally:
+            self._holding.difference_update(claims)
+
+    def _claims(self, action: dict, config: dict) -> list[tuple]:
+        """The items a start will hold once its session is recorded: those of a workflow of more than one state."""
+        try:
+            if len(machine.parse(action["definition"]).states) < 2:
+                return []
+        except (machine.DefinitionError, KeyError):
+            return []
+        kind = action["object"]
+        if kind in NO_REPO_OBJECTS:
+            return [(kind, "none", None)]
+        return [(kind, str(c.get("repo")).lower(), c.get("number")) for c in covers_of(config)]
 
     @contextlib.asynccontextmanager
     async def _one_per_repo(self, action: dict | None, repo, name: str | None = None):
@@ -2175,7 +2209,7 @@ class Agents:
         except (MachineError, KeyError, OSError):
             return False
 
-    async def _start(self, config: dict, action: dict, started_by, origin, owner, context) -> dict:
+    async def _start(self, config: dict, action: dict, started_by, origin, owner, context, held_by=None) -> dict:
         mcp = self._prepare_home()
         self.sessions.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.work.mkdir(parents=True, exist_ok=True)
@@ -2219,6 +2253,8 @@ class Agents:
                       "started_by": started_by}
             if owner is not None:
                 record["owner"] = owner
+            if held_by is not None:  # 012 FR-104: a start that runs beside the instance holding its item, and which one
+                record["beside"] = held_by
             if origin is not None:  # 005 FR-010: the Launch record it came from, shown as its origin
                 record["origin"] = origin
             (directory / "session.json").write_text(json.dumps(record))
@@ -2939,6 +2975,171 @@ class Agents:
                     and owned.get("session_id") == record.get("session_id") and isinstance(child_record.get("config"), dict):
                 out.append((child["name"], child_record))
         return out
+
+    # --- who holds an item (012 FR-103, FR-104) -------------------------------------------
+    def _records(self) -> list[tuple[str, dict]]:
+        out = []
+        for directory in sorted(self.sessions.iterdir()) if self.sessions.is_dir() else ():
+            try:
+                record = json.loads((directory / "session.json").read_text())
+            except (OSError, ValueError):
+                continue
+            if isinstance(record, dict) and isinstance(record.get("config"), dict):
+                out.append((directory.name, record))
+        return out
+
+    def _carries(self, name: str, record: dict, kind: str, repo, number) -> bool | None:
+        """Whether a session carries the item: it is on it (its covers), or, for a pull request, it or a session its workflow
+        manages opened it (known_prs). None when that can't be told yet: a session that pushes a branch in the item's repository
+        whose pull requests the hub hasn't looked up since it started, so a restart doesn't read as nothing held."""
+        if record.get("object") == kind:
+            if kind in NO_REPO_OBJECTS:
+                return True
+            for c in covers_of(record["config"]):
+                if str(c.get("repo")).lower() == str(repo).lower() and (kind == "repo" or c.get("number") == number):
+                    return True
+        if kind != "pr":
+            return False
+        for prs_of, of_record in ((name, record), *self.managed_children(name, record)):
+            seen = self._prs.get(prs_of)
+            if of_record.get("object") == "pr":
+                continue
+            if seen and seen[2] == of_record.get("session_id"):
+                if any(str(p["repo"]).lower() == str(repo).lower() and p["number"] == number for p in seen[1]):
+                    return True
+            elif any(r.lower() == str(repo).lower() for r in self._pr_repos(of_record)):
+                return None
+        return False
+
+    def _may_hold(self, name: str) -> bool:
+        """A session holds what it carries while its workflow instance runs: it hasn't ended, and it is in a workflow of more
+        than one state, not in a final one. A one-state session is a task beside the item, never its owner."""
+        if (self.sessions / name / ENDED_FILE).exists():
+            return False
+        chip = self.machines.summary(name)
+        return bool(chip and not chip["one_state"] and not chip["final"])
+
+    def holders(self, kind, repo, number) -> tuple[list[str], list[str]]:
+        """The instances holding an item, topmost first (a session managed by another holder of it is that one's, not a
+        holder of its own), and the sessions that may hold it but whose pull requests aren't known yet."""
+        records = dict(self._records())
+        held, unsure = [], []
+        for name, record in records.items():
+            if not self._may_hold(name):
+                continue
+            carries = self._carries(name, record, kind, repo, number)
+            if carries:
+                held.append(name)
+            elif carries is None:
+                unsure.append(name)
+        top = [n for n in held if (records[n].get("owner") or {}).get("name") not in held]
+        return sorted(top, key=lambda n: records[n].get("created") or 0), unsure
+
+    def unsure_prs(self, kind, repo, number) -> list[str]:
+        """The sessions whose pull requests must be looked up before it is known whether they hold this pull request."""
+        return self.holders(kind, repo, number)[1] if kind == "pr" else []
+
+    def holder_view(self, name: str) -> dict | None:
+        """What an item's page says of the instance that holds it: its session, persona, state path and what comes next."""
+        about = self.describe(name)
+        inst = self.machines.peek(name)
+        if about is None or inst is None:
+            return None
+        d = inst.definition()
+        path = list(reversed(machine.ancestors(d, inst.state)))
+        here = " › ".join(path)
+        targets = list(dict.fromkeys(e.to for e in machine.exits_of(d, inst.state)))
+        if inst.paused:
+            next_words = f"Paused in {here}: it moves again when you resume it."
+        elif inst.pending is not None:
+            next_words = f"Waits for you: a move to {inst.pending.get('to', 'its next state')} waits for your confirm."
+        elif targets:
+            next_words = f"Works in {inst.state}; from here it moves to {', '.join(targets)}."
+        else:
+            next_words = f"Works in {inst.state}."
+        return {"session": name, "title": about["title"], "persona": about["persona"], "persona_name": about["persona_name"],
+                "initials": about["initials"], "family": about["family"], "workflow": inst.workflow, "state": inst.state,
+                "path": path, "paused": inst.paused, "waits": inst.pending is not None, "next": next_words,
+                "ended": about["ended"], "repo": about["repo"], "number": about["number"]}
+
+    def _ask_route(self, holder: str, action: dict) -> dict | None:
+        """How a start that asks the owner reaches the holder: a managed start, when the holder's state in force manages an
+        entry that starts on request and runs the start's workflow (its caps and approvals apply), else the move the start
+        names, when the holder's state has an on-request exit to it. None: the holder has no way to take it on now."""
+        inst = self.machines.peek(holder)
+        if inst is None:
+            return None
+        d = inst.definition()
+        for _sid, m in machine.managed_of(d, inst.state):
+            if m.start == "on-request" and m.workflow == action["workflow"]:
+                return {"via": "managed", "entry": m.name, "words": f"{holder} starts its {m.name} ({m.persona}) under it"}
+        to = action.get("ask_move")
+        if to and any(e.to == to and e.move == "on-request" and e.decided_by != "hand" for e in machine.exits_of(d, inst.state)):
+            return {"via": "move", "to": to, "words": f"a move request to {holder}: {inst.state} → {to}"}
+        return None
+
+    def holder_moves(self, holder: str) -> list[dict]:
+        """The moves the maintainer can ask the holder for: its state's exits that move on request."""
+        inst = self.machines.peek(holder)
+        if inst is None:
+            return []
+        out = []
+        for e in machine.exits_of(inst.definition(), inst.state):
+            if e.move == "on-request" and e.decided_by != "hand" and all(x["to"] != e.to for x in out):
+                out.append({"to": e.to, "label": f"Move to {e.to}", "via": f"a move request: {inst.state} → {e.to}",
+                            "requires": list(e.requires)})
+        return out
+
+    def starts_for(self, kind, repo=None, number=None) -> dict:
+        """The starts on an item (012 FR-102 to FR-104), lead first, each with what it does now: runs, asks the holding
+        instance's owner, or is hidden (and why). Read from the files and what the hub has seen: nothing is asked of GitHub
+        here, so look up the pull requests first (unsure_prs, refresh_prs)."""
+        if kind not in machine.START_ON:
+            raise AgentError(f"not a kind of item: {kind}")
+        held, unsure = self.holders(kind, repo, number)
+        holder = held[0] if held else None
+        view = self.library.view(repo) if repo else self.library
+        rows = []
+        for a in sorted((a for a in view.actions.values() if a["object"] == kind and not a.get("managed_only")),
+                        key=lambda a: (not a.get("lead"), a.get("order", 99), a["id"])):
+            family = self.library.family(a["personas"][0]) or {}
+            row = {"id": a["id"], "workflow": a["workflow"], "object": kind, "title": a["title"], "summary": a["summary"],
+                   "ceiling": a["ceiling"], "lead": bool(a.get("lead")), "when_held": a.get("when_held", "ask"),
+                   "state": a.get("state"), "persona": a["personas"][0], "persona_name": family.get("name"),
+                   "initials": family.get("initials"), "family": family.get("family"), "full": _full(a),
+                   "models": a["models"], "efforts": a["efforts"], "writes": machine.writes_on_item(_grant(a)),
+                   "availability": "runs"}
+            if holder is not None or unsure:
+                if a.get("when_held") == "beside":
+                    row["availability"] = "runs"
+                elif a.get("when_held") == "ask" and holder is not None and (route := self._ask_route(holder, a)):
+                    row.update(availability="asks", ask=route)
+                else:
+                    row["availability"] = "hidden"
+                    row["why"] = (f"{holder} holds this, and this start doesn't run beside it" if holder is not None and a.get("when_held") == "hide"
+                                  else f"{holder} holds this, and its state has no way to take this on" if holder is not None
+                                  else f"whether {', '.join(unsure)} holds this isn't known yet")
+            rows.append(row)
+        return {"holder": self.holder_view(holder) if holder else None, "also_held_by": held[1:], "unsure": unsure,
+                "moves": self.holder_moves(holder) if holder else [], "starts": rows}
+
+    def _held_problem(self, action: dict, config: dict) -> str | None:
+        """Why this start can't start now on its item: an instance holds it, and the start doesn't run beside one."""
+        kind = action["object"]
+        if action.get("when_held", "ask") == "beside" or kind not in machine.START_ON:
+            return None
+        items = [(c.get("repo"), c.get("number")) for c in covers_of(config)] if kind not in NO_REPO_OBJECTS else [(None, None)]
+        for repo, number in items or [(config.get("repo"), config.get("number"))]:
+            claimed = (kind, str(repo).lower(), number)
+            held, unsure = self.holders(kind, repo, number)
+            if held:
+                how = "ask it through the item's page" if action.get("when_held") == "ask" else "this start is hidden while it does"
+                return f"{held[0]} holds {_item_words(kind, repo, number)}: {how}"
+            if unsure:
+                return f"whether {', '.join(unsure)} holds {_item_words(kind, repo, number)} isn't known yet: try again in a moment"
+            if claimed in self._holding:
+                return f"another session is starting on {_item_words(kind, repo, number)}"
+        return None
 
     def _pr_repos(self, record: dict) -> list[str]:
         """Where a session pushes agent/<name>: what was checked out for it, the first item's repository (or the action's own,

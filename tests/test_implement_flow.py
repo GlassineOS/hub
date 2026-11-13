@@ -489,3 +489,27 @@ def test_a_verdict_is_about_the_head_it_was_given_on_a_new_head_it_no_longer_hol
         return name
     name = asyncio.run(go())
     assert "reviewer's return voided" in [e["proposal"] for e in history(a, name)["evaluations"]]
+
+
+def test_take_this_on_has_an_implementor_hold_an_open_pull_request_from_review(hub):
+    """012 FR-102: the lead start on a pull request. The implementor starts in review with that pull request as its own, holds
+    it, and a writing start on it asks the implementor instead of running beside."""
+    h, a, gh, _apps, _judge = hub
+
+    async def go():
+        name = (await a.start(a.defaults("implementor-pr", "boot", PR)))["name"]
+        await settle(h)
+        assert state_of(a, name) == "review"
+        assert a.known_prs(name) == [{"repo": "boot", "number": PR, "state": None}]
+        view = await h.item_starts("pr", "boot", PR)
+        assert view["holder"]["session"] == name and view["holder"]["persona"] == "implementor"
+        assert view["holder"]["path"] == ["work", "review"]
+        rows = {r["id"]: r for r in view["starts"]}
+        assert rows["implementor-pr"]["availability"] == "hidden"
+        assert rows["pr-review"]["availability"] == "runs"
+        assert rows["pr-address-review"]["availability"] == "asks" and rows["pr-address-review"]["ask"] == {
+            **rows["pr-address-review"]["ask"], "via": "move", "to": "fix"}
+        assert [m["to"] for m in view["moves"]] == ["fix"]
+        with pytest.raises(agents_module.AgentError, match=f"{name} holds boot#{PR}: ask it"):
+            await a.start(a.defaults("pr-address-review", "boot", PR))
+    asyncio.run(go())
