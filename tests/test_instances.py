@@ -209,8 +209,7 @@ def test_every_action_runs_on_its_workflows_own_text():
         g = machine.effective(d, "session")
         assert d.states["session"].final and g.tools == action["grant"].tools and g.checkout == action["grant"].checkout
         assert g.access == action["grant"].access and g.permission_mode == action["grant"].permission_mode
-        # The library adds the notes search to an action that only reads; the file doesn't list it.
-        assert set(action["grant"].hub_tools) - set(g.hub_tools) <= {"notes_find"}
+        assert g == action["grant"]
         assert new(text).state == "session" and new(text).version == version_of(text)
 
 

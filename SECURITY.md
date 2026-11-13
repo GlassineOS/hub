@@ -330,8 +330,8 @@ The notes are kept for agents to read: what earlier sessions found, so the next 
 host only, and much of what they hold never passed the safety scan. The app's container mounts none of it.
 
 - **Sessions that only read search them.** `notes_find` (`notes_tool.find`) is on the list of a locked action that only reads
-  and hands in: no shell, no write or post tool, no `plan_work`, nothing that asks first. The library adds it to such an action's
-  grant and refuses to load one whose workflow lists it and doesn't fit, so a new action that can post doesn't pick it up by being new. Today
+  and hands in: no shell, no write or post tool, no `plan_work`, nothing that asks first. Its workflow lists it, and the library
+  refuses to load one that lists it and doesn't fit, or fits and doesn't list it, so a new action that can post can't have it. Today
   that is `notes-compact`, `notes-sweep`, `knowledge-research` and the `new-*` drafters. hubd takes it from such a session's
   own token, from a full session's, and from the general token a hub shell holds. Full sessions and shells could read the
   files anyway. The page's own search (`notes.find`, `notes.status`, `notes.totals`) stays behind the login check. A session

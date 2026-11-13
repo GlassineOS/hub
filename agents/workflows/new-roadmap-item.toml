@@ -7,6 +7,6 @@ initial = "session"
 final = true
 [state.session.grant]
 tools = ["Read", "Grep", "Glob", "AskUserQuestion"]
-hub_tools = ["request_repository", "map_overview", "map_definition", "map_usages", "map_string", "code_search", "get_issue", "list_issues", "list_prs", "get_pr", "docs_search", "work_search", "roadmap", "submit_drafts"]
+hub_tools = ["request_repository", "map_overview", "map_definition", "map_usages", "map_string", "code_search", "get_issue", "list_issues", "list_prs", "get_pr", "docs_search", "work_search", "roadmap", "submit_drafts", "notes_find"]
 checkout = "default"
 all_repos = true

@@ -36,7 +36,7 @@ import time
 import tomllib
 import unicodedata
 import uuid
-from dataclasses import fields, replace
+from dataclasses import fields
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
@@ -326,12 +326,6 @@ class Library:
                         for p in sorted((root / "actions").glob("*.toml"))}
         for action in self.actions.values():
             action["grant"] = self._grant_of(action)
-        # The notes are kept for agents to read (SECURITY.md, Notes), so a locked action that only reads gets the search. One that
-        # can post, send or ask first doesn't: nothing technical stops a steered session putting a note in public. A full
-        # session has no list to add it to: hubd lets it use any tool.
-        for action in self.actions.values():
-            if NOTES_TOOL not in _grant(action).hub_tools and _may_search_notes(action):
-                action["grant"] = replace(_grant(action), hub_tools=(*_grant(action).hub_tools, NOTES_TOOL))
         self.families = tomllib.loads((root / "personas" / "families.toml").read_text())
         self._check()
 
@@ -395,9 +389,14 @@ class Library:
             if not isinstance(result_tools, list) or set(result_tools) - set(APPLY_TOOLS.get(action["result"], ())):
                 raise LibraryError(f"actions/{action['id']}.toml: result_tools for a {action['result']} result are among "
                                    f"{', '.join(APPLY_TOOLS.get(action['result'], ())) or 'none'}")
-            if NOTES_TOOL in _grant(action).hub_tools and not _may_search_notes(action):  # listed by hand, on an action that can post
+            # The notes are kept for agents to read (SECURITY.md, Notes), so a locked action that only reads has the search. One that
+            # can post, send or ask first doesn't: nothing technical stops a steered session putting a note in public. A full
+            # session has no list to put it on: hubd lets it use any tool. A grant that changes either way doesn't load.
+            if NOTES_TOOL in _grant(action).hub_tools and not _may_search_notes(action):
                 raise LibraryError(f"workflows/{action['workflow']}.toml: {NOTES_TOOL} is for a locked action that only reads: no shell, no write "
                                    "or post tool, no plan_work, nothing that asks first")
+            if NOTES_TOOL not in _grant(action).hub_tools and _may_search_notes(action):
+                raise LibraryError(f"workflows/{action['workflow']}.toml: a locked action that only reads has {NOTES_TOOL} in its hub_tools")
             github = _grant(action).github
             if github and (set(github) - set(CAPABILITIES) or _full(action) or "Bash" not in _grant(action).tools):
                 # A full session uses the host's login and is guarded, not limited; without a shell a token has no use.
