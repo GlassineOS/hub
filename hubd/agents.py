@@ -1108,6 +1108,7 @@ class Agents:
         self._sends: dict[str, list[str]] = {}
         self._senders: dict[str, asyncio.Task] = {}
         self._own_prs: set[tuple[str, int]] = set()  # pull requests GitHub has said are the repository's own, which never changes
+        self._fork_prs: set[tuple[str, int]] = set()  # and those it has said are a fork's: a pull request's head repository stays
         self._lost: dict[str, str] = {}
         self._told: dict[str, tuple[str, list[dict]]] = {}  # session -> the context line hubd last wrote, and its chips
         self._from: dict[str, list[str | None]] = {}  # who each queued message is from, in step with _sends: None is the person
@@ -1704,22 +1705,21 @@ class Agents:
 
     async def _from_fork(self, repo: str, number: int) -> bool:
         """Whether a pull request comes from a fork. If GitHub can't say, it does."""
-        try:
-            return (await self._pr_head(repo, number)).get("isCrossRepository") is not False
-        except Exception:  # noqa: BLE001: unsure means a fork
-            return True
+        return await self.pr_fork_state(repo, number) is not False
 
     async def pr_fork_state(self, repo: str, number: int) -> bool | None:
         """Whether a pull request is a fork's, for an item's page: None when GitHub can't say, so nothing is refused on a guess
         (a start itself treats unsure as a fork)."""
         if (repo, number) in self._own_prs:
             return False
+        if (repo, number) in self._fork_prs:
+            return True
         try:
             fork = (await self._pr_head(repo, number)).get("isCrossRepository")
         except Exception:  # noqa: BLE001: unknown, said as such
             return None
-        if fork is False:
-            self._own_prs.add((repo, number))
+        if isinstance(fork, bool):
+            (self._fork_prs if fork else self._own_prs).add((repo, number))
         return fork if isinstance(fork, bool) else None
 
     async def _on_a_fork(self, config: dict, action: dict, known: bool = False) -> bool:
