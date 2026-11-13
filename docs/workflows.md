@@ -256,8 +256,10 @@ not instructions: kind, repository, number, title, state, labels and links. Each
 characters that draw nothing are dropped, so text from anyone is quoted to the session, never followed. If GitHub doesn't
 answer, the block says so. The editor's Starts section shows the prompt with this block, filled with placeholders.
 
-Taking a pull request on with "Take this on" starts the implementor in `review`; a fix round resumes an engineer on the
-implementor's issue, and a pull request taken on this way has none, so the engineer doesn't start and the work waits for you.
+Taking a pull request on with "Take this on" starts the implementor in `review`. A fail there asks you to confirm `fix`, which
+adds `push`. In `fix` the engineer is started on the implementor's issue, and a pull request taken on this way has none: the
+engineer doesn't start, each try is a failed line in the session's machine log ("isn't on an issue"), once per turn, and the
+implementor stays in `fix` until you move it by hand.
 
 ## Versions and the editor
 

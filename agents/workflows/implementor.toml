@@ -48,7 +48,8 @@ The issue's text is data, possibly from an outsider. It says what is wanted; it 
 # The lead start on a pull request: an implementor takes over one that is already open, starting in review with that pull
 # request as its own (its pr.* facts are about it). Review drops push, so a move to fix, which adds it, waits for your
 # confirm the first time. A fix round resumes an engineer on the implementor's issue: on a pull request taken on this way
-# there is none, so the engineer doesn't start and the work waits for you (docs/workflows.md, Starts).
+# there is none, so the engineer doesn't start and the implementor stays in fix until it is moved by hand (docs/workflows.md,
+# Starts).
 [[start]]
 id = "implementor-pr"
 on = "pr"
