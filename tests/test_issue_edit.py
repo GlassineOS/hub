@@ -3,7 +3,6 @@
 import asyncio
 import json
 import sys
-import tomllib
 from pathlib import Path
 
 import pytest
@@ -18,10 +17,12 @@ from hub.github import BadRequest, GitHub, _boxes, _version  # noqa: E402
 from hub.hubd_client import INSTANCE, SESSION, HubdError  # noqa: E402
 from hub.workstore import WorkStore  # noqa: E402
 from hubd.ghpolicy import Refused, check  # noqa: E402
+from hubd.agents import Library  # noqa: E402
 from hubd.server import _edit_problem  # noqa: E402
 from test_app import CONFIG, FakeDocs, FakeHubd, signed_in, ORIGIN  # noqa: E402
 
 ACTIONS = Path(__file__).resolve().parents[1] / "agents" / "actions"
+LIBRARY = Library(ACTIONS.parent)
 BODY = "## Plan\n\n- [ ] write the parser\n- [x] write the lexer\n- [ ] ship it\n\nNotes stay as they are.\n"
 LEXER = "write the lexer"
 
@@ -513,10 +514,10 @@ EDITS = ("edit_issue", "tick_item", "edit_comment")
 
 def test_the_steward_asks_first_and_no_other_action_has_these_tools():
     for path in sorted(ACTIONS.glob("*.toml")):
-        action = tomllib.loads(path.read_text())
-        listed = {t for t in EDITS if t in action.get("hub_tools", []) or t in action.get("asks_first", [])}
+        action = LIBRARY.action(path.stem)
+        listed = {t for t in EDITS if t in action["grant"].hub_tools or t in action["grant"].asks_first}
         if path.stem == "project-steward":
-            assert listed == set(EDITS) and not set(EDITS) & set(action["hub_tools"]), "asks first: never on its allowed list"
+            assert listed == set(EDITS) and not set(EDITS) & set(action["grant"].hub_tools), "asks first: never on its allowed list"
         else:
             assert not listed, f"{path.name} lists {listed}"
 
@@ -531,7 +532,7 @@ def test_the_edit_tools_are_hard_to_undo_and_say_so(github):
 def steward_call(name, arguments, granted, then=(), instance="i-1"):
     """The tool server with the Steward's own scope: a call has to have your yes, or there's no token for it.
     `then`: more (name, arguments) calls to the same server, each with your yes, whose replies come last."""
-    action = tomllib.loads((ACTIONS / "project-steward.toml").read_text())
+    action = LIBRARY.action("project-steward")
     plain = EditHubd()
 
     async def call(**request):
@@ -540,8 +541,8 @@ def steward_call(name, arguments, granted, then=(), instance="i-1"):
         if request["op"] == "auth.check_agent":
             if request.get("token") != "steward-token":
                 return {"ok": False}
-            return {"ok": True, "scope": {"session": "steward", "instance": instance, "tools": [*action["hub_tools"], *action["asks_first"]],
-                                          "persona": "steward", "asks_first": action["asks_first"]}}
+            return {"ok": True, "scope": {"session": "steward", "instance": instance, "tools": [*action["grant"].hub_tools, *action["grant"].asks_first],
+                                          "persona": "steward", "asks_first": action["grant"].asks_first}}
         raise AssertionError(request["op"])
     plain.call = call
     headers = {"accept": "application/json, text/event-stream"}
