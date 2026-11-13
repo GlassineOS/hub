@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Past sessions and cleaning up: what's removed is only what's safe, looked at again at the time."""
 import asyncio
+import itertools
 import json
 import shlex
 import os
@@ -80,8 +81,12 @@ def transcript(tmp_path, session_id, *rows):
     (folder / f"{session_id}.jsonl").write_text("\n".join(lines + ["not json", '{"type": "system"}']) + "\n")
 
 
-def full_session(a, name="s", number=1):
-    config = {**a.defaults("issue-docs", "boot", number), "name": name}
+_numbers = itertools.count(1)
+
+
+def full_session(a, name="s", number=None):
+    """A session of its own issue: one on the same issue would find it held (012 FR-103)."""
+    config = {**a.defaults("issue-docs", "boot", number or next(_numbers)), "name": name}
     return asyncio.run(a.start(config))["name"]
 
 

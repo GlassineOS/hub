@@ -1094,7 +1094,13 @@ def test_clean_full_session_is_removed_and_its_name_is_free(tmp_path, remote_bra
 
 def test_two_sessions_cant_share_a_pull_requests_branch(tmp_path, remote_branch):
     a = full(tmp_path, remote_branch)
-    asyncio.run(a.start(a.defaults("pr-session", "boot", 5)))
+    first = asyncio.run(a.start(a.defaults("pr-session", "boot", 5)))["name"]
+    # the first holds the pull request, so the second is refused before its checkout (012 FR-103)
+    with pytest.raises(AgentError, match=f"{first} holds boot#5"):
+        asyncio.run(a.start(a.defaults("pr-fix-checks", "boot", 5)))
+    # and the branch guard behind it holds for a session that doesn't hold the item
+    record = json.loads((a.sessions / first / "session.json").read_text())
+    (a.sessions / first / "session.json").write_text(json.dumps({**record, "beside": "someone"}))
     with pytest.raises(AgentError, match="already on feature"):
         asyncio.run(a.start(a.defaults("pr-fix-checks", "boot", 5)))
     assert len(a.shells.started) == 1

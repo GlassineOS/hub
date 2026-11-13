@@ -513,7 +513,7 @@ and `hubd/agents.py` holds the item.
   onto its line, cut to a fixed length and has what no card would draw dropped, so a title can't open a line of its own or
   hide one; a look that fails leaves kind, repository and number and says so. A start's prompt fills in only `{repo}`,
   `{number}` and `{checkout}`: the library refuses any other field, so a prompt can't reach an object's attributes.
-- **One instance holds an item.** While its workflow of more than one state runs, a session holds the items it is on and the
+- **One instance holds an item.** A session that didn't start beside a holder holds, until it ends or reaches a final state of a workflow of more than one, the items it is on and the
   pull requests it, or a session it manages, opened. A start refused beside it is refused by hubd's start too, not only hidden
   on the page, and the item is claimed before anything is awaited, so two starts can't both take it. A session whose pull
   requests aren't looked up yet makes the item unknown, never free.

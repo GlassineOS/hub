@@ -262,3 +262,18 @@ def test_a_preview_shows_where_the_details_go_and_a_failed_look_says_so(hub):
     name = asyncio.run(a.start(a.defaults("pr-reader", "boot", PR)))["name"]  # FakeGh answers nothing
     prompt = (a.sessions / name / "prompt.md").read_text()
     assert "kind: pull request" in prompt and "GitHub didn't say more" in prompt and "title:" not in prompt
+
+
+def test_a_one_state_session_holds_its_item_unless_it_started_beside_a_holder(hub):
+    h, a = hub
+
+    async def go():
+        own = (await a.start(a.defaults("pr-own", "boot", PR)))["name"]
+        view = await h.item_starts("pr", "boot", PR)
+        assert view["holder"]["session"] == own and view["holder"]["one_state"]
+        assert rows(view)["pr-fixer"]["availability"] == "hidden" and rows(view)["pr-reader"]["availability"] == "runs"
+        reader = (await a.start(a.defaults("pr-reader", "boot", PR)))["name"]
+        (a.sessions / own / ENDED_FILE).touch()
+        # the reader ran beside it, so it holds nothing when the holder ends
+        assert (await h.item_starts("pr", "boot", PR))["holder"] is None and reader not in a.holders("pr", "boot", PR)[0]
+    asyncio.run(go())
