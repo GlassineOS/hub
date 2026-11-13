@@ -897,6 +897,21 @@ def start_state(d: Definition, start: Start) -> str:
     return _leaf(d, start.state if start.state is not None else d.initial)
 
 
+def reachable_leaves(d: Definition, leaf: str) -> list[str]:
+    """The leaves a session that begins in `leaf` can be in: it, and every leaf under a state an exit on the way leads to (a
+    parent's whole subtree, as a move into it by history may enter any of its leaves)."""
+    seen, todo = [leaf], [leaf]
+    while todo:
+        for e in exits_of(d, todo.pop()):
+            if e.to not in d.states:
+                continue
+            for s in d.states:
+                if e.to in ancestors(d, s) and not _is_parent(d, s) and s not in seen:
+                    seen.append(s)
+                    todo.append(s)
+    return seen
+
+
 def writes_on_item(grant: Grant) -> list[str]:
     """What in an effective grant can write on the item a session works on (FR-104), in words; empty if nothing can. Full access
     is the maintainer's own rights. A GitHub capability beyond the reads, or a hub tool (listed or asked first) other than the
@@ -965,9 +980,13 @@ def check_starts(d: Definition, starts: tuple[Start, ...]) -> list[Finding]:
             leads.setdefault(st.on, i)
         if st.prompt and (why := prompt_problem(st.prompt)):
             problem(f"{where}.prompt", why)
-        if st.when_held == "beside" and (writes := writes_on_item(effective(d, leaf))):
-            problem(f"{where}.when_held", f"runs beside a holding instance, but {leaf}'s grant can write on the item "
-                    f"({', '.join(writes[:4])}): it asks the owner or is hidden (FR-104)")
+        if st.when_held == "beside":
+            # every state its session can move to, not only the first: what runs beside a holder only reads throughout
+            for s in reachable_leaves(d, leaf):
+                if writes := writes_on_item(effective(d, s)):
+                    problem(f"{where}.when_held", f"runs beside a holding instance, but {s}'s grant can write on the item "
+                            f"({', '.join(writes[:4])}){'' if s == leaf else f', and {leaf} can move there'}: it asks the owner or is hidden (FR-104)")
+                    break
         if st.ask_move is not None and st.when_held != "ask":
             problem(f"{where}.ask_move", "only a start that asks the owner names a move to ask for")
     if d.launch is not None and d.launch.prompt and (why := prompt_problem(d.launch.prompt)):

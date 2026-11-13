@@ -459,6 +459,32 @@ def test_beside_is_allowed_with_reads_and_hub_only_tools():
     assert [f for f in check(parse(text)) if f.kind == "problem"] == []
 
 
+TWO_STEP = '''schema = 1
+name = "w"
+initial = "a"
+[[start]]
+on = "issue"
+label = "Go"
+when_held = "beside"
+[state.a]
+[state.a.grant]
+hub_tools = ["get_issue"]
+[[state.a.exit]]
+to = "b"
+decided_by = "hand"
+[state.b]
+final = true
+[state.b.grant]
+hub_tools = ["get_issue"%s]
+'''
+
+
+def test_beside_is_refused_when_a_state_its_session_can_move_to_writes_on_the_item():
+    found = [f.text for f in check(parse(TWO_STEP % ', "comment_issue"')) if f.kind == "problem"]
+    assert any("b's grant can write on the item (comment_issue), and a can move there" in t for t in found), found
+    assert [f for f in check(parse(TWO_STEP % "")) if f.kind == "problem"] == []
+
+
 def test_a_start_on_a_named_final_state_is_refused_but_a_one_state_workflow_starts_in_its_only_state():
     assert [f for f in check(parse(STARTED)) if f.kind == "problem"] == []
     text = STARTED.replace('label = "Look"', 'label = "Look"\nstate = "look"')
