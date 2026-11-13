@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+schema = 1
+name = "issue-triage"
+initial = "work"
+
+[state.work]
+final = true
+[state.work.grant]
+tools = ["Skill", "AskUserQuestion"]
+hub_tools = ["plan_work", "get_issue", "list_issues", "submit_result", "comment_issue", "docs_search", "work_search"]
+checkout = false

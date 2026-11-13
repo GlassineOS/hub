@@ -403,7 +403,7 @@ All decided. Each keeps its reasons, as later work may need to reopen one.
    has `notes_find`, and so does a planner. One that can post or send (`comment_issue`, `comment_pr`, a shell with the
    internet), plans work (`plan_work`) or asks first doesn't, and the Steward is all of those: nothing checks a comment before
    it posts (the safety scan sees only git, and cards exist only for the Steward's writes), and `plan_work`'s words reach a
-   planner as yours once you press Start. The library decides it from the action's own tools, so a new action doesn't get the
+   planner as yours once you press Start. The library decides it from the tools the action's workflow grants, so a new action doesn't get the
    tool by being new (`SECURITY.md`, Notes). The Steward stays future scope, with the conditions it had: a scoped hubd op, a
    filter by source so no transcripts, diaries or old memory, its `asks_first` counted in the test, and a card line "this
    session can read notes". The first two exist now for the sessions that have the tool (`notes_tool.find`, by the session's

@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+schema = 1
+name = "pr-review"
+initial = "work"
+
+[state.work]
+final = true
+[state.work.grant]
+tools = ["Read", "Grep", "Glob", "Skill", "AskUserQuestion", "Bash"]
+hub_tools = ["request_repository", "map_overview", "map_definition", "map_usages", "map_string", "code_search", "plan_work", "get_pr", "get_pr_diff", "get_pr_threads", "submit_result", "docs_search", "work_search", "list_runs", "list_workflows", "work_status", "docs_index_status"]
+checkout = "pr"

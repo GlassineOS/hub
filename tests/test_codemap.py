@@ -813,13 +813,13 @@ def test_the_real_builder_runs_in_the_real_sandbox_and_again_on_its_last_map(org
 def test_the_tools_go_where_the_other_repository_readers_go():
     assert all(set(MAP_TOOLS) <= set(tools) for tools in PLANNER_TOOLS.values())
     assert not any(set(MAP_TOOLS) & set(tools) for tools in DRAFT_TOOLS.values())
-    assert set(MAP_TOOLS) <= set(LIBRARY.action("project-steward")["hub_tools"])
+    assert set(MAP_TOOLS) <= set(LIBRARY.action("project-steward")["grant"].hub_tools)
     for action in LIBRARY.actions.values():
-        if "request_repository" in action["hub_tools"]:
-            assert set(MAP_TOOLS) <= set(action["hub_tools"]), action["id"]
+        if "request_repository" in action["grant"].hub_tools:
+            assert set(MAP_TOOLS) <= set(action["grant"].hub_tools), action["id"]
         # The Steward and the research session read the whole project with no checkout, through the readers (SECURITY.md).
-        if "request_repository" not in action["hub_tools"] and action["id"] not in ("project-steward", "knowledge-research"):
-            assert not set(MAP_TOOLS) & set(action["hub_tools"]), action["id"]
+        if "request_repository" not in action["grant"].hub_tools and action["id"] not in ("project-steward", "knowledge-research"):
+            assert not set(MAP_TOOLS) & set(action["grant"].hub_tools), action["id"]
 
 
 def test_hubd_holds_each_token_to_its_list():

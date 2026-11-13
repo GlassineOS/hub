@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 import re
 
@@ -14,7 +15,7 @@ import pytest
 
 from hubd.asks import FOREVER, WAIT
 from hubd.agents import IDLE_FILE, _NAME_RE, TOOL_SERVER_WAIT, Agents, AgentError, Library, _branch_of, validate
-from hubd import agents as agents_module, auth, usage
+from hubd import agents as agents_module, auth, machine, usage
 from hubd.ghpolicy import Refused, check
 from hubd.server import Hubd
 from hubd.shells import ShellError, Shells
@@ -50,14 +51,14 @@ def test_library_is_complete():
         LIBRARY.text("prompts", action["prompt"]).format(repo="r", number=1, checkout="c")
         for persona in action["personas"]:
             assert LIBRARY.text("personas", persona)
-        assert not {"Write", "Edit", "Agent"} & set(action["tools"])
+        assert not {"Write", "Edit", "Agent"} & set(action["grant"].tools)
         # A plain shell would walk around the tool server and the host's policy. These two get the sandbox.
-        assert ("Bash" in action["tools"]) == (action["id"] in ("pr-review", "pr-security-audit"))
-        assert "merge_pr" not in action["hub_tools"]
-        if action.get("access") == "full":
-            assert action["checkout"] in ("pr-branch", "new-branch") and action["permission_mode"] == "auto"
+        assert ("Bash" in action["grant"].tools) == (action["id"] in ("pr-review", "pr-security-audit"))
+        assert "merge_pr" not in action["grant"].hub_tools
+        if action["grant"].access == "full":
+            assert action["grant"].checkout in ("pr-branch", "new-branch") and action["grant"].permission_mode == "auto"
         else:
-            assert action.get("access") is None and action["checkout"] in ("pr", "default", False)
+            assert action["grant"].access == "locked" and action["grant"].checkout in ("pr", "default", False)
 
 
 def _library_copy(tmp_path, change):
@@ -439,7 +440,7 @@ def test_steward_reads_all_repositories_and_has_no_shell_or_files(tmp_path):
     directory = a.sessions / "steward"
     token = (directory / "tool-token").read_text().strip()
     scope = a.scope(token)
-    assert scope["all_repos"] is True and scope["persona"] == "steward" and scope["tools"] == [*LIBRARY.action("project-steward")["hub_tools"], *LIBRARY.action("project-steward")["asks_first"]]
+    assert scope["all_repos"] is True and scope["persona"] == "steward" and scope["tools"] == [*LIBRARY.action("project-steward")["grant"].hub_tools, *LIBRARY.action("project-steward")["grant"].asks_first]
     script = (directory / "run.sh").read_text()
     assert "--permission-mode dontAsk" in script and "--strict-mcp-config" in script and "--add-dir" not in script
     for name in ("Bash", "Read", "Write", "Edit", "merge_pr", "create_issue"):
@@ -504,7 +505,7 @@ def test_a_steward_from_before_an_update_resumes_with_the_action_as_it_is_now(tm
     assert asyncio.run(a.resume("steward"))["name"] == "steward"
     script = (directory / "resume.sh").read_text()
     assert f"--resume {record['session_id']}" in script and "propose" not in script and "plan_work" in script
-    assert a.scope(token)["tools"][:len(action["hub_tools"])] == action["hub_tools"]
+    assert a.scope(token)["tools"][:len(action["grant"].hub_tools)] == list(action["grant"].hub_tools)
     assert "use propose" not in (directory / "persona.md").read_text()
 
 
@@ -892,7 +893,7 @@ def test_a_run_fix_refuses_a_forks_run_and_odd_branches(tmp_path, remote_branch,
 
 def test_run_fix_is_a_full_session_on_a_run_only():
     action = LIBRARY.action("run-fix")
-    assert (action["object"], action["access"], action["checkout"], action["result"], action["personas"]) == ("run", "full", "new-branch", "pr", ["ci-fixer"])
+    assert (action["object"], action["grant"].access, action["grant"].checkout, action["result"], action["personas"]) == ("run", "full", "new-branch", "pr", ["ci-fixer"])
     assert validate(LIBRARY, {**good(), "action": "run-fix", "number": 4242, "persona": "ci-fixer", "model": "opus", "effort": "high",
                               "tools": [], "hub_tools": []})["covers"] == [{"repo": "boot", "number": 4242}]
 
@@ -1109,7 +1110,7 @@ def test_a_plan_keeps_all_of_the_actions_tools_whatever_the_answer_says(tmp_path
     a = agents(tmp_path, planned(tools=["Bash"], hub_tools=["merge_pr"]))
     config = asyncio.run(a.plan("pr-review", "hub", 5))["config"]
     action = LIBRARY.action("pr-review")
-    assert config["tools"] == action["tools"] and config["hub_tools"] == action["hub_tools"]
+    assert config["tools"] == list(action["grant"].tools) and config["hub_tools"] == list(action["grant"].hub_tools)
 
 
 # --- the design's additions ----------------------------------------------------------------
@@ -1157,7 +1158,7 @@ def test_every_kind_of_agent_gets_the_private_rule(tmp_path, remote):
     for access in ("full", "locked"):
         directory = tmp_path / access
         directory.mkdir()
-        a._write_persona({"persona": "engineer", "tools": []}, {"access": access}, directory)
+        a._write_persona({"persona": "engineer", "tools": []}, {"grant": machine.Grant(access=access)}, directory)
         assert rule in (directory / "persona.md").read_text()
     for who in ("planner", "drafter"):
         assert a._headless_prompt(who).endswith(rule)
@@ -1636,7 +1637,7 @@ def test_a_long_draft_is_cut(tmp_path):
 
 def test_address_review_is_on_the_branch_and_only_with_open_threads():
     action = LIBRARY.action("pr-address-review")
-    assert action["needs"] == "review" and action["checkout"] == "pr-branch" and action["access"] == "full"
+    assert action["needs"] == "review" and action["grant"].checkout == "pr-branch" and action["grant"].access == "full"
     assert validate(LIBRARY, good(action="pr-address-review", persona="engineer", model="opus", tools=[], hub_tools=[],
                                   pins=[{"kind": "thread", "label": "a.c:1 (T)"}]))["pins"][0]["kind"] == "thread"
 
@@ -1707,7 +1708,7 @@ def starter(tmp_path):
 
 def test_a_full_action_is_never_spawned_whatever_asks(tmp_path):
     a, _ = starter(tmp_path)
-    for action in [x for x in LIBRARY.actions.values() if x.get("access") == "full"]:
+    for action in [x for x in LIBRARY.actions.values() if x["grant"].access == "full"]:
         with pytest.raises(AgentError, match="full session"):
             asyncio.run(a.spawn(action["id"], "boot", 5, "steward"))
     assert not (tmp_path / "args").exists()
@@ -1715,8 +1716,8 @@ def test_a_full_action_is_never_spawned_whatever_asks(tmp_path):
 
 def test_only_the_steward_can_ask_to_start_a_session(tmp_path):
     for action in LIBRARY.actions.values():
-        assert "spawn_session" not in action["hub_tools"]
-        assert "spawn_session" not in action.get("asks_first", ()) or action["id"] == "project-steward"
+        assert "spawn_session" not in action["grant"].hub_tools
+        assert "spawn_session" not in action["grant"].asks_first or action["id"] == "project-steward"
 
 
 def test_a_write_the_steward_asks_about_stays_off_its_allowed_list(tmp_path):
@@ -1726,16 +1727,16 @@ def test_a_write_the_steward_asks_about_stays_off_its_allowed_list(tmp_path):
     directory = a.sessions / "steward"
     argv = a._argv(config, action, directory, None, "id", tmp_path / "m")
     allowed = argv[argv.index("--allowedTools") + 1].split(",")
-    assert action["asks_first"] and not {f"mcp__glassine-hub__{t}" for t in action["asks_first"]} & set(allowed)
+    assert action["grant"].asks_first and not {f"mcp__glassine-hub__{t}" for t in action["grant"].asks_first} & set(allowed)
     token = directory / "tool-token"
     directory.mkdir(parents=True)
     a._session_token(directory, config, False)
     held = a.scope(token.read_text().strip())
-    assert set(action["asks_first"]) <= set(held["tools"]) and held["asks_first"] == action["asks_first"]
+    assert set(action["grant"].asks_first) <= set(held["tools"]) and held["asks_first"] == list(action["grant"].asks_first)
     hooks = a._hooks(directory, config, action)["hooks"]["PreToolUse"]
     [writes] = [e for e in hooks if "mcp__glassine-hub__merge_pr" in e.get("matcher", "")]
     assert "ask_hook" in writes["hooks"][0]["command"]
-    assert set(writes["matcher"].split("|")) == {f"mcp__glassine-hub__{t}" for t in action["asks_first"]}
+    assert set(writes["matcher"].split("|")) == {f"mcp__glassine-hub__{t}" for t in action["grant"].asks_first}
     assert writes["hooks"][0]["timeout"] < FOREVER
 
 
@@ -2174,7 +2175,7 @@ def test_the_steward_is_told_real_actions_in_the_right_groups():
     locked, full = text.split("These are full sessions")
     for action in LIBRARY.actions.values():
         if action["id"] in text:
-            assert (action["id"] in locked) == (action.get("access") != "full"), action["id"]
+            assert (action["id"] in locked) == (action["grant"].access != "full"), action["id"]
     assert all(n in LIBRARY.actions for n in ("pr-review", "issue-triage", "run-slow", "pr-fix-checks", "issue-docs"))
 
 
@@ -2182,7 +2183,7 @@ def test_the_steward_is_told_real_actions_in_the_right_groups():
 def _hook_settings(tmp_path, action_id):
     a = Agents(LIBRARY, None, tmp_path, socket=tmp_path / "hubd.sock")
     action = LIBRARY.action(action_id)
-    return a._hooks(tmp_path, {"tools": action["tools"]}, action)["hooks"]
+    return a._hooks(tmp_path, {"tools": action["grant"].tools}, action)["hooks"]
 
 
 def test_a_full_session_asks_alongside_its_terminal_prompt(tmp_path):
@@ -2198,11 +2199,11 @@ def test_a_full_session_asks_alongside_its_terminal_prompt(tmp_path):
 
 def test_every_locked_action_can_ask_and_no_more(tmp_path):
     a = Agents(LIBRARY, None, tmp_path, socket=tmp_path / "hubd.sock")
-    locked = [action for action in LIBRARY.actions.values() if action.get("access") != "full"]
+    locked = [action for action in LIBRARY.actions.values() if action["grant"].access != "full"]
     assert locked
     for action in locked:
-        assert "AskUserQuestion" in action["tools"]
-        hooks = a._hooks(tmp_path, {"tools": action["tools"], "repo": ".github"}, action)["hooks"]
+        assert "AskUserQuestion" in action["grant"].tools
+        hooks = a._hooks(tmp_path, {"tools": action["grant"].tools, "repo": ".github"}, action)["hooks"]
         assert "PermissionRequest" not in hooks
         [ask] = [e for e in hooks["PreToolUse"] if "ask_hook" in e["hooks"][0]["command"]]
         assert ask["matcher"] == "AskUserQuestion"
@@ -2232,7 +2233,7 @@ def test_the_steward_asks_through_pre_tool_use_and_waits_for_you(tmp_path):
 def test_without_a_socket_no_session_gets_the_hook(tmp_path):
     a = Agents(LIBRARY, None, tmp_path)
     action = LIBRARY.action("issue-implement")
-    assert "PermissionRequest" not in a._hooks(tmp_path, {"tools": action["tools"]}, action)["hooks"]
+    assert "PermissionRequest" not in a._hooks(tmp_path, {"tools": action["grant"].tools}, action)["hooks"]
 
 
 def test_a_prompt_still_up_stays_waiting_after_hubd_lets_go(tmp_path):
@@ -2289,7 +2290,7 @@ def test_the_repo_map_is_the_default_branch_and_is_cut_to_size(tmp_path):
 def test_a_review_shell_only_runs_through_the_sandbox_hook(tmp_path):
     a = Agents(LIBRARY, None, tmp_path, socket=tmp_path / "hubd.sock")
     action = LIBRARY.action("pr-review")
-    config = validate(LIBRARY, good(tools=action["tools"]))
+    config = validate(LIBRARY, good(tools=list(action["grant"].tools)))
     directory = a.sessions / "s1"
     argv = a._argv(config, action, directory, tmp_path / "co", "id", tmp_path / "m")
     tools = argv[argv.index("--tools") + 1].split(",")
@@ -2307,7 +2308,7 @@ def test_a_review_shell_refuses_to_start_without_the_sandbox(tmp_path, monkeypat
     monkeypatch.setattr(agents_module, "SANDBOX_TOOLS", ("bwrap", "pasta"))
     monkeypatch.setattr(shutil, "which", lambda tool: None if tool == "pasta" else "/usr/bin/" + tool)
     with pytest.raises(AgentError, match="pasta"):
-        a._check_sandbox({"tools": action["tools"]}, action)
+        a._check_sandbox({"tools": action["grant"].tools}, action)
     a._check_sandbox({"tools": ["Read"]}, action)
 
 
@@ -2479,7 +2480,7 @@ def test_only_a_full_session_with_a_checkout_covers_other_repositories():
     with pytest.raises(AgentError, match="one item"):
         validate(LIBRARY, {**good(), "covers": [{"repo": "boot", "number": 5}, {"repo": "kernel", "number": 2}]})
     for checkout in (False, "default"):  # only a session that opens a pull request of its own closes items elsewhere
-        no_branch = {**LIBRARY.action("issue-implement"), "checkout": checkout}
+        no_branch = {**LIBRARY.action("issue-implement"), "grant": replace(LIBRARY.action("issue-implement")["grant"], checkout=checkout)}
         with pytest.raises(AgentError, match="pull request of its own"):
             agents_module._covers(no_branch, {"covers": [{"repo": "boot", "number": 9}, {"repo": "kernel", "number": 2}]}, "boot", 9)
     with pytest.raises(AgentError, match="isn't about items"):
@@ -2708,8 +2709,8 @@ def test_only_reading_tools_count_as_reading():
     for name in agents_module.READS_ONLY - {"plan_work", "submit_result"}:  # these only suggest or hand in, and that waits for you
         assert re.search(rf"annotations=READ\)\n\s+@_says_why\n\s+async def {name}\(", tools), name
     # The actions that can be messaged with no card, and only those.
-    free = {a["id"] for a in LIBRARY.actions.values() if a.get("access") != "full" and a["object"] != "repo"
-            and set(a["tools"]) <= agents_module.READING_TOOLS and set(a["hub_tools"]) <= agents_module.READS_ONLY}
+    free = {a["id"] for a in LIBRARY.actions.values() if a["grant"].access != "full" and a["object"] != "repo"
+            and set(a["grant"].tools) <= agents_module.READING_TOOLS and set(a["grant"].hub_tools) <= agents_module.READS_ONLY}
     assert free >= {"pr-merge-prep", "run-diagnose", "run-explain", "run-flaky", "run-slow"}
     assert not free & {"pr-review", "pr-security-audit", "issue-triage"}
 
@@ -3185,7 +3186,7 @@ def test_a_session_from_before_the_notes_search_doesnt_get_it_on_resume(tmp_path
     """A resume reads the action as it is now but adds no tool to a non-Steward session, and the Steward's action has no notes
     search: so no resumed session gains it. It takes a new session (SECURITY.md, Notes)."""
     a = agents(tmp_path)
-    assert "notes_find" in LIBRARY.action("new-issue")["hub_tools"]
+    assert "notes_find" in LIBRARY.action("new-issue")["grant"].hub_tools
     old = {"action": "new-issue", "tools": ["Read"], "hub_tools": ["get_issue", "submit_drafts"]}
     assert a._current_config(old)["hub_tools"] == ["get_issue", "submit_drafts"]
     singleton = {"action": "project-steward", "tools": [], "hub_tools": ["overview"]}  # the Steward's list is rebuilt from its action
@@ -3203,11 +3204,11 @@ def test_a_review_session_from_before_results_loses_review_pr_on_resume_and_gain
 
 def test_a_result_tool_must_fit_its_actions_result():
     action = LIBRARY.actions["pr-review"]
-    assert action["result"] == "comment" and action["result_tools"] == ["review_pr"] and "review_pr" not in action["hub_tools"]
+    assert action["result"] == "comment" and action["result_tools"] == ["review_pr"] and "review_pr" not in action["grant"].hub_tools
     assert LIBRARY.actions["issue-triage"]["result_tools"] == ["label_issue", "edit_issue"]
-    assert "label_issue" not in LIBRARY.actions["issue-triage"]["hub_tools"]
+    assert "label_issue" not in LIBRARY.actions["issue-triage"]["grant"].hub_tools
     for kind in ("pr-review", "issue-triage", "run-diagnose"):
-        assert "submit_result" in LIBRARY.actions[kind]["hub_tools"]
+        assert "submit_result" in LIBRARY.actions[kind]["grant"].hub_tools
 
 
 def test_the_library_refuses_a_result_tool_its_result_cant_use(tmp_path):
@@ -3251,9 +3252,9 @@ def test_research_reads_the_whole_project_and_posts_nothing(tmp_path):
     assert scope["all_repos"] is True and "code_search" in scope["tools"] and scope["asks_first"] == []
     assert not {"create_issue", "comment_issue", "comment_pr", "review_pr", "plan_work", "message_session"} & set(scope["tools"])
     action = LIBRARY.action("knowledge-research")
-    assert (action["object"], action["result"], action["checkout"], action.get("access")) == ("knowledge", "report", False, None)
-    assert "submit_result" in action["hub_tools"] and set(action["tools"]) <= agents_module.READING_TOOLS
-    assert set(action["hub_tools"]) - {"submit_result"} <= agents_module.READS_ONLY
+    assert (action["object"], action["result"], action["grant"].checkout, action["grant"].access) == ("knowledge", "report", False, "locked")
+    assert "submit_result" in action["grant"].hub_tools and set(action["grant"].tools) <= agents_module.READING_TOOLS
+    assert set(action["grant"].hub_tools) - {"submit_result"} <= agents_module.READS_ONLY
 
 
 def test_research_plans_without_a_repository(tmp_path):
@@ -3290,9 +3291,9 @@ def test_a_report_pin_is_an_id_and_its_session_alone_may_read_it():
 def test_notes_actions_have_no_repository_and_no_planner():
     for action_id, result in (("notes-compact", "notes"), ("notes-sweep", "drafts")):
         action = LIBRARY.action(action_id)
-        assert (action["object"], action["result"], action["plan"], action["checkout"]) == ("notes", result, False, False)
+        assert (action["object"], action["result"], action["plan"], action["grant"].checkout) == ("notes", result, False, False)
         config = validate(LIBRARY, {"action": action_id, "repo": None, "number": None, "persona": action["personas"][0], "model": action["models"][0],
-                                    "effort": action["efforts"][0], "tools": action["tools"], "hub_tools": action["hub_tools"], "brief": ""})
+                                    "effort": action["efforts"][0], "tools": list(action["grant"].tools), "hub_tools": list(action["grant"].hub_tools), "brief": ""})
         assert config["repo"] is None
         with pytest.raises(AgentError, match="isn't about one"):
             validate(LIBRARY, {**config, "repo": "boot"})
@@ -3325,7 +3326,7 @@ def test_the_design_action_and_its_designer():
     """011 FR-001, FR-002, FR-004: the Designer persona, the design action for issues, with a pull request in ui."""
     action = LIBRARY.action("design")
     assert (action["object"], action["verb"], action["result"], action["personas"]) == ("issue", "design", "pr", ["designer"])
-    assert (action["access"], action["checkout"], action["repository"], action["permission_mode"]) == ("full", "new-branch", "ui", "auto")
+    assert (action["grant"].access, action["grant"].checkout, action["repository"], action["grant"].permission_mode) == ("full", "new-branch", "ui", "auto")
     assert "GlassineOS/ui" in action["ceiling"] and "without asking" in action["ceiling"]
     assert LIBRARY.family("designer") == {"name": "Designer", "initials": "DE", "family": "build"}
     initials = [e["initials"] for e in LIBRARY.families.values()]

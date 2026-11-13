@@ -34,6 +34,7 @@ public. A person's approval can't reliably break that chain, because a steered a
 | Browser attacks | `SameSite=Strict`, `HttpOnly` session cookie. Host must be on the allowlist, against DNS rebinding. Origin must match for writes and for the terminal's WebSocket. Content-Security-Policy without inline or remote scripts |
 | Network | Loopback by default. The app won't start on another address without TLS, as long as `HUB_BIND` names the address; `HUB_LISTEN` is for the container and overrides what the app binds. The tool server stays on loopback under compose |
 | The container | Runs as your uid, read-only, no capabilities, no credentials. Its only way to the host is the socket |
+| A session's rights | Its action's workflow (`agents/workflows/<name>.toml`) holds them: the grant of the state it starts in, which for every action today is its one state. The action file holds none (hubd refuses one that sets any), so they are said once. hubd builds the tool lists, the permission mode, the checkout and the token's scope from that grant, and won't start on a workflow its checks refuse. The action's `ceiling` is that grant in plain words |
 
 ## Guards, not limits
 
@@ -57,8 +58,8 @@ A new restriction has to name the threat it stops, or be listed here as a guard.
 - **Other processes running as your user.** They can reach the socket and read the token
   file, as they could read your `gh` login anyway.
 - **Text that agents read.** Issues and pull requests can be written by outsiders. The
-  planner and the locked actions only have the tools their action lists, enforced by the
-  command line `hubd` builds after checking the plan against the action, and they ignore a
+  planner and the locked actions only have the tools their action's workflow grants, enforced by the
+  command line `hubd` builds after checking the plan against that grant, and they ignore a
   pull request's own CLAUDE.md, MCP config and hooks. Their file tools reach only their
   working directory, the checkout, and the snapshots of the organization's repositories below, so
   an agent that can post can't be talked into posting your other files, though it can be talked
@@ -173,7 +174,7 @@ A new restriction has to name the threat it stops, or be listed here as a guard.
   - A kernel or bubblewrap bug would be a way out; the hub is not a stronger boundary than those.
 - **Resuming a session.** A session that has stopped keeps its record, tool token and checkout until
   you discard it, and Resume starts it again with its conversation. It needs a login, like starting
-  one. Its rights are checked again against its action as it is now, and it refuses if they don't
+  one. Its rights are checked again against its action's workflow as it is now, and it refuses if they don't
   fit. The conversation itself comes back as it was, including any outsider's text it had read.
 - **Personas on GitHub.** A persona with a GitHub App (`apps.toml`, made by
   `deploy/create-app.py`) makes its writes as that App: GitHub limits it to the App's
@@ -258,7 +259,7 @@ Steward with a count. The work sync records into it; the Steward reads it with `
   seconds on, asks again. A stopped session is never pinged and never started. Waking an idle one is checked, under the same lock, as starting a session is: it is refused while
   4 sessions the Steward started are working. The Steward is started by the person, so it is not one of the 4, and its pings pause while those 4
   work (which is when their pull requests change); the next round asks again and the feed holds everything. Each item with new comments counts once per sync, however many comments it got.
-- **What a session may read decides the rows and the counts.** The Steward's action has `all_repos`; a session without it, or the general tool
+- **What a session may read decides the rows and the counts.** The Steward's workflow grants `all_repos`; a session without it, or the general tool
   token, gets public repositories only, in the feed, in the counts and in the ping. Whether a repository is public is asked of GitHub and
   kept for 10 minutes (1 minute when it didn't say); if GitHub doesn't say, it's private. The cursor is a number over every change, and when
   a read finds nothing it may see, the cursor goes to the newest change there is. So a session that can't read some learns how many changes it
@@ -316,13 +317,13 @@ The notes are kept for agents to read: what earlier sessions found, so the next 
 host only, and much of what they hold never passed the safety scan. The app's container mounts none of it.
 
 - **Sessions that only read search them.** `notes_find` (`notes_tool.find`) is on the list of a locked action that only reads
-  and hands in: no shell, no write or post tool, no `plan_work`, nothing that asks first. The library adds it to such an action
-  and refuses to load one that lists it and doesn't fit, so a new action that can post doesn't pick it up by being new. Today
+  and hands in: no shell, no write or post tool, no `plan_work`, nothing that asks first. The library adds it to such an action's
+  grant and refuses to load one whose workflow lists it and doesn't fit, so a new action that can post doesn't pick it up by being new. Today
   that is `notes-compact`, `notes-sweep`, `knowledge-research` and the `new-*` drafters. hubd takes it from such a session's
   own token, from a full session's, and from the general token a hub shell holds. Full sessions and shells could read the
   files anyway. The page's own search (`notes.find`, `notes.status`, `notes.totals`) stays behind the login check. A session
   started before the tool was on its action's list keeps the list it started with, and a resume doesn't add to it (only the
-  Steward's list is rebuilt from its action, and that has no `notes_find`): it takes a new session.
+  Steward's list is rebuilt from its workflow, and that has no `notes_find`): it takes a new session.
 - **A locked session gets the notes and not the archive.** The tool also indexes the sources set for this host: the old
   tree's docs and diaries, memory and transcripts, which never passed the safety scan and hold what tools were asked and what
   they answered. It has no filter, so `Notes.find` drops those rows (`archive, unreviewed`, and any state it doesn't know) from
@@ -405,9 +406,9 @@ The limits:
 
 ## Editing issues and comments
 
-`edit_issue`, `tick_item` and `edit_comment` are on the Steward's `asks_first` list and on no other action's list, and none is on any allowed
+`edit_issue`, `tick_item` and `edit_comment` are on the Steward's `asks_first` list and on no other action's, and none is on any allowed
 list: each call asks you on a card, and the tool server checks your yes (`ask.grant_use`) before the app runs it. A planner, a locked session that
-can post, and a read-only one never see them. Full sessions list every tool, as they do any other. A test reads every action's file for this.
+can post, and a read-only one never see them. Full sessions list every tool, as they do any other. A test reads every action's grant for this.
 They are marked as hard to undo. What they refuse is checked in the app, on the text GitHub has at that moment and not on the work store's:
 
 - **A guard on what was read.** `get_issue` returns a `version`, a hash of the title and body. `edit_issue` and `tick_item` need it as `expected`,
@@ -477,7 +478,7 @@ A tab under Work, over the work store and your decisions. It merges, reviews and
 
 - The history tab shows transcripts to whoever is logged in, for sessions the hub ran only. A transcript can hold
   anything the session read, an outsider's text included, and it's shown as plain text.
-- A resume reads the session's rights from its action as they are now. A restored checkout comes from GitHub:
+- A resume reads the session's rights from its action's workflow as they are now. A restored checkout comes from GitHub:
   uncommitted files from a removed worktree don't come back, so the hub doesn't remove one that has them. Ignored files
   count too: a full session holding more than 1 MiB of them stays when it ends, and discarding it has to name them on a second card.
 - `agent.worktrees` (a login op) lists the folders a plain shell can start in for a repository: its workspace checkout and
