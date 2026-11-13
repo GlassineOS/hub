@@ -106,6 +106,18 @@ class FakeHubd(Hubd):
                     return {"ok": True, "moved": False, "declined": True, "state": "review", "version": "v", "paused": False}
                 return {"ok": True, "moved": True, "from": "review", "to": "merge-ready", "state": "merge-ready", "version": "v", "paused": False}
             return {"ok": True, "moved": True, "state": "x", "version": "v", "paused": False}
+        if op.startswith("apps."):
+            self.commands.append((op, request))
+            if request.get("token") != "good":
+                return {"ok": False, "error": "login required", "denied": True}
+            if op == "apps.list":
+                return {"ok": True, "apps": [{"persona": "reviewer", "app": False}]}
+            if op == "apps.manifest":
+                return {"ok": True, "persona": request["persona"], "manifest": {"name": "glassine-reviewer"}, "expires_in": 900,
+                        "url": getattr(self, "manifest_url", "https://github.com/organizations/GlassineOS/settings/apps/new?state=s"), "nonce": "kept"}
+            if op == "apps.convert":
+                return {"ok": True, "persona": "reviewer", "app_id": 7, "slug": "glassine-reviewer", "replaced": False,
+                        "install_url": "https://github.com/apps/glassine-reviewer/installations/new", "pem": "never passed on"}
         if op == "device.status":
             self.commands.append((op, request))
             return {"ok": True, "devices": [{"device": "na1", "reported": 1.0, "lines": ["Free when last reported, just now"]}],
@@ -3115,3 +3127,64 @@ def test_the_confirm_declines_or_leaves_the_move_waiting():
     assert "Cancel" not in confirm
     chip = _component(script, "SessionChip")
     assert "<${StateChip} machine=${a.machine} ended=${a.ended} short />" in chip and "chip.said" in chip
+
+
+# --- the personas' GitHub Apps: the page relays, hubd decides ----------------------------------------------------------
+def test_github_sends_the_maintainer_back_to_the_page_with_no_login_needed(client):
+    # The redirect from github.com is cross-site, so the strict cookie isn't sent: the callback asks for no login and only
+    # moves code and state into the fragment, where no request carries them.
+    r = client.get("/apps/callback?code=abcdefgh12&state=s_tate-123456", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/#/apps?code=abcdefgh12&state=s_tate-123456"
+    assert r.headers["cache-control"] == "no-store"
+    for bad in ("/apps/callback", "/apps/callback?code=x&state=abcdefghij", "/apps/callback?code=abcdefgh12&state=a%22%3E%3Cb"):
+        assert client.get(bad, follow_redirects=False).headers["location"] == "/#/apps?failed=1"
+
+
+def test_the_code_reaches_hubd_only_with_a_login_and_the_key_never_comes_back(client, hubd):
+    body = {"code": "abcdefgh12", "state": "s_tate-123456"}
+    assert client.post("/api/apps/convert", json=body, headers=ORIGIN).status_code == 401
+    signed_in(client)
+    assert client.post("/api/apps/convert", json=body).status_code == 403  # same origin, as every write
+    r = client.post("/api/apps/convert", json=body, headers=ORIGIN)
+    assert r.status_code == 200 and r.json() == {"persona": "reviewer", "app_id": 7, "slug": "glassine-reviewer", "replaced": False,
+                                                 "install_url": "https://github.com/apps/glassine-reviewer/installations/new"}
+    assert ("apps.convert", {"op": "apps.convert", "token": "good", "code": "abcdefgh12", "state": "s_tate-123456"}) in hubd.commands
+
+
+def test_the_manifest_carries_the_browsers_origin_and_goes_only_to_github(client, hubd):
+    signed_in(client)
+    r = client.post("/api/apps/manifest", json={"persona": "reviewer"}, headers=ORIGIN)
+    assert r.status_code == 200 and set(r.json()) == {"persona", "manifest", "url", "expires_in"}
+    asked = [req for op, req in hubd.commands if op == "apps.manifest"][-1]
+    assert asked["origin"] == "http://testserver" and asked["replace"] is False and asked["persona"] == "reviewer"
+    hubd.manifest_url = "https://evil.example/apps/new"
+    assert client.post("/api/apps/manifest", json={"persona": "reviewer"}, headers=ORIGIN).status_code == 400
+    assert client.get("/api/apps").json() == {"apps": [{"persona": "reviewer", "app": False}]}
+
+
+def test_the_page_may_post_a_form_to_github_and_nowhere_else():
+    assert web.CSP.endswith("form-action 'self' https://github.com")
+
+
+def test_the_callbacks_code_stays_out_of_the_access_log():
+    import io
+    import logging
+    uvicorn.Config(lambda *a: None)  # sets up uvicorn's loggers, as the hub's own Configs do before it adds the filter
+    web.redact_access_log()
+    web.redact_access_log()  # once is enough
+    logger = logging.getLogger("uvicorn.access")
+    assert sum(isinstance(f, web.RedactCallback) for f in logger.filters) == 1
+    out = io.StringIO()
+    handler = logging.StreamHandler(out)
+    logger.addHandler(handler)
+    level, logger.level = logger.level, logging.INFO
+    try:
+        logger.info('%s - "%s %s HTTP/%s" %d', "127.0.0.1:5", "GET", "/apps/callback?code=SECRETCODE1&state=nonce12345", "1.1", 303)
+        logger.info('%s - "%s %s HTTP/%s" %d', "127.0.0.1:5", "GET", "/api/apps?x=1", "1.1", 200)
+    finally:
+        logger.removeHandler(handler)
+        logger.level = level
+    text = out.getvalue()
+    assert "SECRETCODE1" not in text and "nonce12345" not in text and "/apps/callback?(hidden)" in text
+    assert "/api/apps?x=1" in text
+    assert "web.redact_access_log()" in (Path(main.__file__)).read_text()
