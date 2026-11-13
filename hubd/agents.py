@@ -1788,7 +1788,7 @@ class Agents:
         ended = not live or (directory / ENDED_FILE).exists()
         return {"name": name, "state": self._state_word(directory, ended), "queued": len(self._sends.get(name, ())),
                 "lost": self._lost.get(name),
-                "model": self.describe(name)["model"], "sees": self._sees_now(name)}
+                "model": self.describe(name)["model"], "sees": self._sees_now(name), "machine": self.machines.summary(name)}
 
     def _sees_now(self, name) -> list[dict] | None:
         """The chips for the line the session's turns get now (010 FR-004). It's one file per session and the last page
@@ -2228,6 +2228,7 @@ class Agents:
                 "posts_as": self.apps.posts_as(config["persona"]) if self.apps else None,
                 "full": record.get("full", False), "waiting": (self.sessions / name / "waiting").exists(), "idle": (self.sessions / name / IDLE_FILE).exists(),
                 "ended": (self.sessions / name / ENDED_FILE).exists(),
+                "machine": self.machines.summary(name),  # 012 FR-080: its state chip
                 "created": record.get("created"), "started_by": record.get("started_by")}
 
     def manifest(self, name) -> dict:

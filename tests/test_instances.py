@@ -470,3 +470,48 @@ def test_every_github_capability_maps_to_permissions():
     for name in machine.GITHUB:
         permissions = apps.permissions_for([name])
         assert name == "read" or permissions != {"metadata": "read", "contents": "read"}, name  # more than the reads
+
+
+def test_the_view_says_which_state_owns_each_exit_and_how_far_each_check_holds(world):
+    a, _ = world
+    name = _session(a)
+    _as_implement(a, name)
+    m = a.machines
+    m.request("machine.move", {"name": name, "to": "review"}, "m")
+    got = m.request("machine.get", {"name": name}, "m")
+    assert got["path"] == ["work", "review"] and got["initial"] == "work"
+    assert [(e["from"], e["place"], e["to"]) for e in got["exits"]] == [("review", 1, "fix"), ("review", 2, "merge-ready"), ("review", 3, "escalated"), ("work", 1, "escalated")]
+    first = got["exits"][0]
+    # The hub has no value for what the reviewer returned: that is unknown, not a fail; the counter it has.
+    assert [(c["requires"], c["result"]) for c in first["checks"]] == [("managed.reviewer.verdict == fail", "unknown"), ("rounds.review < 3", "holds")]
+    assert first["checks"][1]["terms"] == [{"fact": "rounds.review", "op": "<", "value": 3, "have": 1, "result": "holds"}]
+    assert first["result"] == "unknown"
+    states = {s["id"]: s for s in got["states"]}
+    assert states["work"]["initial"] == "implement" and states["review"]["parent"] == "work" and states["merge-ready"]["final"] is False
+    assert [e["to"] for e in states["work"]["exits"]] == ["escalated"]
+    assert got["sensitive"]["github"]["merge"] == machine.SENSITIVE["merge"]
+
+
+def test_a_check_that_fails_on_every_term_fails():
+    from hubd.instances import _check
+    assert _check("rounds.review >= 3", {"rounds.review": 1})["result"] == "fails"
+    assert _check("rounds.review >= 3 or pr.open", {"rounds.review": 1})["result"] == "unknown"
+    assert _check("rounds.review >= 3 or pr.open", {"rounds.review": 1, "pr.open": True})["result"] == "holds"
+
+
+def test_the_session_list_carries_the_state_chip_without_writing(world):
+    a, _ = world
+    name = _session(a)
+    one = a.describe(name)["machine"]
+    assert one == {"workflow": "issue-implement", "state": "session", "path": ["session"], "one_state": True, "final": True,
+                   "paused": False, "waits": False}
+    _as_implement(a, name)
+    a.machines.request("machine.move", {"name": name, "to": "review"}, "m")
+    a.machines.request("machine.move", {"name": name, "to": "merge-ready"}, "m")  # widens: waits for the confirm
+    chip = a.describe(name)["machine"]
+    assert chip["path"] == ["work", "review"] and chip["state"] == "review"
+    assert chip["waits"] and not chip["one_state"]
+    assert asyncio.run(a.session_state(name))["machine"] == chip
+    # A session from before instances shows no chip, and describing it doesn't make one.
+    (a.sessions / name / FILE).unlink()
+    assert a.describe(name)["machine"] is None and not (a.sessions / name / FILE).exists()
