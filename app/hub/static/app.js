@@ -4020,7 +4020,9 @@ const nwWaits = (item) => NW_WAITING.includes(item.state);
 // 005 FR-002, in this order. failed and dismissed are where a Launch stopped, shown on the stage it stopped at.
 const LAUNCH_STAGES = [["brief", "Brief"], ["planning", "Planning"], ["plan", "Plan"], ["run", "Run"], ["result", "Result"]];
 const OBJECT_WORDS = { issue: "an issue", pr: "a pull request", run: "a run", repo: "a repository", knowledge: "a question", notes: "the notes" };
-const VERB_OBJECT = { issue: "issue", pr: "PR", run: "run", repo: "repo", knowledge: "question", notes: "notes" }; // beside a verb two kinds share, as fix
+const leadFirst = (list) => [...list.filter((a) => a.lead), ...list.filter((a) => !a.lead)];
+const NEW_FROM = ["repo", "project", "knowledge", "notes"]; // starts that need no item of their own: new work from any item
+const RESULT_TAG = { comment: "comment", pr: "PR", labels: "labels", findings: "findings", drafts: "drafts", report: "report", notes: "note changes" };
 // Actions about no repository and no item: a research question (008 FR-007), the notes (009 FR-005). hubd's NO_REPO_OBJECTS,
 // less the Steward's.
 const NO_REPO = ["knowledge", "notes"];
@@ -4226,8 +4228,13 @@ function LaunchBrief({ seed, actions, templates, groups, onPlanned, onCancel, bu
   const onItems = action.object !== "repo" && !noRepo;
   const chosenRepo = noRepo ? null : action.repo || repo;
   const refusal = launchRefusal(action, covers);
-  const verbs = actions.filter((a) => a.verb);
-  const more = actions.filter((a) => !a.verb && (!covers.length || a.object === covers[0].kind));
+  // 005 FR-012: the brief's choices are the starts. On an item: its kind's starts, then the new work any item can lead to; with
+  // nothing covered yet, every start by the kind of item it starts on.
+  const kindNow = covers.length ? covers[0].kind : null;
+  const choices = kindNow
+    ? [[`For ${covers.map(ref).join(", ")}`, leadFirst(actions.filter((a) => a.object === kindNow))],
+       ["Or new work from this", actions.filter((a) => NEW_FROM.includes(a.object) && a.object !== kindNow && !a.one)]]
+    : START_KINDS.map(([k, words]) => [words, actions.filter((a) => a.object === k)]);
   const text = NW_TEXT[action.id] || {};
   const allRepos = groups.flatMap((g) => g.repos.map((r) => r.name));
   const chosenModel = model && action.models.includes(model) ? model : action.models[0];
@@ -4239,11 +4246,10 @@ function LaunchBrief({ seed, actions, templates, groups, onPlanned, onCancel, bu
   });
   return html`<div class="nw-body">
     ${seed.why && html`<div class="nw-why"><span class="nw-why-word">why</span><span>${seed.why}</span></div>`}
-    <div class="stack" style="gap: 6px"><span id="lb-action" class="eyebrow">Action</span>
-      <div role="radiogroup" aria-labelledby="lb-action" class="row" style="gap: 6px">${verbs.map((a) => html`<button role="radio" class="pill" aria-checked=${a.id === action.id ? "true" : "false"} title=${a.title} onClick=${() => setActionId(a.id)}>${a.verb}${verbs.some((b) => b !== a && b.verb === a.verb) ? html` <span class="soft">${VERB_OBJECT[a.object]}</span>` : ""}</button>`)}</div>
-      ${more.length > 0 && html`<label class="field" style="align-self: flex-start"><span>More…</span>
-        <select value=${action.verb ? "" : action.id} onChange=${(e) => e.target.value && setActionId(e.target.value)}><option value="">${action.verb ? "Other actions" : action.title}</option>
-          ${more.map((a) => html`<option value=${a.id}>${a.title}</option>`)}</select></label>`}</div>
+    ${choices.filter(([, list]) => list.length > 0).map(([words, list], i) => html`<div class="stack" style="gap: 6px">
+      <span id=${`lb-action-${i}`} class="eyebrow">${words}</span>
+      <div role="radiogroup" aria-labelledby=${`lb-action-${i}`} class="row" style="gap: 6px">${list.map((a) => html`<button role="radio" class="pill" aria-checked=${a.id === action.id ? "true" : "false"}
+        title=${a.summary} onClick=${() => setActionId(a.id)}>${a.title}${RESULT_TAG[a.result] ? html` <span class="mono small result-tag">→ ${RESULT_TAG[a.result]}</span>` : ""}</button>`)}</div></div>`)}
     <div class="row" style="gap: 10px 14px; align-items: flex-start">
       <${PersonaBadge} persona=${{ id: action.persona, name: action.persona_name, initials: action.initials, family: action.family }} hidden />
       <div class="stack tight" style="flex: 1 1 260px; min-width: 0"><b>${action.title} · ${action.persona_name}</b>
