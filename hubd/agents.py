@@ -722,12 +722,23 @@ class Library:
     def text(self, kind: str, name: str) -> str:
         return (self.root / kind / f"{name}.md").read_text()
 
-    def action(self, action_id, repo=None) -> dict:
-        """The action, on `repo`'s override of its workflow if a repository is named and has one."""
-        action = self.actions.get(action_id) if isinstance(action_id, str) else None
-        if action is None:
+    def action(self, action_id, repo=None, gone: bool = False) -> dict:
+        """The action, on `repo`'s override of its workflow if a repository is named and has one. Only a start in force there:
+        one a later version removed or renamed, or one `repo`'s override doesn't have, is refused, so nothing new starts on
+        an old definition. `gone`: also one that was removed, as a session that started on it has it (resume, describe)."""
+        if gone:
+            action = self.actions.get(action_id) if isinstance(action_id, str) else None
+            if action is None:
+                raise AgentError(f"unknown action: {action_id}")
+            return self.resolved(action, repo)
+        view = self.view(repo)
+        theirs = dict.get(view.actions, action_id) if isinstance(action_id, str) else None
+        if theirs is None:
+            if isinstance(action_id, str) and (self.actions.get(action_id) is not None or self.actions.gone.get(action_id) is not None):
+                raise AgentError(f"{action_id} isn't a start in force" + (f" on {repo}" if view is not self else "") + " any more")
             raise AgentError(f"unknown action: {action_id}")
-        return self.resolved(action, repo)
+        mine = dict.get(self.actions, action_id)
+        return mine if mine is not None and mine.get("definition") == theirs.get("definition") else theirs
 
     def schema(self, action: dict) -> dict:
         """What the planner may answer. Everything it can choose is an enum from the action."""
@@ -749,16 +760,17 @@ class Library:
         return {"type": "object", "additionalProperties": False, "required": sorted(properties), "properties": properties}
 
 
-def validate(library: Library, config, action: dict | None = None) -> dict:
+def validate(library: Library, config, action: dict | None = None, gone: bool = False) -> dict:
     """The check everything passes before it can start, whoever wrote the config. `action` is the action as a session in a
-    later state of its workflow has it (Agents._state_action), checked against that state's grant."""
+    later state of its workflow has it (Agents._state_action), checked against that state's grant. `gone`: for a session that
+    started already (resume), whose start a later version may have removed; a new start takes only one in force."""
     if not isinstance(config, dict):
         raise AgentError("the config must be an object")
     unknown = set(config) - _FIELDS
     if unknown:
         raise AgentError(f"not part of an invocation: {', '.join(sorted(unknown))}")
     if action is None or action.get("id") != config.get("action"):
-        action = library.action(config.get("action"), config.get("repo"))
+        action = library.action(config.get("action"), config.get("repo"), gone=gone)
     repo, number = config.get("repo"), config.get("number")
     if action["object"] in NO_REPO_OBJECTS:  # about the whole project, or a question about it (008 FR-007), not one item in it
         if repo is not None or number is not None:
@@ -1365,7 +1377,7 @@ class Agents:
         took off stays off; a GitHub list it doesn't have isn't held). A full session has its state's: it has no list."""
         record = json.loads((self.sessions / name / "session.json").read_text())
         config = record["config"]
-        g = _grant(self._state_action(name, self.library.action(config.get("action"), config.get("repo"))))
+        g = _grant(self._state_action(name, self.library.action(config.get("action"), config.get("repo"), gone=True)))
         if g.access == "full":
             return g
         github = config.get("github") if isinstance(config.get("github"), list) else []
@@ -1459,7 +1471,7 @@ class Agents:
         new launch (resume). Returns the config now in force, and whether its GitHub list changed."""
         directory = self.sessions / name
         record = json.loads((directory / "session.json").read_text())
-        action = self.library.action(record["config"].get("action"), record["config"].get("repo"))
+        action = self.library.action(record["config"].get("action"), record["config"].get("repo"), gone=True)
         state = self._state_action(name, action)
         in_force = record["config"]
         launched = record.get("launched") or in_force
@@ -2188,7 +2200,7 @@ class Agents:
                 continue
             try:
                 config = json.loads((directory / "session.json").read_text())["config"]
-                await self._github_token(directory, config, self.library.action(config["action"], config.get("repo")), renewing=True)
+                await self._github_token(directory, config, self.library.action(config["action"], config.get("repo"), gone=True), renewing=True)
             except Exception:  # one session's failure mustn't hold the others' renewals
                 log.exception("couldn't renew the GitHub token of %s", directory.name)
 
@@ -2605,8 +2617,8 @@ class Agents:
             first = self.library.actions.get(record["config"].get("action"))
             state = self._state_action(name, first) if first else None
             staged = state is not None and state is not first
-            config = validate(self.library, self._current_config(record["config"], name, record.get("launched")), state)
-            action = state if staged else self.library.action(config["action"], config.get("repo"))
+            config = validate(self.library, self._current_config(record["config"], name, record.get("launched")), state, gone=True)
+            action = state if staged else self.library.action(config["action"], config.get("repo"), gone=True)
             config = await self._github_for(config, action)
             self._check_sandbox(config, action)
             if _full(action) != record.get("full", False):
@@ -3445,7 +3457,7 @@ class Agents:
         script = directory / ("resume.sh" if (directory / "resume.sh").exists() else "run.sh")
         return {**summary, "config": record["config"], "prompt": (directory / "prompt.md").read_text(),
                 "persona_text": (directory / "persona.md").read_text(), "skills": self.library.skills(),
-                "ceiling": self.library.action(record["config"]["action"], record["config"].get("repo"))["ceiling"],
+                "ceiling": self.library.action(record["config"]["action"], record["config"].get("repo"), gone=True)["ceiling"],
                 "checkout": str(checkouts[0]) if checkouts else None, "checkouts": [str(c) for c in checkouts],
                 # 004 FR-009: the branch it's on and the command that started Claude (the launch script's last line), for the Session spec. The token and the prompt are read from files by that line.
                 "branch": _branch_of(checkouts[0]) if checkouts else None, "command": self._invocation(script) or self._command(directory, script)}
@@ -3850,8 +3862,8 @@ class Agents:
         name = record["name"]
         if name in self._removing:
             raise AgentError(f"{name} is being cleaned up: try again in a moment")
-        config = validate(self.library, self._current_config(record.get("launched") or record["config"]))  # resume checks its state's
-        action = self.library.action(config["action"], config.get("repo"))
+        config = validate(self.library, self._current_config(record.get("launched") or record["config"]), gone=True)  # resume checks its state's
+        action = self.library.action(config["action"], config.get("repo"), gone=True)
         if self._transcript(session_id) is None:
             raise AgentError(f"{name} can't resume: its transcript is gone")
         directory = self.sessions / name
