@@ -807,12 +807,12 @@ function AppsPage({ query }) {
     <${Err} text=${create.error} />
     ${!list.data && !list.error && html`<p class="soft">Loading…</p>`}
     <section class="stack tight" aria-label="Personas">
-      ${rows.map((r) => html`<div class="tool-row" key=${r.persona}>
-        <span class="stack tight grow"><span><b>${r.name}</b> <span class="mono small soft">${r.persona}</span></span>
+      ${rows.map((r) => html`<div class="app-row" key=${r.persona}>
+        <span class="stack tight app-row-text"><span><b>${r.name}</b> <span class="mono small soft">${r.persona}</span></span>
           <span class="small">${appState(r)}</span>
           <span class="small soft">Asks GitHub for ${permissionWords(r.permissions)}</span></span>
         <span class="row" style="gap: 8px">
-          ${!r.app && html`<button class="primary" disabled=${create.busy} onClick=${() => start(r.persona, false)}>Create the App on GitHub</button>`}
+          ${!r.app && html`<button disabled=${create.busy} onClick=${() => start(r.persona, false)}>Create the App on GitHub</button>`}
           ${r.app && r.install_url && html`<a class="button" href=${r.install_url} target="_blank" rel="noopener noreferrer">Install or change repositories</a>`}
           ${r.app && replacing !== r.persona && html`<button class="plain" onClick=${() => setReplacing(r.persona)}>Replace…</button>`}</span>
         ${replacing === r.persona && html`<div class="notice quiet" style="flex-basis: 100%"><span class="grow">A new App takes over from ${r.slug} once GitHub creates it. The old one stays on GitHub until you delete it there, and its name is taken: change the name on GitHub's form.</span>

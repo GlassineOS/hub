@@ -3164,3 +3164,27 @@ def test_the_manifest_carries_the_browsers_origin_and_goes_only_to_github(client
 
 def test_the_page_may_post_a_form_to_github_and_nowhere_else():
     assert web.CSP.endswith("form-action 'self' https://github.com")
+
+
+def test_the_callbacks_code_stays_out_of_the_access_log():
+    import io
+    import logging
+    uvicorn.Config(lambda *a: None)  # sets up uvicorn's loggers, as the hub's own Configs do before it adds the filter
+    web.redact_access_log()
+    web.redact_access_log()  # once is enough
+    logger = logging.getLogger("uvicorn.access")
+    assert sum(isinstance(f, web.RedactCallback) for f in logger.filters) == 1
+    out = io.StringIO()
+    handler = logging.StreamHandler(out)
+    logger.addHandler(handler)
+    level, logger.level = logger.level, logging.INFO
+    try:
+        logger.info('%s - "%s %s HTTP/%s" %d', "127.0.0.1:5", "GET", "/apps/callback?code=SECRETCODE1&state=nonce12345", "1.1", 303)
+        logger.info('%s - "%s %s HTTP/%s" %d', "127.0.0.1:5", "GET", "/api/apps?x=1", "1.1", 200)
+    finally:
+        logger.removeHandler(handler)
+        logger.level = level
+    text = out.getvalue()
+    assert "SECRETCODE1" not in text and "nonce12345" not in text and "/apps/callback?(hidden)" in text
+    assert "/api/apps?x=1" in text
+    assert "web.redact_access_log()" in (Path(main.__file__)).read_text()

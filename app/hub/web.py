@@ -33,6 +33,27 @@ CSP = ("default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' dat
 # GitHub's App manifest form is posted to github.com from the page: the one place a form leaves the hub (hubd/apps.py).
 GITHUB_APP_FORM = "https://github.com/"
 _GITHUB_TOKEN = re.compile(r"[A-Za-z0-9_-]{8,128}")  # a manifest code and a state, as GitHub sends them back
+APP_CALLBACK = "/apps/callback"
+
+
+class RedactCallback(logging.Filter):
+    """uvicorn's access log line holds the whole path, and GitHub's code on the callback alone becomes an App's private key:
+    the line keeps the path and drops the query."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple):
+            record.args = tuple(f"{APP_CALLBACK}?(hidden)" if isinstance(a, str) and a.startswith(APP_CALLBACK + "?") else a for a in args)
+        elif isinstance(record.msg, str) and APP_CALLBACK + "?" in record.msg:
+            record.msg = re.sub(re.escape(APP_CALLBACK) + r"\?\S*", f"{APP_CALLBACK}?(hidden)", record.msg)
+        return True
+
+
+def redact_access_log() -> None:
+    """After uvicorn has set up its loggers, which a Config does as it's made."""
+    logger = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, RedactCallback) for f in logger.filters):
+        logger.addFilter(RedactCallback())
 
 
 def _same_origin(headers) -> bool:
@@ -606,7 +627,7 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
 
     routes = [
         Route("/api/login", login, methods=["POST"]),
-        Route("/apps/callback", apps_callback),
+        Route(APP_CALLBACK, apps_callback),
         Route("/api/apps", api(apps_list)),
         Route("/api/apps/manifest", api(apps_manifest), methods=["POST"]),
         Route("/api/apps/convert", api(apps_convert), methods=["POST"]),
