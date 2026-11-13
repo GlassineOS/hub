@@ -24,6 +24,7 @@ import time
 from pathlib import Path
 
 from . import auth, decisions, devices, interactions, newwork, notes, results, usage
+from .effects import Effects
 from . import feed as feedlib
 from .designs import TICK as DESIGN_TICK, DesignError, Designs, Tools as DesignTools
 from .agents import MAX_ALSO, MAX_NOTES, NOTES_TOOL, PLANNER_MODELS, RESULTS as RESULTS_WORDS, SCREENS, AgentError, Agents, Library, _full, load_environment, screen_of, validate, with_also
@@ -156,6 +157,8 @@ class Hubd:
         if decision_store and agents:
             decision_store.session_id_of = agents.session_id_of
         self.agents = agents
+        # What a workflow move does to its session (012). A stand-in for the agents with no machines has no moves to watch.
+        self.effects = Effects(agents, decision_store) if getattr(agents, "machines", None) is not None else None
         self.work = work
         self._work_tasks: set[asyncio.Task] = set()  # or they could be collected mid-run
         self.apps = apps
@@ -548,6 +551,13 @@ class Hubd:
             if op == "decision.add":
                 scope = await self._with_base(req.get("scope")) if req.get("kind") == "merge" else req.get("scope")
                 return {"ok": True, "decision": self.decisions.view(self.decisions.add(req.get("kind"), req.get("words"), scope, req.get("ends")))}
+            if op in ("decision.approve", "decision.deny", "decision.end") and self.decisions._get(req.get("id"))["kind"] in decisions.HUB_KINDS:
+                if op == "decision.end" or self.effects is None:
+                    raise decisions.DecisionError("a workflow move's confirm is approved or denied")
+                said = req.get("words") if op == "decision.approve" else req.get("why")
+                said = decisions.text(said, decisions.MAX_WORDS, "what you said") if said else None
+                return {"ok": True, "decision": self.decisions.view(self.effects.answer(req.get("id"), op == "decision.approve",
+                                                                                         self.sessions.own_user(), said))}
             if op == "decision.approve":
                 record = self.decisions._get(req.get("id"))
                 if record["kind"] == "merge" and self.decisions.current_state(record) == "requested":
