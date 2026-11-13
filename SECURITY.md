@@ -492,7 +492,7 @@ the person or session that started work in the hub.
 - **One maintainer per repository.** A `per_repo` action is claimed per repository before anything is awaited, through its
   start, a resume and a past session's resume, and refused while another runs; one in a final state doesn't count.
   A maintainer names only items of its own repository for the sessions it starts; the Steward may name any of the
-  organisation's. A `managed_only` action can't be started from the hub's menus or ops without an owner.
+  organisation's. A workflow without starts is managed only: it can't be started from the hub's menus or ops without an owner.
 - **The Steward manages maintainers.** Its grant holds all the maintainer's, so a maintainer starts with no card; an
   implementor holds more than either (a shell, a new branch, `push`), so a maintainer's implementor start asks you, once
   for each issue: the approval carries the issue, starts it for that issue and widens nothing for another. The judge's
@@ -501,6 +501,32 @@ the person or session that started work in the hub.
   approval, and the work waits while it does. Its "Look at the design" card only opens the design view: answering it
   changes nothing.
 - **Waking for a `when`.** Entering a state whose auto entry has a `when` wakes an idle owner with fixed words only.
+
+### Starts and held items
+
+A workflow names how it begins on an item in its `[[start]]` tables (spec 012, FR-100 to FR-104); `hubd/machine.py` checks them
+and `hubd/agents.py` holds the item.
+
+- **The item's details are data.** A session's first prompt is its start's prompt, from the library, then the item as hubd's
+  own `gh` read it when the session started: kind, repository, number, title, state, branch, labels, checks and a link, one
+  field a line between two random marks, under a heading that says they are data and never what to do. Each value is folded
+  onto its line, cut to a fixed length and has what no card would draw dropped, so a title can't open a line of its own or
+  hide one; a look that fails leaves kind, repository and number and says so. A start's prompt fills in only `{repo}`,
+  `{number}` and `{checkout}`: the library refuses any other field, so a prompt can't reach an object's attributes.
+- **One instance holds an item.** While its workflow of more than one state runs, a session holds the items it is on and the
+  pull requests it, or a session it manages, opened. A start refused beside it is refused by hubd's start too, not only hidden
+  on the page, and the item is claimed before anything is awaited, so two starts can't both take it. A session whose pull
+  requests aren't looked up yet makes the item unknown, never free.
+- **Beside means it can't write on the item.** A start runs beside a holder (`when_held = "beside"`) only if its starting
+  state's effective grant can't write on the item: no full access, no GitHub capability beyond `read`, `issues.read`,
+  `pr.read` and `runs.read`, and no hub tool, listed or asked first, beyond the read-only ones and those that only reach the
+  hub (submitting drafts, asking for a move, drafting a workflow). A result the maintainer applies isn't the session writing:
+  the press is theirs. The library refuses a start that breaks this.
+- **Asking the owner takes the owner's path.** A start that asks (`when_held = "ask"`) starts nothing beside the holder. The
+  login's ask becomes a managed start under the holder, when its state manages the start's workflow on request, so the
+  holder's cap and the approval above it apply as for any managed start (the card comes first, the session after); or a
+  move request on one of the holder's on-request exits, which its `requires` decide and a widening move's confirm still
+  guards. Only a login reaches `agent.ask_owner`; a session's token can't.
 
 ## The person's decisions
 

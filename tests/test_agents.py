@@ -858,7 +858,8 @@ def test_a_run_fix_starts_on_its_own_branch_from_the_runs_branch(tmp_path, remot
     a = full(tmp_path, remote_branch, gh)
     started = asyncio.run(a.start(a.defaults("run-fix", "boot", 4242)))
     checkout = a.work / started["name"] / "boot"
-    assert gh.asked == ["repos/GlassineOS/boot/actions/runs/4242"]
+    # for the branch, then for the details at the end of its prompt
+    assert gh.asked == ["repos/GlassineOS/boot/actions/runs/4242"] * 2
     assert git(checkout, "rev-parse", "--abbrev-ref", "HEAD").strip() == f"agent/{started['name']}"
     assert (checkout / "a").read_text() == "changed by the pr"  # the run's branch, not the default one
     prompt = (tmp_path / "state" / "sessions" / started["name"] / "prompt.md").read_text()
@@ -3428,7 +3429,8 @@ def test_a_design_session_on_an_issue_of_ui_is_a_plain_one(tmp_path, remote):
     assert name == "design-ui-3" and (a.work / name / "ui" / ".git").exists()
     prompt = (a.sessions / name / "prompt.md").read_text()
     assert "Refs GlassineOS/ui#3" in prompt and "Your worktree is in GlassineOS/ui, this action's" not in prompt
-    assert a.gh.asked == []  # nothing covered elsewhere: no visibility to ask about
+    # nothing covered elsewhere: no visibility to ask about, only the issue's details for the end of its prompt
+    assert [x[:2] for x in a.gh.asked] == [["issue", "view"]]
     # Its other items of ui get the usual closing line; the design prompt overrides it, never closing.
     assert "never with a closing word" in prompt
     assert a.actions("issue")[[x["id"] for x in a.actions("issue")].index("design")]["repository"] == "ui"
