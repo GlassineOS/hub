@@ -3451,3 +3451,171 @@ def test_a_design_session_doesnt_name_a_private_issue_in_ui(tmp_path):
     # Other actions keep the first item's repository as theirs: it's never asked about.
     implement = validate(LIBRARY, a.defaults("issue-implement", "boot", 9))
     assert asyncio.run(a._unnamed_here(implement, LIBRARY.action("issue-implement"))) == set()
+
+
+# --- GitHub tokens scoped to a session's launch ---------------------------------------------------
+class FakeApps:
+    def __init__(self, token="ghs_one"):
+        self.calls, self.next = [], token
+
+    async def token(self, persona, repositories=None, permissions=None):
+        self.calls.append((persona, repositories, permissions))
+        return self.next
+
+    def posts_as(self, persona):
+        return None
+
+
+def github_library(tmp_path, caps='["read", "pr.review"]'):
+    return Library(_library_copy(tmp_path, lambda r: _edit(r / "actions" / "pr-review.toml", 'checkout = "pr"', f'checkout = "pr"\ngithub = {caps}')))
+
+
+def test_the_library_refuses_github_on_full_or_shell_less_actions_and_unknown_names(tmp_path):
+    from hubd.agents import LibraryError
+    for action, old, words in (("issue-implement", 'access = "full"', "for a locked action with Bash"),
+                               ("pr-explain", 'result = "none"', "for a locked action with Bash"),
+                               ("pr-review", 'checkout = "pr"', "github is a list")):
+        caps = '["secrets.write"]' if action == "pr-review" else '["read"]'
+        root = _library_copy(tmp_path / action, lambda r: _edit(r / "actions" / f"{action}.toml", old, f'{old}\ngithub = {caps}'))
+        with pytest.raises(LibraryError, match=re.escape(words)):
+            Library(root)
+
+
+def full_defaults():
+    action = LIBRARY.action("issue-implement")
+    return {"action": action["id"], "repo": "boot", "number": 3, "persona": action["personas"][0], "model": action["models"][0],
+            "effort": action["efforts"][0], "tools": action["tools"], "hub_tools": action["hub_tools"], "brief": ""}
+
+
+def test_validate_holds_github_to_the_action(tmp_path):
+    library = github_library(tmp_path)
+    shell = ["Read", "Bash"]
+    assert validate(library, good(tools=shell, github=["pr.review"]))["github"] == ["pr.review"]
+    assert "github" not in validate(library, good())  # absent stays absent
+    for over, words in (({"github": ["push"]}, "doesn't allow GitHub push"), ({"github": ["nope"]}, "unknown GitHub capabilities"),
+                        ({"github": "read"}, "must be a list"), ({"github": ["read"], "tools": ["Read"]}, "session with a shell")):
+        with pytest.raises(AgentError, match=re.escape(words)):
+            validate(library, good(**{"tools": shell, **over}))
+    for config in (good(tools=shell, github=["read"]), good(tools=shell, github=[]), {**full_defaults(), "github": []}):
+        with pytest.raises(AgentError, match="gives no GitHub token"):  # an action with no github list allows none, not even reads
+            validate(LIBRARY, config)
+    assert validate(library, good(tools=shell, github=[]))["github"] == []  # reads only, where the action has a list
+
+
+def test_a_session_with_github_capabilities_gets_its_token_in_a_file(tmp_path, remote):
+    fake = FakeApps()
+    a = Agents(github_library(tmp_path), FakeShells(), tmp_path / "state", claude=fake_claude(tmp_path, {}), mcp_url="http://x/mcp",
+               agent_token="SECRET", clone_base=remote, apps=fake, gh=FakeGh())
+    started = asyncio.run(a.start(good(tools=["Read", "Bash"], github=["pr.review"])))
+    directory = tmp_path / "state" / "sessions" / started["name"]
+    token = directory / "github" / "token"
+    assert token.read_text() == "ghs_one" and stat_mode(token) == 0o600 and stat_mode(token.parent) == 0o700
+    assert fake.calls == [("reviewer", ["boot"], {"metadata": "read", "contents": "read", "pull_requests": "write"})]
+    hooks = json.loads((directory / "settings.json").read_text())["hooks"]["PreToolUse"]
+    command = next(h["hooks"][0]["command"] for h in hooks if h.get("matcher") == "Bash")
+    assert f"shell_hook.py --github {directory / 'github'} {directory / 'shell'}" in command
+    assert "ghs_one" not in (directory / "run.sh").read_text() + (directory / "settings.json").read_text()
+    assert "GH_TOKEN" in (directory / "persona.md").read_text()
+
+    # renewed while it runs; a stopped session's waits
+    a.shells = LiveShells(started["name"])
+    fake.next = "ghs_two"
+    asyncio.run(a.renew_github_tokens())
+    assert token.read_text() == "ghs_two" and stat_mode(token) == 0o600
+    (directory / "ended").touch()
+    fake.next = "ghs_three"
+    asyncio.run(a.renew_github_tokens())
+    assert token.read_text() == "ghs_two"
+
+
+def test_without_github_capabilities_nothing_changes(tmp_path, remote):
+    fake = FakeApps()
+    a = Agents(github_library(tmp_path), FakeShells(), tmp_path / "state", claude=fake_claude(tmp_path, {}), mcp_url="http://x/mcp",
+               agent_token="SECRET", clone_base=remote, apps=fake)
+    started = asyncio.run(a.start(good(tools=["Read", "Bash"])))
+    directory = tmp_path / "state" / "sessions" / started["name"]
+    assert not (directory / "github").exists() and fake.calls == []
+    assert "--github" not in (directory / "settings.json").read_text()
+    assert "GH_TOKEN" not in (directory / "persona.md").read_text()
+
+
+def test_a_full_session_gets_no_token(tmp_path):
+    fake = FakeApps()
+    a = Agents(LIBRARY, FakeShells(), tmp_path / "state", claude=fake_claude(tmp_path, {}), mcp_url="http://x/mcp",
+               agent_token="SECRET", apps=fake)
+    action = LIBRARY.action("issue-implement")
+    config = {**a.defaults("issue-implement", "boot", 3), "tools": action["tools"]}
+    assert "github" not in config
+    directory = tmp_path / "s"
+    directory.mkdir()
+    assert a._shell_hooks(directory, config, action) == []
+    asyncio.run(a._github_token(directory, config, action))
+    assert fake.calls == [] and not (directory / "github").exists()
+
+
+def test_no_app_means_the_session_doesnt_start(tmp_path, remote):
+    fake = FakeApps(token=None)
+    a = Agents(github_library(tmp_path), FakeShells(), tmp_path / "state", claude=fake_claude(tmp_path, {}), mcp_url="http://x/mcp",
+               agent_token="SECRET", clone_base=remote, apps=fake)
+    with pytest.raises(AgentError, match="need a GitHub App for reviewer"):
+        asyncio.run(a.start(good(tools=["Read", "Bash"], github=["read"])))
+    assert a.shells.started == [] and not any((tmp_path / "state" / "sessions").iterdir())
+
+
+def test_a_resume_mints_again_and_drops_a_token_its_action_lost(tmp_path, remote):
+    fake = FakeApps()
+    a = Agents(github_library(tmp_path), FakeShells(), tmp_path / "state", claude=fake_claude(tmp_path, {}), mcp_url="http://x/mcp",
+               agent_token="SECRET", clone_base=remote, apps=fake, gh=FakeGh())
+    name = asyncio.run(a.start(good(tools=["Read", "Bash"], github=["pr.review"])))["name"]
+    directory = tmp_path / "state" / "sessions" / name
+    (directory / "ended").touch()
+    fake.next = "ghs_resumed"
+    asyncio.run(a.resume(name))
+    assert (directory / "github" / "token").read_text() == "ghs_resumed"
+    a.library = LIBRARY  # its action no longer lists github
+    (directory / "ended").touch()
+    asyncio.run(a.resume(name))
+    assert not (directory / "github").exists() and "--github" not in (directory / "settings.json").read_text()
+    assert "github" not in json.loads((directory / "session.json").read_text())["config"]
+
+
+class BrokenGh(FakeGh):
+    async def run(self, argv):
+        if argv[0] == "pr":
+            return {"code": 1, "stdout": "", "stderr": "HTTP 502"}
+        return await super().run(argv)
+
+
+@pytest.mark.parametrize("gh, kept", [(FakeGh(cross=False), ["read", "pr.review"]), (FakeGh(cross=True), ["read"]),
+                                      (FakeGh(cross=None), ["read"]), (BrokenGh(), ["read"]), (None, ["read"])])
+def test_a_forks_pull_request_gets_a_read_only_token(tmp_path, remote, gh, kept):
+    fake = FakeApps()
+    a = Agents(github_library(tmp_path), FakeShells(), tmp_path / "state", claude=fake_claude(tmp_path, {}), mcp_url="http://x/mcp",
+               agent_token="SECRET", clone_base=remote, apps=fake, gh=gh)
+    name = asyncio.run(a.start(good(tools=["Read", "Bash"], github=["read", "pr.review"])))["name"]
+    directory = tmp_path / "state" / "sessions" / name
+    expected = {"metadata": "read", "contents": "read", **({"pull_requests": "write"} if "pr.review" in kept else {})}
+    assert fake.calls[-1] == ("reviewer", ["boot"], expected)
+    assert json.loads((directory / "session.json").read_text())["config"]["github"] == kept
+    # and again at resume, from what GitHub says then
+    (directory / "ended").touch()
+    a.gh = FakeGh(cross=True)
+    asyncio.run(a.resume(name))
+    assert fake.calls[-1] == ("reviewer", ["boot"], {"metadata": "read", "contents": "read"})
+    assert json.loads((directory / "session.json").read_text())["config"]["github"] == ["read"]
+
+
+def test_any_covered_fork_makes_it_read_only(tmp_path):
+    class Mixed(FakeGh):
+        async def run(self, argv):
+            return {"code": 0, "stdout": json.dumps({"isCrossRepository": argv[2] == "7"}), "stderr": ""}
+    a = Agents(github_library(tmp_path), FakeShells(), tmp_path / "state", claude="claude", mcp_url="u", agent_token="S", gh=Mixed())
+    action = a.library.action("pr-review")
+    own = {"repo": "boot", "number": 5, "github": ["pr.review"], "covers": [{"repo": "boot", "number": 5}, {"repo": "boot", "number": 6}]}
+    assert asyncio.run(a._github_for(own, action))["github"] == ["pr.review"]
+    mixed = {**own, "covers": [*own["covers"], {"repo": "boot", "number": 7}]}
+    assert asyncio.run(a._github_for(mixed, action))["github"] == []
+
+
+def stat_mode(path):
+    return path.stat().st_mode & 0o777
