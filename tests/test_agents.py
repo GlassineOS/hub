@@ -3575,13 +3575,88 @@ def test_a_full_session_gets_no_token(tmp_path):
     assert fake.calls == [] and not (directory / "github").exists()
 
 
-def test_no_app_means_the_session_doesnt_start(tmp_path, remote):
-    fake = FakeApps(token=None)
+class LoginGh(FakeGh):
+    """The host's gh, with a login whose token it gives."""
+    def __init__(self, login="gho_maintainerlogin0000000", **kw):
+        super().__init__(**kw)
+        self.login, self.asked, self.pr_views = login, 0, 0
+
+    async def login_token(self):
+        self.asked += 1
+        return self.login
+
+    async def run(self, argv):
+        self.pr_views += argv[0] == "pr"
+        return await super().run(argv)
+
+
+def test_no_app_and_no_login_means_the_session_doesnt_start(tmp_path, remote):
+    # without gh, GitHub can't confirm the pull request as the repository's own either
+    library = github_library(tmp_path)
+    for gh, words in ((LoginGh(login=None), "need a GitHub App for reviewer, or a gh login"), (None, "comes from a fork")):
+        fake = FakeApps(token=None)
+        a = Agents(library, FakeShells(), tmp_path / "state", claude=fake_claude(tmp_path, {}), mcp_url="http://x/mcp",
+                   agent_token="SECRET", clone_base=remote, apps=fake, gh=gh)
+        with pytest.raises(AgentError, match=words):
+            asyncio.run(a.start(good(tools=["Read", "Bash"], github=["read"])))
+        assert a.shells.started == [] and not any((tmp_path / "state" / "sessions").iterdir())
+
+
+def test_no_app_falls_back_to_your_login_and_says_so(tmp_path, remote):
+    fake, gh = FakeApps(token=None), LoginGh()
     a = Agents(github_library(tmp_path), FakeShells(), tmp_path / "state", claude=fake_claude(tmp_path, {}), mcp_url="http://x/mcp",
-               agent_token="SECRET", clone_base=remote, apps=fake)
-    with pytest.raises(AgentError, match="need a GitHub App for reviewer"):
+               agent_token="SECRET", clone_base=remote, apps=fake, gh=gh)
+    name = asyncio.run(a.start(good(tools=["Read", "Bash"], github=["read", "pr.review"])))["name"]
+    directory = tmp_path / "state" / "sessions" / name
+    token = directory / "github" / "token"
+    assert token.read_text() == "gho_maintainerlogin0000000" and stat_mode(token) == 0o600
+    assert json.loads((directory / "session.json").read_text())["config"]["github"] == ["read", "pr.review"]
+    assert a.describe(name)["github_as"] == "you" and a.manifest(name)["github_as"] == "you"
+    assert "limits it to nothing" in (directory / "persona.md").read_text()
+    # renewed with the same token, without asking GitHub again whether its pull request is a fork's
+    a.shells = LiveShells(name)
+    views = gh.pr_views
+    gh.login = "gho_maintainerlogin1111111"
+    asyncio.run(a.renew_github_tokens())
+    asyncio.run(a.renew_github_tokens())
+    assert token.read_text() == "gho_maintainerlogin1111111" and gh.pr_views == views
+    # once the persona has an App, the renewal switches to it, and the record follows
+    fake.next = "ghs_app"
+    asyncio.run(a.renew_github_tokens())
+    assert token.read_text() == "ghs_app" and a.describe(name)["github_as"] == "app:reviewer"
+
+
+def test_an_app_that_fails_doesnt_fall_back_to_your_login(tmp_path, remote):
+    from hubd.apps import AppError
+
+    class Failing(FakeApps):
+        async def token(self, persona, repositories=None, permissions=None):
+            raise AppError("couldn't get a token for glassine-reviewer: HTTP 500")
+    gh = LoginGh()
+    a = Agents(github_library(tmp_path), FakeShells(), tmp_path / "state", claude=fake_claude(tmp_path, {}), mcp_url="http://x/mcp",
+               agent_token="SECRET", clone_base=remote, apps=Failing(), gh=gh)
+    with pytest.raises(AgentError, match="HTTP 500"):
         asyncio.run(a.start(good(tools=["Read", "Bash"], github=["read"])))
-    assert a.shells.started == [] and not any((tmp_path / "state" / "sessions").iterdir())
+    assert gh.asked == 0 and a.shells.started == []
+
+
+@pytest.mark.parametrize("cross", [True, None])
+def test_a_forks_pull_request_never_gets_your_login(tmp_path, remote, cross):
+    gh = LoginGh(cross=cross)
+    a = Agents(github_library(tmp_path), FakeShells(), tmp_path / "state", claude=fake_claude(tmp_path, {}), mcp_url="http://x/mcp",
+               agent_token="SECRET", clone_base=remote, apps=FakeApps(token=None), gh=gh)
+    with pytest.raises(AgentError, match="comes from a fork and reviewer has no GitHub App"):
+        asyncio.run(a.start(good(tools=["Read", "Bash"], github=["read", "pr.review"])))
+    assert gh.asked == 0 and a.shells.started == []
+    for directory in (tmp_path / "state" / "sessions").iterdir():
+        assert not (directory / "github" / "token").exists()
+    # nor at a renewal, whatever an earlier answer said: a fork's is never taken as known
+    directory = tmp_path / "s"
+    directory.mkdir()
+    config = {**good(tools=["Read", "Bash"], github=["read"]), "covers": [{"repo": "boot", "number": 5}]}
+    with pytest.raises(AgentError, match="comes from a fork"):
+        asyncio.run(a._github_token(directory, config, a.library.action("pr-review"), renewing=True))
+    assert gh.asked == 0 and not (directory / "github" / "token").exists()
 
 
 def test_a_resume_mints_again_and_drops_a_token_its_action_lost(tmp_path, remote):

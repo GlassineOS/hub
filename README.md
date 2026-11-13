@@ -214,6 +214,11 @@ Either opens GitHub's form with the App described, with the permissions the pers
 you press Create, and install it on the repositories it should work in with the link it gives. No restart is needed, and a session's manifest shows
 who it posts as. `openssl` signs the App's requests.
 
+A persona without an App posts and pushes as you: a session whose launch carries GitHub capabilities gets your `gh` login's
+token in its shell, which GitHub doesn't limit to the session's repositories or capabilities, and its manifest says
+"you (no App for <persona>)". A session on a pull request from a fork gets no such token and doesn't start; one whose App
+exists but fails doesn't start either.
+
 The terminal takes all keys, Shift+Tab included, while it has focus; a message says when it
 doesn't, and clicking it brings it back. Drag to select and copy, and use the wheel to scroll. If a program in the
 pane takes the mouse, hold Shift while dragging; that selects what's on screen.

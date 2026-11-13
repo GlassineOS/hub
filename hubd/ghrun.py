@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import tempfile
+import time
 from pathlib import Path
 
 from .ghpolicy import ORG, Refused, changes_query, check
@@ -15,6 +16,8 @@ from .ghpolicy import ORG, Refused, changes_query, check
 GRAPHQL_DIR = Path(__file__).parent / "graphql"
 MAX_OUTPUT = 32 * 1024 * 1024
 MAX_TIMEOUT = 300
+# How long the login's own token is reused before gh is asked again: a renewal every two minutes needn't ask each time.
+LOGIN_TOKEN_KEEP = 900
 _ENV_KEEP = ("HOME", "PATH", "LANG", "USER", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME",
              "XDG_CACHE_HOME", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")
 
@@ -92,6 +95,7 @@ class Gh:
             if "...IssueFields" in text:
                 self.documents[name] = text + "\n" + fields
         self._org_projects: set[str] = set()
+        self._login: tuple[str, float] | None = None
 
     def available(self) -> bool:
         return shutil.which(self.program) is not None
@@ -115,6 +119,18 @@ class Gh:
                 return {"code": 124, "stdout": "", "stderr": f"gh: timed out after {limit} s"}
         return {"code": proc.returncode, "stdout": out.decode(errors="replace"),
                 "stderr": err[-65536:].decode(errors="replace"), "truncated": truncated}
+
+    async def login_token(self) -> str | None:
+        """The token of the host's gh login, which every call made without a persona's App goes out as. None without a login."""
+        now = time.monotonic()
+        if self._login and self._login[1] > now:
+            return self._login[0]
+        reply = await self._exec(["auth", "token", "--hostname", "github.com"], None, 30)
+        token = reply["stdout"].strip() if reply["code"] == 0 else ""
+        if not re.fullmatch(r"[A-Za-z0-9_]{20,255}", token):
+            return None
+        self._login = (token, now + LOGIN_TOKEN_KEEP)
+        return token
 
     async def run(self, argv, stdin=None, timeout=None, token=None) -> dict:
         check(argv)
