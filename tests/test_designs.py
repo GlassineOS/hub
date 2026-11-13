@@ -384,6 +384,9 @@ def test_design_open_is_checked_against_the_folder_and_its_web_form(setup):
         assert not setup.made  # nothing started for a refused open
         reply = await d.session_open("design-7", {"board": "Panel.dc.html", "project": "shell", "voice": "white", "pen": 1, "width": 400, "height": 300})
         assert reply["shown"] and reply["project"] == "shell"
+        # the reply says what the renderer shows once it has opened it, not the canvas it started on
+        assert reply["showing"] == "board" and reply["board"] == "Panel.dc.html" and reply["size"] == {"width": 400, "height": 300}
+        assert reply["message"] is None
         await until(lambda: commands(setup.log))
         assert commands(setup.log) == [{"op": "open", "board": "Panel.dc.html", "voice": "white", "pen": 1, "width": 400, "height": 300}]
         await d.stop("design-7")
