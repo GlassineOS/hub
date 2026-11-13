@@ -448,3 +448,8 @@ def test_a_start_on_a_bad_workflow_is_an_agent_error(world, monkeypatch):
 
 def test_the_ended_marker_is_the_agents_own():
     assert instances.ENDED == ENDED_FILE
+
+
+def test_token_only_capability_names_stay_out_of_the_grant():
+    action = {**LIBRARY.actions["pr-review"], "github": ["read", "pr.read", "runs.read"]}
+    assert machine.effective(machine.parse(definition_for(action)), "session").github == ("pr.read",)
