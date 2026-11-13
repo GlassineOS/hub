@@ -46,8 +46,8 @@ under the same name, checkout and instance: the state, the counters, the managed
 held grant carry over. It starts from the action's first prompt and a hand-off note the hub writes from named references
 only: the issue, the pull request, the instructions of the states it is in, the moves the log kept, and the rolling
 summary between marks, as data. Never a transcript's words. The old conversation stays in the history, and the machine
-log reads both as one session. A stopped session takes the new conversation at its next resume; one that can't resume
-keeps its conversation, and the move goes back.
+log reads both as one session. A stopped session takes the new conversation at its next resume, and keeps the one it
+had until a resume goes through; a running one that can't resume keeps its conversation, and the move goes back.
 
 ## Exits
 
@@ -109,9 +109,9 @@ returns = { verdict = ["pass", "fail"], findings = "text-list" }  # what it hand
 `status = true` at the top of a workflow makes each move post one line to the session's pull request, or its issue while it
 has none: `Workflow: now in <path> (<why>)`, where the reason is the exit's `when` for a judge's move, its `requires` for
 one by facts or a counter, or "by hand", "rolled back", "moved back by the hub". hubd posts it as the session's persona's
-GitHub App (the hub's login for a persona without one, as an applied result goes out; nothing if the App fails), and edits
-that one comment on later moves; a new comment goes out at most once a minute per session. It is off in every shipped
-workflow.
+GitHub App, and only so: a persona without an App, or whose App fails, posts nothing. It edits that one comment on later
+moves while the comment is still the App's own on that item; otherwise it posts a new one, at most once a minute per
+session. It is off in every shipped workflow.
 
 ## Facts and signals
 

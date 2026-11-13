@@ -161,6 +161,14 @@ class Log:
         with self.lock, self.db:
             moved = self.db.execute("UPDATE reports SET to_sid = ? WHERE to_sid = ? AND state IN ('open', 'forwarded')", (new, old)).rowcount
             moved += self.db.execute("UPDATE reports SET from_sid = ? WHERE from_sid = ? AND state IN ('open', 'forwarded')", (new, old)).rowcount
+            # an approval to start a managed session names its owner's conversation in its action too (managed.py)
+            for rid, action in self.db.execute("SELECT id, action FROM reports WHERE action IS NOT NULL AND state IN ('open', 'forwarded')").fetchall():
+                try:
+                    kept = json.loads(action)
+                except ValueError:
+                    continue
+                if isinstance(kept, dict) and kept.get("owner_sid") == old:
+                    self.db.execute("UPDATE reports SET action = ? WHERE id = ?", (json.dumps({**kept, "owner_sid": new}), rid))
         return moved
 
     def reports(self, *, from_sid: str | None = None, to_sid: str | None = None, state: str | None = None,

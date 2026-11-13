@@ -189,6 +189,10 @@ MAX_REPO_MAP = 40_000  # bytes of file names: a big repository is cut, and the p
 MAX_REQUEST = 100_000  # bytes; the request is one argument, and Linux allows 131072
 
 
+class NotAtPrompt(Exception):
+    """A switch to a fresh context found the session busy again just before it: it waits for the prompt once more."""
+
+
 class AgentError(Exception):
     pass
 
@@ -880,6 +884,7 @@ class Agents:
         self._resuming = asyncio.Lock()
         self._starting: set[str] = set()
         self._prs: dict[str, tuple[float, list, str | None]] = {}  # session name: when looked up, its pull requests, which session id
+        self.switch_watchers: list = []  # called (name, old id, new id) as a fresh context takes over (handoff.py)
         self._pr_lookups: dict[str, asyncio.Task] = {}
         self._removing: set[str] = set()
         self.history = History(state_dir / "history")
@@ -2161,15 +2166,28 @@ class Agents:
             raise AgentError(f"no such session: {name}")
         directory = self.sessions / name
         async with self._resuming:
+            handoff.recover(self, name)
+            fresh = dict(fresh) if fresh else handoff.owed_switch(self, name)  # a stopped session's owed switch, whoever resumes it
+            try:
+                before = json.loads((directory / "session.json").read_text()) if fresh else None
+            except (OSError, ValueError) as e:
+                raise AgentError(f"not a managed session: {name}") from e
             persona_was = handoff.set_persona(self, name, fresh["persona"]) if fresh else None
             try:
-                return await self._resume(name, directory, relaunch, fresh)
+                got = await self._resume(name, directory, relaunch, fresh, before)
             except BaseException:
-                if fresh and persona_was is not None and not (directory / handoff.FRESH_FILE).exists():
-                    handoff.set_persona(self, name, persona_was)  # the old conversation goes on as it was
+                if fresh and not fresh.get("switched"):
+                    try:
+                        handoff.recover(self, name)  # a switch that stopped half way is undone
+                    finally:
+                        if persona_was is not None:
+                            handoff.set_persona(self, name, persona_was)  # the old conversation goes on as it was
                 raise
+            if fresh:
+                (directory / handoff.OWED_FILE).unlink(missing_ok=True)
+            return got
 
-    async def _resume(self, name: str, directory: Path, relaunch: bool, fresh: dict | None) -> dict:
+    async def _resume(self, name: str, directory: Path, relaunch: bool, fresh: dict | None, before: dict | None = None) -> dict:
         try:
             record = json.loads((directory / "session.json").read_text())
         except (OSError, ValueError) as e:
@@ -2220,8 +2238,12 @@ class Agents:
             raise AgentError(f"{name} can't resume: its workflow kept moving while it was set up")
         (directory / LOCKED_FILE).unlink(missing_ok=True)  # its rights were worked out again just now
         if fresh:  # every check has passed: the old conversation ends here, and a new one takes over
-            handoff.begin(self, name, fresh["note"])
+            if fresh.get("at_prompt") and live and (await self.session_state(name))["state"] != "Idle":
+                raise NotAtPrompt(f"{name} is busy again")
+            switched = handoff.begin(self, name, fresh["note"], before)
+            fresh["switched"] = True
             record = json.loads((directory / "session.json").read_text())
+            handoff.log_switch(self, name, record["session_id"], switched["from"], fresh["persona"], "now")
             self._session_token(directory, config, _full(action), record["session_id"], self.chain_tools(name, first))
         new_conversation = handoff.owed(self, directory, record["session_id"])
         argv = self._argv(config, action, directory, present[0] if present else None, record["session_id"],
@@ -2730,6 +2752,8 @@ class Agents:
                 continue
             if pr:
                 found.append({"repo": repo, "number": pr["number"], "state": pr["state"]})
+        if self.session_id_of(name) != record.get("session_id"):  # a new conversation took over meanwhile: its own lookup counts
+            return
         self._prs[name] = (time.monotonic(), found, record.get("session_id"))
 
     # --- afterwards ------------------------------------------------------------------

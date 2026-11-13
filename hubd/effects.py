@@ -40,7 +40,7 @@ import shutil
 import sqlite3
 
 from . import handoff, instances, machine
-from .agents import GITHUB_FOLDER, HUB_SENDER, AgentError, _full, _mode
+from .agents import ENDED_FILE, GITHUB_FOLDER, HUB_SENDER, AgentError, NotAtPrompt, _full, _mode
 from .decisions import APPROVE, WIDEN, DecisionError
 from .instances import MachineError
 from .machine_log import LogError
@@ -52,7 +52,8 @@ RELAUNCH_WAIT = 3600  # seconds a widening waits for the session to come back to
 POLL = 2  # seconds between looks at whether it has
 LABEL = "[From the hub, not from the person or a session]"
 FAILED_SIGNAL = "hub:relaunch"  # how a move that didn't take effect shows among the evaluations
-FRESH_SIGNAL = "hub:fresh"  # how a new conversation that took over shows among them
+FRESH_SIGNAL = handoff.FRESH_SIGNAL  # how a new conversation that took over shows among them
+FRESH_TRIES = 5  # times a switch waits for the prompt again, after the session was resumed or got busy meanwhile
 FULL_MARK = "runs with your own rights: guarded, not limited"
 # Who an `approve` level names, and who answers it for now: the chain above a session (FR-050) isn't there yet.
 LEVELS = {"me": "you", "owner": "its owner", "maintainer": "the repository maintainer", "steward": "the Steward"}
@@ -107,6 +108,8 @@ class Effects:
         self._answering: str | None = None  # the card being answered, which the move it confirms mustn't end as stale
         self.managed = None  # managed.Managed: approvals at a level a session above can give, and its own cards
         self.machines.on_move(self.on_move)
+        if decisions is not None and hasattr(agents, "switch_watchers"):
+            agents.switch_watchers.append(decisions.retarget)
 
     # --- the watcher ----------------------------------------------------------------
     def on_move(self, name: str, result: dict) -> None:
@@ -332,44 +335,37 @@ class Effects:
 
     async def _fresh(self, name: str, result: dict) -> None:
         """FR-021, context = "fresh": the conversation ends and one of the state's persona takes over with the hand-off note
-        (handoff.py). A running session is switched once it is at its prompt, through a resume that checks everything first;
-        a stopped one is switched now and starts the new conversation at its next resume."""
-        state = await self._at_prompt(name, result)
-        if state is None or not self._still_there(name, result):
-            return
-        try:
-            record, inst = self.machines.load(name)
-            action = self.agents.library.actions.get((record.get("config") or {}).get("action")) or {}
-            d = inst.definition()
-            persona = handoff.persona_for(d, inst.state, action, record["config"].get("persona"))
-            text = handoff.note(self.agents, name, record, d, inst.state, persona)
-        except (handoff.HandoffError, MachineError, KeyError) as e:
-            self._fail_back(name, result, f"its fresh context can't start: {e}")
-            return
-        try:
-            if state == "Stopped":
-                async with self.agents._resuming:
-                    handoff.set_persona(self.agents, name, persona)
-                    switched = handoff.begin(self.agents, name, text)
-            else:
-                await self.agents.resume(name, relaunch=True, fresh={"note": text, "persona": persona})
-                switched = None
-        except (AgentError, OSError, ValueError) as e:
-            self._fail_back(name, result, str(e))
-            return
-        record = self._record(name)
-        self._log_conversation(name, result, record, switched, persona, state)
+        (handoff.py), always inside a resume that checks everything first. A running session is switched once it is at its
+        prompt; a stopped one, still stopped under the resume lock, gets the switch owed for its next resume. One that was
+        resumed meanwhile, or is busy again by the switch, waits for its prompt again."""
+        for _try in range(FRESH_TRIES):
+            state = await self._at_prompt(name, result)
+            if state is None or not self._still_there(name, result):
+                return
+            try:
+                record, inst = self.machines.load(name)
+                action = self.agents.library.actions.get((record.get("config") or {}).get("action")) or {}
+                d = inst.definition()
+                persona = handoff.persona_for(d, inst.state, action, record["config"].get("persona"))
+                text = handoff.note(self.agents, name, record, d, inst.state, persona)
+                if state == "Stopped":
+                    async with self.agents._resuming:
+                        if await self._live(name):
+                            continue  # resumed since the look: it switches at its prompt
+                        handoff.owe(self.agents, name, text, persona, inst.state)
+                    handoff.log_switch(self.agents, name, record["session_id"], record["session_id"], persona, "at its next resume")
+                    return
+                await self.agents.resume(name, relaunch=True, fresh={"note": text, "persona": persona, "at_prompt": True})
+                return
+            except NotAtPrompt:
+                continue
+            except Exception as e:  # noqa: BLE001: any failure leaves the old conversation, and the move goes back
+                self._fail_back(name, result, f"its fresh context can't start: {e}")
+                return
+        self._fail_back(name, result, "it never stayed at its prompt long enough to switch")
 
-    def _log_conversation(self, name: str, result: dict, record: dict, switched: dict | None, persona, state: str) -> None:
-        """The new conversation in the machine log, under its own id, naming the one it took over from."""
-        earlier = record.get("conversations") or []
-        try:
-            self.machines.log.evaluation(record["session_id"], name, FRESH_SIGNAL, result["to"], result["version"],
-                                         checks={"conversation": {"from": (switched or {}).get("from") or (earlier[-1] if earlier else None),
-                                                                  "to": record["session_id"], "persona": persona,
-                                                                  "starts": "at its next resume" if state == "Stopped" else "now"}})
-        except (sqlite3.Error, LogError, OSError, KeyError):
-            log.exception("%s: its new conversation wasn't logged", name)
+    async def _live(self, name: str) -> bool:
+        return any(s["name"] == name for s in await self.agents.shells.list()) and not (self.agents.sessions / name / ENDED_FILE).exists()
 
     def _fail_back(self, name: str, result: dict, why: str) -> None:
         """A move that happened and can't take effect: back to where it was, logged, and the session told."""

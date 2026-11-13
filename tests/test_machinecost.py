@@ -194,3 +194,35 @@ def test_only_a_login_reads_the_costs(world, tmp_path):
     assert got["denied"]
     got = asyncio.run(h.request({"op": "machine.costs", "agent_token": "shared", "workflows": True}))
     assert got.get("denied")
+
+
+def test_a_change_that_fails_keeps_what_it_would_have_banked_for_the_next_look(world):
+    from hubd.instances import MachineError
+    a, _runner, clock = world
+
+    async def go():
+        return (await a.start(a.defaults(ACTION, "boot", 7)))["name"]
+    name = asyncio.run(go())
+    status(a, name, 100, 0, 0.1)
+    with pytest.raises(MachineError):
+        a.machines.move(name, "nowhere", "hand", who="me")
+    a.machines.bank(name)
+    assert a.machines.load(name)[1].facts(clock())["tokens.look"] == 100
+
+
+def test_a_resumed_process_counts_its_status_line_from_zero(world):
+    """The totals restart with each process (unverified against real claude): 150 after a resume is 150 more, not 50."""
+    a, _runner, clock = world
+
+    async def go():
+        name = (await a.start(a.defaults(ACTION, "boot", 7)))["name"]
+        status(a, name, 100, 0, 0.1)
+        a.machines.bank(name)
+        a.shells.live.discard(name)
+        (a.sessions / name / agents_module.ENDED_FILE).touch()
+        await a.resume(name)
+        status(a, name, 150, 0, 0.2)
+        a.machines.bank(name)
+        return name
+    name = asyncio.run(go())
+    assert a.machines.load(name)[1].facts(clock())["tokens.look"] == 250

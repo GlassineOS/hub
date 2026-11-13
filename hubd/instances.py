@@ -326,9 +326,17 @@ def bank_usage(directory: Path, inst: Instance, session_id) -> bool:
     and its parents: tokens as the `tokens.<state>` counters, cost beside them in USAGE_FILE. Its totals are per
     conversation: a new conversation, or one whose total went down (a /clear), counts again from zero. Whether the
     instance changed."""
+    changed, kept = usage_delta(directory, inst, session_id)
+    if kept is not None:
+        keep_usage(directory, kept)
+    return changed
+
+
+def usage_delta(directory: Path, inst: Instance, session_id) -> tuple[bool, dict | None]:
+    """bank_usage's counting into `inst`, without writing USAGE_FILE: (whether the instance changed, what to keep)."""
     status = usage.read_status(directory)
     if not status or not isinstance(session_id, str) or status.get("session_id") not in (None, session_id):
-        return False
+        return False, None
     tokens, cost = usage.tokens_of(status), usage._cost(status)
     kept = _usage_kept(directory)
     seen = kept["seen"] if kept["seen"].get("session_id") == session_id else {}
@@ -348,6 +356,10 @@ def bank_usage(directory: Path, inst: Instance, session_id) -> bool:
                 kept["cost"][s] = round(kept["cost"].get(s, 0.0) + delta, 6)
     kept["seen"] = {"session_id": session_id, "tokens": tokens if tokens is not None else seen.get("tokens", 0),
                     "cost": cost if cost is not None else seen.get("cost", 0.0)}
+    return changed, kept
+
+
+def keep_usage(directory: Path, kept: dict) -> None:
     path = Path(directory) / USAGE_FILE
     scratch = path.with_suffix(".tmp")
     try:
@@ -357,7 +369,15 @@ def bank_usage(directory: Path, inst: Instance, session_id) -> bool:
         scratch.replace(path)
     except OSError:
         log.exception("the usage of %s couldn't be kept", directory)
-    return changed
+
+
+def usage_restarts(directory: Path) -> None:
+    """A resumed process counts its totals from zero again, so what it says next is all new. UNVERIFIED against real
+    claude: if a resumed conversation's status line went on from the old totals, its first look after a resume would
+    count them twice."""
+    kept = _usage_kept(directory)
+    if kept["seen"]:
+        keep_usage(directory, {**kept, "seen": {}})
 
 
 def usage_of(directory: Path) -> dict:
@@ -672,7 +692,13 @@ class Machines:
         self._running(name, False)
 
     def resumed(self, name: str) -> None:
-        """Called as a session starts again, before its markers go: the clock runs from now."""
+        """Called as a session starts again, before its markers go: the clock runs from now, and the status line's totals
+        start again (usage_restarts), after what the last process said is banked."""
+        self.bank(name)
+        try:
+            usage_restarts(self.sessions / name)
+        except (OSError, ValueError) as e:
+            log.warning("%s: %s", name, e)
         self._running(name, True)
 
     def _running(self, name: str, running: bool) -> None:
@@ -751,12 +777,15 @@ class Machines:
 
     def _act(self, name, change, by: str | None = None, why: str | None = None) -> dict:
         record, inst = self.load(name)
-        try:  # what it used goes to the state it used it in, before it moves
-            bank_usage(self.sessions / name, inst, record.get("session_id"))
+        kept = None
+        try:  # what it used goes to the state it used it in, before it moves; kept only once the change is saved
+            _changed, kept = usage_delta(self.sessions / name, inst, record.get("session_id"))
         except (OSError, ValueError, MachineError):
             log.exception("%s: its usage couldn't be banked", name)
         result = change(record, inst, self.clock())
         self.save(name, inst)
+        if kept is not None:
+            keep_usage(self.sessions / name, kept)
         row = result.pop("log", None)
         if row is not None:
             try:
