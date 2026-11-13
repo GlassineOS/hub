@@ -616,3 +616,21 @@ def test_a_text_list_return_is_for_the_owner_to_read_never_a_fact():
     assert wrong != text
     found = [f for f in machine.check(machine.parse(wrong)) if "not a fact" in str(f)]
     assert found
+
+
+def test_a_managed_session_runs_its_workflow_as_the_repository_has_it(hub):
+    """With a repository's override of the child's workflow, the cap and the start use that version, as agents.start does."""
+    h, a, _judge = hub
+    narrower = HELPER.format(name="greedy", tools='["get_issue", "notes_find"]')
+    a.workflow_store.save("greedy", "GlassineOS__boot", narrower, 0, "me")
+    a.library.saved()
+    assert "list_prs" not in a.workflow_grant("greedy", "boot").hub_tools and "list_prs" in a.workflow_grant("greedy").hub_tools
+
+    async def go():
+        name = await owner(h, a)
+        got = await op(h, "managed.start", token(a, name), entry="greedy")
+        assert got["started"], got  # boot's greedy needs nothing above its owner
+        assert not [c for c in h.decisions.open_approvals(name) if c["scope"].get("type") == "managed"]
+        assert "list_prs" not in a.scope(token(a, got["name"]))["tools"]
+        assert a.machines.load(got["name"])[1].definition().states["session"].grant.hub_tools == ("get_issue", "notes_find")
+    asyncio.run(go())

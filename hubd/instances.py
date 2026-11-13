@@ -470,9 +470,10 @@ class Machines:
     """The instances of the sessions under `sessions`. `action_of(id)` gives an action as the library has it now, or None;
     `is_session(name)` says whether a name is a session's."""
 
-    def __init__(self, sessions: Path, log_path: Path, action_of, is_session, clock=time.time, grant_of=None):
-        self.grant_of = grant_of  # (workflow) -> its grant as a session starts in it, for the managed part of a widening (FR-023)
+    def __init__(self, sessions: Path, log_path: Path, action_of, is_session, clock=time.time, resolve=None, grant_of=None):
+        self.grant_of = grant_of  # (workflow, repo) -> its grant as a session starts in it, for the managed part of a widening (FR-023)
         self.sessions = Path(sessions)
+        self.resolve = resolve  # (action, record) -> the action as the session's repository has it, with its override's text
         self.log_path = log_path
         self.action_of = action_of
         self.is_session = is_session
@@ -495,8 +496,11 @@ class Machines:
         return self._log
 
     def latest(self, record: dict) -> str | None:
-        """The newest definition text for a session's workflow."""
+        """The newest definition text for a session's workflow: its repository's override, else the organisation's newest
+        saved version, else the file (machinestore)."""
         action = self.action_of(record.get("config", {}).get("action"))
+        if action and self.resolve is not None:
+            action = self.resolve(action, record)
         return definition_for(action) if action else None
 
     # --- files ---------------------------------------------------------------------
@@ -660,6 +664,13 @@ class Machines:
                 "waits": inst.pending is not None}
 
     # --- acting on a session's machine: load, change, save, log ---------------------
+    def _grant_for(self, record: dict):
+        """grant_of for this session: its managed entries' workflows as a session on its repository has them."""
+        if self.grant_of is None:
+            return None
+        repo = (record.get("config") or {}).get("repo")
+        return lambda workflow: self.grant_of(workflow, repo)
+
     def _act(self, name, change, by: str | None = None) -> dict:
         record, inst = self.load(name)
         result = change(record, inst, self.clock())
@@ -682,15 +693,15 @@ class Machines:
 
     def move(self, name, to, by: str = "machine", enter: str = "first", who: str | None = None) -> dict:
         return self._act(name, lambda record, inst, now: move(inst, to, by, enter=enter, latest=self.latest(record), who=who, now=now,
-                                                                     grant_of=self.grant_of), by)
+                                                                     grant_of=self._grant_for(record)), by)
 
     def rollback(self, name, who: str | None = None) -> dict:
-        return self._act(name, lambda _record, inst, now: rollback(inst, who, now, self.grant_of), "rollback")
+        return self._act(name, lambda record, inst, now: rollback(inst, who, now, self._grant_for(record)), "rollback")
 
     def confirm_move(self, name, pending_id, who: str | None, accept: bool = True) -> dict:
         if not isinstance(accept, bool):
             raise MachineError("accept is true or false")
-        return self._act(name, lambda _record, inst, now: confirm_move(inst, pending_id, who, accept, now, self.grant_of), "confirm")
+        return self._act(name, lambda record, inst, now: confirm_move(inst, pending_id, who, accept, now, self._grant_for(record)), "confirm")
 
     def pause(self, name, paused, who: str | None = None) -> dict:
         return self._act(name, lambda _record, inst, now: pause(inst, paused, who, now))

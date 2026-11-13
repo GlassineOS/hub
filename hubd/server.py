@@ -23,7 +23,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import auth, decisions, devices, interactions, machinerun, newwork, notes, results, usage
+from . import auth, decisions, devices, interactions, machinerun, machinestore, newwork, notes, results, usage
 from . import judge as judgelib
 from .effects import Effects
 from .managed import Managed, ManagedError
@@ -175,6 +175,8 @@ class Hubd:
         self.managed = Managed(agents, machine_run, decision_store) if self.effects is not None else None
         if self.effects is not None:
             self.effects.managed = self.managed
+        # 012 FR-060: the saved versions of the workflows, the editor and the workflow.change card. A login only.
+        self.workflows = machinestore.Workflows(agents, decision_store) if getattr(agents, "workflow_store", None) is not None else None
         self.work = work
         self._work_tasks: set[asyncio.Task] = set()  # or they could be collected mid-run
         self.apps = apps
@@ -265,13 +267,15 @@ class Hubd:
             return await self.design_tool(op, req)
         if op in REPO_OPS:
             return await self.repo_request(op, req)
-        if op in ("shell.list", "shell.new", "shell.kill") or op.startswith(("agent.", "ask.", "work.", "decision.", "notes.", "interaction.", "usage.", "result.", "machine.", "apps.")):
+        if op in ("shell.list", "shell.new", "shell.kill") or op.startswith(("agent.", "ask.", "work.", "decision.", "notes.", "interaction.", "usage.", "result.", "machine.", "apps.", "workflow.")):
             if not self.sessions.check(req.get("token")):
                 return {"ok": False, "error": "login required", "denied": True}
             if op.startswith("apps."):
                 return await self.apps_request(op, req)
             if op.startswith("interaction."):
                 return await self.interaction_request(op, req)
+            if op.startswith("workflow."):  # 012 FR-060: only the maintainer saves a version, or approves one proposed
+                return self.workflows.request(op, req, self.sessions.own_user()) if self.workflows else {"ok": False, "error": "agent sessions are not set up"}
             if op.startswith("machine."):  # 012 FR-026: the maintainer's moves, logged as theirs
                 return self.agents.machines.request(op, req, self.sessions.own_user()) if self.agents else {"ok": False, "error": "agent sessions are not set up"}
             if op.startswith("usage."):
@@ -652,6 +656,13 @@ class Hubd:
             if op == "decision.add":
                 scope = await self._with_base(req.get("scope")) if req.get("kind") == "merge" else req.get("scope")
                 return {"ok": True, "decision": self.decisions.view(self.decisions.add(req.get("kind"), req.get("words"), scope, req.get("ends")))}
+            if op in ("decision.approve", "decision.deny", "decision.end") and self.decisions._get(req.get("id"))["kind"] == decisions.CHANGE:
+                if op == "decision.end" or self.workflows is None:
+                    raise decisions.DecisionError("a workflow change is approved, or discarded, or sent back for changes")
+                said = req.get("words") if op == "decision.approve" else req.get("why")
+                said = decisions.text(said, decisions.MAX_WORDS, "what you said") if said else None
+                answered = self.workflows.answer(req.get("id"), op == "decision.approve", self.sessions.own_user(), said, req.get("changes") is True)
+                return {"ok": True, "decision": self.decisions.view(answered)}
             if op in ("decision.approve", "decision.deny", "decision.end") and self.decisions._get(req.get("id"))["kind"] in decisions.HUB_KINDS:
                 if op == "decision.end" or self.effects is None:
                     raise decisions.DecisionError("a workflow move's confirm is approved or denied")

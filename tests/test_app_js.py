@@ -249,3 +249,54 @@ def test_the_page_parses_as_a_module(tmp_path):
     copy = tmp_path / "app.mjs"
     copy.write_text(APP.read_text())
     subprocess.run([NODE, "--check", str(copy)], check=True, capture_output=True, timeout=30)
+
+
+# ---- the workflow editor and the workflow.change card (012 FR-061, FR-063) ----
+DIFF_ROWS = [
+    {"kind": "same", "state": "work", "exit": None, "to": None, "fields": [], "depth": 0, "before": {"title": "work", "tags": ["parent"]}, "after": {"title": "work", "tags": ["parent"]}},
+    {"kind": "same", "state": "implement", "exit": None, "to": None, "fields": [], "depth": 1, "before": {"title": "implement", "tags": []}, "after": {"title": "implement", "tags": []}},
+    {"kind": "same", "state": "implement", "exit": 1, "was": 1, "to": "review", "fields": [], "depth": 2, "before": {"title": "→ review", "sub": "judge"}, "after": {"title": "→ review", "sub": "judge"}},
+    {"kind": "same", "state": "review", "exit": None, "to": None, "fields": [], "depth": 1, "before": {"title": "review", "tags": []}, "after": {"title": "review", "tags": []}},
+    {"kind": "moved", "state": "review", "exit": 1, "was": 2, "to": "escalated", "fields": [], "depth": 2, "before": {"title": "→ escalated", "sub": "counter"}, "after": {"title": "→ escalated", "sub": "counter"}},
+    {"kind": "same", "state": "review", "exit": 2, "was": 1, "to": "merge-ready", "fields": [], "depth": 2, "before": {"title": "→ merge-ready", "sub": "facts"}, "after": {"title": "→ merge-ready", "sub": "facts"}},
+    {"kind": "changed", "state": "review", "exit": 3, "was": 3, "to": "fix", "fields": ["requires"], "depth": 2, "before": {"title": "→ fix", "sub": "a"}, "after": {"title": "→ fix", "sub": "b"}},
+    {"kind": "added", "state": "review", "exit": 4, "to": "abandoned", "fields": [], "depth": 2, "before": None, "after": {"title": "→ abandoned", "sub": "hand"}},
+    {"kind": "same", "state": "merge-ready", "exit": None, "to": None, "fields": [], "depth": 0, "before": {"title": "merge-ready", "tags": ["final"]}, "after": {"title": "merge-ready", "tags": ["final"]}},
+    {"kind": "removed", "state": "old", "exit": None, "to": None, "fields": [], "depth": 0, "before": {"title": "old", "tags": []}, "after": None},
+]
+
+
+def test_only_what_changes_folds_the_rest_but_keeps_a_changed_states_other_exits():
+    got = run(["odCells", "odRows"], f"""
+        const rows = {json.dumps(DIFF_ROWS)};
+        const shape = (list) => list.map((r) => r.fold ? r.text : [r.row.state, r.row.exit, r.tag, r.L && r.L.title, r.R && r.R.title, r.L && r.L.mark, r.R && r.R.mark]);
+        return [shape(odRows(rows, true)), odRows(rows, false).length];""")
+    only, every = got
+    assert only == [
+        "⋯ 3 unchanged rows",
+        ["review", None, "", "review", "review", "", ""],
+        ["review", 1, "moved from place 2 to 1", "2. → escalated", "1. → escalated", "old", "add"],
+        ["review", 2, "", "1. → merge-ready", "2. → merge-ready", "", ""],      # kept: a changed state's other exits stay
+        ["review", 3, "changed: requires", "3. → fix", "3. → fix", "old", "add"],
+        ["review", 4, "added", None, "4. → abandoned", None, "add"],
+        "⋯ 1 unchanged row",
+        ["old", None, "removed", "old", None, "old", None],
+    ]
+    assert every == len(DIFF_ROWS)
+
+
+def test_approve_says_why_it_waits_while_a_problem_stands():
+    got = run(["approveReason", "checkRows"], """
+        const problem = { kind: "problem", where: "state.orphan", text: "can't be reached from 'session'" };
+        const mark = { kind: "mark", where: "state.merge.grant.github", text: "merge: merging to the default branch" };
+        return [approveReason([mark]), approveReason([problem, mark]), approveReason([problem, problem], "Save"),
+                checkRows([mark]).map((r) => r.kind), checkRows([mark, problem]).map((r) => r.kind)];""")
+    assert got[0] is None
+    assert got[1] == "Approve waits: the checks find a problem. state.orphan: can't be reached from 'session'"
+    assert got[2].startswith("Save waits: the checks find 2 problems.")
+    assert got[3] == ["ok", "mark"] and got[4] == ["problem", "mark"]
+
+
+def test_a_text_diff_line_says_its_sign_in_words():
+    got = run(["textDiffLines"], """return textDiffLines([{ kind: "hunk", text: "@@ -1 +1 @@" }, { kind: "del", text: "a" }, { kind: "add", text: "b" }, { kind: "ctx", text: "c" }]);""")
+    assert [(l["cls"], l["sr"], l["text"]) for l in got] == [("hunk", "", "@@ -1 +1 @@"), ("del", "removed: ", "a"), ("add", "added: ", "b"), ("", "", "c")]

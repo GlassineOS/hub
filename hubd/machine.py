@@ -846,12 +846,13 @@ def check(d: Definition) -> list[Finding]:
 class Row:
     """One row of the outline: a state (exit None) or one of its own exits. kind: same, added, removed, changed (fields
     names what) or moved (only the exit's place among the state's exits changed). exit is its 1-based place, in b unless
-    removed."""
+    removed; was is its place in a, for an exit row that is in both."""
     kind: str
     state: str
     exit: int | None = None
     to: str | None = None
     fields: tuple[str, ...] = ()
+    was: int | None = None
 
 
 def _diff_fields(x, y, skip=()) -> tuple[str, ...]:
@@ -885,7 +886,7 @@ def _exit_rows(sid: str, a: tuple[Exit, ...], b: tuple[Exit, ...]) -> list[Row]:
             continue
         changed = _diff_fields(a[pairs[j]], y) + (() if j in kept else ("order",))
         kind = "same" if not changed else "moved" if changed == ("order",) else "changed"
-        rows.append(Row(kind, sid, j + 1, y.to, changed if kind == "changed" else ()))
+        rows.append(Row(kind, sid, j + 1, y.to, changed if kind == "changed" else (), pairs[j] + 1))
     rows += [Row("removed", sid, i + 1, a[i].to) for i in free_a]
     return rows
 
