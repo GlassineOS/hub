@@ -634,7 +634,7 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
 
     wf_steps = {"check": ("text", "scope"), "diff": ("scope", "from", "text"), "replay": ("text", "session"),
                 "save": ("scope", "text", "base_version", "note"), "propose": ("scope", "text", "note", "session"),
-                "reorder": ("text", "state", "place", "by")}
+                "reorder": ("text", "state", "place", "by"), "start": ("text", "place", "start", "scope")}
 
     async def wf_step(r, b, token):
         step = p(r, "step")

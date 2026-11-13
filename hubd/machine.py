@@ -447,6 +447,20 @@ def _start(r: _Reader, raw, where: str) -> Start:
                  prompt=r.get(t, "prompt", where, str, ""))
 
 
+def start_from(raw) -> Start:
+    """One start from a table of its fields, as the editor sends it: checked as the text's own would be."""
+    r = _Reader()
+    st = _start(r, raw, "start")
+    if r.problems:
+        raise DefinitionError(r.problems)
+    return st
+
+
+def start_json(st: Start) -> dict:
+    """A start's fields, as the editor reads and sends them."""
+    return {f: (list(v) if isinstance(v, tuple) else v) for f in _START_ORDER if (v := getattr(st, f)) is not None}
+
+
 def _launch(r: _Reader, raw, where: str) -> Launch:
     t = r.table(raw, where, _LAUNCH_ORDER)
     drafting = t.get("drafting")
@@ -1135,6 +1149,24 @@ def _exit_rows(sid: str, a: tuple[Exit, ...], b: tuple[Exit, ...]) -> list[Row]:
         kind = "same" if not changed else "moved" if changed == ("order",) else "changed"
         rows.append(Row(kind, sid, j + 1, y.to, changed if kind == "changed" else (), pairs[j] + 1))
     rows += [Row("removed", sid, i + 1, a[i].to) for i in free_a]
+    return rows
+
+
+def starts_diff(a: Definition, b: Definition, inherited: tuple[Start, ...] | None = None) -> list[dict]:
+    """The starts, one row each, matched by id (the workflow's name for one without): same, added, removed or changed (the
+    fields that differ, a prompt among them). With none named, a text has the file's (`inherited`)."""
+    def keyed(d):
+        return {start_id(d, st): st for st in effective_starts(d, inherited)}
+    x, y = keyed(a), keyed(b)
+    rows = []
+    for sid in [*y, *(k for k in x if k not in y)]:
+        old, new = x.get(sid), y.get(sid)
+        if old is None or new is None:
+            rows.append({"kind": "added" if old is None else "removed", "id": sid, "label": (new or old).label, "on": (new or old).on, "fields": []})
+            continue
+        changed = [f for f in _START_ORDER if getattr(old, f) != getattr(new, f)]
+        rows.append({"kind": "changed" if changed else "same", "id": sid, "label": new.label, "on": new.on, "fields": changed,
+                     **({"prompt": {"before": old.prompt, "after": new.prompt}} if "prompt" in changed else {})})
     return rows
 
 

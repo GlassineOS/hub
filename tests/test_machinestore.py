@@ -229,6 +229,71 @@ def test_reorder_moves_an_exit_through_the_text(world):
     assert not hub.workflows.request("workflow.reorder", {"text": text_of("implement"), "state": "review", "place": 1, "by": -1}, "me")["ok"]
 
 
+# ---- starts in the editor (FR-105) ----
+
+def test_the_list_has_every_workflow_with_its_starts_by_kind(world):
+    _a, _d, hub, _login = world
+    rows = {r["name"]: r for r in hub.workflows.request("workflow.list", {}, "me")["workflows"]}
+    assert set(rows) == {p.stem for p in (REPO / "agents" / "workflows").glob("*.toml")}  # one-state ones too
+    assert rows["implementor"]["kinds"] == ["issue", "pr"] and not rows["implementor"]["managed_only"]
+    assert [(s["id"], s["on"], s["label"], s["lead"]) for s in rows["implementor"]["starts"]] == [
+        ("implementor", "issue", "Work on this", True), ("implementor-pr", "pr", "Take this on", True)]
+    assert rows["implement"]["managed_only"] and rows["implement"]["starts"] == [] and rows["engineer"]["managed_only"]
+    assert rows[ONE]["states"] == 1 and rows[ONE]["kinds"] == ["run"]
+
+
+def test_the_outline_has_the_starts_with_where_they_start_and_what_a_session_receives(world):
+    _a, _d, hub, _login = world
+    got = hub.workflows.request("workflow.get", {"name": "implementor"}, "me")["outline"]
+    issue, pr = got["starts"]
+    assert (issue["id"], issue["starts_in"], issue["path"], issue["persona"]) == ("implementor", "implement", ["work", "implement"], "implementor")
+    assert (pr["id"], pr["starts_in"], pr["when_held"], pr["lead"]) == ("implementor-pr", "review", "hide", True)
+    assert pr["receives"].startswith("Carry pull request #<number> of GlassineOS/<repo>")
+    assert "kind: pull request" in pr["receives"] and "read from GitHub when the session starts" in pr["receives"]
+    assert got["launch"]["personas"] == ["implementor"] and got["starts_named"]
+    beside = hub.workflows.request("workflow.get", {"name": "pr-review"}, "me")["outline"]["starts"][0]
+    assert beside["when_held"] == "beside" and beside["writes"] == []
+
+
+def test_a_start_is_edited_through_the_text_and_its_prompt_shows_in_the_diff_and_the_replay(world):
+    _a, _d, hub, _login = world
+    text = text_of("pr-explain")
+    start = machine.start_json(machine.parse(text).starts[0])
+    got = hub.workflows.request("workflow.start", {"name": "pr-explain", "text": text, "place": 1,
+                                                    "start": {**start, "prompt": "Explain #{number} of {repo} in three lines.\n"}}, "me")
+    assert got["ok"] and machine.parse(got["text"]).starts[0].prompt == "Explain #{number} of {repo} in three lines.\n"
+    assert [f for f in got["findings"] if f["kind"] == "problem"] == []
+    diffed = hub.workflows.request("workflow.diff", {"name": "pr-explain", "scope": ORG, "from": 0, "text": got["text"]}, "me")
+    [row] = [r for r in diffed["starts"] if r["kind"] != "same"]
+    assert row["fields"] == ["prompt"] and row["prompt"]["after"].startswith("Explain #{number} of {repo} in three")
+    # a prompt that fills in more than the item's fields is refused before anything is saved
+    bad = hub.workflows.request("workflow.start", {"name": "pr-explain", "text": text, "place": 1,
+                                                    "start": {**start, "prompt": "{repo.__class__}"}}, "me")
+    assert bad["ok"] and any("isn't one of" in f["text"] for f in bad["findings"] if f["kind"] == "problem")
+    refused = hub.workflows.request("workflow.save", {"name": "pr-explain", "scope": ORG, "text": bad["text"], "base_version": 0}, "me")
+    assert not refused["ok"]
+    added = hub.workflows.request("workflow.start", {"name": "pr-explain", "text": text, "start": {"on": "pr", "label": "Explain again", "id": "pr-explain-2"}}, "me")
+    assert [st.label for st in machine.parse(added["text"]).starts] == ["Explain the diff", "Explain again"]
+    gone = hub.workflows.request("workflow.start", {"name": "pr-explain", "text": text, "place": 1}, "me")
+    assert machine.parse(gone["text"]).starts == ()
+    assert not hub.workflows.request("workflow.start", {"name": "pr-explain", "text": text, "place": 1, "start": {"on": "pr", "colour": "red"}}, "me")["ok"]
+    beside = hub.workflows.request("workflow.start", {"name": "pr-explain", "text": text.replace('result = "none"', 'result = "none"'), "place": 1,
+                                                       "start": {**start, "when_held": "beside"}}, "me")
+    assert beside["ok"]
+
+
+def test_a_text_naming_no_starts_inherits_the_files_and_an_edit_keeps_them(world):
+    _a, _d, hub, _login = world
+    text = text_of("implementor")
+    d = machine.parse(text)
+    bare = machine.emit(machine.Definition(**{**{f: getattr(d, f) for f in d.__dataclass_fields__}, "starts": None}))
+    got = hub.workflows.request("workflow.check", {"name": "implementor", "text": bare}, "me")
+    assert [s["id"] for s in got["outline"]["starts"]] == ["implementor", "implementor-pr"] and got["outline"]["starts"][0]["inherited"]
+    edited = hub.workflows.request("workflow.start", {"name": "implementor", "text": bare, "place": 2,
+                                                       "start": {**machine.start_json(d.starts[1]), "label": "Take it on"}}, "me")
+    assert [st.label for st in machine.parse(edited["text"]).starts] == ["Work on this", "Take it on"]
+
+
 # ---- the workflow.change card ----
 
 def test_a_proposal_is_a_card_and_approving_it_saves(world):
@@ -356,3 +421,4 @@ def test_replay_through_the_op_reads_the_sessions_log(world):
     assert [s["session_id"] for s in listed] == ["conv-1"] and listed[0]["name"] == "impl-1"
     got = hub.workflows.request("workflow.replay", {"name": "implement", "text": IMPL, "session": "conv-1"}, "me")
     assert got["ok"] and got["differs"] == 0 and got["end"] == "fix"
+    assert got["starts"] == [] and "after the save" in got["starts_note"]  # IMPL names the same starts as the file
