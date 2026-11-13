@@ -246,6 +246,61 @@ def test_a_change_that_isnt_user_facing_skips_qa_and_a_failing_review_resumes_th
         ("implement", "review"), ("review", "fix"), ("fix", "review"), ("review", "qa"), ("qa", "merge-ready")]
 
 
+async def into_qa_with_a_designer(h, a, gh, judge):
+    """Through review to qa, woken there for the QA entry's `when`; then the designer started on request (FR-074)."""
+    name, _engineer = await through_implement(h, a, gh, judge)
+    [reviewer] = children(h, a, name, "reviewer")
+    sent = []
+    real = a._send
+
+    async def send(who, words, by=None):
+        sent.append((who, words))
+        return await real(who, words, by=by)
+    a._send = send
+    (a.sessions / name / IDLE_FILE).touch()
+    assert (await give(h, reviewer, verdict="pass", findings=[]))["ok"]
+    await base.at_prompt(h, a, name)
+    assert state_of(a, name) == "qa"
+    # idle at its prompt, it is woken with the hub's fixed words, so its `when` gets a turn to be judged on
+    assert (name, "Your workflow moved: what it says is in this turn, from the hub.") in sent
+    assert all(words.startswith(("Your workflow moved", "[From the hub]")) or who != name for who, words in sent)
+    judge.yes = {"accepted design board covers", "is user-facing: a person"}
+    got = await h.request({"op": "managed.start", "agent_token": token_of(a, name), "entry": "designer"})
+    await settle(h)
+    assert got["ok"] and got["started"], got
+    await turn_ends(h, a, name)
+    [designer] = children(h, a, name, "designer")
+    [qa] = children(h, a, name, "qa")
+    rec = json.loads((a.sessions / designer / "session.json").read_text())
+    assert rec["config"]["action"] == "design-check" and rec["config"]["persona"] == "designer" and not rec["full"]
+    assert h.decisions.open_approvals(name) == []  # within the implementor's grant: no card
+    return name, qa, designer
+
+
+def test_a_designer_started_in_qa_is_waited_for_and_its_pass_with_qas_reaches_merge_ready(team):
+    h, a, gh, _apps, judge = team
+
+    async def go():
+        name, qa, designer = await into_qa_with_a_designer(h, a, gh, judge)
+        assert (await give(h, qa, verdict="pass", findings=["Ran it."]))["ok"]
+        assert state_of(a, name) == "qa"  # the designer hasn't said yet
+        assert (await give(h, designer, verdict="pass", findings=["Matches the accepted board."]))["ok"]
+        assert state_of(a, name) == "merge-ready"
+    asyncio.run(go())
+
+
+def test_a_designers_fail_goes_to_fix(team):
+    h, a, gh, _apps, judge = team
+
+    async def go():
+        name, _qa, designer = await into_qa_with_a_designer(h, a, gh, judge)
+        (a.sessions / name / IDLE_FILE).touch()
+        assert (await give(h, designer, verdict="fail", findings=["The spacing differs from the board."]))["ok"]
+        await base.at_prompt(h, a, name)
+        assert state_of(a, name) == "fix"
+    asyncio.run(go())
+
+
 # --- the design spike (User Story 6) ---------------------------------------------------------------------------------
 
 def test_a_design_spike_asks_you_raises_look_at_the_design_and_its_merged_pull_request_is_design_accepted(team, tmp_path):
