@@ -166,3 +166,89 @@ def test_saving_keeps_the_key_private_and_reads_back(tmp_path):
     assert a.table()["reviewer"]["app_id"] == 42 and a.posts_as("triager") == "glassine-triager[bot]"
     with pytest.raises(SystemExit):
         create_app.save("reviewer", app, tmp_path)
+
+
+# --- tokens scoped to a session's repositories and capabilities ---------------------------------
+class FakeGitHub:
+    """GitHub's two calls, with what the token request carried."""
+    def __init__(self, expires_at="2026-11-01T12:00:00Z"):
+        self.bodies, self.expires_at = [], expires_at
+
+    def __call__(self, method, url, bearer, body=None):
+        if method == "GET":
+            return {"id": 7}
+        self.bodies.append(body)
+        return {"token": f"t{len(self.bodies)}", "expires_at": self.expires_at}
+
+
+def scoped(tmp_path, now):
+    github = FakeGitHub()
+    a = Apps(table(tmp_path, tmp_path / "unused.pem"), fetch=github, clock=lambda: now[0])
+    return a, github
+
+
+@pytest.fixture
+def no_signing(monkeypatch):
+    monkeypatch.setattr(apps, "jwt", lambda *_a: "jwt")
+
+
+EXPIRY = 1793534400  # 2026-11-01T12:00:00Z
+
+
+def test_the_request_carries_names_and_permissions(tmp_path, no_signing):
+    a, github = scoped(tmp_path, [EXPIRY - 3600])
+    assert asyncio.run(a.token("reviewer", ["hub", "boot"], {"issues": "write", "metadata": "read"})) == "t1"
+    assert github.bodies == [{"repositories": ["boot", "hub"], "permissions": {"issues": "write", "metadata": "read"}}]
+    asyncio.run(a.token("reviewer"))
+    assert github.bodies[-1] is None  # the persona's token as before: no body
+
+
+def test_the_cache_keys_on_the_scope(tmp_path, no_signing):
+    a, github = scoped(tmp_path, [EXPIRY - 3600])
+    first = asyncio.run(a.token("reviewer", ["hub", "boot"], {"issues": "write", "contents": "read"}))
+    assert asyncio.run(a.token("reviewer", ["boot", "hub"], {"contents": "read", "issues": "write"})) == first
+    assert asyncio.run(a.token("reviewer", ["boot"], {"contents": "read", "issues": "write"})) != first
+    assert asyncio.run(a.token("reviewer", ["hub", "boot"], {"contents": "read"})) != first
+    assert asyncio.run(a.token("reviewer")) != first
+    assert len(github.bodies) == 4
+
+
+def test_a_scoped_token_is_renewed_ten_minutes_before_its_end(tmp_path, no_signing):
+    now = [EXPIRY - 3600]
+    a, github = scoped(tmp_path, now)
+    scope = (["hub"], {"contents": "read"})
+    assert asyncio.run(a.token("reviewer", *scope)) == "t1"
+    now[0] = EXPIRY - 601
+    assert asyncio.run(a.token("reviewer", *scope)) == "t1"
+    now[0] = EXPIRY - 599
+    assert asyncio.run(a.token("reviewer", *scope)) == "t2"
+
+
+@pytest.mark.parametrize("repos, permissions", [
+    ([], None), (["GlassineOS/hub"], None), ("hub", None), ([""], None),
+    (["hub"], {}), (["hub"], {"issues": "admin"}), (["hub"], ["issues"]),
+])
+def test_an_empty_or_odd_scope_is_refused_not_widened(tmp_path, no_signing, repos, permissions):
+    a, github = scoped(tmp_path, [EXPIRY - 3600])
+    with pytest.raises(AppError):
+        asyncio.run(a.token("reviewer", repos, permissions))
+    assert github.bodies == []
+
+
+def test_permissions_for_capabilities():
+    base = {"metadata": "read", "contents": "read"}
+    assert apps.permissions_for([]) == base == apps.permissions_for(["read"])
+    assert apps.permissions_for(["issues.write"]) == {**base, "issues": "write"}
+    assert apps.permissions_for(["pr.write"]) == apps.permissions_for(["pr.review"]) == {**base, "pull_requests": "write"}
+    # GitHub can't tell pushing from merging: both are contents:write
+    assert apps.permissions_for(["push"]) == {**base, "contents": "write"}
+    assert apps.permissions_for(["merge"]) == {**base, "contents": "write", "pull_requests": "write"}
+    assert apps.permissions_for(["runs.write"]) == apps.permissions_for(["runs.approve"]) == {**base, "actions": "write"}
+    assert apps.permissions_for(["repo.public"]) == apps.permissions_for(["repo.delete"]) == {**base, "administration": "write"}
+    assert apps.permissions_for(["pr.read", "pr.write", "runs.read"]) == {**base, "pull_requests": "write", "actions": "read"}
+
+
+@pytest.mark.parametrize("caps", [["issues.admin"], ["push", "secrets.write"], "push", [1]])
+def test_unknown_capabilities_are_refused(caps):
+    with pytest.raises(AppError):
+        apps.permissions_for(caps)

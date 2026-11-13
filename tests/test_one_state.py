@@ -120,7 +120,7 @@ def test_the_library_refuses_rights_out_of_place_and_a_broken_workflow(tmp_path,
 
 def test_a_session_keeps_to_its_first_state_so_a_workflow_with_more_isnt_used(tmp_path):
     root = _copy(tmp_path)
-    _edit(root / "workflows" / "pr-explain.toml", "final = true", '[[state.work.exit]]\nto = "done"\ndecided_by = "hand"\n\n[state.done]\nfinal = true')
+    _edit(root / "workflows" / "pr-explain.toml", "final = true", '[[state.session.exit]]\nto = "done"\ndecided_by = "hand"\n\n[state.done]\nfinal = true')
     with pytest.raises(LibraryError, match="more than one state"):
         Library(root)
 

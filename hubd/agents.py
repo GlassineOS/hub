@@ -42,11 +42,13 @@ from pathlib import Path
 from urllib.parse import quote
 
 from . import auth, machine, shell_hook, usage
+from .apps import CAPABILITIES, READ_CAPABILITIES, AppError, permissions_for
 from .asks import FOREVER, HOOK_MARGIN, QUESTION_TOOL, WAIT
 from .codemap import UNREADABLE, CodeMaps, MapError
 from .codesearch import CodeSearch, SearchError
 from .ghpolicy import ORG, Refused
 from .history import History
+from .instances import MachineError, Machines
 from .results import APPLY_TOOLS
 from .seeds import SeedError, Seeds, remove_tree
 from .shells import ShellError, Shells
@@ -97,6 +99,7 @@ SHELL_HOOK_TIME = 10  # seconds; it only writes out a command
 IGNORED_LIMIT = 1024 * 1024  # bytes a session's checkouts may hold in ignored files and still go without asking, as with `ws done`
 WORKSPACE_REPO = "workspace"
 TOKEN_FILE = "tool-token"
+GITHUB_FOLDER = "github"  # the session's GitHub token, renewed by hubd, for a launch that carries GitHub capabilities
 REPOS_FOLDER = "repos"  # a session's own snapshots of the hub's copies
 GUARD_FILE = "shell-guard"
 ENDED_FILE = "ended"  # Claude has ended in this session
@@ -107,7 +110,7 @@ MAX_NAME = 34
 _NAME_RE = re.compile(rf"[A-Za-z0-9_-]{{1,{MAX_NAME}}}")
 TOOL_SERVER_WAIT = 3  # seconds; connecting takes milliseconds when the tool server is up
 _FIELDS = {"action", "repo", "number", "covers", "also_numbers", "persona", "model", "effort", "tools", "hub_tools", "brief", "also_repos",
-           "docs_query", "docs", "name", "notes", "pins", "steps"}
+           "docs_query", "docs", "name", "notes", "pins", "steps", "github"}
 # Not the tools: an action's list is already its limit, and a session missing one only wastes turns on refusals.
 _CHOSEN = ("persona", "model", "effort", "brief", "docs_query", "docs", "steps")
 MAX_DOCS = 8
@@ -316,7 +319,9 @@ _GRANT_KEYS = tuple(f.name for f in fields(machine.Grant))
 class Library:
     def __init__(self, root: Path):
         self.root = root
-        self.workflows = self._workflows(root / "workflows")
+        loaded = self._workflows(root / "workflows")
+        self.workflows = {name: definition for name, (definition, _text) in loaded.items()}
+        self.workflow_texts = {name: text for name, (_definition, text) in loaded.items()}  # what an instance keeps and hashes
         self.actions = {p.stem: {**tomllib.loads(p.read_text()), "id": p.stem}
                         for p in sorted((root / "actions").glob("*.toml"))}
         for action in self.actions.values():
@@ -331,19 +336,20 @@ class Library:
         self._check()
 
     @staticmethod
-    def _workflows(folder: Path) -> dict[str, machine.Definition]:
-        """Each definition as its file has it, refused whole on any problem the checks find. Marks only show."""
+    def _workflows(folder: Path) -> dict[str, tuple[machine.Definition, str]]:
+        """Each definition with the text of its file, refused whole on any problem the checks find. Marks only show."""
         found = {}
         for path in sorted(folder.glob("*.toml")):
+            text = path.read_text()
             try:
-                definition = machine.parse(path.read_text())
+                definition = machine.parse(text)
             except machine.DefinitionError as e:
                 raise LibraryError(f"workflows/{path.name}: {e}") from None
             if definition.name != path.stem:
                 raise LibraryError(f"workflows/{path.name}: its name is {definition.name!r}, not the file's")
             if problems := [f for f in machine.check(definition) if f.kind == "problem"]:
                 raise LibraryError(f"workflows/{path.name}: " + "; ".join(f"{f.where}: {f.text}" for f in problems))
-            found[path.stem] = definition
+            found[path.stem] = (definition, text)
         return found
 
     def _grant_of(self, action: dict) -> machine.Grant:
@@ -355,6 +361,7 @@ class Library:
         if not isinstance(name, str) or name not in self.workflows:
             raise LibraryError(f"{where}: workflow {name!r} isn't one of workflows/*.toml")
         definition = self.workflows[name]
+        action["definition"] = self.workflow_texts[name]  # what a session's instance runs on
         # Nothing moves a session from one state to another yet, so it would keep the first one's rights for good.
         if len(definition.states) != 1:
             raise LibraryError(f"{where}: workflow {name} has more than one state, and a session stays in its first")
@@ -391,6 +398,11 @@ class Library:
             if NOTES_TOOL in _grant(action).hub_tools and not _may_search_notes(action):  # listed by hand, on an action that can post
                 raise LibraryError(f"workflows/{action['workflow']}.toml: {NOTES_TOOL} is for a locked action that only reads: no shell, no write "
                                    "or post tool, no plan_work, nothing that asks first")
+            github = _grant(action).github
+            if github and (set(github) - set(CAPABILITIES) or _full(action) or "Bash" not in _grant(action).tools):
+                # A full session uses the host's login and is guarded, not limited; without a shell a token has no use.
+                raise LibraryError(f"workflows/{action['workflow']}.toml: github is a list of GitHub capabilities "
+                                   f"({', '.join(CAPABILITIES)}), for a locked action with Bash")
             home = action.get("repository")
             if home is not None and not (isinstance(home, str) and _REPO_RE.fullmatch(home) and ".." not in home and home.lstrip(".") != "work"
                                          and _full(action) and _grant(action).checkout == "new-branch"
@@ -526,6 +538,18 @@ def validate(library: Library, config) -> dict:
                        and all(isinstance(t, str) and len(t) <= MAX_STEP for t in st["touches"]) for st in steps)):
         raise AgentError(f"steps must be up to {MAX_STEPS}, each what it does and up to {MAX_TOUCHES} things it touches, "
                          f"{MAX_STEP} characters each")
+    github = config.get("github")
+    if github is not None:  # absent: no GitHub token, as before there were any
+        if not _grant(action).github:  # an empty list in the config is still a token, for an action whose grant has one
+            raise AgentError(f"{action['title']} gives no GitHub token")
+        if not isinstance(github, list) or not all(isinstance(c, str) for c in github):
+            raise AgentError("github must be a list of capabilities")
+        if unknown := sorted(set(github) - set(CAPABILITIES)):
+            raise AgentError(f"unknown GitHub capabilities: {', '.join(unknown)}")
+        if beyond := sorted(set(github) - set(_grant(action).github)):
+            raise AgentError(f"{action['title']} doesn't allow GitHub {', '.join(beyond)}")
+        if "Bash" not in config["tools"]:
+            raise AgentError("a GitHub token is for a session with a shell")
     name = config.get("name")
     if name is not None and (not isinstance(name, str) or not _NAME_RE.fullmatch(name)):
         raise AgentError("a session name is 1-34 letters, digits, _ or -")
@@ -718,6 +742,7 @@ class Agents:
         self._pr_lookups: dict[str, asyncio.Task] = {}
         self._removing: set[str] = set()
         self.history = History(state_dir / "history")
+        self.machines = Machines(self.sessions, state_dir / "machines.sqlite", lambda a: self.library.actions.get(a), self.is_session)
         self.cleanup_file = state_dir / "cleanup.json"
         self.steward_file = state_dir / "steward.json"
         self.before_remove = None  # awaited with a session's name before its worktree goes: the design view stops its renderer
@@ -769,7 +794,7 @@ class Agents:
         return validate(self.library, {
             "action": action["id"], "repo": repo, "number": number, "persona": action["personas"][0],
             "model": self._usual_model(action), "effort": action["efforts"][0], "tools": list(_grant(action).tools),
-            "hub_tools": list(_grant(action).hub_tools), "brief": ""})
+            "hub_tools": list(_grant(action).hub_tools), "brief": "", **({"github": list(_grant(action).github)} if _grant(action).github else {})})
 
     def _prepare_home(self) -> Path:
         self.home.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -963,14 +988,33 @@ class Agents:
             raise AgentError(f"git {args[0]} failed: {err[-400:].decode(errors='replace')}")
         return out.decode(errors="replace")
 
-    async def _pr_branch(self, repo: str, number: int) -> str:
-        """The pull request's branch, if it is one a full session may work on."""
+    async def _pr_head(self, repo: str, number: int) -> dict:
         if self.gh is None:
             raise AgentError("no gh to look up the pull request")
         reply = await self.gh.run(["pr", "view", str(number), "-R", f"{ORG}/{repo}", "--json", "isCrossRepository,headRefName"])
         if reply["code"] != 0:
             raise AgentError(f"can't read the pull request: {reply['stderr'].strip()[-300:]}")
-        pr = json.loads(reply["stdout"])
+        return json.loads(reply["stdout"])
+
+    async def _from_fork(self, repo: str, number: int) -> bool:
+        """Whether a pull request comes from a fork. If GitHub can't say, it does."""
+        try:
+            return (await self._pr_head(repo, number)).get("isCrossRepository") is not False
+        except Exception:  # noqa: BLE001: unsure means a fork
+            return True
+
+    async def _github_for(self, config: dict, action: dict) -> dict:
+        """A session on a fork's pull request keeps only its read capabilities: that code runs in the shell with the token."""
+        if not config.get("github") or action["object"] != "pr":
+            return config
+        for cover in config.get("covers") or [{"repo": config["repo"], "number": config["number"]}]:
+            if await self._from_fork(cover["repo"], cover["number"]):
+                return {**config, "github": [c for c in config["github"] if c in READ_CAPABILITIES]}
+        return config
+
+    async def _pr_branch(self, repo: str, number: int) -> str:
+        """The pull request's branch, if it is one a full session may work on."""
+        pr = await self._pr_head(repo, number)
         if pr.get("isCrossRepository") is not False:
             raise AgentError("this pull request comes from a fork: a full session would run an outsider's tree with your rights")
         branch = pr.get("headRefName")
@@ -1297,7 +1341,8 @@ class Agents:
         if "Bash" not in config["tools"] or _full(action):
             return []
         checkouts = [str(path) for _, path in self._checkouts(directory.name, config, action)]
-        command = shlex.join([sys.executable, "-I", str(Path(__file__).with_name("shell_hook.py")), str(directory / "shell"), *checkouts])
+        github = ["--github", str(directory / GITHUB_FOLDER)] if config.get("github") is not None else []
+        command = shlex.join([sys.executable, "-I", str(Path(__file__).with_name("shell_hook.py")), *github, str(directory / "shell"), *checkouts])
         return [{"matcher": "Bash", "hooks": [{"type": "command", "command": command, "timeout": SHELL_HOOK_TIME}]}]
 
     def _check_sandbox(self, config: dict, action: dict) -> None:
@@ -1325,13 +1370,58 @@ class Agents:
             return
         checkouts = [c for _r, c in self._checkouts(directory.name, config, action)]
         try:
-            argv = shell_hook.sandboxed("true", str(checkouts[0]), directory / "shell", checkouts)
+            github = directory / GITHUB_FOLDER if config.get("github") is not None else None
+            argv = shell_hook.sandboxed("true", str(checkouts[0]), directory / "shell", checkouts, github)
             proc = await asyncio.create_subprocess_exec(*argv[1:], stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
             _out, err = await asyncio.wait_for(proc.communicate(), SANDBOX_PROBE_WAIT)
         except (OSError, ValueError, TimeoutError, subprocess.SubprocessError) as e:
             raise AgentError(f"this action's shell doesn't work on this host: {e}") from e
         if proc.returncode != 0:
             raise AgentError(f"this action's shell doesn't work on this host (bubblewrap 0.11 or later is needed): {err.decode(errors='replace').strip()[-300:]}")
+
+    async def _github_token(self, directory: Path, config: dict, action: dict) -> None:
+        """The session's GitHub token, limited to its repositories and capabilities, in a file only you can read. A
+        launch with no github list gets none. One that has a list and no token doesn't start: never a wider one, or yours."""
+        if config.get("github") is None:
+            shutil.rmtree(directory / GITHUB_FOLDER, ignore_errors=True)  # one its action has since lost
+            return
+        repos = sorted({r for r in (_home(config, action), *(c["repo"] for c in config.get("covers", ())), *config.get("also_repos", ())) if r})
+        if not repos:
+            raise AgentError("a GitHub token needs a repository to be limited to")
+        try:
+            token = await self.apps.token(config["persona"], repos, permissions_for(config["github"])) if self.apps else None
+        except AppError as e:
+            raise AgentError(str(e)) from e
+        if token is None:
+            raise AgentError(f"GitHub capabilities need a GitHub App for {config['persona']}")
+        folder = directory / GITHUB_FOLDER
+        folder.mkdir(mode=0o700, exist_ok=True)
+        path = folder / shell_hook.GITHUB_TOKEN
+        try:
+            if path.read_text() == token:
+                return
+        except OSError:
+            pass
+        part = folder / (shell_hook.GITHUB_TOKEN + ".part")
+        part.unlink(missing_ok=True)
+        fd = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(token)
+        os.replace(part, path)  # whole: a command reading it never sees half
+
+    async def renew_github_tokens(self) -> None:
+        """The running sessions' GitHub tokens, renewed before they end. A stopped session's waits for its resume."""
+        if not self.sessions.is_dir():
+            return
+        live = {s["name"] for s in await self.shells.list()}
+        for directory in self.sessions.iterdir():
+            if directory.name not in live or (directory / ENDED_FILE).exists() or not (directory / GITHUB_FOLDER).is_dir():
+                continue
+            try:
+                config = json.loads((directory / "session.json").read_text())["config"]
+                await self._github_token(directory, config, self.library.action(config["action"]))
+            except Exception:  # one session's failure mustn't hold the others' renewals
+                log.exception("couldn't renew the GitHub token of %s", directory.name)
 
     def _ask_hooks(self, directory: Path, config: dict, action: dict, marks: list) -> dict:
         """So what Claude asks reaches the hub as well. A full session has a terminal prompt for the hook to
@@ -1390,6 +1480,8 @@ class Agents:
 
     def _write_persona(self, config: dict, action: dict, directory: Path) -> None:
         shell = self.library.text(".", "sandbox") if "Bash" in config["tools"] and not _full(action) else ""
+        if shell and config.get("github") is not None:
+            shell += self.library.text(".", "github-token")
         copies = self.library.text(".", "repositories") if _full(action) or REPO_TOOLS & set(config.get("hub_tools", ())) else ""
         (directory / "persona.md").write_text(self.library.text("personas", config["persona"]) + "\n" + self.library.text(".", "advisor") + self.library.text(".", "asking") + copies + self.library.text(".", "private") + shell)
 
@@ -1471,8 +1563,10 @@ class Agents:
             session_id = str(uuid.uuid4())
             # An agent without a shell can't ask git which commit it's looking at.
             commit = (await self._git("rev-parse", "--short", "HEAD", cwd=checkout)).strip() if checkout else None
+            config = await self._github_for(config, action)
             script = self._script(config, action, directory, checkout, session_id, mcp, checkouts[1:], commit, beside,
                                   await self._unnamed_here(config, action))
+            await self._github_token(directory, config, action)
             await self._probe_sandbox(directory, config, action)
             self._session_token(directory, config, _full(action), session_id)
             # A full session starts where you would: the workspace's rules and memory are there.
@@ -1484,6 +1578,10 @@ class Agents:
             if origin is not None:  # 005 FR-010: the Launch record it came from, shown as its origin
                 record["origin"] = origin
             (directory / "session.json").write_text(json.dumps(record))
+            try:
+                self.machines.start(directory, action)  # 012 FR-011: its workflow instance, kept beside the record
+            except MachineError as e:
+                raise AgentError(f"{name} can't start: its workflow {e}") from None
             await self.shells.new(name, str(cwd), self._command(directory, script))
         except Exception:  # whatever it was, a folder left behind would keep the name taken
             await self._remove(name)
@@ -1524,6 +1622,9 @@ class Agents:
         live = {s["name"] for s in await self.shells.list()}
         found = [{"name": p.name, "agent": self.describe(p.name)} for p in self.sessions.iterdir()
                  if p.name not in live and p.name not in self._starting]
+        for f in found:
+            if f["agent"]:
+                self.machines.stopped(f["name"])
         return sorted((f for f in found if f["agent"]), key=lambda f: f["agent"].get("created") or 0, reverse=True)
 
     def _current_config(self, config: dict) -> dict:
@@ -1534,8 +1635,14 @@ class Agents:
             return config  # validate says so
         if action.get("singleton"):
             return {**config, "model": self._usual_model(action), "tools": list(_grant(action).tools), "hub_tools": list(_grant(action).hub_tools)}
-        return {**config, **{field: [t for t in config[field] if t in getattr(_grant(action), field)] if isinstance(config.get(field), list) else config.get(field)
-                             for field in ("tools", "hub_tools")}}
+        grant = _grant(action)
+        narrowed = {**config, **{field: [t for t in config[field] if t in getattr(grant, field)] if isinstance(config.get(field), list) else config.get(field)
+                                 for field in ("tools", "hub_tools")}}
+        if not grant.github:
+            narrowed.pop("github", None)
+        elif isinstance(config.get("github"), list):
+            narrowed["github"] = [c for c in config["github"] if c in grant.github]
+        return narrowed
 
     async def resume(self, name) -> dict:
         """Any session that has stopped, with the conversation it had, the same checkout and its own token.
@@ -1553,13 +1660,14 @@ class Agents:
                 raise AgentError(f"{name} is still running")
             config = validate(self.library, self._current_config(record["config"]))
             action = self.library.action(config["action"])
+            config = await self._github_for(config, action)
             self._check_sandbox(config, action)
             if _full(action) != record.get("full", False):
                 raise AgentError(f"{name} can't resume: its action's access has changed")
             present = self._present(name)
             if len(present) < len(self._checkouts(name, config, action)):
                 raise AgentError(f"{name} can't resume: its checkout is gone")
-            if any(config[f] != record["config"].get(f) for f in ("model", "tools", "hub_tools")) or record.get("permission_mode") != _mode(action):
+            if any(config.get(f) != record["config"].get(f) for f in ("model", "tools", "hub_tools", "github")) or record.get("permission_mode") != _mode(action):
                 # A resume runs with what the action says now (_argv), so the record says that too.
                 (directory / "session.json").write_text(json.dumps({**record, "config": config, "permission_mode": _mode(action)}))
                 self._load_scopes()
@@ -1572,6 +1680,7 @@ class Agents:
                 self._session_token(directory, config, _full(action), record.get("session_id"))
             (directory / REPOS_FOLDER).mkdir(exist_ok=True)  # one from before there were snapshots
             self._prepare_shell(directory, config, action)
+            await self._github_token(directory, config, action)
             await self._probe_sandbox(directory, config, action)
             argv = self._argv(config, action, directory, present[0] if present else None, record["session_id"],
                               self._prepare_home(), resume=True)
@@ -1580,6 +1689,7 @@ class Agents:
             if live:
                 await self.shells.kill(name)
             (directory / "settings.json").write_text(json.dumps(self._hooks(directory, config, action)))  # as they are now
+            self.machines.resumed(name)  # after the ended marker says when its clock stopped
             for marker in (ENDED_FILE, "waiting", IDLE_FILE, ASKING_FILE):
                 (directory / marker).unlink(missing_ok=True)
             await self.shells.new(name, str(cwd), self._command(directory, script))
@@ -2372,7 +2482,7 @@ class Agents:
         action = self.library.actions.get(record["config"].get("action"), {})
         if not action.get("singleton"):  # the Steward is one long session, reached from its sidebar
             try:
-                self.history.add(record, "finished" if (directory / ENDED_FILE).exists() else "you" if by_you else "interrupted")
+                self.history.add({**record, **self.machines.remembered(directory)}, "finished" if (directory / ENDED_FILE).exists() else "you" if by_you else "interrupted")
             except OSError as e:  # a full disk mustn't stop a session from ending
                 log.warning("couldn't remember %s: %s", name, e)
 
@@ -2502,7 +2612,8 @@ class Agents:
         directory = self.sessions / name
         if not directory.exists():
             directory.mkdir(mode=0o700)
-            (directory / "session.json").write_text(json.dumps({k: record[k] for k in record if k not in ("how", "ended")}))
+            (directory / "session.json").write_text(json.dumps({k: record[k] for k in record if k not in ("how", "ended", "machine")}))
+            self.machines.restore(directory, record)
             restored = True
         self._starting.add(name)
         try:

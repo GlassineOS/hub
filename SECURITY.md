@@ -156,7 +156,7 @@ A new restriction has to name the threat it stops, or be listed here as a guard.
   passes `hubd/shell_guard.py`, Claude Code's shell prefix, which refuses anything but the hook's sandbox command, marked
   with a secret from the session's folder, and the session's own hooks. Both were tried with a real session.
   Inside: the system's programs, `/etc`, the checkout and its git store as overlays, its own home and `/tmp`, and no
-  environment. So no tool token, `gh` login, SSH key, other files, the hub's socket, or the host's loopback and abstract
+  environment. So no tool token, `gh` login (but see the GitHub token below), SSH key, other files, the hub's socket, or the host's loopback and abstract
   sockets. Writes land in the session's folder and never in the real checkout, so nothing the hub's own git does can run
   what a pull request planted, and the file tools still read the tree as it is. pasta's sockets are this host's, so without
   more they would reach the hub's container, the docker gateway and your network. Routes set before bubblewrap starts,
@@ -172,6 +172,19 @@ A new restriction has to name the threat it stops, or be listed here as a guard.
   - The git store under an overlay is the clone the hub fetches into, which the kernel leaves undefined: odd git results
     inside, for the length of a command.
   - A kernel or bubblewrap bug would be a way out; the hub is not a stronger boundary than those.
+- **A shell's GitHub token.** An action whose workflow grants `github` capabilities, and a launch that carries them, give a locked
+  session with a shell an installation token of its persona's App, limited to the session's repositories and the
+  permissions those capabilities need (`hubd/apps.py`, `permissions_for`). hubd writes it to a 0600 file in the session's
+  folder and renews it while the session runs; the sandbox mounts that folder read-only and each command gets it as
+  `GH_TOKEN`, and git as a credential for `https://github.com` only, read from the file and never on a command line. What
+  fences it is the token's scope on GitHub, not `ghpolicy`: the command can do whatever the token allows. Pushing and
+  merging are both contents write, so a grant that can push can merge. Whatever runs in the shell holds it: that includes a pull
+  request's own code, which its tests run, so a session on a pull request from a fork keeps only its read capabilities, at start
+  and at resume, and so does one whose pull request GitHub can't confirm as the repository's own (any covered one).
+  A same-repository pull request's code can still use every capability the launch carries and send the token out. It
+  works until it expires, up to an hour after its last renewal, also after the session ends. A launch with a list and no
+  token doesn't start; one without a list gets none, as before. Full sessions are unchanged: they use the host's `gh`
+  login, guarded by hubd and not limited by a token.
 - **Resuming a session.** A session that has stopped keeps its record, tool token and checkout until
   you discard it, and Resume starts it again with its conversation. It needs a login, like starting
   one. Its rights are checked again against its action's workflow as it is now, and it refuses if they don't

@@ -112,8 +112,9 @@ that spec's name and number, as in "App frame (001) FR-011".
 
 - **FR-013**: Each action has a default model (Fable, Opus, Sonnet or Haiku) that the
   brief can change.
-- **FR-014**: An action's ceiling (read-only, comment, branch + draft PR) is enforced by
-  the session's permissions, not only shown.
+- **FR-014**: An action is a workflow (Workflows (012) FR-010) and its ceiling (read-only,
+  comment, branch + draft PR) is the grant of its first state, enforced by the session's
+  permissions, not only shown (Workflows (012) FR-031).
 - **FR-015**: A drafts result lists draft issues; each can be filed as is, edited and
   filed, or sent to the Steward.
 - **FR-016**: A pr result is a draft pull request whose body says "Closes …" for each

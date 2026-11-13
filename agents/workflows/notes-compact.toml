@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 schema = 1
 name = "notes-compact"
-initial = "work"
+initial = "session"
 
-[state.work]
+[state.session]
 final = true
-[state.work.grant]
+[state.session.grant]
 tools = ["AskUserQuestion"]
 hub_tools = ["notes_find", "docs_search", "work_search", "get_issue", "get_pr", "submit_result"]
 checkout = false
