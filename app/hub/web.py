@@ -541,11 +541,11 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         finally:
             for t in tasks:
                 t.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
-            try:
+            try:  # before any await, so a handler cancelled while closing still tells hubd the viewer left
                 writer.write(HEADER.pack(FRAME_EXIT, 0))
             except (ConnectionError, RuntimeError):
                 pass
+            await asyncio.gather(*tasks, return_exceptions=True)
             writer.close()
             try:
                 await ws.close()
