@@ -729,16 +729,14 @@ def managed_of(d: Definition, state_id: str) -> list[tuple[str, Manage]]:
 
 
 def _checkout_fits(child, owner) -> bool:
-    # A pull request's own branch fits under an owner on a new branch: the one a managed session gets is always its owner's own
-    # pull request (the one it opened, or the one it took on), never a fork's (the checkout refuses those).
     child, owner = (False if v is None else v for v in (child, owner))
-    return child is False or child == owner or (child in READ_CHECKOUTS and owner is not False) or (child, owner) == ("pr-branch", "new-branch")
+    return child is False or child == owner or (child in READ_CHECKOUTS and owner is not False)
 
 
 def beyond(child: Grant, owner: Grant) -> dict[str, tuple]:
     """What a managed session's grant holds that its owner's effective grant doesn't, per key, as Change.adds lists it.
-    Lists by item, ordered keys by level; a checkout fits when it is none, the owner's, a detached one under an owner
-    that has a checkout at all, or its pull request's branch under an owner on a new branch."""
+    Lists by item, ordered keys by level; a checkout fits when it is none, the owner's, or a detached one under an owner
+    that has a checkout at all."""
     out = {}
     for key in _SET_KEYS:
         if extra := tuple(x for x in getattr(child, key) if x not in getattr(owner, key)):

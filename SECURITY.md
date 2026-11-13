@@ -442,9 +442,10 @@ the person or session that started work in the hub.
 - **A managed session never holds more than its owner, at all times.** Its grant is its workflow's grant capped by what the
   owner holds in force: the owner's state grant narrowed as its launch narrowed it (what it took off, a GitHub list it
   lacks). Each list is the intersection, each level the lower, and a checkout must be the owner's, none, one that can't
-  push, or a pull request's own branch under an owner on a new branch: the pull request a managed session gets is always
-  its owner's own (one its engineer opened, or one it took on with Take this on), and that checkout refuses a fork's pull
-  request, as does an unclear answer from GitHub. The cap is part of how a managed session's rights are worked out, at start, resume and every narrowing, and when
+  push, or a pull request's own branch under an owner on a new branch when that pull request is the owner's own (one its
+  engineer opened, or one it took on with Take this on). A pull request a maintainer or the Steward names is anyone's: its
+  branch asks above the owner as any wider checkout does. That checkout refuses a fork's pull request, as does an unclear
+  answer from GitHub. The cap is part of how a managed session's rights are worked out, at start, resume and every narrowing, and when
   the owner is narrowed (a move, a library change) every running session it manages is narrowed to its cap again, and
   theirs: its token, its grant hook (a managed session has one even with a one-state workflow) and its GitHub token, made
   again. One whose cap can't be worked out is locked. What lies beyond the cap isn't dropped silently: the start waits

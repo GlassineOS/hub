@@ -91,8 +91,8 @@ returns = { verdict = ["pass", "fail"], findings = "text-list" }  # what it hand
   the owner's issue or pull request, the head the last round reviewed (`diff.since_last_round`), a brief from the library,
   and with `owner.summary` the owner's rolling summary between marks, as data. Never the owner's transcript.
 - **Its grant is capped by what its owner holds**, at all times: when the owner narrows, so do the sessions it manages. Each list is the intersection of the two, each level the lower, and a checkout it
-  can't push to fits under any checkout, as does a pull request's own branch under an owner on a new branch (the pull
-  request is always the owner's own). A workflow that needs more than that waits for an approval above the owner
+  can't push to fits under any checkout, as does a pull request's own branch under an owner on a new branch when the pull
+  request is the owner's own (one it or its engineer opened, or the one it is on), never one a maintainer names. A workflow that needs more than that waits for an approval above the owner
   (its own owner's session if that holds the extra items itself, else the maintainer), and the start comes after the yes;
   the instance keeps what was approved.
 - **Returns** are checked against `returns`: every field, each one of its values, or for `"text-list"` up to 20 lines of

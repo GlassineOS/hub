@@ -500,6 +500,10 @@ class Managed:
             raise ManagedStuck(f"there is no workflow {m.workflow}")
         # what an approval added: for the instance, and for a named item only for that item
         allowed = _merged(inst.entry(entry)["allowed"], inst.entry(entry)["allowed_items"].get(item_key or "", {}))
+        if wanted is None and action["object"] == "pr" and (child_grant.checkout, owner_grant.checkout) == ("pr-branch", "new-branch"):
+            # the owner's own pull request (the one it opened, or the one it is on): its branch is the owner's new branch, so
+            # pushing there holds no more than the owner does; a named item is anyone's, and asks as any wider checkout does
+            allowed = _merged(allowed, {"checkout": ["pr-branch"]})
         extra = {k: v for k, v in machine.beyond(child_grant, owner_grant).items() if any(x not in allowed.get(k, ()) for x in v)}
         if extra:
             holder = None
