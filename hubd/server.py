@@ -26,6 +26,7 @@ from pathlib import Path
 from . import auth, decisions, devices, interactions, machinerun, machinestore, newwork, notes, results, usage
 from . import judge as judgelib
 from .effects import Effects
+from .drafts import OPS as DRAFT_OPS, TOOLS as DRAFT_TOOLS, DraftError, Drafts
 from .managed import Managed, ManagedError
 from . import feed as feedlib
 from .designs import TICK as DESIGN_TICK, DesignError, Designs, Tools as DesignTools
@@ -177,6 +178,8 @@ class Hubd:
             self.effects.managed = self.managed
         # 012 FR-060: the saved versions of the workflows, the editor and the workflow.change card. A login only.
         self.workflows = machinestore.Workflows(agents, decision_store) if getattr(agents, "workflow_store", None) is not None else None
+        # 012 FR-062: a Workflow author's drafts. They save nothing; the hub proposes the newest passing one on entering propose.
+        self.drafts = Drafts(agents, self.workflows, machine_run) if self.workflows is not None and self.effects is not None else None
         self.work = work
         self._work_tasks: set[asyncio.Task] = set()  # or they could be collected mid-run
         self.apps = apps
@@ -238,6 +241,8 @@ class Hubd:
             return await self.request_move(req)
         if op in CHAIN_OPS:
             return await self.chain_tool(op, req)
+        if op in DRAFT_OPS:
+            return self.draft_tool(op, req)
         if op == "feed.changes":
             return await self.feed_changes(req)
         if op == "gh" and is_merge(req.get("argv")):
@@ -382,6 +387,28 @@ class Hubd:
             return {"ok": False, "refused": True, "error": "that token is from an earlier conversation of this session"}
         return {"ok": True, **await self.machine_run.request(scope["session"], scope.get("instance"), req.get("to"))}
 
+    def draft_tool(self, op: str, req: dict) -> dict:
+        """draft_workflow, read_draft and read_workflow: by a session's own token, from its current conversation, with the tool on
+        its list. None of them saves a version or makes a decision: those stay behind the login (`workflow.*`)."""
+        scope = self.agents.scope(req.get("agent_token")) if self.agents else None
+        tool = DRAFT_TOOLS[op]
+        if not scope or not scope.get("session"):
+            return {"ok": False, "refused": True, "error": "not a session's token"}
+        if not self._lists(scope, tool):
+            return {"ok": False, "refused": True, "error": f"this session can't use {tool}"}
+        if self.drafts is None:
+            return {"ok": False, "error": "workflow drafts aren't set up here"}
+        if scope.get("instance") != self.agents.session_id_of(scope["session"]):
+            return {"ok": False, "refused": True, "error": "that token is from an earlier conversation of this session"}
+        try:
+            if op == "wfdraft.make":
+                return {"ok": True, **self.drafts.make(scope, req.get("name"), req.get("scope"), req.get("text"), req.get("note"), req.get("session"))}
+            if op == "wfdraft.read":
+                return {"ok": True, **self.drafts.read(scope)}
+            return {"ok": True, **self.drafts.read_workflow(req.get("name"), req.get("scope"))}
+        except DraftError as e:
+            return {"ok": False, "error": str(e)}
+
     async def chain_tool(self, op: str, req: dict) -> dict:
         """start_managed, return_result, report_up and answer_report: by a session's own token, from its current conversation,
         with the tool on its list. What each may touch is decided in managed.py from the session's own record."""
@@ -397,7 +424,7 @@ class Hubd:
             return {"ok": False, "refused": True, "error": "that token is from an earlier conversation of this session"}
         try:
             if op == "managed.start":
-                return {"ok": True, **await self.managed.request_start(scope, req.get("entry"))}
+                return {"ok": True, **await self.managed.request_start(scope, req.get("entry"), req.get("item"))}
             if op == "managed.return":
                 return {"ok": True, **self.managed.returned(scope, req.get("fields"))}
             if op == "managed.report":

@@ -1,0 +1,13 @@
+# A code reviewer's reading of a workflow draft, started by workflow-change when the draft grants a sensitive item.
+order = 9
+ceiling = "Reads its owner's workflow draft and the workflows. Changes nothing. Runs only under a workflow author."
+object = "project"
+result = "findings"
+title = "Review a workflow draft"
+summary = "Reads a workflow draft that grants a sensitive item and hands a verdict with findings to its author."
+personas = ["reviewer"]
+prompt = "workflow-review"
+models = ["sonnet", "opus"]
+efforts = ["medium", "high"]
+plan = false
+managed_only = true

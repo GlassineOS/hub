@@ -1,0 +1,12 @@
+# One session for a piece of work: it carries the issue and its pull request through implement, review, QA and fix, with an
+# engineer, a code reviewer and a QA engineer under it. Its rights change with its state; see agents/workflows/implementor.toml.
+order = 5
+ceiling = "Coordinates sessions under it, in a sandboxed shell on a new branch with its own GitHub token: its engineer pushes its own branch and opens the pull request, a code reviewer and a QA engineer read and run it. Never merges on its own: at merge-ready it asks you."
+object = "issue"
+result = "pr"
+title = "Implement with a team"
+summary = "An implementor that has an engineer make the change, a code reviewer read it and, if it is user-facing, a QA engineer run it; it asks you to merge once all pass."
+personas = ["implementor"]
+prompt = "implementor"
+models = ["sonnet", "opus"]
+efforts = ["medium", "high", "xhigh"]

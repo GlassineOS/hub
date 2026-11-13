@@ -53,11 +53,11 @@ def test_library_is_complete():
             assert LIBRARY.text("personas", persona)
         assert not {"Write", "Edit", "Agent"} & set(action["grant"].tools)
         # A plain shell would walk around the tool server and the host's policy. These get the sandbox.
-        assert ("Bash" in action["grant"].tools) == (action["id"] in ("pr-review", "pr-security-audit", "implement"))
+        assert ("Bash" in action["grant"].tools) == (action["id"] in ("pr-review", "pr-security-audit", "implement", "implementor", "engineer", "qa-audit", "design-check"))
         assert "merge_pr" not in action["grant"].hub_tools
         if action["grant"].access == "full":
             assert action["grant"].checkout in ("pr-branch", "new-branch") and action["grant"].permission_mode == "auto"
-        elif action["id"] == "implement":  # sandboxed on its own branch, which it pushes with its own token (012 FR-031)
+        elif action["id"] in ("implement", "implementor", "engineer"):  # sandboxed on its own branch, which it pushes with its own token (012 FR-031)
             assert action["grant"].checkout == "new-branch" and "push" in action["grant"].github
         else:
             assert action["grant"].access == "locked" and action["grant"].checkout in ("pr", "default", False)
@@ -131,7 +131,8 @@ def test_every_persona_has_a_family_and_every_action_a_result():
                      "research": "knowledge-research", "design": "design"}
     assert verbs[("run", "fix")] == "run-fix"  # fix on a run, beside fix on a pull request
     # The rest stay in the library, under "More…". Those that post or open a PR say so.
-    handed = {"pr-security-audit": "comment", "issue-docs": "pr", "implement": "pr", "notes-compact": "notes", "notes-sweep": "drafts"}  # the last two open from Notes
+    handed = {"pr-security-audit": "comment", "issue-docs": "pr", "implement": "pr", "notes-compact": "notes", "notes-sweep": "drafts",
+              "implementor": "pr", "engineer": "pr", "qa-audit": "findings", "design-check": "findings", "workflow-review": "findings"}  # the last two open from Notes
     assert all(a["result"] == handed.get(a["id"], "none") for a in LIBRARY.actions.values() if not a.get("verb"))
     assert LIBRARY.action("pr-fix-checks")["personas"] == ["ci-fixer", "engineer"]
 
@@ -442,7 +443,8 @@ def test_steward_reads_all_repositories_and_has_no_shell_or_files(tmp_path):
     directory = a.sessions / "steward"
     token = (directory / "tool-token").read_text().strip()
     scope = a.scope(token)
-    assert scope["all_repos"] is True and scope["persona"] == "steward" and scope["tools"] == [*LIBRARY.action("project-steward")["grant"].hub_tools, *LIBRARY.action("project-steward")["grant"].asks_first]
+    assert scope["all_repos"] is True and scope["persona"] == "steward" and scope["tools"] == [*LIBRARY.action("project-steward")["grant"].hub_tools, *LIBRARY.action("project-steward")["grant"].asks_first,
+                                                                                   "answer_report", "start_managed"]  # it manages repository maintainers (012 FR-071)
     script = (directory / "run.sh").read_text()
     assert "--permission-mode dontAsk" in script and "--strict-mcp-config" in script and "--add-dir" not in script
     for name in ("Bash", "Read", "Write", "Edit", "merge_pr", "create_issue"):
@@ -1315,7 +1317,9 @@ def test_actions_carry_their_verb_result_and_persona_family(tmp_path):
     from hubd.agents import RESULTS
     a = agents(tmp_path)
     rows = {x["id"]: x for kind in (None, "repo") for x in a.actions(kind)}
-    assert set(rows) == set(LIBRARY.actions)  # every shipped action loads and is offered somewhere
+    # every shipped action loads and is offered somewhere, but those only a workflow starts
+    assert set(rows) == {i for i, x in LIBRARY.actions.items() if not x.get("managed_only")}
+    assert {i for i, x in LIBRARY.actions.items() if x.get("managed_only")} == {"engineer", "qa-audit", "design-check", "workflow-review"}
     review = rows["pr-review"]
     assert (review["verb"], review["result"], review["family"], review["persona_name"]) == ("review", "comment", "review", "Code reviewer")
     assert review["result_words"] == RESULTS["comment"]
@@ -2211,7 +2215,7 @@ def test_every_locked_action_can_ask_and_no_more(tmp_path):
         asks = [e for e in hooks["PreToolUse"] if "ask_hook" in e["hooks"][0]["command"]]
         assert asks[0]["matcher"] == "AskUserQuestion"
         # and what its state asks first: implement's merge_pr, a card that is the merge decision
-        assert [e["matcher"] for e in asks[1:]] == (["mcp__glassine-hub__merge_pr"] if action["id"] == "implement" else [])
+        assert [e["matcher"] for e in asks[1:]] == (["mcp__glassine-hub__merge_pr"] if action["id"] in ("implement", "implementor") else [])
         assert a.ask_wait(action) == (FOREVER if action["id"] == "project-steward" else WAIT)
 
 

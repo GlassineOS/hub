@@ -1,0 +1,98 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# A change to a workflow asked for in words (spec 012, FR-062, User Story 5). The Workflow author reads the workflow and how
+# sessions ran on it and drafts a new text with draft_workflow, which the hub checks and replays and keeps as a draft: it
+# saves nothing and makes no decision. A draft that grants a sensitive item goes to a code reviewer first. When the draft is
+# ready the hub, not the author, proposes it: entering `propose` puts the newest passing draft in Needs you as a Workflow
+# change, the same card the editor's proposal makes. Only the maintainer saves it. No state has a tool that saves.
+# Three failed drafts in a round send the author to ask the maintainer (report_up), at most twice.
+schema = 1
+name = "workflow-change"
+initial = "work"
+
+[state.work]
+initial = "draft"
+personas = ["workflow-author"]
+[state.work.grant]
+tools = ["AskUserQuestion"]
+hub_tools = ["read_workflow", "read_draft", "docs_search"]
+checkout = false
+
+[state.draft]
+parent = "work"
+instructions = """Draft the change with draft_workflow: the workflow's name, its scope (org, or GlassineOS__<repo> for one \
+repository's override), the whole new text and a note on what changed and why. The hub checks and replays each draft and \
+tells you what it found; fix what it finds and draft again. When the newest draft passes, move on with `request_move` to \
+`propose`, or to `review` if the hub says it grants a sensitive item."""
+[state.draft.grant]
+hub_tools = ["draft_workflow", "request_move"]
+[[state.draft.exit]]
+to = "stopped"
+decided_by = "counter"
+requires = ["rounds.ask >= 2", "drafts.failed >= 3"]
+on = ["tool.after", "turn.end"]
+[[state.draft.exit]]
+to = "ask"
+decided_by = "facts"
+requires = ["drafts.failed >= 3"]
+on = ["tool.after", "turn.end"]
+[[state.draft.exit]]
+to = "review"
+decided_by = "facts"
+requires = ["draft.ok", "draft.sensitive"]
+move = "on-request"
+[[state.draft.exit]]
+to = "propose"
+decided_by = "facts"
+requires = ["draft.ok", "not draft.sensitive"]
+move = "on-request"
+
+[state.ask]
+parent = "work"
+instructions = """Three drafts in a row failed the checks. Ask the maintainer with report_up: kind blocker, the problems the \
+checks found as evidence, and what you propose. You go back to drafting when they answer."""
+[[state.ask.exit]]
+to = "draft"
+decided_by = "facts"
+requires = ["report.answered"]
+on = ["hub:decision"]
+
+[state.review]
+parent = "work"
+instructions = """Your draft grants a sensitive item, so a code reviewer reads it before it reaches the maintainer. You can't \
+draft while it does: what it reviews is what is proposed."""
+[[state.review.manages]]
+name = "reviewer"
+persona = "reviewer"
+workflow = "workflow-review"
+start = "auto"
+max = 1
+reuse = "fresh"
+on_exit = "stop"
+returns = { verdict = ["pass", "fail"], findings = "text-list" }
+[[state.review.exit]]
+to = "stopped"
+decided_by = "counter"
+requires = ["rounds.review >= 3", "managed.reviewer.verdict == fail"]
+on = ["hub:managed.return"]
+[[state.review.exit]]
+to = "draft"
+decided_by = "facts"
+requires = ["managed.reviewer.verdict == fail"]
+on = ["hub:managed.return"]
+[[state.review.exit]]
+to = "propose"
+decided_by = "facts"
+requires = ["managed.reviewer.verdict == pass"]
+on = ["hub:managed.return"]
+
+[state.propose]
+parent = "work"
+final = true
+instructions = """The hub has put your newest passing draft in Needs you as a Workflow change, with your note. The maintainer \
+saves it, asks for changes or discards it. Change nothing; answer questions if you are asked."""
+
+[state.stopped]
+parent = "work"
+final = true
+instructions = """The draft didn't come together. Say in a few sentences what the request needs that no draft got past the \
+checks or the review, and stop."""

@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# A repository's maintainer (spec 012, FR-070, FR-071): one session for one repository, under the Steward. It tracks its
+# issues and pull requests through triage, ready, in progress, in review, merge-ready, merged and released, starts an
+# implementor for ready work (start_managed with the issue), and watches for stalls.
+#
+# Its grant fits under the Steward's: reading tools only, no shell and no checkout, so the Steward starts it without asking.
+# An implementor holds a shell, a new branch and push, which neither the maintainer nor the Steward holds: the first start of
+# its implementors waits for the maintainer's approval, which then holds for the rest of this session's workflow.
+# The loop between tracking and stalls ends at a token budget, so it can't run without end.
+schema = 1
+name = "repo-maintainer"
+initial = "maintain"
+
+[state.maintain]
+initial = "track"
+personas = ["repo-maintainer"]
+[state.maintain.grant]
+tools = ["AskUserQuestion"]
+hub_tools = ["list_issues", "get_issue", "list_prs", "get_pr", "get_pr_diff", "list_runs", "get_run", "get_run_log",
+             "docs_search", "work_search", "work_status", "list_sessions", "list_running_sessions",
+             "session_summary", "roadmap", "overview", "docs_index_status"]
+checkout = false
+[[state.maintain.manages]]
+name = "implementor"
+persona = "implementor"
+workflow = "implementor"
+start = "on-request"
+when = "The issue is ready: it says what is wanted and nothing blocks it."
+max = 3
+reuse = "fresh"
+on_exit = "keep"
+with = ["issue"]
+[[state.maintain.exit]]
+to = "spent"
+decided_by = "counter"
+requires = ["tokens.maintain >= 5000000"]
+on = ["turn.end"]
+
+[state.track]
+parent = "maintain"
+instructions = """Sort the repository's open issues and pull requests into their stages: triage, ready, in progress, in review, \
+merge-ready, merged and released. Start an implementor for an issue that is ready with start_managed (entry implementor, \
+item <repository>#<number>), at most three at once. Read the epics on the roadmap that name this repository: your share is \
+the work here. Say briefly where each stands."""
+[[state.track.exit]]
+to = "stalled"
+decided_by = "judge"
+when = "Some work has stalled: an issue or pull request hasn't moved for days, checks keep failing, a review waits unanswered, or an implementor ended without a pull request."
+on = ["turn.end", "hub:managed.end"]
+
+[state.stalled]
+parent = "maintain"
+instructions = """Some work has stalled. For each stall, act within your rights, or send it up with report_up: what you found \
+as evidence and what you propose. You go back to tracking once each is acted on or reported."""
+[[state.stalled.exit]]
+to = "track"
+decided_by = "judge"
+when = "Every stall is acted on or reported up."
+on = ["turn.end", "hub:decision"]
+
+[state.spent]
+parent = "maintain"
+final = true
+instructions = """This session has used its token budget. Say in a few lines where the repository's work stands, and stop: the \
+Steward or the maintainer starts a new one."""
