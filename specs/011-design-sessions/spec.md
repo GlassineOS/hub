@@ -118,8 +118,10 @@ number, as in "Launch (005) FR-012".
 - **FR-012**: A board's code never runs in the hub's page or with the hub's origin, cookies or session.
 - **FR-013**: The view shows the host browser's pixels unscaled at 100 %, and scaled to fit otherwise, with the
   zoom shown; e-ink schemes are judged by eye at 100 %.
-- **FR-014**: The design session can open a given board, voice, scheme, pen and size in the design view. A
-  viewer can turn off following and go their own way, and can turn it on again.
+- **FR-014**: The design session can open a given board, voice, scheme, pen and size in the design view. Follow
+  belongs to the design view and is shared by all its viewers: while it is on, what the session opens is shown;
+  any viewer can turn it off, after which the session's opens wait as its suggestion, which a viewer can show,
+  and any viewer can turn it on again.
 - **FR-015**: The session can read which board, voice, scheme, pen and size the viewer has open, so the
   maintainer can say "this one".
 - **FR-016**: The design view has the access rules of a session's terminal (Sessions, 004): only the signed-in
@@ -136,7 +138,7 @@ number, as in "Launch (005) FR-012".
 - **Design session**: a session started by the design action; it has a worktree of GlassineOS/ui and a design
   view.
 - **Design view**: the live picture of the host browser that shows the session's boards.
-- **Follow**: the state in which the design view shows what the session last opened.
+- **Follow**: the state of a design view, shared by its viewers, in which it shows what the session last opened.
 
 ## Success Criteria
 

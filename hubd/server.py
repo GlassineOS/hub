@@ -25,6 +25,7 @@ from pathlib import Path
 
 from . import auth, decisions, devices, interactions, newwork, notes, results, usage
 from . import feed as feedlib
+from .designs import TICK as DESIGN_TICK, DesignError, Designs, Tools as DesignTools
 from .agents import MAX_ALSO, MAX_NOTES, NOTES_TOOL, PLANNER_MODELS, RESULTS as RESULTS_WORDS, SCREENS, AgentError, Agents, Library, load_environment, screen_of, validate, with_also
 from .apps import AppError, Apps, is_write
 from .asks import GRANT_LIFE, MAX_INPUT, TOOL_PREFIX, AskError, Asks
@@ -46,6 +47,11 @@ def runtime_dir() -> Path:
 def config_dir() -> Path:
     base = os.environ.get("XDG_CONFIG_HOME")
     return (Path(base) if base else Path.home() / ".config") / "glassine-hub"
+
+
+def cache_dir() -> Path:
+    base = os.environ.get("XDG_CACHE_HOME")
+    return (Path(base) if base else Path.home() / ".cache") / "glassine-hub"
 
 
 def state_dir() -> Path:
@@ -123,6 +129,7 @@ def _edit_problem(name: str, tool_input) -> str | None:
 REPO_OPS = {"repos.request": "request_repository", "repos.files": "list_repo_files", "repos.read": "read_repo_file", "repos.map_overview": "map_overview",
             "repos.map_definition": "map_definition", "repos.map_usages": "map_usages", "repos.map_string": "map_string", "repos.search": "code_search"}
 MAP_OPS = {"repos.map_overview": ("overview", None), "repos.map_definition": ("definition", "symbol"), "repos.map_usages": ("usages", "symbol"), "repos.map_string": ("string", "text")}
+DESIGN_TOOL_OPS = {"design.open": "design_open", "design.view": "design_view"}  # By a design session's own token, never a name
 STARTED_OPS = {"started.list": "list_sessions", "started.running": "list_running_sessions", "started.summary": "session_summary", "started.spawn": "spawn_session",
                "started.message": "message_started_session", "started.message_any": "message_session"}
 
@@ -133,7 +140,8 @@ class Hubd:
                  apps: Apps | None = None, work: newwork.NewWork | None = None, device_reports: devices.Devices | None = None,
                  decision_store: decisions.Decisions | None = None, notes_search: notes.Notes | None = None,
                  change_feed: feedlib.Feed | None = None, ping_seconds: float = feedlib.DEFAULT_PING,
-                 usage_allowance: float | None = None, result_store: results.Results | None = None):
+                 usage_allowance: float | None = None, result_store: results.Results | None = None, designs: Designs | None = None):
+        self.designs = designs
         self.results = result_store
         self.feed = change_feed
         self.socket_path: Path | None = None  # set by serve, for the header's "connected to" (001 FR-005)
@@ -227,6 +235,8 @@ class Hubd:
             return await self.notes_tool(req)
         if op in STARTED_OPS:
             return await self.started_request(op, req)
+        if op in DESIGN_TOOL_OPS:
+            return await self.design_tool(op, req)
         if op in REPO_OPS:
             return await self.repo_request(op, req)
         if op in ("shell.list", "shell.new", "shell.kill") or op.startswith(("agent.", "ask.", "work.", "decision.", "notes.", "interaction.", "usage.", "result.")):
@@ -1471,6 +1481,21 @@ class Hubd:
             if not self.asks.has_open(name):
                 self.agents.mark_asking(name, False, prompt_up)
 
+    # --- the design view (011 FR-014, FR-015) ------------------------------------------------------
+    async def design_tool(self, op: str, req: dict) -> dict:
+        """The calling session's own view: who it is comes from its token, so no session can open or read another's."""
+        scope = self.agents.scope(req.get("agent_token")) if self.agents else None
+        name = scope.get("session") if scope else None
+        if not self.designs or not name or not scope.get("design") or not self.designs.is_design(name):
+            return {"ok": False, "refused": True, "denied": not req.get("agent_token"), "error": f"only a design session has {DESIGN_TOOL_OPS[op]}"}
+        try:
+            if op == "design.view":
+                return {"ok": True, **await self.designs.session_look(name)}
+            args = {k: req.get(k) for k in ("board", "voice", "scheme", "pen", "width", "height", "project")}
+            return {"ok": True, **await self.designs.session_open(name, args)}
+        except DesignError as e:
+            return {"ok": False, "error": str(e)}
+
     async def agent_request(self, op: str, req: dict) -> dict:
         if self.agents is None:
             return {"ok": False, "error": "agent sessions are not set up"}
@@ -1563,6 +1588,15 @@ class Hubd:
                 await _reply(writer, {"ok": True})
                 await self.shells.attach(req.get("name"), reader, writer)
                 return
+            if req.get("op") == "design.attach":
+                if not self.sessions.check(req.get("token")):
+                    await _reply(writer, {"ok": False, "error": "login required", "denied": True})
+                    return
+                if not self.designs:
+                    await _reply(writer, {"ok": False, "error": "design views aren't set up"})
+                    return
+                await self.designs.attach(req.get("name"), reader, writer, lambda reply: _reply(writer, reply))
+                return
             if req.get("op") in ("ask.wait", "ask.moved"):
                 try:
                     await self.ask_wait(req, reader, writer)
@@ -1632,6 +1666,22 @@ async def _keep_copies(hubd: Hubd) -> None:
         await asyncio.sleep(COPIES_EVERY)
 
 
+async def _watch_designs(hubd: Hubd) -> None:
+    """Renderers left by an earlier hubd go at once; then the ones of ended sessions nobody watches (011 FR-017)."""
+    if not hubd.designs:
+        return
+    try:
+        await hubd.designs.reap()
+    except Exception:
+        log.exception("couldn't look for leftover design renderers")
+    while True:
+        await asyncio.sleep(DESIGN_TICK)
+        try:
+            await hubd.designs.tick()
+        except Exception:  # the next round may go better
+            log.exception("design views weren't checked")
+
+
 async def serve(hubd: Hubd, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     path.parent.chmod(0o700)
@@ -1647,10 +1697,23 @@ async def serve(hubd: Hubd, path: Path) -> None:
     tidying = asyncio.ensure_future(_tidy(hubd))
     copying = asyncio.ensure_future(_keep_copies(hubd))
     pinging = asyncio.ensure_future(_ping(hubd))
+    designing = asyncio.ensure_future(_watch_designs(hubd))
+    # systemctl stop sends SIGTERM: close the server so the cleanup below runs and no renderer outlives hubd.
+    asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, server.close)
     try:
         async with server:
-            await server.serve_forever()
+            try:
+                await server.serve_forever()
+            except asyncio.CancelledError:
+                if server.is_serving():  # cancelled from outside, not stopped by SIGTERM
+                    raise
+                log.info("stopping on SIGTERM")
     finally:
+        asyncio.get_running_loop().remove_signal_handler(signal.SIGTERM)
+        designing.cancel()
+        if hubd.designs:
+            for name in hubd.designs.running():
+                await hubd.designs.stop(name)
         tidying.cancel()
         copying.cancel()
         pinging.cancel()
@@ -1701,7 +1764,8 @@ def main(argv=None) -> int:
         hubd = Hubd(gh, shells, auth.Sessions(), agent_token, pam_service=a.pam_service, agents=agents, apps=apps,
                     change_feed=change_feed, ping_seconds=feedlib.ping_interval(ping_setting), usage_allowance=allowance,
                     work=newwork.NewWork(state_dir() / "newwork"), result_store=results.Results(state_dir() / "results"), device_reports=devices.Devices(state_dir() / "devices"),
-                    decision_store=decisions.Decisions(state_dir() / "decisions"), notes_search=notes.Notes(agents.workspace))
+                    decision_store=decisions.Decisions(state_dir() / "decisions"), notes_search=notes.Notes(agents.workspace),
+                    designs=Designs(agents, DesignTools(cache_dir(), Path(__file__).resolve().parents[1] / "app" / "ui.ref")))
         await serve(hubd, a.socket)
 
     try:

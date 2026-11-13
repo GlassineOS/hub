@@ -488,6 +488,24 @@ A tab under Work, over the work store and your decisions. It merges, reviews and
   and never removed. This check can't see files added between it and git's own, which git's refusal covers for
   anything but ignored files.
 
+## The design view
+
+- A design session's boards run their own JavaScript. They run only in a headless browser on the host, in GlassineOS/ui's
+  `tools/boards stream`, inside a container without network (`BOARDS_NETWORK=none tools/in-alpine`). The hub's page gets
+  PNG pictures and words and draws the pictures on a canvas: no board markup, frame or script reaches it, so a board can't
+  read the hub's cookies or call its API. The container can't reach the hub's port either.
+- The renderer's tools come from a checkout of GlassineOS/ui at the release in `app/ui.ref`, in hubd's cache. The session's
+  worktree is only data: the design folder, its Interleaf and its web form. A session can change its boards, not the program
+  that renders them.
+- The WebSocket has the terminal's rules: a login cookie and the hub's own origin. hubd checks the login again, and that the
+  session is a design session whose worktree is there.
+- What the renderer reports (the page's address, the board, voice, scheme and pen) is steered by a board's code. hubd passes
+  only values of the design folder and its web form, never the address, and the page shows them as text. Viewer input reaches
+  the renderer only as commands of known shape, each field checked.
+- `design_open` and `design_view` act on the caller's own design view, found from its token, never from a name.
+- At most three renderers run. hubd stops one when its session has ended and nobody has watched for ten minutes, before its
+  worktree is removed, and removes leftover containers (any mounting its tools checkout) when it starts.
+
 ## The work store
 
 The text of issues, pull requests and comments the login can read, private repositories

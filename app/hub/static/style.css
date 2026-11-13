@@ -571,6 +571,15 @@ table.diff tr.notes td { padding: 6px 8px; white-space: normal; background: var(
 /* Knowledge (008 FR-004): marked words keep the text's colour, so the mark is never the only signal of the words. */
 .kn-hit mark { background: none; color: inherit; font-weight: 600; padding: 0 1px; border-bottom: 2px solid var(--ink); }
 /* Reduced motion (001 FR-018): nothing moves when the viewer asks for that, and no state needs motion to be read. */
+/* The design view (011): the controls wrap at any width; the picture is drawn at 100 % or scaled down to fit, never up. */
+.design-title { font-size: 28px; }
+.design-bar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; }
+.design-bar .field { min-width: 120px; }
+.design-follow { min-height: 44px; }
+.design-picture { max-width: 100%; overflow: auto; border: 1.5px solid var(--ink); border-radius: 12px; background: var(--sheet); }
+.design-canvas { display: block; touch-action: none; cursor: default; }
+.design-canvas:focus-visible, .design-canvas:focus { outline: 3px solid var(--pen); outline-offset: -3px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
 }

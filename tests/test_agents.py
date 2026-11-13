@@ -1362,7 +1362,7 @@ def test_a_session_token_is_its_own_and_ends_with_it(tmp_path, remote):
     assert token != "SECRET" and token not in (directory / "run.sh").read_text()
     assert f'cat {directory / "tool-token"}' in (directory / "run.sh").read_text()
     instance = a.session_id_of(name)
-    assert instance and a.scope(token) == {"session": name, "instance": instance, "tools": good()["hub_tools"], "persona": good()["persona"], "all_repos": False, "asks_first": [], "reports": []}
+    assert instance and a.scope(token) == {"session": name, "instance": instance, "tools": good()["hub_tools"], "persona": good()["persona"], "all_repos": False, "asks_first": [], "reports": [], "design": False}
     assert a.scope("nope") is None and a.scope(None) is None
     # a restarted hubd knows it again
     again = agents(tmp_path, clone_base=remote)
@@ -3359,6 +3359,37 @@ def test_a_design_session_on_another_repositorys_issue_works_in_ui(tmp_path, rem
     described = a.describe(name)
     assert described["covers"] == [{"repo": "boot", "number": 7}] and described["repo"] == "boot"
     assert a.manifest(name)["checkout"] == str(checkout) and a.manifest(name)["branch"] == f"agent/{name}"
+
+
+def test_a_design_session_has_a_design_view_on_its_ui_worktree_until_it_goes(tmp_path, remote):
+    """011 FR-010, FR-017: the real seam to the design view. Its token says design, its view is on the ui worktree, and the
+    renderer stops while the worktree is still there."""
+    from hubd.designs import Designs, Tools
+    second_repo(remote, "ui")
+    a = full(tmp_path, remote, DesignGh({"ui": False, "boot": False}))
+    name = asyncio.run(a.start(a.defaults("design", "boot", 7)))["name"]
+    checkout = a.work / name / "ui"
+    token = (a.sessions / name / "tool-token").read_text().strip()
+    assert a.scope(token)["design"] is True
+    designs = Designs(a, Tools(tmp_path / "cache", tmp_path / "ui.ref", root=tmp_path))
+    assert designs.worktree(name) == checkout and designs.is_design(name)
+    seen = []
+
+    async def stop(n):
+        seen.append((n, checkout.is_dir()))
+    a.before_remove = stop
+    asyncio.run(a.forget(name, discard=True))
+    assert seen == [(name, True)] and not checkout.exists()
+    assert designs.worktree(name) is None
+
+
+def test_another_session_has_no_design_view(tmp_path, remote_branch):
+    from hubd.designs import Designs, Tools
+    a = full(tmp_path, remote_branch)
+    name = asyncio.run(a.start(a.defaults("issue-implement", "boot", 7)))["name"]
+    token = (a.sessions / name / "tool-token").read_text().strip()
+    assert a.scope(token)["design"] is False
+    assert Designs(a, Tools(tmp_path / "c", tmp_path / "r", root=tmp_path)).worktree(name) is None
 
 
 def test_a_design_sessions_pull_request_is_looked_up_in_ui(tmp_path):

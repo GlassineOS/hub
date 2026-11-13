@@ -888,6 +888,19 @@ class GitHub:
         reply = await self.hubd.call(op="work.submit", agent_token=CALLER.get(), drafts=drafts)
         return {"handed_in": reply["handed_in"]}
 
+    async def design_open(self, board, voice=None, scheme=None, pen=None, width=None, height=None, project=None) -> dict:
+        """Under the calling session's token: its own design view, never another's. hubd checks every value."""
+        reply = await self.hubd.call(op="design.open", agent_token=CALLER.get(), board=board, voice=voice, scheme=scheme, pen=pen,
+                                     width=width, height=height, project=project)
+        reply.pop("ok", None)
+        return reply
+
+    async def design_view(self) -> dict:
+        """Under the calling session's token: what its design view shows now."""
+        reply = await self.hubd.call(op="design.view", agent_token=CALLER.get())
+        reply.pop("ok", None)
+        return reply
+
     async def submit_result(self, kind, payload) -> dict:
         """Under the calling session's token: hubd holds it to its action's result type. Applying is the person's."""
         reply = await self.hubd.call(op="result.submit", agent_token=CALLER.get(), type=kind, payload=payload)
