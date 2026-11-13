@@ -46,8 +46,9 @@ checks pass and a review return, and follow the states.
    it.
 3. **Given** the reviewer returns "changes requested", **When** the review state's exits are tried, **Then** the
    session moves to fix, and after three rounds of fix without a pass it is sent up to its owner instead.
-4. **Given** a move whose new state grants more than the old, **When** it would happen, **Then** it waits for the
-   maintainer's confirm, which shows what the new state adds, takes away and keeps.
+4. **Given** a move whose new state grants a capability the session has not held before, **When** it would
+   happen, **Then** it waits for the maintainer's confirm, which shows what the new state adds, takes away and
+   keeps; a later round back into that state does not ask again.
 
 ---
 
@@ -168,6 +169,8 @@ waits for the accepted design.
   as data and a move still needs its facts.
 - A move is rolled back by hand: the session returns to the earlier state; effects outside the hub that already
   happened (a push, a comment) stay and the log says so.
+- A new version removes the state a session is in: the session keeps its old version until it is moved by hand,
+  and its panel says so.
 
 ## Requirements
 
@@ -198,13 +201,15 @@ number, as in "Launch (005) FR-012".
 - **FR-007**: Each machine keeps counters: rounds per state, time spent and tokens used. Exits can test them, so
   every loop ends at a count the definition sets.
 - **FR-008**: The hub checks a definition before it is saved or approved: every state can be reached and has an
-  exit or is final; every loop is bounded by a counter; every fact named in `requires` is known; two exits of a
-  state that can hold at once are flagged unless their order decides; and each sensitive item (FR-034) is marked.
+  exit or is final; every cycle of states has an exit that tests a counter; every fact named in `requires` is
+  known; two exits of a state decided by facts that can hold at once are flagged unless their order decides; and
+  each sensitive item (FR-034) is marked.
   A problem stops a save or an approval; a mark only shows.
 - **FR-009**: A definition, saved or a draft, can be replayed on a past session's history, showing where it would
   have moved differently.
 - **FR-010**: Each action of Launch (005) FR-012 is a default workflow. One whose work has no steps has one state,
-  whose grant is the action's ceiling.
+  whose grant is exactly what the action allows: its tools, its hub tools, its permission mode, its access and its
+  checkout. Its ceiling is the plain-words summary of that grant.
 
 #### Instances and signals
 
@@ -216,14 +221,16 @@ number, as in "Launch (005) FR-012".
   labelled, …); session events (a turn ended, the session ended, after a tool use, before compaction); and hub
   events (a decision answered, a session started or stopped, a managed session returned or ended).
 - **FR-014**: For each signal the hub finds, without a model, the instances it concerns (by repository, issue or
-  pull request, state, and the exits whose `on` names it). Evaluations are debounced per instance.
+  pull request, state, and the exits whose `on` names it). Evaluations are debounced per instance, and an instance
+  has at most one evaluation or move in progress at a time.
 - **FR-015**: For an exit with a `when`, a judge model gets the current state, its exits, the facts, the
   session's rolling summary and the turn that just ended, and answers in a fixed form: the exit or none, a quote
   as evidence, and a confidence. The hub then checks `requires` and `approve` before anything moves.
 - **FR-016**: The judge sits behind a provider choice: a small subscription model by default, or any endpoint
-  that speaks the common chat-completions protocol (a local model server or a hosted one). Each workflow may name
-  its judge.
-- **FR-017**: The hub keeps a rolling summary per session, updated on signals, as the judge's input.
+  that speaks the common chat-completions protocol (a local model server or a hosted one). The judges and their
+  endpoints are set in the hub's own configuration; a workflow may name one of them, never an endpoint.
+- **FR-017**: The hub keeps a rolling summary per session, updated on signals, as the judge's input. It is made
+  from the transcript and so is data, never instructions to any session.
 - **FR-018**: Every evaluation and every move is logged: the signal, the state, the proposal, the evidence, each
   check with its value, the judge, its time and its cost, and who moved it.
 
@@ -237,8 +244,10 @@ number, as in "Launch (005) FR-012".
 - **FR-023**: A move that widens the grant resumes the same conversation under a new launch with the new state's
   grant. The hub tells a widening move by comparing the two states' effective grants (parent and own, and the
   sessions they manage).
-- **FR-024**: A widening move waits for the maintainer's confirm, which shows what the new state adds, takes away
-  and keeps, how the session resumes, and a mark on each sensitive item. A widening move by hand shows it too.
+- **FR-024**: A move that would give the session a capability it has not held before in this instance waits for
+  the maintainer's confirm, which shows what the new state adds, takes away and keeps, how the session resumes,
+  and a mark on each sensitive item. A later move back into a grant already confirmed for the instance does not
+  ask again. Moves by hand and roll-backs follow the same rule.
 - **FR-025**: A move starts, stops or keeps the managed sessions as the states say, can post a status line to the
   pull request or issue, and raises a decision when `approve` asks for one.
 - **FR-026**: The maintainer can move a session to any state by hand, roll back the last move, and pause and
@@ -252,13 +261,16 @@ number, as in "Launch (005) FR-012".
   (fetch, search), the hub's tools (notes, code search, the code map, …) and the sessions it may manage.
 - **FR-031**: A session can do what its state's effective grant allows and nothing more, and does it without
   asking. The hub enforces the grant through the session's tools, its permission mode, a check before each tool
-  use and the hub's tool server.
+  use and the hub's tool server. A grant whose access runs the agent with the maintainer's own rights (a full
+  session) can only be guarded, not enforced; the editor, the confirm and the definition change mark such a
+  state, and the multi-state default workflows run their sessions sandboxed.
 - **FR-032**: Each persona acts on GitHub under its own GitHub App, created from the hub through GitHub's app
   manifest flow with one confirm by the maintainer on GitHub. A review by the reviewer visibly comes from it.
 - **FR-033**: For each state the hub gives the session a GitHub token limited to that state's repositories and
   permissions, renewed before it expires, so any command the session runs can do only what the token allows.
   Where branch rules can fence merging, the hub uses them; where they can't, a grant that allows pushing allows
-  merging, and the confirm and the definition change say so.
+  merging, the rule that agents merge only under an approved merge decision (FR-052) is then a guard, and the
+  confirm and the definition change say so.
 - **FR-034**: These items are sensitive: merging to the default branch; approving workflow runs from forks;
   making a repository public; deleting a repository. A definition change or a confirm that grants one marks it.
   The mark adds no rule.
@@ -272,7 +284,7 @@ number, as in "Launch (005) FR-012".
   state).
 - **FR-041**: `with` holds only named references the hub fills in from facts: the issue, the pull request, the
   diff since the last round, the owner's summary, notes topics, a brief template with slots. It never copies
-  free text from a transcript.
+  free text from a transcript; the owner's summary is passed as data (FR-017).
 - **FR-042**: What a managed session returns, in the shape its `returns` names, is a fact for its owner's exits;
   its return and its end are signals to its owner.
 - **FR-043**: A managed session's grant is its workflow's, capped at its owner's effective grant. A workflow that
@@ -390,9 +402,10 @@ from a branch to merge-ready, with the cost measurements (FR-090).
 
 - **SC-001**: An implement session goes from a pushed branch to merge-ready on the dev hub with no move typed by
   the maintainer except the merge decision.
-- **SC-002**: No session can use a capability its state does not grant: every attempt in the acceptance tests is
-  refused.
-- **SC-003**: A move happens within ten seconds of the signal that makes it hold, judge time included.
+- **SC-002**: No sandboxed session can use a capability its state does not grant: every attempt in the acceptance
+  tests is refused.
+- **SC-003**: A move happens within ten seconds of the session signal that makes it hold, judge time included;
+  for a change feed signal, within ten seconds of the hub learning of the change.
 - **SC-004**: A loop between two states ends at the count the definition sets, in every test.
 - **SC-005**: Evaluations run only on matching signals: a session with no matching signal costs no judge call.
 
