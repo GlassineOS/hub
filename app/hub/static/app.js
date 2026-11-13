@@ -423,7 +423,7 @@ function SessionChip({ session, pending, onOpen, href }) {
   const chip = a ? chipOf(a.machine, a.ended) : null;
   const label = `Session ${session.name}, ${a ? a.persona_name || a.persona : "plain shell"}, ${said}${chip ? `, ${chip.said}` : ""}`;
   const attrs = { class: `sesschip ${state}`, "data-waits": waits ? "" : undefined, "aria-label": label, title: label };
-  const body = html`<${PersonaBadge} persona=${personaOf(a)} hidden /><span class="name">${session.name}</span><span class="word">${word}</span>${a && html`<${StateChip} machine=${a.machine} ended=${a.ended} />`}`;
+  const body = html`<${PersonaBadge} persona=${personaOf(a)} hidden /><span class="name">${session.name}</span><span class="word">${word}</span>${a && html`<${StateChip} machine=${a.machine} ended=${a.ended} short />`}`;
   return onOpen ? html`<button type="button" ...${attrs} onClick=${onOpen}>${body}</button>`
     : html`<a ...${attrs} href=${href || hash("shells", { name: session.name })}>${body}</a>`;
 }
@@ -2747,11 +2747,14 @@ function chipOf(m, ended) {
 
 const CHIP_GLYPH = { holds: "M12 8a4 4 0 1 0 0 8 4 4 0 1 0 0-8z", moving: "M4 12h12M12 7l5 5-5 5", waits: "M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18zM12 7v5l3 2",
   up: "M12 19V6M6 11l6-6 6 6", over: "M5 12l4 4 10-10" };
-function StateChip({ machine, ended, size }) {
+// short: only the current state, for a session pill where the path doesn't fit; the path stays in the title (and the
+// pill's own label says it all).
+function StateChip({ machine, ended, size, short }) {
   const c = chipOf(machine, ended);
   if (!c) return null;
+  const label = short && !machine.one_state ? machine.state : c.label;
   const cls = `il-chip${c.kind === "holds" ? "" : ` il-chip--${c.kind}`}${size === "lg" ? " il-chip--lg" : ""}${c.quiet && size !== "lg" ? " wfquiet" : ""}`;
-  return html`<span class=${cls} title=${c.said}><svg viewBox="0 0 24 24" aria-hidden="true"><path d=${CHIP_GLYPH[c.kind]} /></svg><span class="sr">Workflow state: </span>${c.label}<span class="il-chip__sub">· ${c.sub}</span></span>`;
+  return html`<span class=${cls} title=${c.said}><svg viewBox="0 0 24 24" aria-hidden="true"><path d=${CHIP_GLYPH[c.kind]} /></svg><span class="sr">Workflow state: </span>${label}<span class="il-chip__sub">· ${c.sub}</span></span>`;
 }
 
 // A state's path from the outermost parent, as the machine's states list has them.
@@ -2867,7 +2870,7 @@ function GrantBlock({ title, rows, sign, id }) {
     <div class="il-code"><pre>${rows.map((r) => html`<span class=${sign}><span class="sr">${sign === "add" ? "adds " : "takes away "}</span>${r.kind} · ${r.what}${r.first ? " · never held before" : ""}${r.sens ? html` · <strong>Sensitive</strong>: ${r.sens}` : ""}</span>`)}</pre></div></section>`;
 }
 
-// FR-024: the confirm a widening move waits for. Confirm and Cancel answer it; Esc closes this and leaves it waiting.
+// FR-024: the confirm a widening move waits for. Confirm and Decline answer it; Not now and Esc close this and leave it waiting.
 function WidenConfirm({ name, pending, sensitive, busy, error, onAnswer, onClose }) {
   const ref = useRef();
   useModal(ref);
@@ -2889,14 +2892,15 @@ function WidenConfirm({ name, pending, sensitive, busy, error, onAnswer, onClose
         <span class="il-admonition__label"><span class="il-admonition__seal" aria-hidden="true">!</span>Sensitive</span>
         <p class="il-admonition__title">${pending.to} grants ${sens.map((r) => r.what).join(" and ")}</p>
         <p class="small">${sens.map((r) => `${r.what}: ${r.sens}`).join("; ")}. It is marked so you see it; the mark adds no rule.</p>
-        <p class="small"><strong>Way out:</strong> Cancel, and it stays in ${pending.from} with nothing changed.</p></aside>`}
+        <p class="small"><strong>Way out:</strong> Decline, and it stays in ${pending.from} with nothing changed; or Not now, and the move keeps waiting.</p></aside>`}
       ${removes.length > 0 && html`<${GrantBlock} title=${`${pending.to} takes away`} rows=${removes} sign="del" id="wc-rm" />`}
       <p class="small"><span class="eyebrow">Keeps</span> ${keeps.length ? keeps.map((r) => `${r.kind} · ${r.what}`).join(", ") : "nothing of the grant it has now"}</p>
       <div class="wfbox small"><span class="eyebrow">How it resumes</span>
         <p>The hub records the move and the new grant at once, logged as yours. It doesn’t apply a state’s grant to a session yet: the session goes on with the tools it was started with, now and after a resume.</p></div>
       <${Err} text=${error} /></div>
     <div class="il-dialog__actions">
-      <button type="button" class="il-btn" disabled=${busy} onClick=${() => onAnswer(false)}>Cancel</button>
+      <button type="button" class="link wfnotnow" disabled=${busy} onClick=${onClose}>Not now</button>
+      <button type="button" class="il-btn" disabled=${busy} onClick=${() => onAnswer(false)}>Decline</button>
       <button type="button" class="il-btn il-btn--primary" disabled=${busy} onClick=${() => onAnswer(true)}>${back ? `Confirm and roll back to ${pending.to}` : `Confirm and move to ${pending.to}`}</button></div>
   </dialog>`;
 }
