@@ -117,7 +117,8 @@ def test_the_relay_passes_pictures_as_bytes_words_as_text_and_only_json_objects_
         ws.send_text("[1, 2]")
         ws.send_text(json.dumps({"t": "pad", "x": "y" * 20000}))  # over the size a viewer's message has
         ws.send_text(json.dumps({"t": "input", "input": {"op": "mouse", "type": "mousePressed", "x": 1, "y": 2}}))
-    assert hubd.done.wait(10)
+        ws.close()  # the viewer leaves; leaving the block instead would cancel the relay mid-close
+        assert hubd.done.wait(10)
     assert hubd.attached == [("good", "design-7", "design.attach")]
     assert hubd.received == [(FRAME_JSON, json.dumps({"t": "input", "input": {"op": "mouse", "type": "mousePressed", "x": 1, "y": 2}}).encode()),
                              (FRAME_EXIT, b"")]
