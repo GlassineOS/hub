@@ -1632,7 +1632,7 @@ def test_the_work_item_has_its_black_github_button_and_its_sections():
     assert 'launch({ verb: "address", covers: [{ kind: "pr", repo, number }], pins: address.map(threadPin)' in _component(script, "Threads")
     assert 'launch({ verb: "review", covers: [{ kind: "pr", repo, number }]' in _component(script, "PrDetail")
     starts = _component(script, "Starts")  # 012 FR-102: the lead start, then the quick tasks the item's state offers
-    assert "New work from this…" in starts and "offeredFor(starts.filter((s) => s !== lead), facts)" in starts
+    assert "New work from this…" in starts and "offeredFor(starts.filter((s) => s !== lead && s.availability !== \"refused\"), facts)" in starts
 
 
 ALL_VERBS = ("review", "fix", "address", "triage", "implement", "investigate")
@@ -3261,3 +3261,16 @@ def test_launchs_choices_are_the_starts():
     assert '"Or new work from this", actions.filter((a) => NEW_FROM.includes(a.object) && a.object !== kindNow && !a.one)' in brief
     assert "START_KINDS.map(([k, words]) => [words, actions.filter((a) => a.object === k)])" in brief
     assert "${a.title}${RESULT_TAG[a.result]" in brief and "verbs.map" not in brief and "More…" not in brief
+
+
+def test_a_refused_start_says_why_and_launchs_head_names_the_start_and_its_items():
+    """On a fork's pull request a start that pushes is refused (hubd says why): the lead button is off with the reason beside
+    it, other refused starts sit behind a disclosure. Launch's head names the chosen start and its items, as the board does."""
+    script = _app_js()
+    starts = _component(script, "Starts")
+    assert 'const leadOff = lead && lead.availability === "refused";' in starts and "disabled=${leadOff}" in starts
+    assert "<b>Can't start here:</b> ${lead.why}." in starts and "Can't start here · ${refused.length}" in starts
+    assert 's.availability === "hidden" || s.availability === "refused"' in starts
+    modal, brief = _component(script, "LaunchModal"), _component(script, "LaunchBrief")
+    assert ": chosen || \"Launch\";" in modal and "onChoose=${setChosen}" in modal and '<span class="nw-tag">Launch</span>' in modal
+    assert "onChoose(`${action.title}${itemWords ? ` · ${itemWords}` : \"\"}`)" in brief

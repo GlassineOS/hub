@@ -1169,22 +1169,27 @@ function Starts({ kind, repo, number, facts, road }) {
   const holder = data.holder;
   if (!holder) {
     const lead = starts.find((s) => s.lead);
-    const quick = offeredFor(starts.filter((s) => s !== lead), facts);
+    const quick = offeredFor(starts.filter((s) => s !== lead && s.availability !== "refused"), facts);
+    const refused = starts.filter((s) => s !== lead && s.availability === "refused"); // a fork's pull request, for a start that pushes
+    const leadOff = lead && lead.availability === "refused";
     return html`<section class="spawn keycap starts" aria-labelledby="h-starts">
       <div class="row" style="justify-content: space-between; align-items: center"><h2 id="h-starts" class="eyebrow">Start on ${here}</h2>${newWork}</div>
       ${data.unsure && data.unsure.length > 0 && html`<p class="small soft" role="status">Whether ${data.unsure.join(", ")} holds this isn't known yet: the lead start waits until it is.</p>`}
-      ${lead && html`<div class="leadstart"><button class="primary lead" onClick=${() => open(lead)}>
+      ${lead && html`<div class="leadstart"><button class="primary lead" disabled=${leadOff} aria-describedby=${leadOff ? "lead-refused" : null} onClick=${() => open(lead)}>
           <${PersonaBadge} persona=${{ id: lead.persona, name: lead.persona_name, initials: lead.initials, family: lead.family }} hidden />
           <span class="stack" style="gap: 2px; text-align: left"><b>${lead.title}</b><span class="small">${lead.persona_name || lead.persona} · <span class="mono">${[lead.workflow, ...(lead.path || [])].join(" › ")}</span></span></span></button>
-        <div class="stack" style="gap: 4px"><span>${lead.summary}</span><span class="small"><span class="eyebrow">May</span> ${lead.ceiling}</span></div></div>`}
+        <div class="stack" style="gap: 4px"><span>${lead.summary}</span><span class="small"><span class="eyebrow">May</span> ${lead.ceiling}</span>
+          ${leadOff && html`<span id="lead-refused" class="small" role="note"><b>Can't start here:</b> ${lead.why}.</span>`}</div></div>`}
       ${quick.length > 0 && html`<${Eyebrow}>Quick tasks<//><div class="startgrid">${quick.map((a) => html`<${StartTile} start=${a} onOpen=${() => open(a)} />`)}
         ${road && html`<button class="starttile" onClick=${() => planIssues(repo, number, "Work")}><b>Plan issues…</b></button>`}</div>`}
+      ${refused.length > 0 && html`<details class="small soft"><summary>Can't start here · ${refused.length}</summary>
+        <ul class="stack" style="gap: 2px; margin-top: 6px">${refused.map((a) => html`<li><b>${a.title}</b>: ${a.why}</li>`)}</ul></details>`}
     </section>`;
   }
   const fits = offeredFor(starts, facts); // what the item's state offers now, as for an item nothing holds
   const asks = fits.filter((s) => s.availability === "asks");
   const beside = fits.filter((s) => s.availability === "runs");
-  const hidden = starts.filter((s) => s.availability === "hidden");
+  const hidden = starts.filter((s) => s.availability === "hidden" || s.availability === "refused");
   const ask = (body, label) => act.run(async () => {
     const got = await post("agents/ask_owner", { object: kind, repo, number, ...body });
     setSaid(!got.asked ? `Not asked: ${got.why}` : got.via === "managed"
@@ -4204,7 +4209,7 @@ function ResultView({ r, reload, where = "Needs you" }) {
 }
 
 // The brief (005 FR-003, FR-004): what the planner reads. A suggestion's notes are marked as the suggester's.
-function LaunchBrief({ seed, actions, templates, groups, onPlanned, onCancel, busyId }) {
+function LaunchBrief({ seed, actions, templates, groups, onPlanned, onCancel, busyId, onChoose }) {
   const steward = seed.by === STEWARD || seed.steward;
   const suggester = seed.by && seed.by !== "you" ? (seed.by === STEWARD ? "the Steward" : seed.by) : null;
   const initial = actions.find((a) => a.id === seed.action)
@@ -4223,6 +4228,10 @@ function LaunchBrief({ seed, actions, templates, groups, onPlanned, onCancel, bu
   const [plannerModel, setPlannerModel] = useState(seed.planner_model || PLANNER_DEFAULT);
   const [driver, setDriver] = useState(seed.driver || (steward ? "steward" : "you"));
   const act = useAct();
+  // the head names the start and its items, as the board does ("Work on this · epd#9")
+  const itemWords = !action || NO_REPO.includes(action.object) ? null
+    : action.object !== "repo" && covers.length ? covers.map(ref).join(", ") : action.repo || repo || null;
+  useEffect(() => { if (onChoose && action) onChoose(`${action.title}${itemWords ? ` · ${itemWords}` : ""}`); }, [action && action.title, itemWords]);
   if (!action) return html`<div class="nw-body"><p>No actions are set up on this hub.</p></div>`;
   const noRepo = NO_REPO.includes(action.object);
   const onItems = action.object !== "repo" && !noRepo;
@@ -4362,6 +4371,7 @@ function LaunchModal({ open, work, asks, reload, onClose, onBehind }) {
   const [editing, setEditing] = useState(false);
   const [fresh, setFresh] = useState(null); // a record Plan just made, until the list has it: the brief must not come back with Plan enabled
   const [note, setNote] = useState(null);
+  const [chosen, setChosen] = useState(null); // the brief's start and items, as the head names them before anything is planned
   const { list: actions, error: actionsError } = useLaunchActions(work.templates);
   const { data: overview } = useLoad(() => api("overview"), []);
   const act = useAct(reload);
@@ -4389,18 +4399,19 @@ function LaunchModal({ open, work, asks, reload, onClose, onBehind }) {
   const setAside = () => act.run(async () => { await post(`new-work/${live.id}/dismiss`); onClose(); });
   const start = (model, brief) => act.run(() => post(`new-work/${live.id}/approve`, { model, brief }));
   const seed = live ? { ...live, from: open.from || live.from, steward: open.steward, repos: live.repos } : open;
-  const title = live ? `${live.title}${live.repo ? ` · ${live.number ? recordCovers(live, action && action.object).map(ref).join(", ") : live.repo}` : ""}` : "Launch";
+  const title = live ? `${live.title}${live.repo ? ` · ${live.number ? recordCovers(live, action && action.object).map(ref).join(", ") : live.repo}` : ""}` : chosen || "Launch";
   const by = live ? live.by : open.by;
   return html`${confirmDialog}<dialog ref=${dialog} class="nw" aria-labelledby="ln-h" onClose=${close}>
     <div class="nw-head ${by && by !== "you" ? "agent" : ""}">
       ${by === STEWARD && html`<span class="ask-avatar steward-mark" aria-hidden="true">S</span>`}
+      ${title !== "Launch" && html`<span class="nw-tag">Launch</span>`}
       <h2 id="ln-h" style="flex: 1; min-width: 0">${by && by !== "you" ? `${by === STEWARD ? "The Steward" : by} suggests · ` : ""}${title}</h2>
       ${live && live.from && html`<span class="label mono" style="padding-right: 8px">from ${live.from.ref || live.from.view}</span>`}
       <button class="square" aria-label="Close" onClick=${close}>×</button></div>
     <div class="nw-stages"><${LaunchStages} stage=${shown} stopped=${stopped} />
       ${!actions ? html`<div class="nw-body"><${Err} text=${actionsError} />${!actionsError && html`<p class="soft">Loading…</p>`}</div>`
         : shown === "brief" ? html`<${LaunchBrief} key=${`${id}-${editing}`} seed=${seed} actions=${actions} templates=${work.templates} groups=${overview ? overview.groups : []}
-            busyId=${live && ["offered", "planned"].includes(live.state) ? live.id : null}
+            busyId=${live && ["offered", "planned"].includes(live.state) ? live.id : null} onChoose=${setChosen}
             onCancel=${editing ? () => setEditing(false) : null} onPlanned=${(w) => { setFresh(w.id); setId(w.id); setEditing(false); return reload(); }} />`
         : shown === "planning" ? html`<div class="nw-body" role="status"><span class="row" style="font-weight: 600; font-size: 18px"><${StateIcon} kind="run" />The planner is reading</span>
             <span class="mono soft" style="font-size: 12.5px">claude -p · ${live ? `${NW_MODEL[live.planner_model || PLANNER_DEFAULT]} · ` : ""}read-only hub tools · up to a few minutes</span>
