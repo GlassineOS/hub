@@ -271,10 +271,15 @@ def _session(a):
     return asyncio.run(a.start({**a.defaults("issue-implement", "boot", 1), "name": "s"}))["name"]
 
 
-def _as_implement(a, name):
+def _as_implement(a, name, text=IMPLEMENT):
     """The session's machine put on a workflow with steps, as a later version of its action would be."""
     path = a.sessions / name / FILE
-    path.write_text(json.dumps(new().to_json()))
+    path.write_text(json.dumps(new(text).to_json()))
+
+
+# The implement workflow as a full session on a new branch runs it: a session is governed by the definition its machine
+# runs on, and a conversation keeps its access and checkout, so a resume only fits a definition that keeps them.
+FULL_IMPLEMENT = _with(_with(IMPLEMENT, 'access = "locked"', 'access = "full"'), 'checkout = "pr-branch"', 'checkout = "new-branch"')
 
 
 def test_a_session_starts_with_its_machine(world):
@@ -288,7 +293,7 @@ def test_a_session_starts_with_its_machine(world):
 def test_the_machine_survives_a_resume_and_a_resume_after_the_folder_went(world):
     a, tmp = world
     name = _session(a)
-    _as_implement(a, name)
+    _as_implement(a, name, FULL_IMPLEMENT)
     hub = a.machines
     assert hub.request("machine.move", {"name": name, "to": "review"}, "m")["state"] == "review"
     a.shells.live.discard(name)

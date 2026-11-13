@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from hubd import agents as agents_module
+from hubd import decisions as decisions_module
 from hubd import grant_hook
 from hubd.agents import GRANT_FILE, IDLE_FILE, OUTCOMES_FILE, AgentError, Agents, Library
 from hubd.decisions import DecisionError, Decisions
@@ -134,13 +135,15 @@ def grant_of(a, name) -> dict:
     return json.loads(path.read_text())
 
 
-def hook(a, name, tool) -> str:
-    """grant_hook.py as Claude Code runs it: the event on stdin, what it prints back."""
+def hook(a, name, tool) -> str | None:
+    """The installed command as Claude Code runs it, through the shell with the event on stdin: the reason it blocks with
+    (exit 2, on stderr), or None when it lets the tool through (exit 0, nothing said)."""
     command = json.loads((a.sessions / name / "settings.json").read_text())["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
     assert "grant_hook.py" in command
-    out = subprocess.run([sys.executable, "-I", str(Path(grant_hook.__file__)), str(a.sessions / name / GRANT_FILE)],
-                         input=json.dumps({"hook_event_name": "PreToolUse", "tool_name": tool}), capture_output=True, text=True, check=True)
-    return out.stdout
+    out = subprocess.run(["sh", "-c", command], input=json.dumps({"hook_event_name": "PreToolUse", "tool_name": tool}),
+                         capture_output=True, text=True)
+    assert out.returncode in (0, 2) and out.stdout == ""
+    return out.stderr.strip() if out.returncode == 2 else None
 
 
 def confirm(a, decisions, effects, name, to) -> dict:
@@ -161,8 +164,8 @@ def test_a_session_that_can_move_starts_with_its_first_states_grant_and_the_hook
     a, _d, _e = world
     name = run(start(a))
     assert grant_of(a, name) == {"tools": ["AskUserQuestion", "Read"], "hub_tools": TOOLS, "server": agents_module.HUB_SERVER}
-    assert hook(a, name, "mcp__glassine-hub__get_issue") == ""
-    assert json.loads(hook(a, name, "Bash"))["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert hook(a, name, "mcp__glassine-hub__get_issue") is None
+    assert "Bash" in hook(a, name, "Bash")
 
 
 def test_a_one_state_session_has_no_grant_file_and_no_hook(world):
@@ -186,10 +189,9 @@ def test_a_narrowing_move_tells_the_session_and_takes_its_tools_at_once(world):
     assert told(a, name) == f"{LABEL} Workflow: now in write. Write the report now.\n"
     assert scope_of(a, name)["tools"] == ["docs_search", "submit_result", "comment_issue"]
     assert grant_of(a, name)["tools"] == ["AskUserQuestion"]
-    denied = json.loads(hook(a, name, "mcp__glassine-hub__work_search"))["hookSpecificOutput"]
-    assert denied["permissionDecision"] == "deny" and "work_search" in denied["permissionDecisionReason"]
-    assert json.loads(hook(a, name, "Read"))["hookSpecificOutput"]["permissionDecision"] == "deny"
-    assert hook(a, name, "mcp__glassine-hub__docs_search") == ""
+    assert "work_search isn't granted" in hook(a, name, "mcp__glassine-hub__work_search")
+    assert hook(a, name, "Read") is not None
+    assert hook(a, name, "mcp__glassine-hub__docs_search") is None
     record = json.loads((a.sessions / name / "session.json").read_text())
     assert record["config"]["hub_tools"] == ["docs_search", "submit_result", "comment_issue"]
     assert record["launched"]["hub_tools"] == TOOLS
@@ -409,8 +411,20 @@ def test_the_grant_hook_refuses_when_it_cant_read_the_grant(tmp_path, content):
     if content is not None:
         path.write_text(content)
     out = subprocess.run([sys.executable, "-I", str(Path(grant_hook.__file__)), str(path)],
-                         input=json.dumps({"tool_name": "Read"}), capture_output=True, text=True, check=True)
-    assert json.loads(out.stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
+                         input=json.dumps({"tool_name": "Read"}), capture_output=True, text=True)
+    assert out.returncode == 2 and out.stderr.strip()
+
+
+def test_a_grant_hook_that_cant_run_blocks(world):
+    """Any other exit status lets the tool through in Claude Code, so the installed command turns a failure to run into 2."""
+    a, _d, _e = world
+    name = run(start(a))
+    path = a.sessions / name / "settings.json"
+    settings = json.loads(path.read_text())
+    entry = settings["hooks"]["PreToolUse"][0]["hooks"][0]
+    entry["command"] = entry["command"].replace(sys.executable, "/nonexistent/python", 1)
+    path.write_text(json.dumps(settings))
+    assert hook(a, name, "mcp__glassine-hub__get_issue") is not None
 
 
 def test_needs_you_answers_a_card_through_the_machine(world):
@@ -480,3 +494,107 @@ def test_sensitive_marks_cover_what_asks_first_too():
     from hubd.machine import Grant
     assert sensitive_of({"asks_first": ["merge_pr"]}, Grant()) == {"merge_pr": "merging to the default branch"}
     assert "access" in sensitive_of({}, Grant(access="full"))
+
+
+# --- what the review found ------------------------------------------------------------------------
+def test_a_move_while_a_resume_is_set_up_isnt_overwritten_by_the_old_state(world, monkeypatch):
+    a, _d, effects = world
+    real = a._github_for
+    moved, names = [], []
+
+    async def slow(config, action):
+        if not moved:  # GitHub is asked while the session moves on
+            moved.append(a.machines.move(names[0], "write", "hand"))
+        return await real(config, action)
+
+    async def go():
+        name = await start(a)
+        names.append(name)
+        a.shells.live.clear()
+        monkeypatch.setattr(a, "_github_for", slow)
+        resumed = await a.resume(name)
+        await effects.drain()
+        return name, resumed
+    name, resumed = run(go())
+    assert moved[0]["moved"]
+    want = ["docs_search", "submit_result", "comment_issue"]
+    assert resumed["config"]["hub_tools"] == want and scope_of(a, name)["tools"] == want
+    assert grant_of(a, name)["tools"] == ["AskUserQuestion"]
+    assert json.loads((a.sessions / name / "session.json").read_text())["config"]["hub_tools"] == want
+
+
+def test_a_lost_or_unreadable_machine_of_a_session_that_can_move_is_refused(world):
+    from hubd.instances import FILE, UNREADABLE, MachineError
+    a, _d, _e = world
+    name = run(start(a))
+    a.shells.live.clear()
+    (a.sessions / name / FILE).unlink()
+    with pytest.raises(MachineError, match="missing"):
+        a.machines.load(name)
+    with pytest.raises(AgentError, match="which state"):
+        run(a.resume(name))
+    (a.sessions / name / FILE).write_text("not json")
+    record = {**json.loads((a.sessions / name / "session.json").read_text()), **a.machines.remembered(a.sessions / name)}
+    assert record[UNREADABLE] is True
+    with pytest.raises(MachineError):
+        a.machines.restore(a.sessions / name, record)
+    one = run(a.start(a.defaults("notes-sweep", None, None)))["name"]  # a one-state session still gets one made
+    (a.sessions / one / FILE).unlink()
+    assert a.machines.load(one)[1].state == "session"
+
+
+def test_whether_a_session_can_move_is_its_machines_definition(world):
+    from hubd.instances import FILE, Instance
+    a, _d, _e = world
+    name = run(start(a))
+    action = a.library.action(ACTION)
+    assert a.staged(action, name)
+    one = (REPO / "agents" / "workflows" / f"{ACTION}.toml").read_text()  # its machine on a one-state version
+    (a.sessions / name / FILE).write_text(json.dumps(Instance.new(one, 0).to_json()))
+    assert not a.staged(action, name) and a.staged(action)
+    (a.sessions / name / FILE).write_text("not json")
+    assert a.staged(action, name)  # unreadable: refused, not taken from the action
+
+
+def test_a_github_token_for_a_list_no_longer_in_force_isnt_written(tmp_path):
+    class Apps:
+        async def token(self, persona, repos, permissions):
+            return "token-for-" + ",".join(sorted(permissions))
+    a = Agents(Library(REPO / "agents"), FakeShells(), tmp_path / "state", apps=Apps())
+    directory = a.sessions / "s"
+    directory.mkdir(parents=True)
+    config = {"persona": "reviewer", "repo": "boot", "github": ["pr.read"]}
+    (directory / "session.json").write_text(json.dumps({"config": config}))
+    action = {"grant": None}
+    run(a._github_token(directory, {**config, "github": ["pr.read", "push"]}, action))  # a renewal that read the record before a narrowing
+    assert not (directory / agents_module.GITHUB_FOLDER).exists()
+    run(a._github_token(directory, config, action))
+    assert (directory / agents_module.GITHUB_FOLDER / "token").exists()
+
+
+def test_a_locked_down_session_stays_locked_after_a_restart_until_a_resume(world):
+    a, _d, effects = world
+
+    async def go():
+        name = await start(a)
+        a.lock_down(name)
+        a.machines.move(name, "write", "hand")  # a narrowing doesn't unlock it
+        await effects.drain()
+        return name
+    name = run(go())
+    assert scope_of(a, name)["tools"] == [] and grant_of(a, name)["tools"] == []
+    again = Agents(a.library, FakeShells(), a.state, claude=a.claude, mcp_url="u", agent_token="t", workspace=a.workspace)
+    assert scope_of(again, name)["tools"] == []
+    a.shells.live.clear()
+    run(a.resume(name))
+    assert scope_of(a, name)["tools"] == ["docs_search", "submit_result", "comment_issue"]
+    assert not (a.sessions / name / agents_module.LOCKED_FILE).exists()
+
+
+def test_the_hubs_confirms_dont_use_up_a_sessions_room_to_ask(world):
+    a, decisions, _e = world
+    name = run(start(a))
+    for _ in range(decisions_module.MAX_REQUESTS):
+        decisions.widen_request({"session": name, "session_id": a.session_id_of(name), "pending": "p", "from": "a", "to": "b",
+                                 "change": {}, "adds": {"hub_tools": ["x"]}, "sensitive": {}, "resumes": ""}, "the hub's")
+    assert decisions.request("merge", {"repo": "boot", "number": 1, "head": "a" * 40, "session": name}, "please", name)["state"] == "requested"

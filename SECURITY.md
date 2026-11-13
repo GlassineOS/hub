@@ -235,8 +235,15 @@ its current state's effective grant and nothing else; `hubd/effects.py` applies 
 
 - **Narrowing is at once.** What the new state doesn't grant goes from the session's tool token (the tool server refuses it on the next
   call) and from `grant.json` in its folder, 0600, which `hubd/grant_hook.py` reads before every tool use and refuses any tool not
-  on it. The hook only refuses or says nothing, never allows, so the shell's sandbox hook still decides a command; it refuses when it
-  can't read the file. A GitHub token is made again with fewer capabilities; the old one works until it expires, up to an hour. The
+  on it. The hook only refuses (exit 2) or says nothing, never allows, so the shell's sandbox hook still decides a command; it refuses
+  when it can't read the file, and its command ends in `|| exit 2`, so one that can't start refuses too. A hook past its 10 s timeout
+  is ended by Claude Code, which then runs the tool: for Claude Code's own tools the check is a guard there, and the tool server still
+  refuses a hub tool by the token. A session whose grant can't be worked out after a move is locked: its token and the hook refuse
+  everything, kept on disk across a restart of hubd, until a resume.
+- **A session whose workflow can move never falls back to its first state.** Whether it can move is read from the definition its
+  machine runs on. One whose machine record is lost or can't be read is refused (resume, a resume from the history) rather than given
+  a fresh machine in the first state, whose grant may be wider than what it was in. A move while a resume is set up makes the resume
+  start over from the new state, and a GitHub token made for a list that is no longer in force isn't written. A GitHub token is made again with fewer capabilities; the old one works until it expires, up to an hour. The
   session's record says what is in force, so a restart of hubd or a renewal doesn't give back what went. Nothing is added this way.
 - **Widening is deliberate.** A move to a capability the instance has never held waits for your confirm, a `machine.widen` card in
   Needs you that hubd alone makes (`decision.add` and a token's `decision_request` refuse the kind). It names the move, what it adds,
