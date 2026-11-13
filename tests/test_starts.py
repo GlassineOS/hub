@@ -443,6 +443,9 @@ def test_a_managed_start_is_refused_on_an_item_held_by_a_session_outside_its_cha
         await h.effects.answer_approval(card["id"], True, "me")
         await settle(h)
         assert kids(h, a, beside, "fixer") == []
+        for _ in range(3):  # tried again (the holder may end), and its owner hears it once
+            assert not (await h.managed.start(beside, "fixer"))["started"]
+        assert (a.sessions / beside / OUTCOMES_FILE).read_text().count("fixer hasn't started") == 1
         with pytest.raises(AgentError, match=f"{holder} holds boot#{PR}: {beside} doesn't hold it"):
             await a.start(a.defaults("pr-fixer", "boot", PR), owner={"name": beside, "session_id": a.session_id_of(beside),
                                                                          "entry": "fixer", "round": 1})

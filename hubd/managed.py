@@ -44,7 +44,7 @@ import sqlite3
 import time
 
 from . import machine, summary
-from .agents import CHAIN_TOOLS, DESIGN_ACTION, ENDED_FILE, HUB_SENDER, IDLE_FILE, MAX_MANAGED, NO_REPO_OBJECTS, AgentError, ForkError, _draws_nothing, covers_of
+from .agents import CHAIN_TOOLS, DESIGN_ACTION, ENDED_FILE, HUB_SENDER, IDLE_FILE, MAX_MANAGED, NO_REPO_OBJECTS, AgentError, ForkError, HeldError, _draws_nothing, covers_of
 from .decisions import APPROVE, DecisionError
 from .effects import LABEL, path_of
 from .instances import MachineError
@@ -118,6 +118,7 @@ class Managed:
             runner.more_facts = self.facts
             runner.on_head = self.on_head
         self._judged: dict[tuple, tuple[float, bool]] = {}  # (conversation, entry, round, item) -> when a request's `when` was judged, and how
+        self._held: set[tuple] = set()  # (conversation, entry, round, item, why) told that a holder outside its chain held it back
         self._full: set[tuple] = set()  # (owner, conversation, entry, round) told that MAX_MANAGED held its start back: told once, signalled on room
         self._stuck: dict[tuple, str] = {}  # (conversation, entry, round, item) -> why it can't start: told and raised once, not tried again
 
@@ -438,6 +439,10 @@ class Managed:
                     self._stuck[key] = str(e)
                     self._stuck_up(owner, record, inst, entry, str(e))
                     return {"started": False, "why": str(e), "stuck": True}
+                if isinstance(e, HeldError) and key is not None and (*key, str(e)) not in self._held:
+                    # it can start once the holder lets the item go, so it is tried again; its owner hears it once a round
+                    self._held.add((*key, str(e)))
+                    self.agents.tell(owner, f"{LABEL} {entry} hasn't started: {e}. It can start once that session lets the item go.")
                 return {"started": False, "why": str(e)}
 
     def _stuck_key(self, owner: str, entry: str, item: str | None) -> tuple | None:
