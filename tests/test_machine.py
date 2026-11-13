@@ -555,6 +555,6 @@ def test_the_default_implement_workflow_passes_its_checks():
     assert all(machine.effective(d, s).asks_first == ("merge_pr",) for s in leaves if s != "escalated")  # held before merge-ready: no confirm
     assert all(e.approve == "none" for s in d.states.values() for e in s.exits)
     # without the cycle's counter, the check refuses it
-    text = library.workflow_texts["implement"].replace('requires = ["rounds.fix >= 3", "pr.review == changes_requested"]',
+    text = library.workflow_texts["implement"].replace('requires = ["rounds.fix >= 3", "pr.review == changes_requested or managed.reviewer.verdict == fail"]',
                                                        'requires = ["pr.review == changes_requested", "pr.checks == fail"]')
     assert any("has no exit that tests a counter" in p for p in _problems(text))

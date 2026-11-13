@@ -3057,7 +3057,11 @@ function MachinePanel({ name, onMoved }) {
         <section class="stack tight" aria-labelledby=${`mp-sub-${name}`}>
           <h3 class="wfh3" id=${`mp-sub-${name}`}>Running under ${at}</h3>
           ${managed.length > 0 && html`<p class="small">${managed.map((m) => `${m.name}: ${m.persona} on ${m.workflow}, ${m.start === "auto" ? "starts on entry" : "on request"}, under ${m.under}`).join("; ")}.</p>`}
-          <p class="small soft">No sessions run under this state.</p></section>
+          ${(v.managed || []).length ? html`<ul class="stack tight" aria-label=${`Sessions running under ${at}`}>${v.managed.map((c) => html`<li key=${c.name} class="row" style="gap: 6px 10px">
+              <a class="mono" href=${hash("shells", { name: c.name })}>${c.name}</a><span class="small">${c.entry} · ${c.persona}</span>
+              <span class="eyebrow soft">${c.state}</span>${c.machine && html`<${StateChip} machine=${c.machine} short />`}
+              ${Object.keys((v.returns || {})[c.entry] || {}).length > 0 && html`<span class="small soft">returned ${Object.entries(v.returns[c.entry]).map(([k, x]) => `${k} ${x}`).join(", ")}</span>`}</li>`)}</ul>`
+            : html`<p class="small soft">No sessions run under this state.</p>`}</section>
         <section class="stack tight" aria-labelledby=${`mp-ol-${name}`}>
           <h3 class="wfh3" id=${`mp-ol-${name}`}>The whole machine</h3>
           <ul class="wftree" aria-label=${`States and exits of ${inst.workflow}`}>${outlineRows(states, v.initial, here, exits).map((r) => (r.row === "state"

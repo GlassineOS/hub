@@ -67,6 +67,11 @@ FACTS = {"pr.open": "bool", "pr.merged": "bool", "pr.checks": ("pass", "fail", "
          "design.accepted": "bool", "report.answered": "bool",
          "rounds.<state>": "int", "time.<state>": "int", "tokens.<state>": "int", "managed.<entry>.<field>": "returns"}
 COUNTERS = ("rounds", "time", "tokens")
+# A `returns` field is a list of the values it takes (a fact), or TEXT_LIST: short lines of text handed to the owner as data,
+# never a fact. Bounds on what such a field carries:
+TEXT_LIST = "text-list"
+MAX_TEXT_ITEMS = 20
+MAX_TEXT_ITEM = 500
 OPS = ("==", "!=", "<", "<=", ">", ">=")
 
 
@@ -130,7 +135,7 @@ class Manage:
     reuse: str = "resume"
     on_exit: str = "stop"
     with_: tuple[str, ...] = ()
-    returns: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    returns: dict[str, tuple[str, ...] | str] = field(default_factory=dict)  # field -> its values, or TEXT_LIST
 
 
 @dataclass(frozen=True)
@@ -398,9 +403,15 @@ def _manage(r: _Reader, raw, where: str) -> Manage:
         r.problems.append(Problem(f"{where}.returns", "must be a table"))
         raw_returns = {}
     for key in raw_returns:
+        if raw_returns[key] == TEXT_LIST:
+            if _FIELD.fullmatch(key):
+                returns[key] = TEXT_LIST
+            else:
+                r.problems.append(Problem(f"{where}.returns.{key}", "is a field name"))
+            continue
         values = r.get(raw_returns, key, f"{where}.returns", list, None, pattern=_WORD)
         if not _FIELD.fullmatch(key) or not values or any(v in _RESERVED or v.isdigit() for v in values):
-            r.problems.append(Problem(f"{where}.returns.{key}", "is a field name with a list of the values it takes"))
+            r.problems.append(Problem(f"{where}.returns.{key}", f"is a field name with a list of the values it takes, or {TEXT_LIST!r}"))
         else:
             returns[key] = values
     most = r.get(t, "max", where, int, 1)
@@ -533,6 +544,80 @@ def effective(d: Definition, state_id: str) -> Grant:
     return Grant(**merged)
 
 
+# ---- managed sessions' grants (FR-043, FR-023) ----
+
+READ_CHECKOUTS = ("default", "pr")  # detached: a session there can't push, so it fits under an owner with any checkout
+
+
+def managed_of(d: Definition, state_id: str) -> list[tuple[str, Manage]]:
+    """The `manages` entries that hold in a state, its own first, then each parent's (FR-045), with the state that names
+    each. A child's entry of the same name stands for its parent's."""
+    seen, out = set(), []
+    for sid in ancestors(d, state_id):
+        for m in d.states[sid].manages:
+            if m.name not in seen:
+                seen.add(m.name)
+                out.append((sid, m))
+    return out
+
+
+def _checkout_fits(child, owner) -> bool:
+    child, owner = (False if v is None else v for v in (child, owner))
+    return child is False or child == owner or (child in READ_CHECKOUTS and owner is not False)
+
+
+def beyond(child: Grant, owner: Grant) -> dict[str, tuple]:
+    """What a managed session's grant holds that its owner's effective grant doesn't, per key, as Change.adds lists it.
+    Lists by item, ordered keys by level; a checkout fits when it is none, the owner's, or a detached one under an owner
+    that has a checkout at all."""
+    out = {}
+    for key in _SET_KEYS:
+        if extra := tuple(x for x in getattr(child, key) if x not in getattr(owner, key)):
+            out[key] = extra
+    for key, order in _ORDERED.items():
+        c, o = (_LOWEST[key] if v is None else v for v in (getattr(child, key), getattr(owner, key)))
+        if order.index(c) > order.index(o):
+            out[key] = (c,)
+    if not _checkout_fits(child.checkout, owner.checkout):
+        out["checkout"] = (child.checkout,)
+    return out
+
+
+def cap(child: Grant, owner: Grant, allowed: dict | None = None) -> Grant:
+    """A managed session's grant as it runs (FR-043): its own, each key no wider than its owner's, unless `allowed` (what an
+    approval above the owner let it have, as `beyond` gives it) says so. Lists keep the child's order; ordered keys take the
+    lower; a checkout that doesn't fit becomes none."""
+    allowed = allowed or {}
+    out = {}
+    for key in _SET_KEYS:
+        out[key] = tuple(x for x in getattr(child, key) if x in getattr(owner, key) or x in allowed.get(key, ()))
+    for key, order in _ORDERED.items():
+        c, o = (_LOWEST[key] if v is None else v for v in (getattr(child, key), getattr(owner, key)))
+        out[key] = c if c in allowed.get(key, ()) else min(c, o, key=order.index)
+    fits = _checkout_fits(child.checkout, owner.checkout) or child.checkout in allowed.get("checkout", ())
+    out["checkout"] = child.checkout if fits else False
+    return Grant(**out)
+
+
+def fits(extra: dict, holder: Grant) -> bool:
+    """Whether what `beyond` gave (a managed session's items over its owner's) is all within `holder`'s grant: what a
+    session above may approve, as it may grant only what it holds itself (FR-051)."""
+    wanted = {key: tuple(extra.get(key, ())) for key in _SET_KEYS}
+    for key in _ORDERED:
+        wanted[key] = extra[key][0] if extra.get(key) else None
+    wanted["checkout"] = extra["checkout"][0] if extra.get("checkout") else False
+    return not beyond(Grant(**wanted), holder)
+
+
+def union(*grants: Grant) -> Grant:
+    """Every item any of them holds: lists joined, ordered keys the widest, the first set checkout."""
+    merged = {key: tuple(dict.fromkeys(x for g in grants for x in getattr(g, key))) for key in _SET_KEYS}
+    for key, order in _ORDERED.items():
+        merged[key] = max((getattr(g, key) for g in grants if getattr(g, key) is not None), key=order.index, default=_LOWEST[key])
+    merged["checkout"] = next((g.checkout for g in grants if g.checkout not in (None, False)), False)
+    return Grant(**merged)
+
+
 @dataclass(frozen=True)
 class Change:
     """Per grant key, the items added, removed and kept. An ordered key that widens adds its new value; one that narrows
@@ -648,7 +733,7 @@ def check(d: Definition) -> list[Finding]:
     parsed: dict[tuple[str, int], list[Requirement]] = {}
 
     for s in d.states.values():
-        returns = {m.name: m.returns for a in ancestors(d, s.id) for m in d.states[a].manages}
+        returns = {m.name: m.returns for _sid, m in managed_of(d, s.id)}  # the entries in force there: a child's stands for its parent's
         for i, e in enumerate(s.exits, 1):
             where = f"state.{s.id}.exit.{i}"
             reqs = []
@@ -666,6 +751,8 @@ def check(d: Definition) -> list[Finding]:
                         values = returns.get(kind[1], {}).get(kind[2])
                         if values is None:
                             problem(f"{where}.requires", f"{t.name}: no managed entry here returns {kind[1]}.{kind[2]}")
+                        elif values == TEXT_LIST:
+                            problem(f"{where}.requires", f"{t.name} is text for the owner to read, not a fact")
                         elif t.value not in values:
                             problem(f"{where}.requires", f"{t.name} is one of {', '.join(values)}")
                 reqs.append(req)

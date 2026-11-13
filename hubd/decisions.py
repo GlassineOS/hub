@@ -157,6 +157,8 @@ def describe(record: dict) -> str:
     if record["kind"] == WIDEN:
         adds = "; ".join(f"{k} {', '.join(map(str, v))}" for k, v in scope["adds"].items())
         return f"Workflow move for {scope['session']}: {scope['from']} to {scope['to']}, which adds {adds}"
+    if record["kind"] == APPROVE and scope.get("type"):  # a report sent up, or a managed session's start: the hub's own words
+        return scope["says"]
     if record["kind"] == CHANGE:
         where = "the organisation" if scope["scope"] == "org" else scope["repo"]
         return f"Workflow change: a new version of {scope['workflow']} for {where}, from v{scope['base_version']}"
