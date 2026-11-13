@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# The engineer an implementor manages (spec 012, FR-070): it makes the change on its own new branch, pushes it and opens the
+# draft pull request, then hands back. It has one state: the implementor's workflow holds review and fix, and each fix round
+# resumes this same session with the new round's references. Sandboxed like implement: its edits, commits and pushes happen in
+# the shell, and its token may push its branch, never merge.
+schema = 1
+name = "engineer"
+initial = "session"
+
+[state.session]
+final = true
+[state.session.grant]
+tools = ["Read", "Grep", "Glob", "Skill", "AskUserQuestion", "Bash"]
+hub_tools = ["get_issue", "get_pr", "get_pr_threads", "get_pr_diff", "list_runs", "get_run", "get_run_log", "docs_search",
+             "work_search", "request_repository", "code_search", "map_overview", "map_definition", "map_usages", "map_string",
+             "work_status", "docs_index_status"]
+checkout = "new-branch"
+github = ["read", "issues.comment", "pr.write", "push"]

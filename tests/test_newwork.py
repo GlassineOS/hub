@@ -443,7 +443,7 @@ def test_a_failure_leaves_that_draft_to_retry_and_files_the_rest():
 
 def test_a_planner_session_gets_no_shell_and_no_write_tool():
     for action in LIBRARY.actions.values():
-        if action["object"] == "repo":
+        if action["object"] == "repo" and not action.get("per_repo"):  # a repository's maintainer is no planner: it reads, under the Steward
             assert action["grant"].checkout == "default" and action["grant"].access == "locked"
             assert not {"Bash", "Write", "Edit", "Agent"} & set(action["grant"].tools)
             assert not set(action["grant"].hub_tools) - {"get_issue", "list_issues", "list_prs", "get_pr", "docs_search", "work_search", "roadmap", "submit_drafts", "request_repository", "map_overview", "map_definition", "map_usages", "map_string", "code_search", "notes_find"}

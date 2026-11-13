@@ -1,0 +1,13 @@
+# The Designer's check of a user-facing pull request against the accepted boards (spec 012, FR-074), started by a workflow
+# that manages one. See agents/workflows/design-check.toml.
+order = 9
+ceiling = "Reads the pull request and the merged design boards of GlassineOS/ui, in a sandboxed shell on the pull request's head. Changes nothing. Runs only under another session."
+object = "pr"
+result = "findings"
+title = "Check against the boards"
+summary = "Compares what a user-facing pull request shows with the accepted design boards and hands a verdict with findings to its owner."
+personas = ["designer"]
+prompt = "design-check"
+models = ["sonnet", "opus"]
+efforts = ["medium", "high"]
+managed_only = true

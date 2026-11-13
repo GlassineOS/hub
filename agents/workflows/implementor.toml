@@ -1,0 +1,202 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# One piece of work from its issue to a merge-ready pull request, coordinated (spec 012, FR-070, FR-072, FR-073, FR-074).
+# The implementor holds the issue and the pull request and never builds: an engineer makes the change, a code reviewer reads
+# it, and for a user-facing change a QA engineer runs it, each a session this workflow manages.
+#
+# The grant. A managed session's grant is capped at its owner's, and one that needs more waits for an approval above the
+# owner. So that its sessions start without one, `work` holds the union of what they use: the reading tools, the shell, a new
+# branch, and GitHub read, comment and pull request writes; implement and fix add `push`, the states where the engineer runs.
+# A new-branch session fits only under a new-branch owner and a GitHub token needs a shell, so the implementor has both.
+# What keeps it from building is its persona and its instructions, not its grant. The design spike runs the design action,
+# a full session, which no locked owner holds: its start always waits for the maintainer.
+#
+# The pull request is the engineer's, on the engineer's branch; the hub counts it as the implementor's own for its facts.
+# Fix resumes the same engineer, which is handed the implementor's rolling summary, where the findings it is to address are.
+schema = 1
+name = "implementor"
+initial = "work"
+
+[state.work]
+initial = "implement"
+personas = ["implementor"]
+[state.work.grant]
+tools = ["Read", "Grep", "Glob", "Skill", "AskUserQuestion", "Bash"]
+hub_tools = ["get_issue", "get_pr", "get_pr_threads", "get_pr_diff", "list_runs", "get_run", "get_run_log", "docs_search",
+             "work_search", "request_repository", "code_search", "map_overview", "map_definition", "map_usages", "map_string",
+             "list_repo_files", "read_repo_file", "list_workflows", "work_status", "docs_index_status", "plan_work",
+             "submit_result", "request_move"]
+checkout = "new-branch"
+github = ["read", "issues.comment", "pr.write"]
+# Held from the start, so merge-ready asks no confirm: a call shows a card, and allowing it is the merge decision.
+asks_first = ["merge_pr"]
+
+[state.implement]
+parent = "work"
+instructions = """The engineer under you makes the change on its own branch and opens the draft pull request; it hands back \
+when it is done or blocked. Don't edit, commit or push yourself. Answer its reports with answer_report. If the work meets a \
+design question no accepted board answers, say so plainly in your turn: a design spike starts, and the work waits for its \
+boards to be accepted."""
+[state.implement.grant]
+github = ["push"]
+[[state.implement.manages]]
+name = "engineer"
+persona = "engineer"
+workflow = "engineer"
+start = "auto"
+max = 1
+reuse = "resume"
+on_exit = "stop"
+with = ["issue", "pr"]
+returns = { status = ["done", "blocked"], summary = "text-list" }
+# A design question no accepted board answers: a design session (011) on GlassineOS/ui, as this session's. While one runs
+# this round, or its start waits for your approval, implement moves on only once its pull request is merged; it lives in
+# implement only, so it stops when the work moves on; merging it stays the maintainer's.
+[[state.implement.manages]]
+name = "design-spike"
+persona = "designer"
+workflow = "design"
+start = "auto"
+when = "The work meets a design question that no accepted design board answers."
+max = 1
+reuse = "resume"
+on_exit = "stop"
+with = ["issue", "owner.summary"]
+[[state.implement.exit]]
+to = "review"
+decided_by = "facts"
+requires = ["managed.engineer.status == done", "pr.open", "pr.checks == pass", "design.accepted or not started.design-spike"]
+on = ["hub:managed.return", "feed:pr.opened", "feed:pr.checks", "feed:pr.state", "turn.end"]
+[[state.implement.exit]]
+to = "escalated"
+decided_by = "facts"
+requires = ["managed.engineer.status == blocked"]
+on = ["hub:managed.return"]
+
+[state.review]
+parent = "work"
+instructions = """The pull request waits for review: a code reviewer under you reads it. Mark it ready (`gh pr ready`) if it is \
+still a draft. The reviewer's findings come in your turn; write in your own words which of them are to be fixed, as the \
+engineer's next round reads your summary."""
+[[state.review.manages]]
+name = "reviewer"
+persona = "reviewer"
+workflow = "pr-review"
+start = "auto"
+max = 1
+reuse = "fresh"
+on_exit = "stop"
+with = ["pr", "diff.since_last_round"]
+returns = { verdict = ["pass", "fail"], findings = "text-list" }
+[[state.review.exit]]
+to = "escalated"
+decided_by = "counter"
+requires = ["rounds.fix >= 3", "pr.review == changes_requested or managed.reviewer.verdict == fail"]
+on = ["feed:pr.review", "feed:pr.checks", "turn.end", "hub:managed.return"]
+[[state.review.exit]]
+to = "fix"
+decided_by = "facts"
+requires = ["pr.review == changes_requested or managed.reviewer.verdict == fail"]
+on = ["feed:pr.review", "feed:pr.checks", "turn.end", "hub:managed.return"]
+[[state.review.exit]]
+to = "qa"
+decided_by = "facts"
+requires = ["pr.review == approved or managed.reviewer.verdict == pass", "pr.checks == pass"]
+on = ["feed:pr.review", "feed:pr.checks", "turn.end", "hub:managed.return"]
+
+[state.qa]
+parent = "work"
+instructions = """The review passed. Say in a sentence whether the change is user-facing: whether a person sees or uses what it \
+changes. If it is, a QA engineer under you runs it; if accepted design boards cover what it shows, start the designer with \
+start_managed to check it against them. If it isn't, it goes on to merge-ready without a QA run."""
+[[state.qa.manages]]
+name = "qa"
+persona = "qa-engineer"
+workflow = "qa-audit"
+start = "auto"
+when = "The change is user-facing: a person sees or uses what it changes."
+max = 1
+reuse = "fresh"
+on_exit = "stop"
+with = ["issue", "pr", "diff"]
+returns = { verdict = ["pass", "fail"], findings = "text-list" }
+[[state.qa.manages]]
+name = "designer"
+persona = "designer"
+workflow = "design-check"
+start = "on-request"
+when = "The change is user-facing and an accepted design board covers what it shows."
+max = 1
+reuse = "fresh"
+on_exit = "stop"
+with = ["pr", "diff"]
+returns = { verdict = ["pass", "fail"], findings = "text-list" }
+[[state.qa.exit]]
+to = "escalated"
+decided_by = "counter"
+requires = ["rounds.fix >= 3", "managed.qa.verdict == fail or managed.designer.verdict == fail"]
+on = ["hub:managed.return", "feed:pr.checks", "turn.end"]
+[[state.qa.exit]]
+to = "fix"
+decided_by = "facts"
+requires = ["managed.qa.verdict == fail or managed.designer.verdict == fail"]
+on = ["hub:managed.return", "feed:pr.checks", "turn.end"]
+[[state.qa.exit]]
+to = "merge-ready"
+decided_by = "facts"
+requires = ["managed.qa.verdict == pass", "pr.checks == pass", "not started.designer or managed.designer.verdict == pass"]
+on = ["hub:managed.return", "feed:pr.checks", "turn.end"]
+# Both exits to merge-ready wait for a designer started on request, as for the QA engineer.
+# Not user-facing: the judge said this round that the QA entry's `when` doesn't hold. A QA start that didn't happen (the most
+# managed sessions at once were running) isn't that: it is tried again, and the work waits for it.
+[[state.qa.exit]]
+to = "merge-ready"
+decided_by = "facts"
+requires = ["not when.qa", "pr.checks == pass", "not started.designer or managed.designer.verdict == pass"]
+on = ["turn.end", "feed:pr.checks", "hub:managed.return"]
+
+[state.fix]
+parent = "work"
+instructions = """The review or the QA run asked for changes. The engineer under you is resumed for them, and reads your \
+summary: say in your turn, point by point, what is to be fixed. It hands back when it has pushed the fixes."""
+[state.fix.grant]
+github = ["push"]
+[[state.fix.manages]]
+name = "engineer"
+persona = "engineer"
+workflow = "engineer"
+start = "auto"
+max = 1
+reuse = "resume"
+on_exit = "stop"
+with = ["issue", "pr", "diff.since_last_round", "owner.summary"]
+returns = { status = ["done", "blocked"], summary = "text-list" }
+[[state.fix.exit]]
+to = "review"
+decided_by = "facts"
+requires = ["managed.engineer.status == done", "pr.open", "pr.checks == pass", "not pr.reviewed"]
+on = ["hub:managed.return", "feed:pr.checks", "turn.end"]
+[[state.fix.exit]]
+to = "escalated"
+decided_by = "facts"
+requires = ["managed.engineer.status == blocked"]
+on = ["hub:managed.return"]
+
+[state.merge-ready]
+final = true
+instructions = """The pull request is reviewed, and run where it is user-facing; its checks pass. Merging is the maintainer's \
+decision: call `merge_pr` with the pull request's head, which asks them on a card, and merge only if they allow it. If the \
+head moves, ask again. Change nothing else."""
+[state.merge-ready.grant]
+tools = ["Read", "Grep", "Glob", "AskUserQuestion"]
+hub_tools = ["get_issue", "get_pr", "get_pr_threads", "docs_search", "work_search", "request_repository"]
+asks_first = ["merge_pr"]
+checkout = "new-branch"
+
+[state.escalated]
+final = true
+instructions = """The work can't go on by itself: three rounds of fixes didn't settle the review, or the engineer is blocked. \
+Say in a few sentences what is still asked for and what you think blocks it: the maintainer decides how it goes on."""
+[state.escalated.grant]
+tools = ["Read", "Grep", "Glob", "AskUserQuestion"]
+hub_tools = ["get_issue", "get_pr", "get_pr_threads", "docs_search", "work_search", "request_repository"]
+checkout = "new-branch"

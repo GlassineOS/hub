@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# A code reviewer reads a workflow draft before it reaches the maintainer (spec 012, FR-060, FR-062). It reads its owner's
+# newest draft and the workflow as it is, and hands back a verdict; it can't draft or save.
+schema = 1
+name = "workflow-review"
+initial = "session"
+
+[state.session]
+final = true
+[state.session.grant]
+tools = ["AskUserQuestion"]
+hub_tools = ["read_draft", "read_workflow", "docs_search"]
+checkout = false

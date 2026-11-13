@@ -1,0 +1,20 @@
+# A change to a workflow, asked for in words from the editor (spec 012, FR-062). The author drafts, the hub checks, replays
+# and proposes; only the maintainer saves. See agents/workflows/workflow-change.toml.
+order = 9
+ceiling = "Reads the workflows and how sessions ran on them, and keeps drafts the hub checks. Can't save a workflow: the hub proposes its draft to you as a Workflow change."
+object = "project"
+result = "none"
+title = "Ask for a workflow change"
+summary = "A Workflow author drafts the change you asked for; the hub checks and replays each draft and puts the ready one in Needs you for you to save."
+personas = ["workflow-author"]
+prompt = "workflow-change"
+models = ["sonnet", "opus"]
+efforts = ["medium", "high"]
+plan = false
+# The states and the entry the hub acts on (hubd/drafts.py): the author drafts in `draft`; entering `review` marks the newest
+# draft as the one `reviewer` reads; entering `propose` (a final state) puts the newest passing draft in Needs you.
+[drafting]
+draft = "draft"
+review = "review"
+reviewer = "reviewer"
+propose = "propose"

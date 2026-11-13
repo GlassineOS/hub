@@ -3012,11 +3012,23 @@ def test_github_writes_come_only_from_the_github_actions_button_and_its_forms():
 
 def test_the_page_no_longer_reads_the_old_routes():
     """The routes stay for the tools and tests; the page reads Needs you from the one interactions poll and starts
-    sessions through Launch. The Steward's own Start is the one agents/run left."""
+    sessions through Launch. The Steward's own Start and the editor's "Ask for a change…" (a workflow-change session, on no
+    item, with your words as its notes) are the two agents/run left."""
     script = _app_js()
     for old in ('api("asks")', 'api("decisions")', '"agents/plan"', '"agents/start"', 'post("asks', "post(`asks/"):
         assert old not in script, old
-    assert script.count('"agents/run"') == 1 and 'post("agents/run", { action: "project-steward" })' in script
+    assert script.count('"agents/run"') == 2 and 'post("agents/run", { action: "project-steward" })' in script
+    assert 'post("agents/run", { action: "workflow-change", notes })' in script
+
+
+def test_the_editor_asks_the_workflow_author_and_a_design_card_opens_the_design_view():
+    script = _app_js()
+    editor = script[script.index("function WorkflowEditor("):script.index("function SaveDialog(")]
+    assert "Ask for a change…" in editor and "AskChangeDialog" in editor
+    ask = script[script.index("function AskChangeDialog("):script.index("function ProposeDialog(")]
+    assert 'hash("shells", { name: r.name })' in ask and "disabled=${act.busy || !words.trim()}" in ask
+    row = script[script.index("function DecisionRow("):]
+    assert 'd.scope.type === "design"' in row and 'hash("design", { name: d.scope.design })' in row and "Look at the design" in row
 
 
 
