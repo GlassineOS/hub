@@ -300,6 +300,26 @@ Steward with a count. The work sync records into it; the Steward reads it with `
 - **Nothing acts on a ping.** It asks for nothing and the persona says to re-read. Any write still asks first.
 - **`changes_since` is by list,** read-only, on the Steward's only. Under your login the page reads all of it and moves nobody's cursor.
 
+## Workflow signals and moves
+
+A session's workflow moves on its own only on a signal: its own hook (a turn ended, it ended, a tool ran, a compaction
+is coming), a change the feed stored for an item it covers or a pull request the hub has seen for it, or a hub event
+such as a decision answered for it (`hubd/machinerun.py`).
+
+- **A signal carries no text.** The hook (`hubd/machine_hook.py`) sends the session's own token and the hook event's name,
+  never the tool's input or output, and hubd maps that name through a closed list; the shared tool token is no session and
+  is refused. A feed signal is a feed row, which is already only facts. The hook sends one line and never waits for hubd,
+  so a stopped or slow hubd costs a lost signal, never a held turn; only sessions whose workflow names a session signal get it.
+- **Transcript text reaches the judge only as data.** The judge sees the rolling summary and the last turn inside its
+  boundary-marked data blocks (FR-015, FR-017), nothing else of the transcript. A judge configured on a hosted
+  chat-completions endpoint sends that text off this host to whoever runs the endpoint: choose one in `judges.toml` with
+  that in mind; the default runs on the subscription, as the sessions do.
+- **A move still needs its facts.** Words in a transcript (an issue body, a review comment, a log) that ask for a move can at
+  most sway the judge's pick. The hub then checks every `requires` against what it knows itself (the counters, the feed, the
+  pull requests it has looked up); a fact it can't tell doesn't hold either way, a failed or malformed verdict moves
+  nothing, an exit with `approve` above `none` doesn't move on its own, and every evaluation is logged with each check
+  and its value. Exits decided by hand or moved on request are never tried by a signal.
+
 ## The person's decisions
 
 Goes and merge approvals, each a file in hubd's state folder, on disk before anything acts on it.
