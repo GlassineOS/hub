@@ -147,6 +147,35 @@ def _exit_json(e: machine.Exit) -> dict:
     return {k: list(v) if isinstance(v, tuple) else v for k, v in dataclasses.asdict(e).items()}
 
 
+def _check(expr: str, facts: dict) -> dict:
+    """One `requires` entry against the facts the hub has: each term with the value it saw. A term whose fact the hub
+    has no value for is unknown, not failed, and so is the entry unless another of its terms holds."""
+    try:
+        req = machine.parse_requires(expr)
+    except DefinitionError:
+        return {"requires": expr, "terms": [], "result": "unknown"}
+    terms = []
+    for t in req.terms:
+        have = facts.get(t.name)
+        terms.append({"fact": t.name, "op": t.op, "value": t.value, "have": have,
+                      "result": "unknown" if have is None else "holds" if t.holds(facts) else "fails"})
+    results = {t["result"] for t in terms}
+    return {"requires": expr, "terms": terms, "result": "holds" if "holds" in results else "unknown" if "unknown" in results else "fails"}
+
+
+def _tried_exit(owner: str, place: int, e: machine.Exit, facts: dict) -> dict:
+    checks = [_check(r, facts) for r in e.requires]
+    results = {c["result"] for c in checks}
+    return {**_exit_json(e), "from": owner, "place": place, "checks": checks,
+            "result": "fails" if "fails" in results else "unknown" if "unknown" in results else "holds"}
+
+
+def _state_json(s: machine.State) -> dict:
+    return {"id": s.id, "parent": s.parent, "initial": s.initial, "final": s.final, "personas": list(s.personas),
+            "context": s.context, "exits": [_exit_json(e) for e in s.exits],
+            "manages": [{"name": m.name, "persona": m.persona, "workflow": m.workflow, "start": m.start} for m in s.manages]}
+
+
 # ---- the instance ----
 
 @dataclass
@@ -507,13 +536,30 @@ class Machines:
             except (DefinitionError, MachineError):
                 newer = None
         pending = {k: v for k, v in inst.pending.items() if k != "who"} if inst.pending else None
+        facts = inst.facts(self.clock())
         return {"instance": {"workflow": inst.workflow, "version": inst.version, "state": inst.state, "paused": inst.paused,
                              "history": dict(inst.history), "counters": inst.counters, "held": inst.held, "pending": pending,
                              "can_roll_back": bool(inst.trail), "created": inst.created, "entered": inst.entered,
                              "definition": inst.definitions[inst.version]},
                 "grant": grant_json(machine.effective(d, inst.state)),
-                "exits": [_exit_json(e) for e in machine.exits_of(d, inst.state)],
-                "facts": inst.facts(self.clock()), "newer": newer}
+                "exits": [_tried_exit(owner, place, e, facts) for owner in machine.ancestors(d, inst.state)
+                          for place, e in enumerate(d.states[owner].exits, 1)],
+                "path": list(reversed(machine.ancestors(d, inst.state))), "initial": d.initial,
+                "states": [_state_json(s) for s in d.states.values()],
+                "sensitive": {"github": machine.SENSITIVE, "hub_tools": machine.SENSITIVE_HUB_TOOLS},
+                "facts": facts, "newer": newer}
+
+    def summary(self, name: str) -> dict | None:
+        """What a state chip shows, for the session lists: read from the file only, so it creates and writes nothing
+        and asks nothing about the session (is_session asks this)."""
+        try:
+            inst = Instance.from_json(json.loads((self.sessions / name / FILE).read_text()))
+            d = inst.definition()
+        except (OSError, ValueError, MachineError, DefinitionError):
+            return None
+        return {"workflow": inst.workflow, "state": inst.state, "path": list(reversed(machine.ancestors(d, inst.state))),
+                "one_state": len(d.states) == 1, "final": d.states[inst.state].final, "paused": inst.paused,
+                "waits": inst.pending is not None}
 
     # --- acting on a session's machine: load, change, save, log ---------------------
     def _act(self, name, change) -> dict:

@@ -420,9 +420,10 @@ function SessionChip({ session, pending, onOpen, href }) {
   const word = waits && pending > 0 ? `${pending} waiting` : state.toUpperCase();
   const said = waits ? (pending > 0 ? `waiting for you, ${count(pending, "thing")}` : "waiting for you")
     : state === "running" && a && a.idle ? "running, idle at its prompt" : state;
-  const label = `Session ${session.name}, ${a ? a.persona_name || a.persona : "plain shell"}, ${said}`;
+  const chip = a ? chipOf(a.machine, a.ended) : null;
+  const label = `Session ${session.name}, ${a ? a.persona_name || a.persona : "plain shell"}, ${said}${chip ? `, ${chip.said}` : ""}`;
   const attrs = { class: `sesschip ${state}`, "data-waits": waits ? "" : undefined, "aria-label": label, title: label };
-  const body = html`<${PersonaBadge} persona=${personaOf(a)} hidden /><span class="name">${session.name}</span><span class="word">${word}</span>`;
+  const body = html`<${PersonaBadge} persona=${personaOf(a)} hidden /><span class="name">${session.name}</span><span class="word">${word}</span>${a && html`<${StateChip} machine=${a.machine} ended=${a.ended} />`}`;
   return onOpen ? html`<button type="button" ...${attrs} onClick=${onOpen}>${body}</button>`
     : html`<a ...${attrs} href=${href || hash("shells", { name: session.name })}>${body}</a>`;
 }
@@ -1100,7 +1101,7 @@ function SessionsOn({ kind, repo, number, facts, sessions, phaseOf, place, setPh
     <h2 id="h-sessions-on" style="font-size: 19px; font-weight: 600">Sessions on ${here} · ${sessions.length}</h2>
     ${!sessions.length && html`<${SuggestBest} kind=${kind} repo=${repo} number=${number} facts=${facts} />`}
     ${embedded.length > 0 && html`<div role="tablist" aria-label="Sessions on ${here}" class="tabs">${embedded.map((s) => html`<button role="tab" aria-selected=${s === current ? "true" : "false"} onClick=${() => setTab(s.name)}>
-        <${PersonaBadge} persona=${personaOf(s.agent)} hidden /> ${s.agent.persona_name || s.agent.persona} <span class="mono soft" style="font-size: 12.5px">${s.name}</span></button>`)}</div>
+        <${PersonaBadge} persona=${personaOf(s.agent)} hidden /> ${s.agent.persona_name || s.agent.persona} <span class="mono soft" style="font-size: 12.5px">${s.name}</span> <${StateChip} machine=${s.agent.machine} ended=${s.agent.ended} /></button>`)}</div>
       <${SessionView} key=${current.name} session=${current} mode="embedded" asks=${asks} here=${here}
         onView=${(m) => setPhase(current.name, m)} onEnded=${onEnded || onReload} onGone=${onReload} />`}
     ${behind.length > 0 && html`<div role="status" class="notice quiet"><span class="grow">${behind.length} sent to background: ${behind.map((s, i) => html`${i ? ", " : ""}<a class="mono" href=${hash("shells", { name: s.name })}>${s.name}</a> (${s.agent.persona_name || s.agent.persona}${s.agent.waiting ? ", waiting" : ""})`)}</span>
@@ -2675,6 +2676,8 @@ function SessionView({ session, mode = "full", asks, here, seen, buttons, queued
     }),
   );
   const designing = Boolean(a && a.action === "design"); // 011 FR-010: a design session has a design view, at every size
+  const [machineOpen, setMachineOpen] = useState(false);
+  const chip = a ? chipOf(a.machine, a.ended) : null;
   const embeddedNow = mode === "embedded" || (a && a.view && a.view.mode === "embedded");
   const family = a && FAMILY_WORD[a.family] ? a.family : a ? "unknown" : "shell";
   const head = !compact && html`<header class="svhead ${family}">
@@ -2684,6 +2687,7 @@ function SessionView({ session, mode = "full", asks, here, seen, buttons, queued
       <span class="mono small" style="overflow-wrap: anywhere">${a ? html`${name} · ${shortModel(a.model)}${m && m.branch ? ` · ${m.branch}` : ""}` : session.cwd}</span>
       ${a && html`<span class="small">${originWords(a)}</span>`}</span>
     <span class="badge ${words === "Waiting for you" ? "mark" : a && a.ended ? "dim" : ""}">${words}</span>
+    ${chip && html`<${StateChip} machine=${a.machine} ended=${a.ended} />`}
     <span class="row" style="gap: 6px">
       ${a && embeddedNow && html`<button class="plain" disabled=${act.busy} onClick=${() => place("background")}>Send to background</button>`}
       ${designing && html`<a class="button plain" href=${hash("design", { name })}>Design view</a>`}
@@ -2694,8 +2698,16 @@ function SessionView({ session, mode = "full", asks, here, seen, buttons, queued
     ${covers.length > 0 && html`<span class="row" style="gap: 6px"><span class="eyebrow">Covers</span><${ItemPill} ...${here ? covers.find((c) => `${c.repo}#${c.number}` === here) || covers[0] : covers[0]} /></span>`}
     ${others.length > 0 && html`<nav class="row" style="gap: 6px" aria-label="Also on these items"><span class="eyebrow">Also on these items</span>${others.map((c) => html`<${ItemPill} ...${c} />`)}</nav>`}
     ${prs.length > 0 && html`<span class="row" style="gap: 6px"><span class="eyebrow">Pull requests</span>${prs.map((p) => html`<${ItemPill} kind="pr" repo=${p.repo} number=${p.number} state=${p.state ? String(p.state).toLowerCase() : undefined} />`)}</span>`}</div>`;
+  // 012 FR-081: the Workflow row, with the long chip, and the machine panel it opens in place.
+  // A session from before workflow instances has none until its machine is first read: opening the panel makes it.
+  const wfrow = !compact && a && html`<div class="svwf">
+    <span class="eyebrow">Workflow</span>${chip && html`<${StateChip} machine=${a.machine} ended=${a.ended} size="lg" />`}
+    <span class="small soft" style="flex: 1 1 200px">${!chip ? "no machine yet: open it to start one from its action" : a.machine.one_state ? `one-state workflow ${a.machine.workflow}, from its action` : `${a.machine.workflow}${a.machine.paused ? " · paused" : ""}`}</span>
+    <button type="button" class=${`il-btn${chip && chip.kind === "waits" && !machineOpen ? " wfwaits" : ""}`} aria-expanded=${machineOpen ? "true" : "false"} aria-controls=${`mp-${hid}`}
+      onClick=${() => setMachineOpen(!machineOpen)}>${machineOpen ? "Hide the workflow" : "Show the workflow"}</button></div>
+    ${machineOpen && html`<div class="svmachine" id=${`mp-${hid}`}><${MachinePanel} name=${name} onMoved=${after} /></div>`}`;
   return html`${dialog}<section class="sv ${mode} ${full ? "termbox" : mode === "embedded" ? "embedded" : "dock-session"}" aria-labelledby=${compact ? undefined : hid} aria-label=${compact ? `Session ${name}` : undefined}>
-    ${head}${pills}
+    ${head}${pills}${wfrow}
     ${!compact && html`<${SessionSpec} session=${session} manifest=${m} error=${error} />`}
     <${Err} text=${act.error} />
     ${mine.length > 0 && html`<div class="${compact ? "dock-asks" : "session-asks"} stack" style="gap: ${compact ? 8 : 10}px">${mine.map((x) => html`<${Ask} key=${x.id} ask=${x} compact=${compact} onDone=${asks.reload} />`)}</div>`}
@@ -2713,6 +2725,293 @@ function SessionView({ session, mode = "full", asks, here, seen, buttons, queued
         <span role="status" class="small soft">${queued > 0 ? `${count(queued, "message")} queued until the turn ends, with the prompt empty. If it has ended, clear what's typed there. After Esc in the terminal, press Esc here too.` : note.startsWith("Queued") ? "" : note}</span></div>
       <${MessageField} key=${name} name=${name} where=${where} off=${a.ended ? "Claude has ended in this session: resume it to write to it." : ""} /></div>`}
   </section>`;
+}
+
+// --- workflow machines (012) -------------------------------------------------------------------
+// The five kinds a state chip draws (FR-080): the edge says which, and so do the words.
+function chipKindWords(kind) {
+  return { holds: "holds", moving: "moving", waits: "waits for you", up: "sent up", over: "over" }[kind] || "holds";
+}
+
+// A session's chip from hubd's summary (agent.machine): the path of states, or a one-state workflow's own name, and its
+// kind. What waits for a confirm waits for you; a final state is over, and so is a one-state session once Claude ended.
+function chipOf(m, ended) {
+  if (!m || !m.state) return null;
+  const kind = m.waits ? "waits" : (m.one_state ? ended : m.final) ? "over" : "holds";
+  const label = m.one_state ? m.workflow : (m.path && m.path.length ? m.path : [m.state]).join(" › ");
+  const words = chipKindWords(kind);
+  const sub = m.paused ? `${words} · paused` : words;
+  return { kind, label, sub, quiet: Boolean(m.one_state) && kind !== "waits",
+    said: `workflow ${m.workflow}, ${m.one_state ? "one state" : `in ${label}`}, ${words}${m.paused ? ", paused" : ""}` };
+}
+
+const CHIP_GLYPH = { holds: "M12 8a4 4 0 1 0 0 8 4 4 0 1 0 0-8z", moving: "M4 12h12M12 7l5 5-5 5", waits: "M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18zM12 7v5l3 2",
+  up: "M12 19V6M6 11l6-6 6 6", over: "M5 12l4 4 10-10" };
+function StateChip({ machine, ended, size }) {
+  const c = chipOf(machine, ended);
+  if (!c) return null;
+  const cls = `il-chip${c.kind === "holds" ? "" : ` il-chip--${c.kind}`}${size === "lg" ? " il-chip--lg" : ""}${c.quiet && size !== "lg" ? " wfquiet" : ""}`;
+  return html`<span class=${cls} title=${c.said}><svg viewBox="0 0 24 24" aria-hidden="true"><path d=${CHIP_GLYPH[c.kind]} /></svg><span class="sr">Workflow state: </span>${c.label}<span class="il-chip__sub">· ${c.sub}</span></span>`;
+}
+
+// A state's path from the outermost parent, as the machine's states list has them.
+function statePath(states, id) {
+  const by = Object.fromEntries((states || []).map((s) => [s.id, s]));
+  const out = [];
+  for (let k = id; k && by[k] && !out.includes(k); k = by[k].parent) out.unshift(k);
+  return out;
+}
+
+// One `requires` entry as tried now: the text, the values the hub has, and the result in words. A fact the hub has no
+// value for is not known yet, never a fail.
+function checkWords(c) {
+  const seen = (c.terms || []).map((t) => (t.have === null || t.have === undefined ? `${t.fact}: no value yet` : `${t.fact} is ${t.have}`));
+  const result = { holds: "holds", fails: "doesn’t hold", unknown: "not known yet" }[c.result] || "not known yet";
+  return { text: c.requires, value: seen.join(", ") || "can’t be read", result, mark: c.result === "holds" ? "✓" : c.result === "fails" ? "✗" : "?" };
+}
+
+// How an exit decides, in a line: who decides, the judge's question, the facts it needs and how it moves.
+function exitWhy(e) {
+  const by = { judge: "judged", facts: "facts", counter: "counter", hand: "by hand" }[e.decided_by] || e.decided_by;
+  return [by, e.when ? `“${e.when}”` : "", (e.requires || []).length ? `requires ${e.requires.join(", ")}` : "",
+    e.approve && e.approve !== "none" ? `approve: ${e.approve}` : "", e.move === "on-request" ? "on request" : "",
+    e.enter === "history" ? "back to where it was" : ""].filter(Boolean).join(" · ");
+}
+
+// The outline (MachineOutline): states depth-first as the definition lists them, each followed by its children and then
+// its own exits, a child's exits before its parent's. tried: the current state's exits from machine.get, for how far each holds.
+function outlineRows(states, initial, path, tried) {
+  const at = path[path.length - 1];
+  const result = new Map((tried || []).map((e) => [`${e.from}:${e.place}`, e.result]));
+  const words = { holds: "the checks hold", fails: "doesn’t hold", unknown: "not known yet" };
+  const rows = [];
+  const visit = (s, depth) => {
+    const parent = s.initial !== null && s.initial !== undefined;
+    const up = s.parent ? states.find((x) => x.id === s.parent) : null;
+    const tags = [];
+    if (s.id === at) tags.push("now");
+    else if (path.includes(s.id)) tags.push("inside it now");
+    if (parent) tags.push("parent");
+    if (s.final) tags.push("final");
+    if ((up ? up.initial : initial) === s.id) tags.push("starts here");
+    const kids = states.filter((x) => x.parent === s.id);
+    const sub = parent ? `Its grant and its exits apply in ${kids.map((x) => x.id).join(", ")}.`
+      : (s.manages || []).length ? `Runs ${s.manages.map((m) => `${m.persona} (${m.workflow}, ${m.start === "auto" ? "starts on entry" : "on request"})`).join(" and ")}.` : "";
+    rows.push({ row: "state", id: s.id, depth, at: s.id === at ? "now" : path.includes(s.id) ? "inside" : "other", tags, sub });
+    kids.forEach((k) => visit(k, depth + 1));
+    (s.exits || []).forEach((e, i) => {
+      const r = path.includes(s.id) ? result.get(`${s.id}:${i + 1}`) : undefined;
+      rows.push({ row: "exit", depth: depth + 1, n: parent ? "then, in any of them" : String(i + 1), to: e.to, why: exitWhy(e), holds: r ? words[r] : "" });
+    });
+  };
+  states.filter((s) => !s.parent).forEach((s) => visit(s, 0));
+  return rows;
+}
+
+// Where a move by hand can go: every state but the one it is in, a parent too (it enters its first state, or where it was).
+function moveTargets(states, at) {
+  return (states || []).filter((s) => s.id !== at).map((s) => ({ id: s.id, label: statePath(states, s.id).join(" › ") + (s.final ? " (final)" : ""),
+    parent: s.initial !== null && s.initial !== undefined, first: s.initial }));
+}
+
+// One side of a grant change (adds, removes or keeps), as rows: kind, item, the sensitive mark, and whether the instance
+// never held it before (what makes the move wait for a confirm).
+function grantRows(part, sensitive, never) {
+  const KIND = { github: "GitHub", tools: "Tools", hub_tools: "Hub tools", asks_first: "Asks first", access: "Access", permission_mode: "Permission mode",
+    all_repos: "All repositories", checkout: "Checkout" };
+  const marks = (sensitive && { github: sensitive.github || {}, hub_tools: sensitive.hub_tools || {} }) || { github: {}, hub_tools: {} };
+  const rows = [];
+  for (const [key, items] of Object.entries(part || {})) {
+    for (const x of items || []) {
+      const what = key === "all_repos" ? (x ? "every repository" : "named repositories only") : key === "checkout" && x === false ? "none" : String(x);
+      const sens = (marks[key] && marks[key][x]) || "";
+      rows.push({ key, kind: KIND[key] || key, what, sens, first: Boolean(never && (never[key] || []).includes(x)) });
+    }
+  }
+  return rows;
+}
+
+// The machine log, newest first: moves and evaluations together. Evidence and proposals can be an outsider's words, so
+// they stay text.
+function historyRows(h) {
+  const BY = { hand: "moved by hand", machine: "moved", rollback: "rolled back", pause: "paused automatic moves", resume: "resumed automatic moves" };
+  const moves = (h && h.moves ? h.moves : []).map((m) => {
+    const adds = Object.values(m.change && m.change.adds ? m.change.adds : {}).flat().map(String);
+    const removes = Object.values(m.change && m.change.removes ? m.change.removes : {}).flat().map(String);
+    const what = m.by === "pause" || m.by === "resume" ? `in ${m.to}` : `${m.from} → ${m.to}`;
+    const result = [m.widening ? `widened${m.confirmed_by ? `: confirmed by ${m.confirmed_by}` : ""}` : "", adds.length ? `adds ${adds.join(", ")}` : "",
+      removes.length ? `takes away ${removes.join(", ")}` : ""].filter(Boolean).join(" · ");
+    return { key: `m${m.seq}`, at: m.at, kind: "move", title: `${BY[m.by] || m.by} · ${what}`, by: m.who || (m.by === "machine" ? "the machine" : "the hub"), result, details: [] };
+  });
+  const evals = (h && h.evaluations ? h.evaluations : []).map((e) => {
+    const checks = Array.isArray(e.checks) ? e.checks.map((c) => (typeof c === "string" ? c : JSON.stringify(c))).join(" · ") : JSON.stringify(e.checks);
+    return { key: `e${e.seq}`, at: e.at, kind: "evaluation", title: `tried the exits of ${e.state}`, by: e.judge ? `judge ${e.judge}` : "the hub",
+      result: e.failed ? "the judge didn’t answer in form: nothing moved" : e.proposal ? `proposed: ${e.proposal}` : "nothing proposed",
+      details: [["Signal", e.signal], ["Evidence", e.evidence || "none"], ["Checks", checks || "none"], ...(e.judge ? [["Judge", `${e.judge}${e.ms != null ? `, ${e.ms} ms` : ""}`]] : [])] };
+  });
+  return [...moves, ...evals].sort((a, b) => b.at - a.at);
+}
+
+// The counters the exits test (rounds, time, tokens), for the states it is in now; rounds for every state it entered.
+function counterRows(facts, path) {
+  const f = facts || {};
+  const rounds = Object.entries(f).filter(([k, v]) => k.startsWith("rounds.") && v > 0).map(([k, v]) => `${k.slice(7)} ${v}`);
+  const mins = (s) => (s < 90 ? `${s} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${Math.round(s / 360) / 10} h`);
+  const rows = [["Rounds", rounds.join(" · ") || "none"]];
+  for (const s of [...path].reverse()) rows.push([`Time in ${s}`, mins(f[`time.${s}`] || 0)], [`Tokens in ${s}`, String(f[`tokens.${s}`] || 0)]);
+  return rows;
+}
+
+function GrantBlock({ title, rows, sign, id }) {
+  return html`<section class="stack tight" aria-labelledby=${id}><h3 class="wfh3" id=${id}>${title}</h3>
+    <div class="il-code"><pre>${rows.map((r) => html`<span class=${sign}><span class="sr">${sign === "add" ? "adds " : "takes away "}</span>${r.kind} · ${r.what}${r.first ? " · never held before" : ""}${r.sens ? html` · <strong>Sensitive</strong>: ${r.sens}` : ""}</span>`)}</pre></div></section>`;
+}
+
+// FR-024: the confirm a widening move waits for. Confirm and Cancel answer it; Esc closes this and leaves it waiting.
+function WidenConfirm({ name, pending, sensitive, busy, error, onAnswer, onClose }) {
+  const ref = useRef();
+  useModal(ref);
+  const change = pending.change || {};
+  const adds = grantRows(change.adds, sensitive, pending.adds);
+  const removes = grantRows(change.removes, sensitive);
+  const keeps = grantRows(change.keeps, sensitive);
+  const sens = adds.filter((r) => r.sens);
+  const back = pending.kind === "rollback";
+  const why = back ? "You asked to roll back the last move." : pending.kind === "hand" ? "You asked for it by hand." : "The machine proposed it: the first exit that holds.";
+  return html`<dialog ref=${ref} class="il-dialog wfconfirm" aria-labelledby="wc-t" aria-describedby="wc-d" onClose=${onClose}>
+    <div class="il-dialog__head">
+      <span class="il-label">Confirm · this move widens the grant</span>
+      <h2 class="il-dialog__title" id="wc-t">${back ? `Roll ${name} back from ${pending.from} to ${pending.to}?` : `Move ${name} from ${pending.from} to ${pending.to}?`}</h2>
+      <p class="small soft" id="wc-d">${why} It gives the session something this machine has never held, so it waits for you.</p></div>
+    <div class="il-dialog__body">
+      ${adds.length ? html`<${GrantBlock} title=${`${pending.to} adds`} rows=${adds} sign="add" id="wc-adds" />` : html`<p class="small">${pending.to} adds nothing over ${pending.from}, but holds something this machine never held: ${grantRows(pending.adds, sensitive).map((r) => `${r.kind} · ${r.what}`).join(", ")}.</p>`}
+      ${sens.length > 0 && html`<aside class="il-admonition il-admonition--danger">
+        <span class="il-admonition__label"><span class="il-admonition__seal" aria-hidden="true">!</span>Sensitive</span>
+        <p class="il-admonition__title">${pending.to} grants ${sens.map((r) => r.what).join(" and ")}</p>
+        <p class="small">${sens.map((r) => `${r.what}: ${r.sens}`).join("; ")}. It is marked so you see it; the mark adds no rule.</p>
+        <p class="small"><strong>Way out:</strong> Cancel, and it stays in ${pending.from} with nothing changed.</p></aside>`}
+      ${removes.length > 0 && html`<${GrantBlock} title=${`${pending.to} takes away`} rows=${removes} sign="del" id="wc-rm" />`}
+      <p class="small"><span class="eyebrow">Keeps</span> ${keeps.length ? keeps.map((r) => `${r.kind} · ${r.what}`).join(", ") : "nothing of the grant it has now"}</p>
+      <div class="wfbox small"><span class="eyebrow">How it resumes</span>
+        <p>The hub records the move and the new grant at once, logged as yours. It doesn’t apply a state’s grant to a session yet: the session goes on with the tools it was started with, now and after a resume.</p></div>
+      <${Err} text=${error} /></div>
+    <div class="il-dialog__actions">
+      <button type="button" class="il-btn" disabled=${busy} onClick=${() => onAnswer(false)}>Cancel</button>
+      <button type="button" class="il-btn il-btn--primary" disabled=${busy} onClick=${() => onAnswer(true)}>${back ? `Confirm and roll back to ${pending.to}` : `Confirm and move to ${pending.to}`}</button></div>
+  </dialog>`;
+}
+
+// FR-081, User Story 2: the machine panel, under a session's Workflow row. The outline stands in for the diagram at every width.
+function MachinePanel({ name, onMoved }) {
+  const path = `machines/${encodeURIComponent(name)}`;
+  const got = useLoad(() => api(path), [name], 15000);
+  const hist = useLoad(() => api(`${path}/history`), [name], 15000);
+  const [asking, setAsking] = useState(null);
+  const [to, setTo] = useState("");
+  const [enter, setEnter] = useState("first");
+  const [note, setNote] = useState("");
+  const act = useAct(async () => { await Promise.all([got.reload(), hist.reload()]); if (onMoved) onMoved(); });
+  const v = got.data;
+  if (!v) return html`<div class="mpanel"><${Err} text=${got.error} />${!got.error && html`<p class="small soft">Reading the machine…</p>`}</div>`;
+  const inst = v.instance;
+  const at = inst.state;
+  const states = v.states || [];
+  const here = v.path || [at];
+  const one = states.length === 1;
+  const step = (move, body = {}) => act.run(async () => {
+    const r = await post(`${path}/${move}`, body);
+    if (r.needs_confirm) {
+      setAsking({ id: r.pending, kind: move === "rollback" ? "rollback" : "hand", from: at, to: r.to, change: r.change, adds: r.adds });
+      setNote(`The move to ${r.to} waits for your confirm.`);
+    } else if (move === "confirm") {
+      setAsking(null);
+      setNote(r.moved ? `Moved to ${r.to}.` : `Cancelled: it stays in ${r.state}.`);
+    } else if (move === "pause") setNote(r.paused ? "Paused: nothing moves on its own until you resume." : "Resumed: the machine moves on its own again.");
+    else if (r.moved) { setNote(move === "rollback" ? `Rolled back to ${r.to}.` : `Moved to ${r.to}.`); setTo(""); }
+    return r;
+  });
+  const waiting = inst.pending;
+  const confirmOpen = asking || null;
+  const answer = (accept) => step("confirm", { pending: confirmOpen.id, accept });
+  const targets = moveTargets(states, at);
+  const target = targets.find((t) => t.id === to);
+  const exits = v.exits || [];
+  const own = exits.filter((e) => e.from === at);
+  const inherited = exits.filter((e) => e.from !== at);
+  const managed = here.flatMap((s) => ((states.find((x) => x.id === s) || {}).manages || []).map((m) => ({ ...m, under: s })));
+  const rows = historyRows(hist.data);
+  const RESULT = { holds: "the checks hold", fails: "doesn’t hold", unknown: "not known yet" };
+  const exitItem = (e, i, from) => html`<li class="wfexit" data-result=${e.result}>
+    <div class="row" style="gap: 6px 10px"><span class="mono">${from ? `then, from ${e.from}` : i + 1}</span><b>→ ${e.to}</b><span class="eyebrow soft">${exitWhy(e).split(" · ")[0]}</span>
+      <span class=${`il-chip${waiting && waiting.to === e.to ? " il-chip--waits" : e.result === "holds" ? "" : " il-chip--over"}`}>${RESULT[e.result]}${e.result === "holds" && e.decided_by === "judge" ? " · the judge decides" : ""}</span></div>
+    ${e.when && html`<p class="small wfquote">“${e.when}”</p>`}
+    ${(e.checks || []).length ? html`<ul class="wfchecks small" aria-label="Checks">${e.checks.map((c) => { const w = checkWords(c); return html`<li><span aria-hidden="true" class="mono">${w.mark}</span><span>${w.text} <span class="soft">· ${w.value} · ${w.result}</span></span></li>`; })}</ul>`
+      : html`<p class="small soft">No facts to check${e.decided_by === "hand" ? ": only a move by hand takes it" : ""}.</p>`}</li>`;
+  return html`<div class="mpanel stack">
+    <div class="row" style="gap: 8px 12px">
+      <span class="small soft" style="flex: 1 1 240px">${inst.workflow} · version ${inst.version.slice(0, 8)}${one ? " · one state, from its action" : ` · in ${here.join(" › ")}`}${inst.paused ? " · paused" : ""}</span></div>
+    ${v.newer && html`<p class="small notice quiet">${v.newer.kept ? `${inst.workflow} has a newer version; this session stays on its own until you move it by hand.` : v.newer.has_state ? `A newer version of ${inst.workflow} is out: the next move takes it.` : `The newest version of ${inst.workflow} has no state ${at}: this session stays on its version until you move it by hand.`}</p>`}
+    <${Err} text=${got.error || hist.error} />
+    ${waiting && !confirmOpen && html`<div role="status" class="waitbar"><span>A ${waiting.kind === "rollback" ? "roll-back" : "move"} to ${waiting.to} waits for your confirm: it widens the grant.</span>
+      <button type="button" class="il-btn il-btn--primary" onClick=${() => setAsking(waiting)}>See what ${waiting.to} adds…</button></div>`}
+    <div class="mpcols">
+      <div class="stack">
+        <section class="stack tight" aria-labelledby=${`mp-ex-${name}`}>
+          <h3 class="wfh3" id=${`mp-ex-${name}`}>Exits from ${at}, in order</h3>
+          <p class="small soft">The first exit that holds moves. A fact the hub has no value for yet is not known, not failed.</p>
+          ${own.length ? html`<ol class="stack tight">${own.map((e, i) => exitItem(e, i, false))}</ol>` : html`<p class="small">${at} has no exits of its own${one ? ": a one-state workflow ends when the session does" : ""}.</p>`}
+          ${inherited.length > 0 && html`<h4 class="eyebrow">Its parents’ exits, after its own</h4><ol class="stack tight">${inherited.map((e, i) => exitItem(e, i, true))}</ol>`}
+        </section>
+        <section class="stack tight" aria-labelledby=${`mp-sub-${name}`}>
+          <h3 class="wfh3" id=${`mp-sub-${name}`}>Running under ${at}</h3>
+          ${managed.length > 0 && html`<p class="small">${managed.map((m) => `${m.name}: ${m.persona} on ${m.workflow}, ${m.start === "auto" ? "starts on entry" : "on request"}, under ${m.under}`).join("; ")}.</p>`}
+          <p class="small soft">No sessions run under this state.</p></section>
+        <section class="stack tight" aria-labelledby=${`mp-ol-${name}`}>
+          <h3 class="wfh3" id=${`mp-ol-${name}`}>The whole machine</h3>
+          <ul class="wftree" aria-label=${`States and exits of ${inst.workflow}`}>${outlineRows(states, v.initial, here, exits).map((r) => (r.row === "state"
+            ? html`<li data-row="state" data-at=${r.at} style=${`--depth: ${r.depth}`}><span class="row" style="gap: 6px"><b class="mono">${r.id}</b>${r.tags.map((t) => html`<span class=${`il-chip${t === "now" ? " il-chip--waits" : t === "inside it now" ? "" : " il-chip--over"}`}>${t}</span>`)}</span>${r.sub && html`<span class="small soft">${r.sub}</span>`}</li>`
+            : html`<li data-row="exit" style=${`--depth: ${r.depth}`} class="small"><span class="mono">${r.n}</span> → <b>${r.to}</b> <span class="soft">${r.why}</span>${r.holds && html` <span>· ${r.holds}</span>`}</li>`))}</ul>
+          <details class="wfdef"><summary>Its definition</summary><div class="il-code"><pre>${inst.definition}</pre></div></details>
+        </section>
+        <section class="stack tight" aria-labelledby=${`mp-h-${name}`}>
+          <h3 class="wfh3" id=${`mp-h-${name}`}>History</h3>
+          ${rows.length ? html`<ol class="wfhist">${rows.map((h) => html`<li key=${h.key} data-kind=${h.kind}>
+            <span class="mono small soft" title=${new Date(h.at * 1000).toLocaleString()}>${whenAgo(h.at)}</span>
+            <span class="stack" style="gap: 2px; min-width: 0"><span><b>${h.title}</b> <span class="soft small">by ${h.by}</span></span>${h.result && html`<span class="small">${h.result}</span>`}
+              ${h.details.length > 0 && html`<details><summary class="small">Evidence and checks</summary><dl class="defs">${h.details.map(([k, x]) => html`<dt>${k}</dt><dd style="white-space: pre-wrap">${x}</dd>`)}</dl></details>`}</span></li>`)}</ol>`
+            : html`<p class="small soft">${hist.loading ? "Reading the log…" : "No moves yet: it has been in its first state since it started."}</p>`}
+        </section>
+      </div>
+      <div class="stack">
+        <section class="wfbox stack tight" aria-labelledby=${`mp-c-${name}`}>
+          <h3 class="wfh3" id=${`mp-c-${name}`}>Counters</h3>
+          <dl class="defs">${counterRows(v.facts, here).map(([k, x]) => html`<dt>${k}</dt><dd>${x}</dd>`)}</dl></section>
+        <section class="wfbox stack tight" aria-labelledby=${`mp-m-${name}`}>
+          <h3 class="wfh3" id=${`mp-m-${name}`}>Move by hand</h3>
+          <p class="small">To any state, inside a parent or out. Logged as yours. A move that widens the grant asks you to confirm what it adds.</p>
+          <label class="stack tight"><span class="eyebrow">Move to</span>
+            <select value=${to} onChange=${(e) => { setTo(e.target.value); setEnter("first"); }}>
+              <option value="">Choose a state</option>
+              ${targets.map((t) => html`<option value=${t.id}>${t.label}</option>`)}</select></label>
+          ${target && target.parent && html`<fieldset class="wfenter"><legend class="eyebrow">Enter ${target.id}</legend>
+            <label class="row small" style="gap: 8px"><input type="radio" name=${`enter-${name}`} checked=${enter === "first"} onChange=${() => setEnter("first")} /> at its first state (${target.first})</label>
+            <label class="row small" style="gap: 8px"><input type="radio" name=${`enter-${name}`} checked=${enter === "history"} onChange=${() => setEnter("history")} /> where it was${inst.history && inst.history[target.id] ? ` (${inst.history[target.id]})` : ": it hasn’t been inside, so its first state"}</label></fieldset>`}
+          <div class="row" style="gap: 8px">
+            <button type="button" class="il-btn" disabled=${act.busy || !target} onClick=${() => step("move", { to, enter })}>Move by hand</button>
+            ${!target && html`<span class="il-btn-reason">Choose a state first.</span>`}</div>
+          <div class="row" style="gap: 8px">
+            <button type="button" class="il-btn" disabled=${act.busy || !inst.can_roll_back} onClick=${() => step("rollback")}>Roll back the last move</button>
+            ${!inst.can_roll_back && html`<span class="il-btn-reason">No move to roll back.</span>`}</div>
+          <div class="row" style="gap: 8px">
+            <button type="button" class="il-btn" aria-pressed=${inst.paused ? "true" : "false"} disabled=${act.busy} onClick=${() => step("pause", { paused: !inst.paused })}>${inst.paused ? "Resume automatic moves" : "Pause automatic moves"}</button></div>
+          <p class="small soft">${inst.paused ? "Paused: nothing moves on its own until you resume. Moves by hand and roll-backs still go." : "While paused, nothing moves on its own; moves by hand and roll-backs still go."}</p>
+          <${Err} text=${confirmOpen ? null : act.error} />
+          <p role="status" class="small">${note}</p></section>
+      </div>
+    </div>
+    ${confirmOpen && html`<${WidenConfirm} name=${name} pending=${confirmOpen} sensitive=${v.sensitive} busy=${act.busy} error=${act.error}
+      onAnswer=${answer} onClose=${() => setAsking(null)} />`}
+  </div>`;
 }
 
 const hubTool = (tool) => tool.replace(/^mcp__glassine-hub__/, "hub.");
@@ -3717,7 +4016,8 @@ function Shells({ query, asks }) {
     const words = sessionWords(s);
     const waiting = waitingOn(s.name);
     const covers = coversOf(a);
-    const label = `${s.name}: ${a ? `${a.persona_name || a.persona}, ` : ""}${words}${waiting ? `, ${waiting} waiting` : ""}`;
+    const chip = a ? chipOf(a.machine, a.ended) : null;
+    const label = `${s.name}: ${a ? `${a.persona_name || a.persona}, ` : ""}${words}${waiting ? `, ${waiting} waiting` : ""}${chip ? `, ${chip.said}` : ""}`;
     if (badgesOnly) {
       return html`<button class="sess-badge" aria-pressed=${open === s.name ? "true" : "false"} aria-label=${label} title=${label} onClick=${() => setOpen(s.name)}>
         <${PersonaBadge} persona=${personaOf(a)} hidden />${waiting > 0 && html`<span class="dock-count">${waiting}</span>`}</button>`;
@@ -3725,6 +4025,7 @@ function Shells({ query, asks }) {
     return html`<button class="sess-item" aria-pressed=${open === s.name ? "true" : "false"} onClick=${() => setOpen(s.name)}>
       <span class="h"><span class="row" style="gap: 8px; flex-wrap: nowrap; min-width: 0"><${PersonaBadge} persona=${personaOf(a)} /><b>${s.name}</b></span>
         <span class="badge ${words === "Waiting for you" ? "mark" : a && a.ended ? "dim" : ""}">${words}</span></span>
+      ${chip && html`<span><${StateChip} machine=${a.machine} ended=${a.ended} /></span>`}
       ${waiting > 0 && html`<span class="small" style="font-weight: 600">${waiting} waiting</span>`}
       ${a ? html`<span class="soft" style="font-size: 13px; line-height: 1.4">${originWords(a)} · ${shortModel(a.model)}${a.created ? ` · ${whenAgo(a.created)}` : ""}</span>`
         : html`<span class="soft mono" style="font-size: 12.5px; overflow-wrap: anywhere">${s.cwd}</span>`}
@@ -4309,6 +4610,7 @@ function Steward({ route, asks }) {
       <span class="stack" style="gap: 0; flex: 1; min-width: 0"><h2 id="dock-h" style="font-size: 17px; font-weight: 600">Steward</h2>
         <button class="link dock-modelname mono" aria-expanded=${modelOpen ? "true" : "false"} aria-label=${`Steward model${state && state.model ? `: ${state.model}` : ""}. Change`} onClick=${() => setModelOpen(!modelOpen)}>${(state && state.model) || "model"}</button></span>
       <span class="badge ${STATE_BADGE[words] || ""}">${words}</span>
+      ${state && state.machine && html`<${StateChip} machine=${state.machine} ended=${!running} />`}
       ${running && html`<button class="plain" disabled=${stopping.busy} onClick=${stop}>Stop…</button>`}
       ${phone ? html`<button class="square" aria-label="Close the Steward" onClick=${(e) => e.currentTarget.closest("dialog").close()}>×</button>`
         : html`<button class="square" aria-label="Collapse the Steward to a rail" onClick=${() => setRail(true)}>›</button>`}</div>

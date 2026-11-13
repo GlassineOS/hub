@@ -89,6 +89,23 @@ class FakeHubd(Hubd):
             if request["words"] == "broken":
                 raise HubdError("the index can't be used")
             return {"ok": True, "here": True, "says": "1 row from notes", "rows": [{"state": "retracted", "where": "a/b:3", "label": "c1", "text": "t"}], "total": 1, "warnings": [], "extra": "not passed on"}
+        if op.startswith("machine."):
+            self.commands.append((op, request))
+            if request.get("token") != "good":
+                return {"ok": False, "error": "login required", "denied": True}
+            if op == "machine.get":
+                return {"ok": True, "instance": {"state": "review", "pending": None}, "exits": [], "states": [], "path": ["work", "review"]}
+            if op == "machine.history":
+                return {"ok": True, "evaluations": [], "moves": [{"by": "hand"}]}
+            if op == "machine.move" and request.get("to") == "merge-ready":
+                return {"ok": True, "moved": False, "needs_confirm": True, "pending": "p1", "to": "merge-ready",
+                        "change": {"adds": {"github": ["merge"]}, "removes": {}, "keeps": {}}, "adds": {"github": ["merge"]},
+                        "widening": True, "state": "review", "version": "v", "paused": False}
+            if op == "machine.confirm":
+                if request.get("accept") is False:
+                    return {"ok": True, "moved": False, "declined": True, "state": "review", "version": "v", "paused": False}
+                return {"ok": True, "moved": True, "from": "review", "to": "merge-ready", "state": "merge-ready", "version": "v", "paused": False}
+            return {"ok": True, "moved": True, "state": "x", "version": "v", "paused": False}
         if op == "device.status":
             self.commands.append((op, request))
             return {"ok": True, "devices": [{"device": "na1", "reported": 1.0, "lines": ["Free when last reported, just now"]}],
@@ -2822,7 +2839,9 @@ def test_yellow_marks_only_what_waits_for_the_maintainer():
         ".sesschip[data-waits], .sesschip[data-waits]:hover:not(:disabled)",
         ".icard.dense[data-waits] .icard-line .ask-kind",
         ".needs-open[data-waits], .needs-open[data-waits]:hover:not(:disabled)",
+        ".il-btn.wfwaits",  # "Show the workflow" while its machine waits for your confirm, below
     ]), yellow
+    assert 'chip && chip.kind === "waits" && !machineOpen ? " wfwaits" : ""' in script
     for calm in (".ask.steward .ask-head", ".ask.done .ask-head", ".ask.calm .ask-head"):
         assert re.search(re.escape(calm) + r" \{ background: var\(--(sheet|paper)\)", css), calm
     # The badge class "mark" is given only to a session's "Waiting for you".
@@ -3039,3 +3058,47 @@ console.log(JSON.stringify(log));
     log = json.loads(subprocess.run(["node", "-e", code], capture_output=True, text=True, check=True).stdout)
     assert log == [["starts on a phone", True, None], ["opened", True, "Work"], ["new view", True, None],
                    ["opened again", True, "Sessions"], ["wide", False, None], ["phone again", True, None]]
+
+
+def test_the_machine_panel_goes_with_the_login(client, hubd):
+    """012 FR-026: the maintainer's moves need the page's login, a same-origin write, and go to hubd with its token."""
+    assert client.get("/api/machines/s").status_code == 401
+    assert client.post("/api/machines/s/move", json={"to": "fix"}, headers=ORIGIN).status_code == 401
+    assert not hubd.commands
+    signed_in(client)
+    assert client.post("/api/machines/s/move", json={"to": "fix"}).status_code == 403, "same origin"
+    got = client.get("/api/machines/s").json()
+    assert got["path"] == ["work", "review"] and "ok" not in got
+    assert client.get("/api/machines/s/history").json() == {"evaluations": [], "moves": [{"by": "hand"}]}
+    assert hubd.commands[-1] == ("machine.history", {"op": "machine.history", "token": "good", "name": "s"})
+
+
+def test_a_widening_move_comes_back_waiting_and_is_confirmed_or_cancelled(client, hubd):
+    signed_in(client)
+    asked = client.post("/api/machines/s/move", json={"to": "merge-ready", "enter": "first", "by": "machine", "who": "x"}, headers=ORIGIN).json()
+    assert asked["needs_confirm"] and asked["pending"] == "p1" and asked["adds"] == {"github": ["merge"]} and asked["state"] == "review"
+    # Only the move's own fields reach hubd: who moved it and how come from hubd, never from the page.
+    assert hubd.commands[-1] == ("machine.move", {"op": "machine.move", "token": "good", "name": "s", "to": "merge-ready", "enter": "first"})
+    done = client.post("/api/machines/s/confirm", json={"pending": "p1", "accept": True}, headers=ORIGIN).json()
+    assert done["moved"] and done["state"] == "merge-ready"
+    no = client.post("/api/machines/s/confirm", json={"pending": "p1", "accept": False}, headers=ORIGIN).json()
+    assert no["declined"] and not no["moved"]
+    assert hubd.commands[-1][1]["accept"] is False
+    client.post("/api/machines/s/rollback", json={"to": "x"}, headers=ORIGIN)
+    assert hubd.commands[-1] == ("machine.rollback", {"op": "machine.rollback", "token": "good", "name": "s"})
+    client.post("/api/machines/s/pause", json={"paused": True}, headers=ORIGIN)
+    assert hubd.commands[-1][1] == {"op": "machine.pause", "token": "good", "name": "s", "paused": True}
+    assert client.post("/api/machines/s/history", json={}, headers=ORIGIN).status_code == 400
+    assert client.post("/api/machines/s/get", json={}, headers=ORIGIN).status_code == 400
+
+
+def test_no_tool_moves_a_machine(hubd, github):
+    """An agent doesn't move its own machine by hand: no tool reaches the machine ops, and the tool server has no such page."""
+    listed = asyncio.run(tools.build(github, FakeDocs()).list_tools())
+    assert not [t.name for t in listed if "machine" in t.name or "workflow_state" in t.name]
+    source = (Path(tools.__file__)).read_text() + (Path(tools.__file__).parent / "github.py").read_text()
+    assert not re.search(r'"machine\.(get|history|move|confirm|rollback|pause)"', source)
+    with TestClient(main.agent_app(hubd, github, FakeDocs(), 9095), base_url="http://127.0.0.1:9095") as c:
+        for path in ("/api/machines/s", "/api/machines/s/move"):
+            assert c.post(path, json={"to": "x"}, headers={"authorization": "Bearer agent"}).status_code in (401, 404)
+    assert not [cmd for cmd in hubd.commands if str(cmd[0]).startswith("machine.")]
