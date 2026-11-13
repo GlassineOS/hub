@@ -190,8 +190,13 @@ A new restriction has to name the threat it stops, or be listed here as a guard.
   request's own code, which its tests run, so a session on a pull request from a fork keeps only its read capabilities, at start
   and at resume, and so does one whose pull request GitHub can't confirm as the repository's own (any covered one).
   A same-repository pull request's code can still use every capability the launch carries and send the token out. It
-  works until it expires, up to an hour after its last renewal, also after the session ends. A launch with a list and no
-  token doesn't start; one without a list gets none, as before. Full sessions are unchanged: they use the host's `gh`
+  works until it expires, up to an hour after its last renewal, also after the session ends. A persona with no App gets
+  the token of the host's `gh` login instead (`gh auth token`, as every call without an App goes out), written and renewed
+  the same way: GitHub doesn't limit it at all, so the session's shell can do anything your login can, in any repository,
+  and it doesn't expire with the session. Its manifest says so ("you (no App for <persona>)"). A session on a fork's pull
+  request, or one GitHub can't confirm as the repository's own, never gets it: your login can't be narrowed to reads, so it
+  doesn't start (nor renew) without an App. A persona whose App exists but fails gets nothing either: no fallback to your
+  login. A launch with a list and no token doesn't start; one without a list gets none, as before. Full sessions are unchanged: they use the host's `gh`
   login, guarded by hubd and not limited by a token.
 - **Resuming a session.** A session that has stopped keeps its record, tool token and checkout until
   you discard it, and Resume starts it again with its conversation. It needs a login, like starting
@@ -204,7 +209,7 @@ A new restriction has to name the threat it stops, or be listed here as a guard.
   reads stay on the hub's login. hubd chooses the App from the session's tool token, and if it
   can't get a token the write fails rather than going out as you. Private keys stay on this
   computer, 0600. A full session's hub tool writes go out as its persona's App too; the `gh` in its own shell uses your login.
-  Personas without an App post as you. The reviewer's App can
+  Personas without an App post as you, and their locked sessions with GitHub capabilities push as you (the shell's token above). The reviewer's App can
   approve, so if an approval ever counts toward merging, a misled reviewer could give one.
 - **Results are handed in, then applied by you.** A session's own token can hand in one result of its action's type
   (`submit_result`), in a closed shape with every string capped; a labels result names only the items the session was started on.
