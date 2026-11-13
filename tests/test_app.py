@@ -3284,3 +3284,29 @@ def test_with_a_holder_unknown_yet_the_starts_that_dont_run_beside_show_off_with
     tile = _component(script, "StartTile")
     assert 'const waits = start.availability === "hidden";' in tile
     assert "disabled=${waits} onClick=${waits ? null : onOpen}" in tile and "${waits ? `Waits: ${start.why}` : start.ceiling}" in tile
+
+
+def test_start_managed_and_managed_status_pass_on_how_a_session_under_you_stands():
+    """An entry that starts by itself answers with how it stands, which the tool passes on; managed_status only reads."""
+    plain = Hubd("/nonexistent")
+    sent = []
+    row = {"name": "engineer-epd-8", "entry": "engineer", "state": "Working", "idle": False, "ended": False}
+
+    async def call(**request):
+        sent.append(request)
+        if request["op"] == "managed.start":
+            return {"ok": True, "by_itself": True, "sessions": [row], "note": "engineer runs under you as engineer-epd-8."}
+        return {"ok": True, "state": "work › implement", "entries": [{"entry": "engineer", "sessions": [row]}], "others": []}
+    plain.call = call
+    github = GitHub(plain, CONFIG)
+    token = hubd_client.CALLER.set("session")
+    try:
+        assert asyncio.run(github.start_managed("engineer")) == {"by_itself": True, "sessions": [row],
+                                                                 "note": "engineer runs under you as engineer-epd-8."}
+        assert asyncio.run(github.managed_status()) == {"state": "work › implement", "entries": [{"entry": "engineer", "sessions": [row]}],
+                                                        "others": []}
+    finally:
+        hubd_client.CALLER.reset(token)
+    assert [r["op"] for r in sent] == ["managed.start", "managed.status"] and all(r["agent_token"] == "session" for r in sent)
+    listed = listed_for({"session": "s", "tools": ["managed_status"], "persona": "x"})
+    assert listed["managed_status"]["annotations"]["readOnlyHint"] is True
