@@ -167,6 +167,7 @@ class Runner:
         self.debounce = debounce
         self._sleep = sleep
         self._waiting: dict[str, list[str]] = {}       # signals that came since the last pass began
+        self._received: dict[str, float] = {}          # when the first of them came, for the time to a move (SC-003)
         self._tasks: dict[str, asyncio.Task] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._folded: dict[tuple[str, str], str] = {}  # (name, conversation) -> the hash of the turn last folded
@@ -261,6 +262,8 @@ class Runner:
             log.warning("%s: %s came with no event loop to evaluate it", name, signal)
             return False
         waiting = self._waiting.setdefault(name, [])
+        if not waiting:
+            self._received[name] = self.machines.clock()
         if signal not in waiting:
             waiting.append(signal)
         if name not in self._tasks:
@@ -273,9 +276,10 @@ class Runner:
             while self._waiting.get(name):
                 await self._sleep(self.debounce)
                 signals = self._waiting.pop(name, [])
+                received = self._received.pop(name, None)
                 if signals:
                     try:
-                        await self.evaluate(name, signals)
+                        await self.evaluate(name, signals, received)
                     except Exception:  # noqa: BLE001 — one instance's fault mustn't stop the next signal
                         log.exception("%s: the evaluation broke", name)
         finally:
@@ -287,13 +291,17 @@ class Runner:
             await asyncio.gather(*list(self._tasks.values()), return_exceptions=True)
 
     # --- evaluation -------------------------------------------------------------------
-    async def evaluate(self, name: str, signals) -> dict:
-        """One pass over the instance's exits that name one of these signals. At most one per instance at a time."""
+    async def evaluate(self, name: str, signals, received: float | None = None) -> dict:
+        """One pass over the instance's exits that name one of these signals. At most one per instance at a time.
+        `received`: when the first signal came (the machines' clock), so a move logs how long it took."""
         lock = self._locks.setdefault(name, asyncio.Lock())
         async with lock:
-            return await self._evaluate(name, list(dict.fromkeys(signals)))
+            return await self._evaluate(name, list(dict.fromkeys(signals)), received)
 
-    async def _evaluate(self, name: str, signals: list[str]) -> dict:
+    async def _evaluate(self, name: str, signals: list[str], received: float | None = None) -> dict:
+        bank = getattr(self.machines, "bank", None)
+        if bank is not None:  # what it used since the last look counts in the state it is in (FR-090)
+            bank(name)
         try:
             record, inst = self.machines.load(name)
         except (MachineError, OSError) as e:
@@ -345,8 +353,10 @@ class Runner:
                 self._ask(name, record, state, version, chosen[0], exit_, rows[-1]["checks"])
             else:
                 result = self._move(name, state, version, exit_)
-        self._log(record, name, signals, state, version, d, verdict, fold, failed, chosen, rows, blocked, result)
-        return {"exit": chosen[0] if chosen else None, "failed": failed, "blocked": blocked, "move": result, "checks": rows}
+        latency = round((self.machines.clock() - received) * 1000) if received is not None and result and result.get("moved") else None
+        self._log(record, name, signals, state, version, d, verdict, fold, failed, chosen, rows, blocked, result, latency)
+        return {"exit": chosen[0] if chosen else None, "failed": failed, "blocked": blocked, "move": result, "checks": rows,
+                "latency_ms": latency}
 
     async def _facts_now(self, name: str, record: dict, inst) -> dict:
         if self._refresh is not None:
@@ -498,11 +508,11 @@ class Runner:
             _record, inst = self.machines.load(name)
             if (inst.state, inst.version) != (state, version) or inst.paused or inst.pending:
                 return {"moved": False, "stale": "the machine changed during the evaluation"}
-            return self.machines.move(name, exit_.to, by="machine", enter=exit_.enter, who=who)
+            return self.machines.move(name, exit_.to, by="machine", enter=exit_.enter, who=who, why=reason_of(exit_))
         except (MachineError, OSError) as e:
             return {"moved": False, "error": str(e)}
 
-    def _log(self, record, name, signals, state, version, d, verdict, fold, failed, chosen, rows, blocked, result) -> None:
+    def _log(self, record, name, signals, state, version, d, verdict, fold, failed, chosen, rows, blocked, result, latency=None) -> None:
         proposal = None
         exits = machine.exits_of(d, state)
         if verdict is not None and verdict.exit is not None and 0 <= verdict.exit < len(exits):
@@ -516,6 +526,8 @@ class Runner:
             checks["move"] = {k: result[k] for k in ("moved", "to", "needs_confirm", "stale", "error") if k in result}
             if result.get("paused") and not result.get("moved"):
                 checks["move"]["paused"] = True
+        if latency is not None:  # from the first signal of the pass to the move logged (SC-003)
+            checks["latency_ms"] = max(0, latency)
         if verdict is not None and verdict.note:
             checks["note"] = verdict.note
         if fold is not None:
@@ -529,6 +541,14 @@ class Runner:
                 cost=sum(costs) if costs else None, failed=bool(failed))
         except (sqlite3.Error, LogError, OSError):
             log.exception("%s: the evaluation wasn't logged", name)
+
+
+def reason_of(exit_: machine.Exit) -> str:
+    """Why an exit moved, in the definition's own words: a judge's question, else the facts it requires. Never the judge's
+    evidence, which can quote a transcript."""
+    if exit_.decided_by == "judge" and exit_.when.strip():
+        return " ".join(exit_.when.split())
+    return ", ".join(exit_.requires) or {"counter": "a counter", "facts": "its facts"}.get(exit_.decided_by, exit_.decided_by)
 
 
 def _item(payload) -> tuple[str, int] | None:

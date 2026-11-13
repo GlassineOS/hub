@@ -60,6 +60,24 @@ def _rate_limit(status: dict, now: float | None = None) -> dict | None:
     return best
 
 
+def read_status(directory: Path) -> dict | None:
+    """A session's own status.json, if it can be read."""
+    return _read(Path(directory) / STATUS_FILE)
+
+
+def tokens_of(status: dict) -> int | None:
+    """The conversation's tokens so far, in and out, as the status line reports them; None when it doesn't, or says 0 while it
+    has a cost (a resumed conversation can start its count again). UNTESTED against every claude version, as above."""
+    window = status.get("context_window")
+    if not isinstance(window, dict):
+        return None
+    parts = [_number(window.get(k)) for k in ("total_input_tokens", "total_output_tokens")]
+    if any(p is None for p in parts):
+        return None
+    total = int(sum(parts))
+    return None if total == 0 and (_cost(status) or 0) > 0 else total
+
+
 def _cost(status: dict) -> float | None:
     cost = status.get("cost")
     return _number(cost.get("total_cost_usd")) if isinstance(cost, dict) else None

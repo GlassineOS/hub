@@ -15,7 +15,9 @@ for sessions whose workflow has more than one state. A one-state session never m
 - A conversation keeps its access and its checkout. A move that would change either fails back: a waiting one is
   declined, one that happened is rolled back, and the log says why.
 - **Context on entry** (FR-021): `keep` does nothing; `compact` types `/compact <focus>` once the session is idle,
-  through the queue typed messages wait in. `fresh` isn't done yet: it is logged and kept.
+  through the queue typed messages wait in; `fresh` ends the conversation once the session is at its prompt and starts a
+  new one of the state's persona, under the same instance, with a hand-off note made from named references (handoff.py).
+  Its launch takes the new state's grant, so a widening needs no relaunch of its own.
 
 - **Approvals** (FR-025, FR-052): an exit that holds and whose `approve` asks someone first doesn't move on its own. The
   runner hands it here (`ask_approval`) and it becomes a `machine.approve` card in Needs you, one per session, state,
@@ -27,7 +29,7 @@ for sessions whose workflow has more than one state. A one-state session never m
   for a pending confirm. A card ends when the session moves any other way. Cards of the same kind with a `type` (a report
   sent up to Needs you, a managed session's start that needs more than its owner holds) are managed.py's.
 
-The status line of FR-025 isn't posted.
+The status line of FR-025 is statusline.py's, which watches the same moves.
 """
 from __future__ import annotations
 
@@ -37,8 +39,8 @@ import logging
 import shutil
 import sqlite3
 
-from . import instances, machine
-from .agents import GITHUB_FOLDER, HUB_SENDER, AgentError, _full, _mode
+from . import handoff, instances, machine
+from .agents import ENDED_FILE, GITHUB_FOLDER, HUB_SENDER, AgentError, NotAtPrompt, _full, _mode
 from .decisions import APPROVE, WIDEN, DecisionError
 from .instances import MachineError
 from .machine_log import LogError
@@ -50,6 +52,8 @@ RELAUNCH_WAIT = 3600  # seconds a widening waits for the session to come back to
 POLL = 2  # seconds between looks at whether it has
 LABEL = "[From the hub, not from the person or a session]"
 FAILED_SIGNAL = "hub:relaunch"  # how a move that didn't take effect shows among the evaluations
+FRESH_SIGNAL = handoff.FRESH_SIGNAL  # how a new conversation that took over shows among them
+FRESH_TRIES = 5  # times a switch waits for the prompt again, after the session was resumed or got busy meanwhile
 FULL_MARK = "runs with your own rights: guarded, not limited"
 # Who an `approve` level names, and who answers it for now: the chain above a session (FR-050) isn't there yet.
 LEVELS = {"me": "you", "owner": "its owner", "maintainer": "the repository maintainer", "steward": "the Steward"}
@@ -104,6 +108,8 @@ class Effects:
         self._answering: str | None = None  # the card being answered, which the move it confirms mustn't end as stale
         self.managed = None  # managed.Managed: approvals at a level a session above can give, and its own cards
         self.machines.on_move(self.on_move)
+        if decisions is not None and hasattr(agents, "switch_watchers"):
+            agents.switch_watchers.append(decisions.retarget)
 
     # --- the watcher ----------------------------------------------------------------
     def on_move(self, name: str, result: dict) -> None:
@@ -139,9 +145,9 @@ class Effects:
         d = inst.definition()
         words = instructions_of(d, result["from"], result["to"])
         context, focus = context_of(d, result["from"], result["to"])
-        if context == "fresh":
-            log.warning("%s: %s's context on entry is fresh, which isn't supported yet: kept", name, result["to"])
-            context = "keep"
+        if context == "fresh":  # a new conversation takes over: its launch has the new grant and its note the instructions
+            self._spawn(self._fresh(name, result))
+            return
         state = narrowed["state"]
         record = self._record(name)
         # Its own launch takes what its own grant adds; what the sessions it manages add comes with their own launches (FR-023).
@@ -283,26 +289,38 @@ class Effects:
             raise DecisionError("the machine didn't move")
         return self.decisions.settle(decision_id, True, "approved: the session moved", words)
 
-    async def _relaunch(self, name: str, result: dict, words: str | None, focus: str | None) -> None:
+    async def _at_prompt(self, name: str, result: dict) -> str | None:
+        """Waits until the session is at its prompt ("Idle") or not running ("Stopped"). None if it didn't come back in time,
+        after failing the move back."""
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self.relaunch_wait
         while True:
             state = (await self.agents.session_state(name))["state"]
-            if state in ("Stopped", "Not started"):  # not started for this: its next resume has the new grant
-                if words:
-                    self.agents.tell(name, words)
-                return
+            if state in ("Stopped", "Not started"):
+                return "Stopped"
             if state == "Idle":
-                break
+                return state
             if loop.time() > deadline:
                 self._fail_back(name, result, "it didn't come back to its prompt in time")
-                return
+                return None
             await asyncio.sleep(self.poll)
+
+    def _still_there(self, name: str, result: dict) -> bool:
         try:
             _record, inst = self.machines.load(name)
         except MachineError:
+            return False
+        return inst.state == result["to"]  # moved again meanwhile: that move's effects apply
+
+    async def _relaunch(self, name: str, result: dict, words: str | None, focus: str | None) -> None:
+        state = await self._at_prompt(name, result)
+        if state is None:
             return
-        if inst.state != result["to"]:  # moved again meanwhile: that move's effects apply
+        if state == "Stopped":  # not started for this: its next resume has the new grant
+            if words:
+                self.agents.tell(name, words)
+            return
+        if not self._still_there(name, result):
             return
         try:
             await self.agents.resume(name, relaunch=True)
@@ -314,6 +332,40 @@ class Effects:
             self.agents.tell(name, words)
         if focus is not None:
             await self._compact(name, focus)
+
+    async def _fresh(self, name: str, result: dict) -> None:
+        """FR-021, context = "fresh": the conversation ends and one of the state's persona takes over with the hand-off note
+        (handoff.py), always inside a resume that checks everything first. A running session is switched once it is at its
+        prompt; a stopped one, still stopped under the resume lock, gets the switch owed for its next resume. One that was
+        resumed meanwhile, or is busy again by the switch, waits for its prompt again."""
+        for _try in range(FRESH_TRIES):
+            state = await self._at_prompt(name, result)
+            if state is None or not self._still_there(name, result):
+                return
+            try:
+                record, inst = self.machines.load(name)
+                action = self.agents.library.actions.get((record.get("config") or {}).get("action")) or {}
+                d = inst.definition()
+                persona = handoff.persona_for(d, inst.state, action, record["config"].get("persona"))
+                text = handoff.note(self.agents, name, record, d, inst.state, persona)
+                if state == "Stopped":
+                    async with self.agents._resuming:
+                        if await self._live(name):
+                            continue  # resumed since the look: it switches at its prompt
+                        handoff.owe(self.agents, name, text, persona, inst.state)
+                    handoff.log_switch(self.agents, name, record["session_id"], record["session_id"], persona, "at its next resume")
+                    return
+                await self.agents.resume(name, relaunch=True, fresh={"note": text, "persona": persona, "at_prompt": True})
+                return
+            except NotAtPrompt:
+                continue
+            except Exception as e:  # noqa: BLE001: any failure leaves the old conversation, and the move goes back
+                self._fail_back(name, result, f"its fresh context can't start: {e}")
+                return
+        self._fail_back(name, result, "it never stayed at its prompt long enough to switch")
+
+    async def _live(self, name: str) -> bool:
+        return any(s["name"] == name for s in await self.agents.shells.list()) and not (self.agents.sessions / name / ENDED_FILE).exists()
 
     def _fail_back(self, name: str, result: dict, why: str) -> None:
         """A move that happened and can't take effect: back to where it was, logged, and the session told."""

@@ -309,6 +309,17 @@ class Decisions:
     def open_approvals(self, session: str) -> list[dict]:
         return self.open_widenings(session, APPROVE)
 
+    def retarget(self, session: str, old: str, new: str) -> int:
+        """A fresh context's new conversation takes over the workflow cards still waiting on the old one (handoff.py): a
+        move's confirm and an exit's approval. A go keeps to the conversation it was given to."""
+        moved = 0
+        for r in list(self._all.values()):
+            if r["kind"] in (WIDEN, APPROVE) and r["scope"].get("session") == session and r["scope"].get("session_id") == old \
+                    and self.current_state(r) == "requested":
+                self._save({**r, "scope": {**r["scope"], "session_id": new}})
+                moved += 1
+        return moved
+
     def approve(self, decision_id, words=None, scope=None, ends=None) -> dict:
         """A login, on the card. It can narrow what was asked, and doesn't widen a go's actions."""
         record = self._get(decision_id)

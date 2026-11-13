@@ -2904,6 +2904,199 @@ function moveTargets(states, at) {
     parent: s.initial !== null && s.initial !== undefined, first: s.initial }));
 }
 
+// FR-061, FR-081: the statechart, laid out here so the same machine always looks the same. Inside each parent, and at the
+// top, states go in columns by how many exits from the first state they are, down a column in the definition's order; a
+// parent is a box around its own. An exit is an elbow from one box's side to the other's, labelled with how it decides.
+// marks: { at, path, visited, taken, pending } from diagramMarks; all optional.
+function diagramLayout(states, initial, marks, down) {
+  const D = { w: 150, h: 56, gx: 170, gy: 48, pad: 24, left: 48, head: 60, top: 54, start: 64, margin: 20, label: 18 };
+  const m = marks || {};
+  const by = Object.fromEntries(states.map((s) => [s.id, s]));
+  const isParent = (s) => Boolean(s) && s.initial !== null && s.initial !== undefined;
+  const kidsOf = (c) => states.filter((s) => (s.parent || null) === c);
+  const pathOf = (id) => { const out = []; for (let k = id; k && by[k] && !out.includes(k); k = by[k].parent) out.unshift(k); return out; };
+  const under = (id, c) => { const p = pathOf(id); const i = c === null ? 0 : p.indexOf(c) + 1; return i > 0 || c === null ? p[i] || null : null; };
+  const size = {}, rel = {};
+  const place = (c) => {
+    const kids = kidsOf(c);
+    kids.forEach((k) => { if (isParent(k)) place(k.id); else size[k.id] = [Math.max(D.w, k.id.length * 9 + 40), D.h]; });
+    const next = new Map(kids.map((k) => [k.id, []]));
+    states.forEach((s) => (s.exits || []).forEach((e) => {
+      const a = under(s.id, c), b = under(e.to, c);
+      if (a && b && a !== b && next.has(a) && !next.get(a).includes(b)) next.get(a).push(b);
+    }));
+    const rank = {};
+    const walk = (first, base) => {
+      const queue = [first];
+      rank[first] = base;
+      while (queue.length) { const x = queue.shift(); for (const y of next.get(x) || []) if (rank[y] === undefined) { rank[y] = rank[x] + 1; queue.push(y); } }
+    };
+    const first = c === null ? initial : by[c].initial;
+    if (next.has(first)) walk(first, 0);
+    kids.forEach((k) => { if (rank[k.id] === undefined) walk(k.id, Math.max(-1, ...Object.values(rank)) + 1); });
+    const cols = [];
+    kids.forEach((k) => { (cols[rank[k.id]] = cols[rank[k.id]] || []).push(k.id); });
+    let x = 0, h = 0;
+    if (down) {  // ranks as rows, a rank's states side by side
+      let y = 0, w = 0;
+      cols.filter(Boolean).forEach((row) => {
+        let rx = 0, rh = 0;
+        row.forEach((id) => { rel[id] = [rx, y]; rx += size[id][0] + D.gx; rh = Math.max(rh, size[id][1]); });
+        w = Math.max(w, rx - D.gx); y += rh + D.gy * 1.6;
+      });
+      x = w + D.gx; h = Math.max(0, y - D.gy * 1.6);
+    } else {
+      cols.filter(Boolean).forEach((col) => {
+        let y = 0, w = 0;
+        col.forEach((id) => { rel[id] = [x, y]; y += size[id][1] + D.gy; w = Math.max(w, size[id][0]); });
+        h = Math.max(h, y - D.gy); x += w + D.gx;
+      });
+    }
+    const inner = [Math.max(0, x - D.gx), h];
+    if (c !== null) size[c] = [Math.max(inner[0] + D.left + D.pad, 290), inner[1] + D.head + D.pad];
+    return inner;
+  };
+  const [cw, ch] = place(null);
+  const box = {};
+  const put = (c, ox, oy) => kidsOf(c).forEach((k) => {
+    const [rx, ry] = rel[k.id];
+    box[k.id] = { x: ox + rx, y: oy + ry, w: size[k.id][0], h: size[k.id][1] };
+    if (isParent(k)) put(k.id, ox + rx + D.left, oy + ry + D.head);
+  });
+  put(null, D.margin + D.start, D.top);
+  const inside = (a, b) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
+  const visited = new Set(m.visited || []), taken = new Set(m.taken || []), path = m.path || (m.at ? [m.at] : []);
+  const ahead = m.pending ? pathOf(m.pending) : [];
+  const atOf = (id) => (id === m.at ? "now" : ahead.length && ahead[ahead.length - 1] === id ? "next" : path.includes(id) || visited.has(id) ? "visited" : "other");
+  const subOf = (s) => {
+    if (isParent(s)) return `parent · ${kidsOf(s.id).length} state${kidsOf(s.id).length === 1 ? "" : "s"}${path.includes(s.id) && s.id !== m.at ? " · inside it now" : ""}`;
+    const ms = s.manages || [];
+    if (ms.length) { const t = `runs ${ms.map((x) => x.persona).join(", ")}`; return t.length > 20 ? `runs ${ms.length} sessions` : t; }
+    return s.final ? "final" : "";
+  };
+  const shapes = states.filter((s) => box[s.id]).map((s) => {
+    const b = box[s.id], at = atOf(s.id);
+    const tag = at === "now" ? "NOW" : at === "next" ? "PROPOSED" : "";
+    return { id: s.id, ...b, parent: isParent(s), final: Boolean(s.final), at, tag, sub: subOf(s), first: (s.parent ? by[s.parent].initial : initial) === s.id };
+  });
+  // An entry into each box that holds states: the start dot at the top, a smaller one inside each parent.
+  const starts = [null, ...states.filter(isParent).map((s) => s.id)].map((c) => {
+    const first = c === null ? initial : by[c].initial;
+    const b = box[first];
+    if (!b) return null;
+    const y = b.y + Math.min(b.h / 2, 28);
+    const x0 = c === null ? D.margin + 6 : box[c].x + 16;
+    return { x: x0, y, r: c === null ? 6 : 4.5, d: `M${x0 + 6} ${y}H${b.x}` };
+  }).filter(Boolean);
+  const raw = [];
+  const pairs = {};
+  states.forEach((s) => (s.exits || []).forEach((e, i) => {
+    if (!box[s.id] || !box[e.to]) return;
+    const key = [s.id, e.to].sort().join(" ");
+    raw.push({ from: s.id, place: e.place || i + 1, e, key, n: (pairs[key] = (pairs[key] || 0) + 1) });
+  }));
+  const GLYPH = { judge: "≈ ", facts: "= ", counter: "# ", hand: "" };
+  const holds = [];
+  const edges = raw.map((r) => {
+    const { e } = r, A = box[r.from], B = box[e.to], n = pairs[r.key];
+    const side = n > 1 ? (r.n - 1 - (n - 1) / 2 < 0 ? -1 : 1) : 0;
+    const off = (r.n - 1 - (n - 1) / 2) * 16;
+    const words = e.decided_by === "judge" ? e.when || "judged" : e.decided_by === "hand" ? "by hand" : (e.requires || []).join(", ") || e.decided_by;
+    const short = words.length > D.label - 2 ? `${words.slice(0, D.label - 3)}…` : words;
+    const text = (GLYPH[e.decided_by] === undefined ? "" : GLYPH[e.decided_by]) + short;
+    const lw = Math.round(text.length * 7.6 + 14);
+    const ys = (b, v) => Math.round(Math.min(b.y + b.h - 10, Math.max(b.y + 10, v)));
+    const xs = (b, v) => Math.round(Math.min(b.x + b.w - 10, Math.max(b.x + 10, v)));
+    let pts, lx, ly, dir;
+    if (r.from === e.to) {
+      const x0 = A.x + A.w - 40 + off;
+      pts = [[x0, A.y], [x0, A.y - 28], [A.x + A.w + 24, A.y - 28], [A.x + A.w + 24, A.y + 18], [A.x + A.w, A.y + 18]];
+      [lx, ly, dir] = [x0 - lw / 2, A.y - 28, [-1, 0]];
+    } else if (inside(A, B) || inside(B, A)) {
+      const x1 = Math.max(A.x + A.w, B.x + B.w) + 30 + Math.abs(off);
+      const sy = ys(A, A.y + A.h / 2 + off), ty = ys(B, B.y + 30 + off);
+      pts = [[A.x + A.w, sy], [x1, sy], [x1, ty], [B.x + B.w, ty]];
+      [lx, ly, dir] = [x1, (sy + ty) / 2, [-1, 0]];
+    } else if (B.x >= A.x + A.w || B.x + B.w <= A.x) {
+      const right = B.x >= A.x + A.w;
+      const x0 = right ? A.x + A.w : A.x, x1 = right ? B.x : B.x + B.w;
+      const sy = ys(A, A.y + Math.min(A.h / 2, 28) + off), ty = ys(B, B.y + Math.min(B.h / 2, 28) + off);
+      const mx = Math.round((x0 + x1) / 2 + off);
+      pts = sy === ty ? [[x0, sy], [x1, ty]] : [[x0, sy], [mx, sy], [mx, ty], [x1, ty]];
+      [lx, ly, dir] = [mx, sy === ty ? sy + side * 13 : (sy + ty) / 2 + side * 13, [right ? 1 : -1, 0]];
+    } else {
+      const down = B.y >= A.y + A.h;
+      const y0 = down ? A.y + A.h : A.y, y1 = down ? B.y : B.y + B.h;
+      const sx = xs(A, A.x + A.w / 2 + off * 2), tx = xs(B, B.x + B.w / 2 + off * 2);
+      const my = Math.round((y0 + y1) / 2);
+      pts = sx === tx ? [[sx, y0], [tx, y1]] : [[sx, y0], [sx, my], [tx, my], [tx, y1]];
+      [lx, ly, dir] = [(sx + tx) / 2 + side * (lw / 2 + 6), my, [0, down ? 1 : -1]];
+    }
+    const end = pts[pts.length - 1];
+    if (e.enter === "history" && isParent(by[e.to])) holds.push({ x: end[0] + dir[0] * 16, y: end[1] + dir[1] * 16 });
+    const key = `${r.from}:${r.place}`;
+    const at = m.pendingExit === key ? "pending" : taken.has(key) ? "taken" : "other";
+    return { key, from: r.from, place: r.place, to: e.to, by: e.decided_by, at, text, words, d: `M${pts.map((p) => p.join(" ")).join("L")}`,
+      lw, lx: Math.round(lx - lw / 2), ly: Math.round(ly - 11), tx: Math.round(lx), ty: Math.round(ly + 4.5), history: e.enter === "history" };
+  });
+  const rights = [...Object.values(box).map((b) => b.x + b.w), ...edges.flatMap((g) => g.d.slice(1).split("L").map((p) => Number(p.split(" ")[0]))), ...edges.map((g) => g.lx + g.lw)];
+  return { w: Math.max(cw + D.margin + D.start, ...rights) + D.margin, h: D.top + ch + D.margin, states: shapes.filter((s) => !s.parent), parents: shapes.filter((s) => s.parent), edges, starts, holds };
+}
+
+// What the diagram marks for a session: the states it went through, the exits the machine's moves took (the innermost
+// exit, on the way from where it was, to a state holding where it went; a move by hand takes no exit) and the move that
+// waits for a confirm.
+function diagramMarks(states, at, path, moves, pending) {
+  const pathOf = (id) => statePath(states, id);
+  const exitFor = (from, to) => {
+    const goal = pathOf(to);
+    for (const s of [...pathOf(from)].reverse()) {
+      const own = (states.find((x) => x.id === s) || {}).exits || [];
+      const i = own.findIndex((e) => goal.includes(e.to));
+      if (i >= 0) return `${s}:${own[i].place || i + 1}`;
+    }
+    return null;
+  };
+  const went = (moves || []).filter((x) => x.by === "machine" || x.by === "hand" || x.by === "rollback");
+  const way = went.slice().sort((a, b) => a.at - b.at);
+  const visited = [...new Set(went.flatMap((x) => [x.from, x.to]).filter(Boolean))];
+  const taken = [...new Set(went.filter((x) => x.by === "machine").map((x) => exitFor(x.from, x.to)).filter(Boolean))];
+  return { at, path: path || [at], visited, taken, pending: pending ? pending.to : null, pendingExit: pending ? exitFor(at, pending.to) : null,
+    way: way.length ? [way[0].from, ...way.map((x) => x.to)] : [] };
+}
+
+// The statechart itself. Its text alternative is the outline (describedBy); where it is and the way it came are also said
+// in words under it. With onPick, a state or an exit's label is a button that selects it.
+function MachineDiagram({ states, initial, marks, label, describedBy, sel, onPick }) {
+  // Left to right unless that is more than twice as wide as tall: then top to bottom, which fits a column.
+  const across = diagramLayout(states, initial, marks);
+  const g = across.w > 2.2 * across.h ? diagramLayout(states, initial, marks, true) : across;
+  const arrow = `dg-arrow-${describedBy}`;
+  const press = (x) => (onPick ? { role: "button", tabindex: "0", onClick: () => onPick(x), onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(x); } } } : {});
+  const picked = (state, exit) => String(Boolean(sel && sel.state === state && (exit === undefined ? !sel.exit : sel.exit === exit)));
+  const m = marks || {};
+  const EXIT = { judge: "judged", facts: "by facts", counter: "by a counter", hand: "by hand" };
+  return html`<figure class="wf-dgbox stack tight">
+    <svg class="wf-dg" viewBox=${`0 0 ${g.w} ${g.h}`} role="group" aria-label=${label} aria-describedby=${describedBy}>
+      <defs><marker id=${arrow} viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto-start-reverse"><path class="wf-dg-arrow" d="M0 0L10 5L0 10z" /></marker></defs>
+      ${g.parents.map((p) => html`<g class="wf-dg-pa" data-at=${p.at} data-sel=${picked(p.id)} aria-label=${`Parent state ${p.id}${p.at === "visited" && (m.path || []).includes(p.id) ? ", the session is inside it" : ""}`} ...${press({ state: p.id })}>
+        <rect x=${p.x} y=${p.y} width=${p.w} height=${p.h} /><text class="wf-dg-name" x=${p.x + 16} y=${p.y + 26}>${p.id}</text><text class="wf-dg-sub" x=${p.x + 16} y=${p.y + 44}>${p.sub}</text></g>`)}
+      ${g.starts.map((s) => html`<g aria-hidden="true"><circle class="wf-dg-dot" cx=${s.x} cy=${s.y} r=${s.r} /><path class="wf-dg-start" d=${s.d} marker-end=${`url(#${arrow})`} /></g>`)}
+      ${g.edges.map((e) => html`<g class="wf-dg-ed" data-at=${e.at} data-by=${e.by} data-sel=${picked(e.from, e.place)}>
+        <path d=${e.d} marker-end=${`url(#${arrow})`} />
+        <g class="wf-dg-lab" aria-label=${`Exit ${e.place} of ${e.from} to ${e.to}${e.history ? ", back to where it was" : ""}: ${EXIT[e.by] || e.by}, ${e.words}${e.at === "taken" ? ", taken" : e.at === "pending" ? ", waits for your confirm" : ""}`} ...${press({ state: e.from, exit: e.place })}>
+          <title>${e.words}</title><rect x=${e.lx} y=${e.ly} width=${e.lw} height="22" /><text x=${e.tx} y=${e.ty} text-anchor="middle">${e.text}</text></g></g>`)}
+      ${g.holds.map((h) => html`<g class="wf-dg-h" aria-hidden="true"><circle cx=${h.x} cy=${h.y} r="11" /><text x=${h.x} y=${h.y + 4.5} text-anchor="middle">H</text></g>`)}
+      ${g.states.map((s) => { const tw = s.tag.length * 7.5 + 14; return html`<g class="wf-dg-st" data-at=${s.at} data-sel=${picked(s.id)} aria-label=${`State ${s.id}${s.at === "now" ? ", where it is now" : s.at === "next" ? ", the move waiting for your confirm goes here" : s.at === "visited" ? ", it has been here" : ""}${s.final ? ", final" : ""}`} ...${press({ state: s.id })}>
+        <rect x=${s.x} y=${s.y} width=${s.w} height=${s.h} />${s.final && html`<rect class="wf-dg-inner" x=${s.x + 4} y=${s.y + 4} width=${s.w - 8} height=${s.h - 8} />`}
+        <text class="wf-dg-name" x=${s.x + s.w / 2} y=${s.y + (s.sub ? 25 : 33)} text-anchor="middle">${s.id}</text>${s.sub && html`<text class="wf-dg-sub" x=${s.x + s.w / 2} y=${s.y + 44} text-anchor="middle">${s.sub}</text>`}
+        ${s.tag && html`<g class="wf-dg-tag" aria-hidden="true"><rect x=${s.x + s.w - tw + 6} y=${s.y - 10} width=${tw} height="18" rx="9" /><text x=${s.x + s.w - tw / 2 + 6} y=${s.y + 3} text-anchor="middle">${s.tag}</text></g>`}</g>`; })}
+    </svg>
+    ${m.at && html`<p class="small">Now in ${(m.path || [m.at]).join(" › ")}.${(m.way || []).length ? ` The way here: ${m.way.join(" → ")}.` : " No moves yet."}${m.pending ? ` A move to ${m.pending} waits for your confirm.` : ""}</p>`}
+    <figcaption class="wf-legend"><span><b>≈</b> judged</span><span><b>=</b> facts</span><span><b>#</b> a counter</span><span><b>H</b> back to where it was</span><span>dotted: by hand</span>${m.at && html`<span>heavy box: now</span><span>heavy arrows: the way taken</span><span>heavy dashed arrow: waits for your confirm</span>`}<span>a state’s exits are tried in order; a parent’s exits apply in every state inside it</span></figcaption>
+  </figure>`;
+}
+
 // One side of a grant change (adds, removes or keeps), as rows: kind, item, the sensitive mark, and whether the instance
 // never held it before (what makes the move wait for a confirm).
 function grantRows(part, sensitive, never) {
@@ -2992,11 +3185,54 @@ function WidenConfirm({ name, pending, sensitive, busy, error, onAnswer, onClose
   </dialog>`;
 }
 
-// FR-081, User Story 2: the machine panel, under a session's Workflow row. The outline stands in for the diagram at every width.
+// FR-090, SC-003: what a piece of work cost, as rows: the session and those it manages. Money and tokens the status line
+// didn't report are "not reported", never 0.
+function costRows(c) {
+  const money = (x) => (x === null || x === undefined ? "not reported" : `$${x < 0.01 && x > 0 ? x.toFixed(4) : x.toFixed(2)}`);
+  const secs = (ms) => (ms === null || ms === undefined ? "none yet" : ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
+  const span = (s) => (s < 90 ? `${s} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${Math.round(s / 360) / 10} h`);
+  const plural = (k, word) => `${k} ${word}${k === 1 ? "" : "s"}`;
+  const n = (c.sessions || []).length;
+  const lat = c.latency || {};
+  const rows = [
+    ["Sessions", `${n}${n > 1 ? `, at most ${c.at_once} at once` : ""}`],
+    ["Judge calls", `${c.judge_calls}${c.judge_calls ? ` · ${secs(c.judge_ms)} · ${money(c.judge_cost)}` : ""}`],
+    ["Tokens", String(c.tokens || 0)],
+    ["Cost", money(c.cost)],
+    ["Time in states", span(c.seconds || 0)],
+    ["Overrides", c.machine_moves ? `${c.overrides} of ${plural(c.machine_moves, "machine move")}` : "no machine moves yet"],
+    ["Signal to move", lat.count ? `median ${secs(lat.median_ms)}, at most ${secs(lat.max_ms)}, over ${plural(lat.count, "move")}` : "no machine moves yet"],
+  ];
+  const fixed = lat.debounce_s === undefined ? ""
+    : `of that, fixed: a ${lat.debounce_s} s debounce, up to ${lat.pr_lookup_wait_s} s for a pull request lookup (at most one every ${lat.pr_lookup_every_s} s), and a judge’s limit of ${lat.judge_limit_s} s`;
+  const top = (c.sessions || [])[0];
+  const states = top ? (top.states || []).map((s) => ({ state: s.parent ? `${s.parent} › ${s.state}` : s.state, rounds: s.rounds, time: span(s.seconds), tokens: String(s.tokens), cost: money(s.cost) })) : [];
+  const managed = (c.sessions || []).slice(1).map((s) => `${s.name} (${s.persona || "no persona"}${s.entry ? `, ${s.entry}` : ""}): ${s.tokens} tokens · ${money(s.cost)} · ${plural(s.judge_calls, "judge call")}${s.running ? "" : " · ended"}`);
+  return { rows, fixed, states, managed };
+}
+
+function CostBox({ id, got }) {
+  const c = got.data;
+  const r = c ? costRows(c) : null;
+  return html`<section class="wfbox stack tight" aria-labelledby=${id}>
+    <h3 class="wfh3" id=${id}>Cost</h3>
+    ${!c ? html`<p class="small soft">${got.error ? `Can’t read the costs: ${got.error}` : "Reading the costs…"}</p>` : html`
+      <p class="small soft">This session and the sessions it manages, over every conversation it has had.</p>
+      <dl class="defs">${r.rows.map(([k, x]) => html`<dt>${k}</dt><dd>${x}</dd>`)}</dl>
+      ${r.fixed && html`<p class="small soft">Signal to move: ${r.fixed}.</p>`}
+      ${r.states.length > 0 && html`<h4 class="eyebrow">Per state</h4><ul class="wfcost stack tight small">${r.states.map((s) => html`<li><b class="mono">${s.state}</b><span class="soft">${s.rounds} round${s.rounds === 1 ? "" : "s"} · ${s.time} · ${s.tokens} tokens · ${s.cost}</span></li>`)}</ul>`}
+      ${r.managed.length > 0 && html`<ul class="stack tight small" aria-label="Sessions it manages">${r.managed.map((x) => html`<li>${x}</li>`)}</ul>`}`}
+  </section>`;
+}
+
+// FR-081, User Story 2: the machine panel, under a session's Workflow row. On a wide screen the diagram comes first, with
+// the outline as its text; on a phone the outline stands alone.
 function MachinePanel({ name, onMoved }) {
   const path = `machines/${encodeURIComponent(name)}`;
+  const phone = usePhone();
   const got = useLoad(() => api(path), [name], 15000);
   const hist = useLoad(() => api(`${path}/history`), [name], 15000);
+  const cost = useLoad(() => api(`${path}/costs`), [name], 30000);
   const [asking, setAsking] = useState(null);
   const [to, setTo] = useState("");
   const [enter, setEnter] = useState("first");
@@ -3064,7 +3300,9 @@ function MachinePanel({ name, onMoved }) {
             : html`<p class="small soft">No sessions run under this state.</p>`}</section>
         <section class="stack tight" aria-labelledby=${`mp-ol-${name}`}>
           <h3 class="wfh3" id=${`mp-ol-${name}`}>The whole machine</h3>
-          <ul class="wftree" aria-label=${`States and exits of ${inst.workflow}`}>${outlineRows(states, v.initial, here, exits).map((r) => (r.row === "state"
+          ${!phone && !one && html`<${MachineDiagram} states=${states} initial=${v.initial} marks=${diagramMarks(states, at, here, hist.data && hist.data.moves, waiting)}
+            label=${`Statechart of ${inst.workflow}, ${name} is in ${here.join(" › ")}`} describedBy=${`mp-tree-${name}`} />`}
+          <ul class="wftree" id=${`mp-tree-${name}`} aria-label=${`States and exits of ${inst.workflow}`}>${outlineRows(states, v.initial, here, exits).map((r) => (r.row === "state"
             ? html`<li data-row="state" data-at=${r.at} style=${`--depth: ${r.depth}`}><span class="row" style="gap: 6px"><b class="mono">${r.id}</b>${r.tags.map((t) => html`<span class=${`il-chip${t === "now" ? " il-chip--waits" : t === "inside it now" ? "" : " il-chip--over"}`}>${t}</span>`)}</span>${r.sub && html`<span class="small soft">${r.sub}</span>`}</li>`
             : html`<li data-row="exit" style=${`--depth: ${r.depth}`} class="small"><span class="mono">${r.n}</span> → <b>${r.to}</b> <span class="soft">${r.why}</span>${r.holds && html` <span>· ${r.holds}</span>`}</li>`))}</ul>
           <details class="wfdef"><summary>Its definition</summary><div class="il-code"><pre>${inst.definition}</pre></div></details>
@@ -3082,6 +3320,7 @@ function MachinePanel({ name, onMoved }) {
         <section class="wfbox stack tight" aria-labelledby=${`mp-c-${name}`}>
           <h3 class="wfh3" id=${`mp-c-${name}`}>Counters</h3>
           <dl class="defs">${counterRows(v.facts, here).map(([k, x]) => html`<dt>${k}</dt><dd>${x}</dd>`)}</dl></section>
+        <${CostBox} id=${`mp-cost-${name}`} got=${cost} />
         <section class="wfbox stack tight" aria-labelledby=${`mp-m-${name}`}>
           <h3 class="wfh3" id=${`mp-m-${name}`}>Move by hand</h3>
           <p class="small">To any state, inside a parent or out. Logged as yours. A move that widens the grant asks you to confirm what it adds.</p>
@@ -3291,14 +3530,25 @@ function Inspector({ outline, sel, onPick, onMove, busy }) {
       ${s.inherited.map((e) => html`<p class="small"><span class="eyebrow">then, from ${e.from}</span> → ${e.to} · ${exitWhy(e)}</p>`)}</section></div>`;
 }
 
+// FR-090: each workflow's averages over the sessions that ran it, beside it in the list.
+function costLine(c) {
+  if (!c || !c.sessions) return "";
+  const pct = c.override_rate === null || c.override_rate === undefined ? "no machine moves yet" : `${Math.round(c.override_rate * 100)}% of the machine’s moves overridden`;
+  const lat = c.latency_median_ms === null || c.latency_median_ms === undefined ? "" : ` · signal to move ${c.latency_median_ms < 1000 ? `${c.latency_median_ms} ms` : `${(c.latency_median_ms / 1000).toFixed(1)} s`} (median)`;
+  return `${c.sessions} session${c.sessions === 1 ? "" : "s"} · ${c.judge_calls_avg} judge calls each · ${pct}${lat}`;
+}
+
 function WorkflowList() {
   const got = useLoad(() => api("hub-workflows"), []);
+  const costs = useLoad(() => api("machine-costs"), []);
   const rows = (got.data && got.data.workflows) || [];
+  const costOf = Object.fromEntries(((costs.data && costs.data.workflows) || []).map((c) => [c.workflow, c]));
   return html`<main class="page"><div class="stack tight"><${Eyebrow} soft>Hub · workflows<//><h1>Workflows</h1></div>
     <p class="small" style="max-width: 70ch">Each action runs on a workflow. A version you save is never changed after; a session takes the newest at its next move. A repository can have its own override.</p>
     <${Err} text=${got.error} />${!got.data && !got.error && html`<p class="soft">Loading…</p>`}
     <ul class="wflist">${rows.map((w) => html`<li><a href=${`#/workflows/${encodeURIComponent(w.name)}`}><span class="mono"><b>${w.name}</b></span>
       <span class="small soft">${w.states === 1 ? "one state" : `${w.states} states`} · v${w.org}${w.org === 0 ? " (the file)" : ""} for the organisation${w.overrides.length ? ` · overrides: ${w.overrides.map((o) => `${o.repo} v${o.v}`).join(", ")}` : ""}${w.actions.length ? ` · runs ${w.actions.join(", ")}` : ""}</span>
+      ${costOf[w.name] && html`<span class="small">${costLine(costOf[w.name])}</span>`}
       ${Object.entries(w.refused).map(([scope, why]) => html`<span class="small">Not in use for ${scopeWords(scope)}: ${why}</span>`)}</a></li>`)}</ul></main>`;
 }
 
@@ -3357,6 +3607,10 @@ function WorkflowEditor({ name, scope, proposal }) {
   const marks = (findings || []).filter((f) => f.kind !== "problem");
   const rows = outline ? editorRows(outline) : [];
   const words = replayWords(replayed);
+  const tree = outline ? html`<ul class="wftree wfe-tree" id="wfe-tree" aria-label=${`States and exits of ${name}`}>${rows.map((r) => (r.row === "state"
+    ? html`<li data-row="state" style=${`--depth: ${r.depth}`}><button type="button" class="link wfe-pick" aria-pressed=${sel && sel.state === r.id && !sel.exit ? "true" : "false"} onClick=${() => setSel({ state: r.id })}><b class="mono">${r.id}</b></button>${r.tags.map((t) => (t === "sensitive" ? html`<span class="wfsens">sensitive</span>` : html`<span class="il-chip il-chip--over">${t}</span>`))}</li>`
+    : html`<li data-row="exit" style=${`--depth: ${r.depth}`} class="small"><button type="button" class="link wfe-pick" aria-pressed=${sel && sel.state === r.state && sel.exit === r.place ? "true" : "false"} onClick=${() => setSel({ state: r.state, exit: r.place })}><span class="mono">${r.n}</span> → <b>${r.to}</b></button> <span class="soft">${r.why}</span>${r.widens && html` · <span>widens</span>`}</li>`))}</ul>` : null;
+  const shown = view === "diagram" && phone ? "outline" : view;
   return html`<main class="page wide wfe">
     <header class="wfe-bar">
       <div class="stack tight" style="flex: 1 1 320px"><a class="small" href="#/workflows">Workflows</a><h1 class="mono">${name}</h1><span class="small soft" role="status">${status}</span></div>
@@ -3374,15 +3628,16 @@ function WorkflowEditor({ name, scope, proposal }) {
       <section class="stack wfe-view" aria-labelledby="wfe-view">
         <h2 class="sr" id="wfe-view">The machine</h2>
         <div class="row" style="justify-content: space-between">
-          <div class="seg" role="group" aria-label="View"><button aria-pressed=${view === "outline" ? "true" : "false"} onClick=${() => setView("outline")}>Outline</button><button aria-pressed=${view === "text" ? "true" : "false"} onClick=${() => setView("text")}>Text</button></div>
+          <div class="seg" role="group" aria-label="View"><button aria-pressed=${shown === "outline" ? "true" : "false"} onClick=${() => setView("outline")}>Outline</button>${!phone && html`<button aria-pressed=${shown === "diagram" ? "true" : "false"} onClick=${() => setView("diagram")}>Diagram</button>`}<button aria-pressed=${shown === "text" ? "true" : "false"} onClick=${() => setView("text")}>Text</button></div>
           ${dirty && html`<button type="button" class="il-btn" onClick=${() => setDraft(null)}>Discard the edits</button>`}</div>
-        ${view === "outline" ? (outline ? html`<ul class="wftree wfe-tree" aria-label=${`States and exits of ${name}`}>${rows.map((r) => (r.row === "state"
-          ? html`<li data-row="state" style=${`--depth: ${r.depth}`}><button type="button" class="link wfe-pick" aria-pressed=${sel && sel.state === r.id && !sel.exit ? "true" : "false"} onClick=${() => setSel({ state: r.id })}><b class="mono">${r.id}</b></button>${r.tags.map((t) => (t === "sensitive" ? html`<span class="wfsens">sensitive</span>` : html`<span class="il-chip il-chip--over">${t}</span>`))}</li>`
-          : html`<li data-row="exit" style=${`--depth: ${r.depth}`} class="small"><button type="button" class="link wfe-pick" aria-pressed=${sel && sel.state === r.state && sel.exit === r.place ? "true" : "false"} onClick=${() => setSel({ state: r.state, exit: r.place })}><span class="mono">${r.n}</span> → <b>${r.to}</b></button> <span class="soft">${r.why}</span>${r.widens && html` · <span>widens</span>`}</li>`))}</ul>`
+        ${shown === "diagram" && (outline ? html`<${MachineDiagram} states=${outline.states} initial=${outline.initial} label=${`Statechart of ${name}${dirty ? ", edited, not saved" : ""}`}
+            describedBy="wfe-tree" sel=${sel} onPick=${setSel} />` : html`<p class="small">The text doesn’t parse, so there is no diagram: see the checks.</p>`)}
+        ${shown === "diagram" && outline && html`<details class="wfdef"><summary class="small">The same machine as an outline</summary>${tree}</details>`}
+        ${shown === "outline" ? (outline ? tree
           : html`<p class="small">The text doesn’t parse, so there is no outline: see the checks.</p>`)
-          : html`<label class="stack tight"><span class="small soft">${name}.toml · the definition itself: the outline and the inspector read it, and the checks run as you type</span>
+          : shown === "text" && html`<label class="stack tight"><span class="small soft">${name}.toml · the definition itself: the outline and the inspector read it, and the checks run as you type</span>
             <textarea class="mono wfe-text" spellcheck="false" rows=${phone ? 18 : 30} value=${text} onInput=${(e) => setDraft(e.target.value)}></textarea></label>`}
-        ${view === "outline" && html`<p class="small soft">Select a state or an exit to see it in the inspector. Edit in the Text view.</p>`}
+        ${shown !== "text" && html`<p class="small soft">Select a state or an exit to see it in the inspector. Edit in the Text view.</p>`}
       </section>
       <aside class="wfe-insp wfbox" aria-labelledby="wfe-insp"><${Inspector} outline=${outline} sel=${sel} onPick=${setSel} onMove=${move} busy=${act.busy} /></aside>
       <section class="stack wfe-checks" aria-labelledby="wfe-chk">

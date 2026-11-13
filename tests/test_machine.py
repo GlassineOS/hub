@@ -149,6 +149,7 @@ def _variants():
     yield parse(ONE)
     yield dataclasses.replace(d, judge=None, states={**d.states, "implement": dataclasses.replace(st, instructions=tricky)})
     yield dataclasses.replace(d, states={**d.states, "fix": dataclasses.replace(d.states["fix"], grant=Grant())})
+    yield dataclasses.replace(d, status=True)
 
 
 @pytest.mark.parametrize("d", list(_variants()))
@@ -558,3 +559,14 @@ def test_the_default_implement_workflow_passes_its_checks():
     text = library.workflow_texts["implement"].replace('requires = ["rounds.fix >= 3", "pr.review == changes_requested or managed.reviewer.verdict == fail"]',
                                                        'requires = ["pr.review == changes_requested", "pr.checks == fail"]')
     assert any("has no exit that tests a counter" in p for p in _problems(text))
+
+
+def test_the_status_line_is_a_top_level_boolean_written_only_when_set():
+    """FR-025: off unless set; a text without it reads back byte for byte, so its version doesn't change."""
+    assert parse(IMPLEMENT).status is False
+    assert "status" not in emit(parse(IMPLEMENT))
+    on = parse('status = true\n' + IMPLEMENT)
+    assert on.status is True and "\nstatus = true\n" in emit(on)
+    with pytest.raises(DefinitionError) as e:
+        parse('status = "yes"\n' + IMPLEMENT)
+    assert any(p.where == "workflow.status" for p in e.value.problems)
