@@ -365,7 +365,7 @@ such as a decision answered for it (`hubd/machinerun.py`).
 - **Implementation leaves its states only with a pull request** (FR-012). The checks refuse a workflow with an exit, other
   than one by hand or to a final state, from a state whose grant has `push` to one without it, unless it requires
   `pr.open`. In `implement`, review drops `push`: its new token can't change the branch under review, though the one it
-  replaces works until it expires, up to an hour (Workflow moves). Merge-ready asks first with `merge_pr`: a merge needs
+  replaces works until it expires, up to an hour (Workflow moves). Every state asks first with `merge_pr`, held from the start so merge-ready needs no confirm: a merge needs
   your decision for the head, as for any session on a list (Merges). This is the first locked session that reads
   outsiders' text (the issue, review comments) while holding a GitHub token that can write; what limits it is that
   token's scope (its repositories, no merge) and the sandbox, not the text it reads.

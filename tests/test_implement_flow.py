@@ -313,14 +313,8 @@ def test_the_happy_path_ends_merge_ready_waiting_for_the_merge_decision(hub):
         await to_review(h, a, gh, name)
         assert state_of(a, name) == "review"
         await feed(h, ev("review", "APPROVED"))
-        # merge-ready asks first with merge_pr, which the session never held: the move waits for the maintainer's confirm
-        assert state_of(a, name) == "review"
-        card, = h.decisions.open_widenings(name)
-        assert card["scope"]["to"] == "merge-ready" and card["scope"]["adds"] == {"asks_first": ["merge_pr"]}
-        assert card["scope"]["sensitive"] == {"merge_pr": "merging to the default branch"}
-        login = h.sessions.create()
-        assert (await h.request({"op": "decision.approve", "token": login, "id": card["id"]}))["ok"]
-        await at_prompt(h, a, name)
+        # merge_pr was held from the start (asking first), so merge-ready narrows: no confirm, no relaunch (SC-001)
+        assert h.decisions.open_widenings(name) == [] and a.shells.killed == []
         assert state_of(a, name) == "merge-ready" and a.machines.summary(name)["final"]
         assert "Merging is the maintainer's decision" in told(a, name)
         scope = a.scope(token_of(a, name))
@@ -335,5 +329,5 @@ def test_the_happy_path_ends_merge_ready_waiting_for_the_merge_decision(hub):
         assert not any(argv[:2] == ["pr", "merge"] for argv in gh.ran)
         return name
     name = asyncio.run(go())
-    moves = [(m["from"], m["to"], m["confirmed_by"]) for m in history(a, name)["moves"]]
-    assert moves == [("implement", "review", None), ("review", "merge-ready", auth.Sessions().own_user())]
+    moves = [(m["from"], m["to"], m["by"], m["confirmed_by"]) for m in history(a, name)["moves"]]
+    assert moves == [("implement", "review", "machine", None), ("review", "merge-ready", "machine", None)]

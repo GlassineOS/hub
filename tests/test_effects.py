@@ -625,6 +625,9 @@ def test_an_exit_waiting_for_approval_is_one_card_whose_yes_moves_the_session(wo
         effects.ask_approval(name, wait_of(a, name))
         effects.ask_approval(name, wait_of(a, name))  # the next signal finds it again: still one card
         card, = decisions.open_approvals(name)
+        wait = wait_of(a, name)
+        assert effects.approval_open(name, wait["session_id"], "research", wait["version"])
+        assert not effects.approval_open(name, wait["session_id"], "write", wait["version"])
         assert decisions.open_widenings(name) == []
         assert card["kind"] == "machine.approve" and card["scope"]["level"] == "you" and card["scope"]["to"] == "write"
         assert decisions.view(card)["says"] == f"Workflow approval for {name}: research to write, which its workflow leaves to you"

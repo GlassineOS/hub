@@ -2208,8 +2208,10 @@ def test_every_locked_action_can_ask_and_no_more(tmp_path):
         assert "AskUserQuestion" in action["grant"].tools
         hooks = a._hooks(tmp_path, {"tools": action["grant"].tools, "repo": ".github"}, action)["hooks"]
         assert "PermissionRequest" not in hooks
-        [ask] = [e for e in hooks["PreToolUse"] if "ask_hook" in e["hooks"][0]["command"]]
-        assert ask["matcher"] == "AskUserQuestion"
+        asks = [e for e in hooks["PreToolUse"] if "ask_hook" in e["hooks"][0]["command"]]
+        assert asks[0]["matcher"] == "AskUserQuestion"
+        # and what its state asks first: implement's merge_pr, a card that is the merge decision
+        assert [e["matcher"] for e in asks[1:]] == (["mcp__glassine-hub__merge_pr"] if action["id"] == "implement" else [])
         assert a.ask_wait(action) == (FOREVER if action["id"] == "project-steward" else WAIT)
 
 
