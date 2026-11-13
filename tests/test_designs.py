@@ -219,7 +219,7 @@ def run(coro):
 # --- reaching a view ------------------------------------------------------------------------------------
 def test_only_a_login_opens_a_view_and_only_of_a_design_session(setup):
     setup.agents.add("design-7")
-    setup.agents.add("implement-3", action="issue-implement")
+    setup.agents.add("implement-3", action="issue-docs")
 
     async def go():
         async with Served(setup) as hub:
@@ -347,7 +347,7 @@ def test_the_renderer_s_state_is_read_as_untrusted(setup):
 def test_the_tools_are_bound_to_the_caller_s_own_token(setup):
     setup.agents.add("design-7")
     setup.agents.add("design-8")
-    setup.agents.add("implement-3", action="issue-implement")
+    setup.agents.add("implement-3", action="issue-docs")
 
     async def go():
         async with Served(setup) as hub:

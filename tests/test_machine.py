@@ -372,20 +372,104 @@ def test_compare(impl):
     assert not compare(Grant(checkout="pr"), Grant(checkout=False)).widens
 
 
-ACTIONS = sorted((Path(__file__).resolve().parents[1] / "agents" / "actions").glob("*.toml"))
+WORKFLOWS = sorted((Path(__file__).resolve().parents[1] / "agents" / "workflows").glob("*.toml"))
 
 
-@pytest.mark.parametrize("path", ACTIONS, ids=[p.stem for p in ACTIONS])
-def test_every_action_is_a_one_state_definition(path):
-    import tomllib
-    a = tomllib.loads(path.read_text())
-    keys = [f.name for f in dataclasses.fields(Grant)]
-    grant = Grant(**{k: tuple(a[k]) if isinstance(a[k], list) else a[k] for k in keys if k in a})
-    d = machine.Definition(path.stem, "session", {"session": machine.State(
-        "session", personas=tuple(a["personas"]), final=True, grant=grant)})
+@pytest.mark.parametrize("path", WORKFLOWS, ids=[p.stem for p in WORKFLOWS])
+def test_every_workflow_file_round_trips_with_its_starts_and_launch(path):
+    d = parse(path.read_text())
+    assert d.launch is not None
     assert parse(emit(d)) == d
     assert [f for f in check(d) if f.kind == "problem"] == []
-    assert effective(d, "session").checkout == a.get("checkout", False)
+
+
+STARTED = """schema = 1
+name = "w"
+initial = "look"
+
+[launch]
+personas = ["reviewer"]
+result = "none"
+models = ["sonnet"]
+efforts = ["low"]
+
+[[start]]
+on = "pr"
+label = "Look"
+prompt = '''
+Look at #{number} in {repo}.
+'''
+
+[state.look]
+personas = ["reviewer"]
+final = true
+"""
+
+
+def _starts_text(extra: str = "", grant: str = "", second: str = "") -> str:
+    text = STARTED.replace('label = "Look"', 'label = "Look"' + extra)
+    if grant:
+        text = text.replace("final = true", "final = true\n\n[state.look.grant]\n" + grant)
+    return text + second
+
+
+def test_starts_parse_and_round_trip():
+    d = parse(_starts_text('\nlead = true\nwhen_held = "beside"', second='\n[[start]]\nid = "w-two"\non = "issue"\nlabel = "Two"\nwhen_held = "hide"\n'))
+    one, two = d.starts
+    assert (one.on, one.label, one.lead, one.when_held, one.prompt) == ("pr", "Look", True, "beside", "Look at #{number} in {repo}.\n")
+    assert (two.id, two.on, two.when_held, two.lead) == ("w-two", "issue", "hide", False)
+    assert d.launch.personas == ("reviewer",) and d.launch.models == ("sonnet",)
+    assert parse(emit(d)) == d
+    assert check(d) == [] or all(f.kind == "mark" for f in check(d))
+
+
+def test_no_starts_named_differs_from_none():
+    assert parse(STARTED).starts is not None
+    head, _, _ = STARTED.partition("[launch]")
+    launch = "[launch]" + STARTED.partition("[launch]")[2].split("[[start]]")[0]
+    none = parse(head + "start = []\n\n" + launch + "[state.look]\npersonas = [\"reviewer\"]\nfinal = true\n")
+    assert none.starts == ()
+    assert "start = []" in emit(none) and parse(emit(none)) == none
+    bare = dataclasses.replace(none, starts=None)
+    assert parse(emit(bare)).starts is None
+
+
+@pytest.mark.parametrize("extra, grant, second, needle", [
+    ("", "", '\n[[start]]\nid = "w-2"\non = "pr"\nlabel = "look"\n', "has the label 'look' on a pr too"),
+    ("", "", '\n[[start]]\non = "pr"\nlabel = "Other"\n', "has the id 'w' too"),
+    ("\nlead = true", "", '\n[[start]]\nid = "w-2"\non = "pr"\nlabel = "Other"\nlead = true\n', "leads for a pr already"),
+    ('\nstate = "gone"', "", "", "'gone' isn't a state"),
+    ('\nwhen_held = "beside"', 'github = ["pr.comment"]', "", "can write on the item (GitHub pr.comment)"),
+    ('\nwhen_held = "beside"', 'access = "full"', "", "full access"),
+    ('\nwhen_held = "beside"', 'hub_tools = ["merge_pr"]', "", "merge_pr"),
+    ('\nwhen_held = "beside"', 'asks_first = ["comment_pr"]', "", "comment_pr"),
+    ('\nwhen_held = "hide"\nask_move = "look"', "", "", "only a start that asks the owner"),
+    ("", "", "", None),
+])
+def test_check_starts_refuses(extra, grant, second, needle):
+    found = [f.text for f in check(parse(_starts_text(extra, grant, second))) if f.kind == "problem"]
+    if needle is None:
+        assert found == []
+    else:
+        assert any(needle in t for t in found), found
+
+
+def test_beside_is_allowed_with_reads_and_hub_only_tools():
+    text = _starts_text('\nwhen_held = "beside"', 'github = ["pr.read", "read"]\nhub_tools = ["read_workflow", "request_move"]')
+    assert [f for f in check(parse(text)) if f.kind == "problem"] == []
+
+
+def test_a_start_on_a_named_final_state_is_refused_but_a_one_state_workflow_starts_in_its_only_state():
+    assert [f for f in check(parse(STARTED)) if f.kind == "problem"] == []
+    text = STARTED.replace('label = "Look"', 'label = "Look"\nstate = "look"')
+    assert any("is final" in f.text for f in check(parse(text)))
+
+
+def test_parse_refuses_a_bad_start():
+    with pytest.raises(DefinitionError, match="when_held"):
+        parse(_starts_text('\nwhen_held = "never"'))
+    with pytest.raises(DefinitionError, match="on"):
+        parse(STARTED.replace('on = "pr"', 'on = "galaxy"'))
 
 
 def test_exits_of_child_first(impl):

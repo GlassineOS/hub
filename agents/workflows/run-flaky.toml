@@ -14,6 +14,7 @@ summary = "Compares the failure with recent runs of the workflow. Reports in the
 ceiling = "Read only."
 order = 2
 when = "failing"
+when_held = "beside"
 models = ["sonnet", "opus"]
 efforts = ["low", "medium", "high"]
 prompt = '''

@@ -14,6 +14,7 @@ summary = "Finds the slowest steps against recent runs. Reports in the session."
 ceiling = "Read only."
 order = 4
 when = "not-failing"
+when_held = "beside"
 models = ["sonnet", "opus"]
 efforts = ["low", "medium", "high"]
 prompt = '''

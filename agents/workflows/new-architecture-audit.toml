@@ -15,6 +15,7 @@ ceiling = "Reads, then hands in drafts. It can't file, comment, push or merge: f
 order = 3
 verb = "arch"
 asks_paths = true
+when_held = "beside"
 models = ["opus", "fable", "sonnet", "haiku"]
 efforts = ["high", "xhigh", "medium"]
 prompt = '''

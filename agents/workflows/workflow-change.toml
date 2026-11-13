@@ -28,6 +28,7 @@ label = "Ask for a workflow change"
 summary = "A Workflow author drafts the change you asked for; the hub checks and replays each draft and puts the ready one in Needs you for you to save."
 ceiling = "Reads the workflows and how sessions ran on them, and keeps drafts the hub checks. Can't save a workflow: the hub proposes its draft to you as a Workflow change."
 order = 9
+when_held = "beside"
 models = ["sonnet", "opus"]
 efforts = ["medium", "high"]
 prompt = '''

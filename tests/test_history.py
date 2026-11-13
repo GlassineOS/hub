@@ -81,7 +81,7 @@ def transcript(tmp_path, session_id, *rows):
 
 
 def full_session(a, name="s", number=1):
-    config = {**a.defaults("issue-implement", "boot", number), "name": name}
+    config = {**a.defaults("issue-docs", "boot", number), "name": name}
     return asyncio.run(a.start(config))["name"]
 
 

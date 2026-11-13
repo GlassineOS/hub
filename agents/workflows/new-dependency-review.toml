@@ -14,6 +14,7 @@ summary = "Reviews what the repository depends on and drafts an issue for each t
 ceiling = "Reads, then hands in drafts. It can't file, comment, push or merge: filing is yours."
 order = 6
 verb = "deps"
+when_held = "beside"
 models = ["sonnet", "opus", "haiku"]
 efforts = ["high", "xhigh", "medium"]
 prompt = '''

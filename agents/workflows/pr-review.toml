@@ -18,6 +18,7 @@ summary = "Reviews the code and hands in a review with inline notes, which you p
 ceiling = "Reads and hands in one review, which may approve; you post it. Has a sandboxed shell with the internet, seeing the checkout, the repository's git history, and the system's programs and /etc. Never merges, closes or pushes."
 order = 1
 verb = "review"
+when_held = "beside"
 models = ["opus", "sonnet"]
 efforts = ["medium", "high", "xhigh"]
 prompt = '''

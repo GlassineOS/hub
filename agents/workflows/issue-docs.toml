@@ -13,6 +13,7 @@ label = "Draft docs for it"
 summary = "A full session on a new branch: drafts the docs change the issue needs and opens a pull request."
 ceiling = "A full Claude Code with your rights, on its own new branch."
 order = 3
+when_held = "ask"
 models = ["opus", "sonnet"]
 efforts = ["high", "xhigh", "medium"]
 prompt = '''

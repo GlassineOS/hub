@@ -14,6 +14,7 @@ label = "Sweep notes"
 summary = "Reads the notes for what belongs in the docs or in an issue, and drafts one issue for each."
 ceiling = "Read-only. Hands in draft issues; filing is yours."
 order = 21
+when_held = "beside"
 models = ["sonnet", "opus", "haiku"]
 efforts = ["high", "xhigh", "medium"]
 prompt = '''
