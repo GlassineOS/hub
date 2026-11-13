@@ -115,7 +115,7 @@ class Drafts:
         if before == text:
             problems = [*problems, {"kind": "problem", "where": "text", "text": "it's the same as the version it starts from"}]
         changed = machinestore.diff(before, text, machinestore._file_starts(self.workflows.library, name))
-        marks = machinestore.sensitive_marks(before, found["findings"])
+        marks = machinestore.sensitive_marks(before, found["findings"], text, machinestore._file_starts(self.workflows.library, name))
         replay = None
         if session is None:  # FR-062: replayed over the newest session that ran on it, when there is one
             past = self.workflows._sessions(name)

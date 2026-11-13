@@ -422,3 +422,62 @@ def test_replay_through_the_op_reads_the_sessions_log(world):
     got = hub.workflows.request("workflow.replay", {"name": "implement", "text": IMPL, "session": "conv-1"}, "me")
     assert got["ok"] and got["differs"] == 0 and got["end"] == "fix"
     assert got["starts"] == [] and "after the save" in got["starts_note"]  # IMPL names the same starts as the file
+
+
+MARKED = '''schema = 1
+name = "w"
+initial = "a"
+
+[launch]
+personas = ["triager"]
+result = "comment"
+
+[[start]]
+on = "issue"
+label = "Go"
+ceiling = "Reads the issue."
+[[start]]
+id = "w-b"
+on = "issue"
+label = "Later"
+state = "b"
+ceiling = "Reads the issue."
+
+[state.a]
+[state.a.grant]
+hub_tools = ["get_issue"]
+[[state.a.exit]]
+to = "b"
+decided_by = "hand"
+
+[state.b]
+[state.b.grant]
+hub_tools = ["get_issue"]
+[[state.b.exit]]
+to = "c"
+decided_by = "hand"
+
+[state.c]
+final = true
+'''
+
+
+def test_a_change_to_the_starts_marks_what_it_grants_or_moves():
+    """A start whose session begins holding more, one on another kind of item, a lead taken, and a starting grant that writes
+    on the item differently under the same ceiling words are each marked; a change that only edits a summary isn't."""
+    marks = lambda b: [m["text"] for m in machinestore.start_marks(MARKED, b)]  # noqa: E731
+    assert marks(MARKED.replace('label = "Go"', 'label = "Go"\nsummary = "Begins."')) == []
+    wider = MARKED.replace('[state.b.grant]\nhub_tools = ["get_issue"]', '[state.b.grant]\nhub_tools = ["get_issue", "comment_issue"]')
+    got = marks(wider)
+    assert any(t.startswith("wider start: Later begins in b") and "comment_issue" in t for t in got), got
+    assert any(t.startswith("ceiling unchanged: Later writes on its item (comment_issue)") for t in got), got
+    assert not any("Go" in t for t in got)
+    assert marks(MARKED.replace('on = "issue"\nlabel = "Go"', 'on = "pr"\nlabel = "Go"')) == ["another item: Go now starts on a pr, not an issue"]
+    assert marks(MARKED.replace('label = "Go"', 'label = "Go"\nlead = true')) == ["lead: Go now leads the starts of an issue"]
+    # a start moved to a state that holds more is marked against where it began
+    moved = wider.replace('label = "Go"', 'label = "Go"\nstate = "b"')
+    got = marks(moved)
+    assert any(t.startswith("wider start: Go begins in b") for t in got), got
+    # every mark reaches the proposal card's list as new
+    full = machinestore.sensitive_marks(MARKED, [], wider)
+    assert {m["where"] for m in full} == {"start.w-b"} and all(m["new"] for m in full)
