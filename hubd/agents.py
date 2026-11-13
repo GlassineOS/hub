@@ -40,7 +40,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from . import auth, shell_hook, usage
-from .apps import CAPABILITIES, AppError, permissions_for
+from .apps import CAPABILITIES, READ_CAPABILITIES, AppError, permissions_for
 from .asks import FOREVER, HOOK_MARGIN, QUESTION_TOOL, WAIT
 from .codemap import UNREADABLE, CodeMaps, MapError
 from .codesearch import CodeSearch, SearchError
@@ -936,14 +936,33 @@ class Agents:
             raise AgentError(f"git {args[0]} failed: {err[-400:].decode(errors='replace')}")
         return out.decode(errors="replace")
 
-    async def _pr_branch(self, repo: str, number: int) -> str:
-        """The pull request's branch, if it is one a full session may work on."""
+    async def _pr_head(self, repo: str, number: int) -> dict:
         if self.gh is None:
             raise AgentError("no gh to look up the pull request")
         reply = await self.gh.run(["pr", "view", str(number), "-R", f"{ORG}/{repo}", "--json", "isCrossRepository,headRefName"])
         if reply["code"] != 0:
             raise AgentError(f"can't read the pull request: {reply['stderr'].strip()[-300:]}")
-        pr = json.loads(reply["stdout"])
+        return json.loads(reply["stdout"])
+
+    async def _from_fork(self, repo: str, number: int) -> bool:
+        """Whether a pull request comes from a fork. If GitHub can't say, it does."""
+        try:
+            return (await self._pr_head(repo, number)).get("isCrossRepository") is not False
+        except Exception:  # noqa: BLE001: unsure means a fork
+            return True
+
+    async def _github_for(self, config: dict, action: dict) -> dict:
+        """A session on a fork's pull request keeps only its read capabilities: that code runs in the shell with the token."""
+        if not config.get("github") or action["object"] != "pr":
+            return config
+        for cover in config.get("covers") or [{"repo": config["repo"], "number": config["number"]}]:
+            if await self._from_fork(cover["repo"], cover["number"]):
+                return {**config, "github": [c for c in config["github"] if c in READ_CAPABILITIES]}
+        return config
+
+    async def _pr_branch(self, repo: str, number: int) -> str:
+        """The pull request's branch, if it is one a full session may work on."""
+        pr = await self._pr_head(repo, number)
         if pr.get("isCrossRepository") is not False:
             raise AgentError("this pull request comes from a fork: a full session would run an outsider's tree with your rights")
         branch = pr.get("headRefName")
@@ -1492,6 +1511,7 @@ class Agents:
             session_id = str(uuid.uuid4())
             # An agent without a shell can't ask git which commit it's looking at.
             commit = (await self._git("rev-parse", "--short", "HEAD", cwd=checkout)).strip() if checkout else None
+            config = await self._github_for(config, action)
             script = self._script(config, action, directory, checkout, session_id, mcp, checkouts[1:], commit, beside,
                                   await self._unnamed_here(config, action))
             await self._github_token(directory, config, action)
@@ -1580,6 +1600,7 @@ class Agents:
                 raise AgentError(f"{name} is still running")
             config = validate(self.library, self._current_config(record["config"]))
             action = self.library.action(config["action"])
+            config = await self._github_for(config, action)
             self._check_sandbox(config, action)
             if _full(action) != record.get("full", False):
                 raise AgentError(f"{name} can't resume: its action's access has changed")

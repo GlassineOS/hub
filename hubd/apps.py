@@ -51,6 +51,8 @@ CAPABILITIES = {
     "repo.delete": {"administration": "write"},
 }
 _LEVELS = {"read": 1, "write": 2}
+# What a session keeps when it may only read: a fork's pull request is an outsider's code running beside the token.
+READ_CAPABILITIES = frozenset(c for c, p in CAPABILITIES.items() if all(level == "read" for level in p.values()))
 
 
 class AppError(Exception):

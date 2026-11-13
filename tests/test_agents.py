@@ -3505,7 +3505,7 @@ def test_validate_holds_github_to_the_action(tmp_path):
 def test_a_session_with_github_capabilities_gets_its_token_in_a_file(tmp_path, remote):
     fake = FakeApps()
     a = Agents(github_library(tmp_path), FakeShells(), tmp_path / "state", claude=fake_claude(tmp_path, {}), mcp_url="http://x/mcp",
-               agent_token="SECRET", clone_base=remote, apps=fake)
+               agent_token="SECRET", clone_base=remote, apps=fake, gh=FakeGh())
     started = asyncio.run(a.start(good(tools=["Read", "Bash"], github=["pr.review"])))
     directory = tmp_path / "state" / "sessions" / started["name"]
     token = directory / "github" / "token"
@@ -3565,7 +3565,7 @@ def test_no_app_means_the_session_doesnt_start(tmp_path, remote):
 def test_a_resume_mints_again_and_drops_a_token_its_action_lost(tmp_path, remote):
     fake = FakeApps()
     a = Agents(github_library(tmp_path), FakeShells(), tmp_path / "state", claude=fake_claude(tmp_path, {}), mcp_url="http://x/mcp",
-               agent_token="SECRET", clone_base=remote, apps=fake)
+               agent_token="SECRET", clone_base=remote, apps=fake, gh=FakeGh())
     name = asyncio.run(a.start(good(tools=["Read", "Bash"], github=["pr.review"])))["name"]
     directory = tmp_path / "state" / "sessions" / name
     (directory / "ended").touch()
@@ -3577,6 +3577,44 @@ def test_a_resume_mints_again_and_drops_a_token_its_action_lost(tmp_path, remote
     asyncio.run(a.resume(name))
     assert not (directory / "github").exists() and "--github" not in (directory / "settings.json").read_text()
     assert "github" not in json.loads((directory / "session.json").read_text())["config"]
+
+
+class BrokenGh(FakeGh):
+    async def run(self, argv):
+        if argv[0] == "pr":
+            return {"code": 1, "stdout": "", "stderr": "HTTP 502"}
+        return await super().run(argv)
+
+
+@pytest.mark.parametrize("gh, kept", [(FakeGh(cross=False), ["read", "pr.review"]), (FakeGh(cross=True), ["read"]),
+                                      (FakeGh(cross=None), ["read"]), (BrokenGh(), ["read"]), (None, ["read"])])
+def test_a_forks_pull_request_gets_a_read_only_token(tmp_path, remote, gh, kept):
+    fake = FakeApps()
+    a = Agents(github_library(tmp_path), FakeShells(), tmp_path / "state", claude=fake_claude(tmp_path, {}), mcp_url="http://x/mcp",
+               agent_token="SECRET", clone_base=remote, apps=fake, gh=gh)
+    name = asyncio.run(a.start(good(tools=["Read", "Bash"], github=["read", "pr.review"])))["name"]
+    directory = tmp_path / "state" / "sessions" / name
+    expected = {"metadata": "read", "contents": "read", **({"pull_requests": "write"} if "pr.review" in kept else {})}
+    assert fake.calls[-1] == ("reviewer", ["boot"], expected)
+    assert json.loads((directory / "session.json").read_text())["config"]["github"] == kept
+    # and again at resume, from what GitHub says then
+    (directory / "ended").touch()
+    a.gh = FakeGh(cross=True)
+    asyncio.run(a.resume(name))
+    assert fake.calls[-1] == ("reviewer", ["boot"], {"metadata": "read", "contents": "read"})
+    assert json.loads((directory / "session.json").read_text())["config"]["github"] == ["read"]
+
+
+def test_any_covered_fork_makes_it_read_only(tmp_path):
+    class Mixed(FakeGh):
+        async def run(self, argv):
+            return {"code": 0, "stdout": json.dumps({"isCrossRepository": argv[2] == "7"}), "stderr": ""}
+    a = Agents(github_library(tmp_path), FakeShells(), tmp_path / "state", claude="claude", mcp_url="u", agent_token="S", gh=Mixed())
+    action = a.library.action("pr-review")
+    own = {"repo": "boot", "number": 5, "github": ["pr.review"], "covers": [{"repo": "boot", "number": 5}, {"repo": "boot", "number": 6}]}
+    assert asyncio.run(a._github_for(own, action))["github"] == ["pr.review"]
+    mixed = {**own, "covers": [*own["covers"], {"repo": "boot", "number": 7}]}
+    assert asyncio.run(a._github_for(mixed, action))["github"] == []
 
 
 def stat_mode(path):
