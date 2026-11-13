@@ -32,6 +32,8 @@ from .statusline import StatusLines
 from .managed import Managed, ManagedError
 from . import feed as feedlib
 from .designs import TICK as DESIGN_TICK, DesignError, Designs, Tools as DesignTools
+from .agents import _REPO_RE as _AGENT_REPO_RE, MAX_REPO_NAME, NO_REPO_OBJECTS
+from .machine import START_ON
 from .agents import MAX_ALSO, MAX_NOTES, NOTES_TOOL, PLANNER_MODELS, RESULTS as RESULTS_WORDS, SCREENS, AgentError, Agents, Library, _full, load_environment, screen_of, validate, with_also
 from .apps import AppError, Apps, Creation, is_write
 from .asks import GRANT_LIFE, MAX_INPUT, TOOL_PREFIX, AskError, Asks
@@ -1661,8 +1663,28 @@ class Hubd:
         except DesignError as e:
             return {"ok": False, "error": str(e)}
 
+    @staticmethod
+    def _item_args(kind, repo, number) -> tuple[str, str | None, int | None]:
+        """An item as a caller names it, checked as validate checks a session's: a known kind, a repository name (never a
+        flag or a path) and a positive number (a numeric string taken as one). They reach gh's argv, so nothing else passes."""
+        if not isinstance(kind, str) or kind not in START_ON:
+            raise AgentError(f"object is one of {', '.join(START_ON)}")
+        if repo is not None and not (isinstance(repo, str) and _AGENT_REPO_RE.fullmatch(repo) and ".." not in repo
+                                     and len(repo) <= MAX_REPO_NAME):
+            raise AgentError("repo is a repository's name in the organisation")
+        if isinstance(number, str) and number.isascii() and number.isdigit():
+            number = int(number)
+        if number is not None and (not isinstance(number, int) or isinstance(number, bool) or number <= 0):
+            raise AgentError("number is an issue's, pull request's or run's number")
+        if kind not in NO_REPO_OBJECTS and repo is None:
+            raise AgentError(f"a {kind} is in a repository: name it")
+        if kind in ("issue", "pr", "run") and number is None:
+            raise AgentError(f"name the {kind}'s number")
+        return kind, repo, number
+
     async def item_starts(self, kind, repo, number) -> dict:
         """What an item's page offers: its pull requests looked up first, so a session that opened one holds it."""
+        kind, repo, number = self._item_args(kind, repo, number)
         if kind == "pr" and (unsure := self.agents.unsure_prs(kind, repo, number)):
             await self.agents.refresh_prs(unsure)
         fork = await self.agents.pr_fork_state(repo, number) if kind == "pr" else None
@@ -1673,6 +1695,9 @@ class Hubd:
         its caps and approvals, or a move request its exit's `requires` and `approve` decide. `to`, without a start: one of
         the holder's on-request moves. Nothing here starts a session beside the holder."""
         if action_id is not None:
+            if not isinstance(action_id, str):
+                raise AgentError("action is a start's id")
+            self._item_args("project", repo, number)  # the repository and number, before the start is looked up there
             kind = self.agents.library.action(action_id, repo)["object"]
         view = await self.item_starts(kind, repo, number)
         holder = view["holder"]
@@ -1734,10 +1759,13 @@ class Hubd:
             return {"ok": True, **await self.agents.cleanup_remove(req.get("ids"))}
         if op == "agent.actions":
             return {"ok": True, "actions": self.agents.actions(req.get("object"))}
-        if op == "agent.starts":  # 012 FR-102 to FR-104: an item's starts, and the instance that holds it
-            return {"ok": True, **await self.item_starts(req.get("object"), req.get("repo"), req.get("number"))}
-        if op == "agent.ask_owner":
-            return {"ok": True, **await self.ask_owner(req.get("object"), req.get("action"), req.get("repo"), req.get("number"), req.get("to"))}
+        if op in ("agent.starts", "agent.ask_owner"):  # 012 FR-102 to FR-104: an item's starts, the instance that holds it, an ask
+            try:
+                if op == "agent.starts":
+                    return {"ok": True, **await self.item_starts(req.get("object"), req.get("repo"), req.get("number"))}
+                return {"ok": True, **await self.ask_owner(req.get("object"), req.get("action"), req.get("repo"), req.get("number"), req.get("to"))}
+            except AgentError as e:
+                return {"ok": False, "error": str(e)}
         if op == "agent.action":
             return {"ok": True, "action": self.agents.action(req.get("action"))}
         if op == "agent.preview":

@@ -487,3 +487,43 @@ def test_a_named_pull_requests_branch_asks_above_its_owner_even_under_a_new_bran
         got = await h.managed.start(name, "fixer", item=f"boot#{PR}")
         assert not got["started"] and "checkout pr-branch" in got["why"], got
     asyncio.run(go())
+
+
+@pytest.mark.parametrize("args, needle", [
+    ({"object": "branch", "repo": "boot", "number": PR}, "object is one of"),
+    ({"object": "pr", "repo": "--help", "number": PR}, "repo is a repository's name"),
+    ({"object": "pr", "repo": "../boot", "number": PR}, "repo is a repository's name"),
+    ({"object": "pr", "repo": ["boot"], "number": PR}, "repo is a repository's name"),
+    ({"object": "pr", "repo": "boot", "number": "-5"}, "number is"),
+    ({"object": "pr", "repo": "boot", "number": 0}, "number is"),
+    ({"object": "pr", "repo": "boot", "number": True}, "number is"),
+    ({"object": "pr", "repo": "boot", "number": "--json"}, "number is"),
+    ({"object": "pr", "repo": None, "number": PR}, "is in a repository"),
+])
+def test_an_items_starts_and_asks_take_only_a_known_kind_a_repository_name_and_a_number(hub, args, needle):
+    """Neither op lets a value through that would reach gh's argv as a flag or a path."""
+    h, a = hub
+    calls = []
+    real = a.gh.run
+
+    async def watched(argv, *rest, **more):
+        calls.append(argv)
+        return await real(argv, *rest, **more)
+    a.gh.run = watched
+    login = h.sessions.create()
+
+    async def go():
+        got = await h.request({"op": "agent.starts", "token": login, **args})
+        assert not got["ok"] and needle in got["error"], got
+        if needle != "object is one of":  # the ask takes its kind from the start: the rest is checked the same
+            asked = await h.request({"op": "agent.ask_owner", "token": login, "action": "pr-fixer", **{k: v for k, v in args.items() if k != "object"}})
+            assert not asked["ok"] and needle in asked["error"], asked
+    asyncio.run(go())
+    assert calls == []
+
+
+def test_a_numeric_string_is_taken_as_the_number(hub):
+    h, a = hub
+    login = h.sessions.create()
+    got = asyncio.run(h.request({"op": "agent.starts", "token": login, "object": "pr", "repo": "boot", "number": str(PR)}))
+    assert got["ok"] and got["starts"], got
