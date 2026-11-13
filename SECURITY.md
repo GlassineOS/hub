@@ -34,7 +34,8 @@ public. A person's approval can't reliably break that chain, because a steered a
 | Browser attacks | `SameSite=Strict`, `HttpOnly` session cookie. Host must be on the allowlist, against DNS rebinding. Origin must match for writes and for the terminal's WebSocket. Content-Security-Policy without inline or remote scripts |
 | Network | Loopback by default. The app won't start on another address without TLS, as long as `HUB_BIND` names the address; `HUB_LISTEN` is for the container and overrides what the app binds. The tool server stays on loopback under compose |
 | The container | Runs as your uid, read-only, no capabilities, no credentials. Its only way to the host is the socket |
-| A session's rights | Its action's workflow (`agents/workflows/<name>.toml`) holds them: the effective grant of the state the session is in, its first at launch (most actions' default workflows have one state; `implement`'s has steps and runs sandboxed). The action file holds none (hubd refuses one that sets any), so they are said once. hubd builds the tool lists, the permission mode, the checkout and the token's scope from that grant, and won't start on a workflow its checks refuse. The action's `ceiling` is that grant in plain words |
+| A session's rights | Its action's workflow holds them: the effective grant of the state the session is in, its first at launch (most actions' default workflows have one state; `implement`'s has steps and runs sandboxed). The workflow is the version the hub resolves for the session's repository: that repository's newest override, else the organisation's newest saved version, else `agents/workflows/<name>.toml` (version 0). The action file holds none (hubd refuses one that sets any), so they are said once. hubd builds the tool lists, the permission mode, the checkout and the token's scope from that grant, and won't start on, or save, a workflow its checks refuse. The action's `ceiling` is that grant in plain words |
+| Who changes a workflow | Only a login. Saving a version (`workflow.save`) and approving a proposed one (a `workflow.change` card in Needs you) are ops behind the login check; the tool server has none, so a session, steered or not, can't save a version or approve one, and can't make the card either. This stops an agent widening its own or another session's rights by rewriting its workflow. A save is checked again in hubd whoever asks: a problem the checks find, or one the library's own checks would refuse at start (a GitHub list without a locked shell, the notes search where a state can post), refuses it, and so does a version saved meanwhile. A version is a file written once and never overwritten. A running session takes the new version at its next move, so a save widens nothing in a session until then, and a one-state session's tool list and token stay what they were until it resumes |
 
 ## Guards, not limits
 
@@ -45,6 +46,11 @@ The table above lists limits: each one stops a threat named at the top. Guards a
 - **`art rm` retention** (`workspace#2`) stops a kept file being deleted by mistake.
 - **Ignored-file checks on removal** stop files being lost with a worktree.
 - **The prompt rule in `agents/private.md`** helps against a session posting private text by mistake. It isn't a limit on a steered one.
+- **The saved versions' files.** They sit in hubd's state folder (`workflows/`), read-only, written once. Anything running as your
+  user, a full session included, could add or edit one there as it could edit `agents/workflows`: hubd checks every version it
+  loads, and uses the file's instead of one its checks refuse, but it can't tell who wrote one by hand.
+- **The sensitive marks.** Merging, approving fork runs, making a repository public or deleting one, and `full` access, are marked
+  in the editor, on the save's confirm and on a `workflow.change` card. A mark adds no rule: saving takes them as written.
 - **A full session's workflow grant.** A state that grants `access = "full"` runs the agent with your rights: its tool list and the
   check before each tool use (Workflow moves) don't hold it, and its confirm marks that.
 

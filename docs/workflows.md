@@ -92,3 +92,25 @@ a confirm, as implement held it. `merge_pr` asks first in every state, so merge-
 While a "Workflow approval" card is up for where a session is, nothing else is tried for it, as for a pending confirm.
 
 Every evaluation and move is in the machine log, with each check and the value it saw, the judge, its time and its cost.
+
+## Versions and the editor
+
+The file under `agents/workflows` is version 0 of the organisation's workflow. Saving one in the editor (`#/workflows`) writes the
+next version under hubd's state folder (`workflows/<scope>/<name>/v<N>.toml`, the scope `org` or `GlassineOS__<repo>` for one
+repository's override), and a version never changes after. A session on a repository runs that repository's newest override,
+else the organisation's newest saved version, else the file. It takes a new version at its next move; one whose state the new
+version drops keeps its own until it is moved by hand, and its panel says so.
+
+A save is refused while the checks find a problem, or the library's own checks would refuse the version at start, or a newer
+version was saved since the one the editor opened. Only a login saves. A change can also go to Needs you as a "Workflow change"
+card, with the outline diff (state by state, exit by exit), the text diff, the checks, the sensitive marks and a replay: Approve
+saves it, and waits while a problem stands; Ask for changes and Discard end it.
+
+The editor's Text view is the definition. Its outline and inspector read what hubd parsed; ↑ and ↓ on a state's exits write the
+text again through hubd, which drops its comments.
+
+Replay runs a text over a past session's machine log, without a model: exits decided by facts and counters are evaluated on the
+facts the log kept, a judge's exit takes the verdict the judge gave then if the same question was asked in the same state, and
+rounds are counted by the replay's own moves. A fact the log didn't keep, or a question the judge wasn't asked, is "can't tell".
+Steps after the first difference are less certain.
+

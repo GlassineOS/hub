@@ -41,7 +41,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
-from . import auth, machine, machinerun, shell_hook, usage
+from . import auth, machine, machinerun, machinestore, shell_hook, usage
 from .apps import CAPABILITIES, READ_CAPABILITIES, AppError, permissions_for
 from .asks import FOREVER, HOOK_MARGIN, QUESTION_TOOL, WAIT
 from .codemap import UNREADABLE, CodeMaps, MapError
@@ -49,6 +49,7 @@ from .codesearch import CodeSearch, SearchError
 from .ghpolicy import ORG, Refused
 from .history import History
 from .instances import FILE as MACHINE_FILE, UNREADABLE, MachineError, Machines
+from .instances import _parse as instances_parse
 from .results import APPLY_TOOLS
 from .seeds import SeedError, Seeds, remove_tree
 from .shells import ShellError, Shells
@@ -322,34 +323,125 @@ _GRANT_KEYS = tuple(f.name for f in fields(machine.Grant))
 
 
 class Library:
+    """The actions, personas and workflows. A workflow's text is the one its store resolves (hubd/machinestore.py): a version
+    the maintainer saved for the organisation, else the file under agents/workflows. A repository's own override is a view
+    (`resolved`), so the Library itself, and every action read from it without a repository, stays the organisation's."""
+
     def __init__(self, root: Path):
         self.root = root
         loaded = self._workflows(root / "workflows")
         self.workflows = {name: definition for name, (definition, _text) in loaded.items()}
         self.workflow_texts = {name: text for name, (_definition, text) in loaded.items()}  # what an instance keeps and hashes
+        self.defaults = dict(self.workflow_texts)  # the files, version 0 of each workflow
         self.actions = {p.stem: {**tomllib.loads(p.read_text()), "id": p.stem}
                         for p in sorted((root / "actions").glob("*.toml"))}
         for action in self.actions.values():
             action["grant"] = self._grant_of(action)
         self.families = tomllib.loads((root / "personas" / "families.toml").read_text())
         self._check()
+        self.store = None
+        self.refused: dict[tuple[str, str], str] = {}  # (scope, workflow): why its newest saved version isn't used
+        self._views: dict[str, Library] = {}
 
     @staticmethod
-    def _workflows(folder: Path) -> dict[str, tuple[machine.Definition, str]]:
-        """Each definition with the text of its file, refused whole on any problem the checks find. Marks only show."""
+    def _definition(name: str, text: str, where: str) -> machine.Definition:
+        """A definition, refused on any problem the checks find. Marks only show."""
+        try:
+            definition = machine.parse(text)
+        except machine.DefinitionError as e:
+            raise LibraryError(f"{where}: {e}") from None
+        if definition.name != name:
+            raise LibraryError(f"{where}: its name is {definition.name!r}, not " + ("the file's" if where.startswith("workflows/") else repr(name)))
+        if problems := [f for f in machine.check(definition) if f.kind == "problem"]:
+            raise LibraryError(f"{where}: " + "; ".join(f"{f.where}: {f.text}" for f in problems))
+        return definition
+
+    @classmethod
+    def _workflows(cls, folder: Path) -> dict[str, tuple[machine.Definition, str]]:
+        """Each definition with the text of its file, refused whole on any problem the checks find."""
         found = {}
         for path in sorted(folder.glob("*.toml")):
             text = path.read_text()
-            try:
-                definition = machine.parse(text)
-            except machine.DefinitionError as e:
-                raise LibraryError(f"workflows/{path.name}: {e}") from None
-            if definition.name != path.stem:
-                raise LibraryError(f"workflows/{path.name}: its name is {definition.name!r}, not the file's")
-            if problems := [f for f in machine.check(definition) if f.kind == "problem"]:
-                raise LibraryError(f"workflows/{path.name}: " + "; ".join(f"{f.where}: {f.text}" for f in problems))
-            found[path.stem] = (definition, text)
+            found[path.stem] = (cls._definition(path.stem, text, f"workflows/{path.name}"), text)
         return found
+
+    # --- saved versions (spec 012 FR-001) ------------------------------------------------
+    def _with_texts(self, texts: dict[str, str], where: str) -> Library:
+        """A copy of the library on these workflow texts, with every action's grant and definition made again from them and
+        every check of the files run: what hubd wouldn't start on, it doesn't take as a saved version either."""
+        new = object.__new__(Library)
+        new.root, new.families, new.defaults, new.store = self.root, self.families, self.defaults, self.store
+        new.refused, new._views = self.refused, {}
+        new.workflows = {name: self._definition(name, text, f"{where} {name}") for name, text in texts.items()}
+        new.workflow_texts = dict(texts)
+        new.actions = {aid: {k: v for k, v in a.items() if k not in ("grant", "definition")} for aid, a in self.actions.items()}
+        for action in new.actions.values():
+            action["grant"] = new._grant_of(action)
+        new._check()
+        return new
+
+    def trial(self, name: str, text: str, repo: str | None = None) -> None:
+        """Raises LibraryError if this text, as the organisation's version or as `repo`'s override, would be refused."""
+        if name not in self.defaults:
+            raise LibraryError(f"there is no workflow {name!r}")
+        base = self.workflow_texts if repo is None else {**self.workflow_texts, **self.store.overrides(repo)} if self.store else dict(self.workflow_texts)
+        self._with_texts({**base, name: text}, "the version of")
+
+    def use_store(self, store) -> None:
+        """Takes the organisation's newest saved version of each workflow. One the checks now refuse is left out, and so
+        the file's text is used, and `refused` says why."""
+        self.store = store
+        texts = dict(self.defaults)
+        for name in self.defaults:
+            self.refused.pop(("org", name), None)
+            latest = store.latest(name, "org")
+            if latest is None or latest[0] == 0:
+                continue
+            try:
+                self._with_texts({**texts, name: latest[1]}, "the saved version of")
+            except LibraryError as e:
+                self.refused[("org", name)] = str(e)
+                log.warning("workflow %s v%d isn't used: %s", name, latest[0], e)
+                continue
+            texts[name] = latest[1]
+        self._adopt(self._with_texts(texts, "the saved version of"))
+
+    def _adopt(self, new: Library) -> None:
+        """In place, so whatever holds an action of this library reads its new grant and definition."""
+        self.workflows, self.workflow_texts = new.workflows, new.workflow_texts
+        for aid, action in new.actions.items():
+            self.actions[aid]["grant"], self.actions[aid]["definition"] = action["grant"], action["definition"]
+        self._views = {}
+        self.refused = {k: v for k, v in self.refused.items() if k[0] == "org"}  # a repository's are found again on its next view
+
+    def saved(self) -> None:
+        """After a save: the organisation's versions are taken again, and each repository's view is made again when asked for."""
+        self.use_store(self.store)
+
+    def resolved(self, action: dict | None, repo) -> dict | None:
+        """The action as a session on `repo` has it: with the repository's override of its workflow, if it has one. The same
+        object when it hasn't, so nothing changes for a repository without overrides."""
+        if action is None or self.store is None or not isinstance(repo, str):
+            return action
+        view = self._views.get(repo)
+        if view is None:
+            view = self
+            try:
+                overrides = self.store.overrides(repo)
+            except machinestore.StoreError:  # not a repository's name: validate says so
+                return action
+            if overrides:
+                try:
+                    view = self._with_texts({**self.workflow_texts, **overrides}, f"{repo}'s override of")
+                except LibraryError as e:
+                    for name in overrides:
+                        self.refused[(self.store.scope_of(repo), name)] = str(e)
+                    log.warning("%s's workflow overrides aren't used: %s", repo, e)
+            self._views[repo] = view
+        if view is self or action.get("id") not in view.actions:
+            return action
+        theirs = view.actions[action["id"]]
+        return action if theirs["definition"] == action.get("definition") else theirs
 
     def _grant_of(self, action: dict) -> machine.Grant:
         """The grant of the action's workflow as a session starts in it. The action itself holds no rights, so they are said once."""
@@ -455,11 +547,12 @@ class Library:
     def text(self, kind: str, name: str) -> str:
         return (self.root / kind / f"{name}.md").read_text()
 
-    def action(self, action_id) -> dict:
+    def action(self, action_id, repo=None) -> dict:
+        """The action, on `repo`'s override of its workflow if a repository is named and has one."""
         action = self.actions.get(action_id) if isinstance(action_id, str) else None
         if action is None:
             raise AgentError(f"unknown action: {action_id}")
-        return action
+        return self.resolved(action, repo)
 
     def schema(self, action: dict) -> dict:
         """What the planner may answer. Everything it can choose is an enum from the action."""
@@ -490,7 +583,7 @@ def validate(library: Library, config, action: dict | None = None) -> dict:
     if unknown:
         raise AgentError(f"not part of an invocation: {', '.join(sorted(unknown))}")
     if action is None or action.get("id") != config.get("action"):
-        action = library.action(config.get("action"))
+        action = library.action(config.get("action"), config.get("repo"))
     repo, number = config.get("repo"), config.get("number")
     if action["object"] in NO_REPO_OBJECTS:  # about the whole project, or a question about it (008 FR-007), not one item in it
         if repo is not None or number is not None:
@@ -776,7 +869,11 @@ class Agents:
         self._pr_lookups: dict[str, asyncio.Task] = {}
         self._removing: set[str] = set()
         self.history = History(state_dir / "history")
-        self.machines = Machines(self.sessions, state_dir / "machines.sqlite", lambda a: self.library.actions.get(a), self.is_session)
+        # 012 FR-001: the saved versions of each workflow, under the state folder. The library takes the organisation's.
+        self.workflow_store = machinestore.Store(state_dir / "workflows", library.defaults)
+        library.use_store(self.workflow_store)
+        self.machines = Machines(self.sessions, state_dir / "machines.sqlite", lambda a: self.library.actions.get(a), self.is_session,
+                                 resolve=lambda action, record: self.library.resolved(action, (record.get("config") or {}).get("repo")))
         self.cleanup_file = state_dir / "cleanup.json"
         self.steward_file = state_dir / "steward.json"
         self.before_remove = None  # awaited with a session's name before its worktree goes: the design view stops its renderer
@@ -824,7 +921,7 @@ class Agents:
         return {"model": self._usual_model(action), "models": action["models"]}
 
     def defaults(self, action_id, repo, number) -> dict:
-        action = self.library.action(action_id)
+        action = self.library.action(action_id, repo)
         return validate(self.library, {
             "action": action["id"], "repo": repo, "number": number, "persona": action["personas"][0],
             "model": self._usual_model(action), "effort": action["efforts"][0], "tools": list(_grant(action).tools),
@@ -911,8 +1008,14 @@ class Agents:
                 return True
             if inst is not None:
                 return len(inst.definition().states) > 1
-        definition = self.library.workflows.get(action.get("workflow"))
-        return definition is not None and len(definition.states) > 1
+        text = action.get("definition")  # the repository's override, for an action resolved for one
+        if not isinstance(text, str):
+            definition = self.library.workflows.get(action.get("workflow"))
+            return definition is not None and len(definition.states) > 1
+        try:
+            return len(instances_parse(text).states) > 1
+        except MachineError:
+            return True
 
     def _machine_mark(self, name) -> tuple | None:
         """Where the session's machine is: a resume set up from an older one starts again."""
@@ -926,16 +1029,26 @@ class Agents:
         """The action as a session in its workflow's current state has it: with that state's effective grant. A session of a
         one-state workflow has the action as the library has it now. One whose machine can't be read gets no rights: it's
         refused, never taken to be in the first state."""
-        if not isinstance(name, str) or not (self.sessions / name / "session.json").exists() or not self.staged(action, name):
+        if not isinstance(name, str) or not (self.sessions / name / "session.json").exists():
             return action
+        if not self.staged(action, name):
+            return self._on_repo(name, action)
         try:
             _record, inst = self.machines.load(name)
         except MachineError as e:
             raise AgentError(f"{name}'s workflow can't say which state it's in: {e}") from None
         definition = inst.definition()
         if len(definition.states) == 1:
-            return action
+            return self._on_repo(name, action)
         return {**action, "grant": machine.effective(definition, inst.state)}
+
+    def _on_repo(self, name, action: dict) -> dict:
+        """A one-state session's action as the library has it now for the session's repository: its override's grant, if it has one."""
+        try:
+            repo = json.loads((self.sessions / name / "session.json").read_text())["config"].get("repo")
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            return action
+        return self.library.resolved(action, repo)
 
     @staticmethod
     def _state_config(config: dict, action: dict, state: dict, launched: dict) -> dict:
@@ -999,7 +1112,7 @@ class Agents:
         new launch (resume). Returns the config now in force, and whether its GitHub list changed."""
         directory = self.sessions / name
         record = json.loads((directory / "session.json").read_text())
-        action = self.library.action(record["config"].get("action"))
+        action = self.library.action(record["config"].get("action"), record["config"].get("repo"))
         state = self._state_action(name, action)
         in_force = record["config"]
         launched = record.get("launched") or in_force
@@ -1053,7 +1166,7 @@ class Agents:
 
     # --- the planner ---------------------------------------------------------------
     async def plan(self, action_id, repo, number, notes=None, pins=None, planner_model=None, also_numbers=None, covers=None) -> dict:
-        action = self.library.action(action_id)
+        action = self.library.action(action_id, repo)
         # Yours, so they stay out of what the planner can answer: it can only act on them.
         if planner_model is not None and planner_model not in PLANNER_MODELS:
             raise AgentError(f"the planner runs on one of {', '.join(PLANNER_MODELS)}")
@@ -1636,7 +1749,7 @@ class Agents:
                 continue
             try:
                 config = json.loads((directory / "session.json").read_text())["config"]
-                await self._github_token(directory, config, self.library.action(config["action"]))
+                await self._github_token(directory, config, self.library.action(config["action"], config.get("repo")))
             except Exception:  # one session's failure mustn't hold the others' renewals
                 log.exception("couldn't renew the GitHub token of %s", directory.name)
 
@@ -1666,7 +1779,7 @@ class Agents:
     def preview(self, config) -> dict:
         """What would start, for the advanced form."""
         config = validate(self.library, config)
-        action = self.library.action(config["action"])
+        action = self.library.action(config["action"], config.get("repo"))
         directory = self.sessions / (config.get("name") or self._name(action, config, set()))
         checkouts = self._checkouts(directory.name, config, action)
         checkout = checkouts[0][1] if checkouts else None
@@ -1745,7 +1858,7 @@ class Agents:
 
     async def start(self, config, started_by: str | None = None, origin: dict | None = None) -> dict:
         config = validate(self.library, config)
-        action = self.library.action(config["action"])
+        action = self.library.action(config["action"], config.get("repo"))  # on the repository's override of its workflow, if any
         self._check_sandbox(config, action)
         self.seeds.refresh_soon()
         if action.get("singleton"):
@@ -1892,7 +2005,7 @@ class Agents:
                 state = self._state_action(name, first) if first else None
                 staged = state is not None and state is not first
                 config = validate(self.library, self._current_config(record["config"], name, record.get("launched")), state)
-                action = state if staged else self.library.action(config["action"])
+                action = state if staged else self.library.action(config["action"], config.get("repo"))
                 config = await self._github_for(config, action)
                 self._check_sandbox(config, action)
                 if _full(action) != record.get("full", False):
@@ -2464,7 +2577,7 @@ class Agents:
         script = directory / ("resume.sh" if (directory / "resume.sh").exists() else "run.sh")
         return {**summary, "config": record["config"], "prompt": (directory / "prompt.md").read_text(),
                 "persona_text": (directory / "persona.md").read_text(), "skills": self.library.skills(),
-                "ceiling": self.library.action(record["config"]["action"])["ceiling"],
+                "ceiling": self.library.action(record["config"]["action"], record["config"].get("repo"))["ceiling"],
                 "checkout": str(checkouts[0]) if checkouts else None, "checkouts": [str(c) for c in checkouts],
                 # 004 FR-009: the branch it's on and the command that started Claude (the launch script's last line), for the Session spec. The token and the prompt are read from files by that line.
                 "branch": _branch_of(checkouts[0]) if checkouts else None, "command": self._invocation(script) or self._command(directory, script)}
@@ -2861,7 +2974,7 @@ class Agents:
         if name in self._removing:
             raise AgentError(f"{name} is being cleaned up: try again in a moment")
         config = validate(self.library, self._current_config(record.get("launched") or record["config"]))  # resume checks its state's
-        action = self.library.action(config["action"])
+        action = self.library.action(config["action"], config.get("repo"))
         if self._transcript(session_id) is None:
             raise AgentError(f"{name} can't resume: its transcript is gone")
         directory = self.sessions / name
