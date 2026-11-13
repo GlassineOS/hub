@@ -119,7 +119,12 @@ _FIELDS = {"action", "repo", "number", "covers", "also_numbers", "persona", "mod
 _CHOSEN = ("persona", "model", "effort", "brief", "docs_query", "docs", "steps")
 MAX_DOCS = 8
 MAX_STEPS, MAX_TOUCHES, MAX_STEP = 12, 8, 300  # a plan's steps (005 FR-006): planner text, shown and put in the prompt
-MAX_STARTED = 4  # sessions a Steward has working at once
+MAX_STARTED = 4  # sessions a Steward has working at once; managed sessions don't count (MAX_MANAGED)
+MAX_MANAGED = 8  # managed sessions running at once, all owners together; each entry's own `max` holds too
+# The chain of owners' tools (012 FR-040 to FR-053). A session gets them from where it stands, not from a grant: a managed
+# session returns and reports to its owner, a session whose workflow manages sessions starts them on request and answers
+# their reports, one whose workflow can move reports up. They reach only the hub, never GitHub.
+CHAIN_TOOLS = ("start_managed", "return_result", "report_up", "answer_report")
 IDLE_FILE = "idle"  # its turn ended, and it's waiting for nothing but a person's next word
 ASKING_FILE = "asks-open"  # hubd holds a prompt of this session's
 MACHINE_HOOK_TIME = 5  # seconds; it sends one line and goes
@@ -246,11 +251,12 @@ def _may_search_notes(action: dict) -> bool:
             and not set(grant.hub_tools) - (READS_ONLY - {"plan_work"}) - {"submit_drafts"})
 
 
-def _session_scope(name: str, config: dict, full: bool, all_repos: bool = False, asks_first=(), instance=None) -> dict:
+def _session_scope(name: str, config: dict, full: bool, all_repos: bool = False, asks_first=(), instance=None, chain=()) -> dict:
     # A full session has your rights, so a tool list wouldn't hold it to anything.
     # instance: this session and no other that gets its name later (the Steward's is always steward). The Claude session id.
     # reports: the kept reports the person pinned when starting it, the only ones read_report gives it (008 FR-008).
-    return {"session": name, "instance": instance, "tools": None if full else [*config["hub_tools"], *asks_first],
+    # chain: the chain tools its place among owners gives it (Agents.chain_tools), on no grant.
+    return {"session": name, "instance": instance, "tools": None if full else [*config["hub_tools"], *asks_first, *chain],
             "persona": config["persona"], "all_repos": all_repos, "asks_first": list(asks_first),
             "reports": [p["label"] for p in config.get("pins", ()) if p["kind"] == "report"],
             "design": config.get("action") == "design"}  # the design view's tools are its alone (011 FR-014, FR-015)
@@ -776,7 +782,9 @@ class Agents:
         self._pr_lookups: dict[str, asyncio.Task] = {}
         self._removing: set[str] = set()
         self.history = History(state_dir / "history")
-        self.machines = Machines(self.sessions, state_dir / "machines.sqlite", lambda a: self.library.actions.get(a), self.is_session)
+        self.machines = Machines(self.sessions, state_dir / "machines.sqlite", lambda a: self.library.actions.get(a), self.is_session,
+                                 grant_of=self.workflow_grant)
+        self.after_start = None  # (name): a session has just started, for the sessions its first state manages (managed.py)
         self.cleanup_file = state_dir / "cleanup.json"
         self.steward_file = state_dir / "steward.json"
         self.before_remove = None  # awaited with a session's name before its worktree goes: the design view stops its renderer
@@ -873,7 +881,7 @@ class Agents:
                 continue
             self._scopes[token] = _session_scope(directory.name, record["config"], record.get("full", False),
                                                  self._all_repos(record["config"], state), self._asks_first(record["config"], state),
-                                                 record.get("session_id"))
+                                                 record.get("session_id"), self.chain_tools(directory.name, action))
             if (directory / LOCKED_FILE).exists():
                 self._scopes[token] = _locked(self._scopes[token])
 
@@ -972,9 +980,84 @@ class Agents:
             return
         full = _full(action)
         asks = list(self._asks_first(config, action) if asks_first is None else asks_first)
+        chain = [t for t in self.chain_tools(directory.name, action) if t not in config["hub_tools"] and t not in asks]
         _write_private(directory / GRANT_FILE, {"tools": None if full else list(config["tools"]),
-                                                "hub_tools": None if full else [*config["hub_tools"], *(t for t in asks if t not in config["hub_tools"])],
+                                                "hub_tools": None if full else [*config["hub_tools"], *(t for t in asks if t not in config["hub_tools"]), *chain],
                                                 "server": HUB_SERVER})
+
+    # --- the chain of owners (012 FR-040 to FR-053) -------------------------------------------
+    def workflow_grant(self, workflow) -> machine.Grant | None:
+        """A workflow's grant as a session starts in it, or None for one the library doesn't have."""
+        d = self.library.workflows.get(workflow) if isinstance(workflow, str) else None
+        if d is None:
+            return None
+        first = d.initial
+        while d.states[first].initial is not None:
+            first = d.states[first].initial
+        return machine.effective(d, first)
+
+    def owner_record(self, name) -> dict | None:
+        """A managed session's owner as its record names it: {name, session_id, entry}, or None."""
+        try:
+            owner = json.loads((self.sessions / name / "session.json").read_text()).get("owner")
+        except (OSError, ValueError, TypeError, AttributeError):
+            return None
+        return owner if isinstance(owner, dict) else None
+
+    def owner_of(self, name) -> str | None:
+        """The session above this one in the chain (FR-050): the one whose state started it, or the one that spawned it."""
+        owner = self.owner_record(name)
+        if owner:
+            return owner.get("name")
+        try:
+            by = json.loads((self.sessions / name / "session.json").read_text()).get("started_by")
+        except (OSError, ValueError, TypeError, AttributeError):
+            return None
+        return by if isinstance(by, str) and _NAME_RE.fullmatch(by) else None
+
+    def chain_tools(self, name, action: dict | None, owned: bool | None = None) -> list[str]:
+        """The chain tools a session has by where it stands (CHAIN_TOOLS). `owned`: whether it has an owner, if its record
+        isn't written yet."""
+        if action is None:
+            return []
+        if owned is None:
+            owned = self.owner_record(name) is not None
+        tools = ["return_result", "report_up"] if owned else []
+        definitions = []
+        try:
+            inst = self.machines.peek(name) if isinstance(name, str) and _NAME_RE.fullmatch(name) else None
+        except MachineError:
+            inst = None
+        if inst is not None:
+            definitions.append(inst.definition())
+        elif action.get("workflow") in self.library.workflows:
+            definitions.append(self.library.workflows[action["workflow"]])
+        for d in definitions:
+            entries = [m for st in d.states.values() for m in st.manages]
+            if len(d.states) > 1:
+                tools.append("report_up")
+            if entries:
+                tools.append("answer_report")
+            if any(m.start == "on-request" for m in entries):
+                tools.append("start_managed")
+        return list(dict.fromkeys(tools))
+
+    async def end_managed(self, name) -> bool:
+        """A managed session ends: its terminal goes and its token with it, so it can't return or report any more. Its folder
+        stays, for a later round that resumes it and for the history. Whether it was running."""
+        if not (isinstance(name, str) and _NAME_RE.fullmatch(name)) or not (self.sessions / name / "session.json").exists():
+            return False
+        live = any(s["name"] == name for s in await self.shells.list())
+        if live:
+            try:
+                await self.shells.kill(name)
+            except ShellError:
+                log.exception("%s: its terminal couldn't be ended", name)
+        (self.sessions / name / ENDED_FILE).touch()
+        self.machines.stopped(name)
+        self._drop_token(name)
+        (self.sessions / name / TOKEN_FILE).unlink(missing_ok=True)
+        return live
 
     def launch_problem(self, name, grant: machine.Grant | None = None) -> str | None:
         """Why the session can't run under this grant (its current state's if none is given) with the conversation it has: its
@@ -1016,7 +1099,7 @@ class Agents:
                                                         "checkout": record.get("checkout", _grant(action).checkout)})
         for token, scope in self._scopes_of(name, tokens=True):
             self._scopes[token] = _session_scope(name, narrowed, _full(state), self._all_repos(in_force, state) and scope["all_repos"], asks,
-                                                 scope["instance"])
+                                                 scope["instance"], self.chain_tools(name, action))
         self.write_grant(directory, narrowed, state, asks)
         if (directory / LOCKED_FILE).exists():  # locked stays locked until a resume
             self.lock_down(name)
@@ -1038,13 +1121,13 @@ class Agents:
         found = [(t, sc) for t, sc in self._scopes.items() if sc["session"] == name]
         return found if tokens else [sc for _t, sc in found]
 
-    def _session_token(self, directory: Path, config: dict, full: bool, instance=None) -> None:
+    def _session_token(self, directory: Path, config: dict, full: bool, instance=None, chain=()) -> None:
         token = secrets.token_urlsafe(32)
         fd = os.open(directory / TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w") as f:
             f.write(token + "\n")
         self._load_scopes()
-        self._scopes[token] = _session_scope(directory.name, config, full, self._all_repos(config), self._asks_first(config), instance)
+        self._scopes[token] = _session_scope(directory.name, config, full, self._all_repos(config), self._asks_first(config), instance, chain)
 
     def _drop_token(self, name: str) -> None:
         self._load_scopes()
@@ -1678,7 +1761,7 @@ class Agents:
                 "cwd": str(self.workspace if _full(action) else self.home)}
 
     def _argv(self, config: dict, action: dict, directory: Path, checkout: Path | None, session_id: str, mcp: Path,
-              resume: bool = False) -> list[str]:
+              resume: bool = False, chain=()) -> list[str]:
         argv = [self.claude, "--resume" if resume else "--session-id", session_id, "--name", directory.name, "--model", config["model"],
                 "--effort", config["effort"], "--mcp-config", str(mcp), "--plugin-dir", str(self.library.root / "plugin"),
                 "--settings", str(directory / "settings.json"),
@@ -1688,7 +1771,7 @@ class Agents:
         # Named here, Read, Grep and Glob would reach every file of this user. Left out, dontAsk
         # gives them the working directory and the checkout, and refuses the rest.
         # Bash stays off this list too: only shell_hook.py's allow, which puts the command in the sandbox, lets one run.
-        allowed = [*(t for t in config["tools"] if t not in FILE_READERS and t != "Bash"), *(_qualified(t) for t in config["hub_tools"])]
+        allowed = [*(t for t in config["tools"] if t not in FILE_READERS and t != "Bash"), *(_qualified(t) for t in [*config["hub_tools"], *chain])]
         argv += ["--permission-mode", "dontAsk", "--setting-sources", "user", "--strict-mcp-config",
                  "--tools", ",".join(config["tools"]), "--allowedTools", ",".join(allowed)]
         # A session's list of folders can't grow once it runs, so its later snapshots go in one that's there from the start.
@@ -1708,13 +1791,16 @@ class Agents:
         return self.library.text(".", who) + copies + self.library.text(".", "private")
 
     def _script(self, config: dict, action: dict, directory: Path, checkout: Path | None, session_id: str, mcp: Path, also=(), commit=None, beside=None,
-                unnamed=None) -> Path:
-        (directory / "prompt.md").write_text(self._prompt(config, action, checkout, also, commit, beside, unnamed))
+                unnamed=None, context: str | None = None, chain=()) -> Path:
+        prompt = self._prompt(config, action, checkout, also, commit, beside, unnamed)
+        if context:  # 012 FR-041: a managed session's context, filled in by the hub from named references (managed.py)
+            prompt += "\n\n" + context
+        (directory / "prompt.md").write_text(prompt)
         (directory / "settings.json").write_text(json.dumps(self._hooks(directory, config, action)))
         (directory / REPOS_FOLDER).mkdir(exist_ok=True)
         self._prepare_shell(directory, config, action)
         self._write_persona(config, action, directory)
-        argv = self._argv(config, action, directory, checkout, session_id, mcp)
+        argv = self._argv(config, action, directory, checkout, session_id, mcp, chain=chain)
         # The prompt comes from a file: tmux limits how long a command can be.
         return self._launcher(directory, "run.sh", f'{shlex.join(argv)} -- "$(cat {shlex.quote(str(directory / "prompt.md"))})"')
 
@@ -1743,7 +1829,10 @@ class Agents:
         """The shell stays when Claude ends, so the marker is how the hub knows it has."""
         return f"sh {shlex.quote(str(script))}; touch {shlex.quote(str(directory / ENDED_FILE))}"
 
-    async def start(self, config, started_by: str | None = None, origin: dict | None = None) -> dict:
+    async def start(self, config, started_by: str | None = None, origin: dict | None = None, owner: dict | None = None,
+                    context: str | None = None) -> dict:
+        """owner: for a managed session (012 FR-044), the session whose state started it ({name, session_id, entry}); context:
+        its first prompt's context, which the hub filled in from named references (FR-041)."""
         config = validate(self.library, config)
         action = self.library.action(config["action"])
         self._check_sandbox(config, action)
@@ -1781,17 +1870,20 @@ class Agents:
             # An agent without a shell can't ask git which commit it's looking at.
             commit = (await self._git("rev-parse", "--short", "HEAD", cwd=checkout)).strip() if checkout else None
             config = await self._github_for(config, action)
+            chain = self.chain_tools(name, action, owned=owner is not None)
             script = self._script(config, action, directory, checkout, session_id, mcp, checkouts[1:], commit, beside,
-                                  await self._unnamed_here(config, action))
+                                  await self._unnamed_here(config, action), context, chain)
             await self._github_token(directory, config, action)
             await self._probe_sandbox(directory, config, action)
-            self._session_token(directory, config, _full(action), session_id)
+            self._session_token(directory, config, _full(action), session_id, chain)
             # A full session starts where you would: the workspace's rules and memory are there.
             cwd = self.workspace if _full(action) else self.home
             # Before the terminal: from when it's open, this is a session, not a shell in the way.
             record = {"name": name, "session_id": session_id, "config": config, "title": action["title"],
                       "object": action["object"], "full": _full(action), "permission_mode": _mode(action), "created": time.time(),
                       "started_by": started_by}
+            if owner is not None:
+                record["owner"] = owner
             if origin is not None:  # 005 FR-010: the Launch record it came from, shown as its origin
                 record["origin"] = origin
             (directory / "session.json").write_text(json.dumps(record))
@@ -1809,6 +1901,11 @@ class Agents:
         about = (f"{config['repo']}#{config['number']}" if config["number"] else config["repo"]) if config["repo"] else "the whole project"
         about += "".join(f" #{n}" for n in config.get("also_numbers", ()))
         log.info("agent session %s: %s on %s, %s", name, action["id"], about, config["model"])
+        if self.after_start is not None:
+            try:
+                self.after_start(name)
+            except Exception:  # noqa: BLE001: the session runs; what its first state manages starts on its next signal or not at all
+                log.exception("%s: what its first state manages couldn't be started", name)
         return {"name": name, "title": action["title"], "config": config}
 
     async def _existing(self, action: dict) -> dict | None:
@@ -1910,12 +2007,12 @@ class Agents:
                     self._load_scopes()
                     for token in [t for t, s in self._scopes.items() if s["session"] == name]:
                         self._scopes[token] = _session_scope(name, config, _full(action), self._all_repos(config, action), self._asks_first(config, action),
-                                                             record.get("session_id"))
+                                                             record.get("session_id"), self.chain_tools(name, first))
                 self.write_grant(directory, config, action)
                 if action.get("singleton") or staged:  # what it's told has to match what it can do
                     self._write_persona(config, action, directory)
                 if not (directory / TOKEN_FILE).exists():
-                    self._session_token(directory, config, _full(action), record.get("session_id"))
+                    self._session_token(directory, config, _full(action), record.get("session_id"), self.chain_tools(name, first))
                 (directory / REPOS_FOLDER).mkdir(exist_ok=True)  # one from before there were snapshots
                 self._prepare_shell(directory, config, action)
                 await self._github_token(directory, config, action)
@@ -1926,7 +2023,7 @@ class Agents:
                 raise AgentError(f"{name} can't resume: its workflow kept moving while it was set up")
             (directory / LOCKED_FILE).unlink(missing_ok=True)  # its rights were worked out again just now
             argv = self._argv(config, action, directory, present[0] if present else None, record["session_id"],
-                              self._prepare_home(), resume=True)
+                              self._prepare_home(), resume=True, chain=self.chain_tools(name, first))
             script = self._launcher(directory, "resume.sh", shlex.join(argv))
             cwd = self.workspace if _full(action) else self.home
             if live:

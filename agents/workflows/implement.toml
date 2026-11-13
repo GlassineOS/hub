@@ -5,6 +5,9 @@
 # Every state keeps the same access (locked) and checkout (new-branch): a conversation can't change either.
 # Fix goes back to review only after a push since the review (`not pr.reviewed`): the reviewed head's passing checks
 # would otherwise send it straight back, and spend a round.
+# Review brings in a code reviewer as a managed session, a fresh one each round. Its verdict is an alternative to a review
+# on GitHub: either moves the session on, so a pull request reaches merge-ready with no word from the maintainer before the
+# merge decision. The reviewer's grant is capped at this session's, so `work` holds the read-only tools pr-review uses.
 schema = 1
 name = "implement"
 initial = "work"
@@ -16,7 +19,7 @@ personas = ["engineer"]
 tools = ["Read", "Grep", "Glob", "Skill", "AskUserQuestion", "Bash"]
 hub_tools = ["get_issue", "get_pr", "get_pr_threads", "get_pr_diff", "list_runs", "get_run", "get_run_log", "docs_search",
              "work_search", "request_repository", "code_search", "map_overview", "map_definition", "map_usages", "map_string",
-             "request_move"]
+             "request_move", "list_workflows", "work_status", "docs_index_status", "plan_work", "submit_result"]
 checkout = "new-branch"
 github = ["read", "issues.comment", "pr.write"]
 # Held from the start, so merge-ready asks no confirm: a call shows a card, and allowing it is the merge decision.
@@ -45,22 +48,32 @@ move = "on-request"
 parent = "work"
 instructions = """Your pull request waits for review. Mark it ready (`gh pr ready`) and ask for a review. Don't change the \
 branch now: you can't push in this state. Answer questions on the pull request if you are asked. When a review asks for \
-changes you move to fix; when it approves and the checks pass, to merge-ready."""
+changes you move to fix; when it approves and the checks pass, to merge-ready. A reviewer session starts under this state and hands its verdict to the hub, which counts like a review: reports it sends you come in your turns, to answer with `answer_report`."""
+[[state.review.manages]]
+name = "reviewer"
+persona = "reviewer"
+workflow = "pr-review"
+start = "auto"
+max = 1
+reuse = "fresh"
+on_exit = "stop"
+with = ["pr", "diff.since_last_round"]
+returns = { verdict = ["pass", "fail"] }
 [[state.review.exit]]
 to = "merge-ready"
 decided_by = "facts"
-requires = ["pr.review == approved", "pr.checks == pass"]
-on = ["feed:pr.review", "feed:pr.checks", "turn.end"]
+requires = ["pr.review == approved or managed.reviewer.verdict == pass", "pr.checks == pass"]
+on = ["feed:pr.review", "feed:pr.checks", "turn.end", "hub:managed.return"]
 [[state.review.exit]]
 to = "escalated"
 decided_by = "counter"
-requires = ["rounds.fix >= 3", "pr.review == changes_requested"]
-on = ["feed:pr.review", "feed:pr.checks", "turn.end"]
+requires = ["rounds.fix >= 3", "pr.review == changes_requested or managed.reviewer.verdict == fail"]
+on = ["feed:pr.review", "feed:pr.checks", "turn.end", "hub:managed.return"]
 [[state.review.exit]]
 to = "fix"
 decided_by = "facts"
-requires = ["pr.review == changes_requested"]
-on = ["feed:pr.review", "feed:pr.checks", "turn.end"]
+requires = ["pr.review == changes_requested or managed.reviewer.verdict == fail"]
+on = ["feed:pr.review", "feed:pr.checks", "turn.end", "hub:managed.return"]
 
 [state.fix]
 parent = "work"

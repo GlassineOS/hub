@@ -395,7 +395,8 @@ such as a decision answered for it (`hubd/machinerun.py`).
   in Needs you, made by hubd alone (`decision.add` and a token's `decision_request` refuse the kind), one per session,
   state, version and exit. Approving it makes that move and nothing else, and only if the session is still in that state
   on that version and the exit's `requires` hold again; it ends at once, and ends unanswered if the session moves another
-  way. The levels other than `me` name sessions that don't exist yet, so they ask the maintainer too.
+  way. `owner` and `steward` ask that session instead when it is running and can answer reports (Managed sessions and the
+  chain of owners); otherwise, and for `maintainer`, they ask you.
 - **Implementation leaves its states only with a pull request** (FR-012). The checks refuse a workflow with an exit, other
   than one by hand or to a final state, from a state whose grant has `push` to one without it, unless it requires
   `pr.open`. In `implement`, review drops `push`: its new token can't change the branch under review, though the one it
@@ -403,6 +404,40 @@ such as a decision answered for it (`hubd/machinerun.py`).
   your decision for the head, as for any session on a list (Merges). This is the first locked session that reads
   outsiders' text (the issue, review comments) while holding a GitHub token that can write; what limits it is that
   token's scope (its repositories, no merge) and the sandbox, not the text it reads.
+
+## Managed sessions and the chain of owners
+
+A workflow state can run sessions under it (spec 012, User Stories 3 and 4); `hubd/managed.py` starts and ends them. The
+owning session is a separate field of the managed session's record (`owner`: name, conversation, entry), kept apart from
+the person or session that started work in the hub.
+
+- **A managed session starts with no more than its owner holds.** Its grant is its workflow's grant capped by the owner's
+  effective grant where the owner is when it starts: each list is the intersection, each level the lower, and a checkout must be the owner's, none, or
+  one that can't push. What lies beyond that isn't dropped silently: the start waits for an approval above the owner (the
+  owner's own owner session, else you, as a card hubd alone makes), and only the approved items are added, kept for that
+  instance. A move of the owner that widens counts what its managed entries there would hold (FR-023), so the confirm shows
+  it. The cap isn't taken again later: a session kept across the owner's moves (`keep`, `handover`, or an entry of a
+  parent state) keeps the grant it started with when the owner moves to a narrower state, and its own later moves are
+  held to its own workflow, not capped again against the owner.
+- **The tools of the role are hubd's.** `start_managed`, `return_result`, `report_up` and `answer_report` aren't in any
+  grant: hubd puts them on a session's list from its role (an owner whose state manages, a managed session) and the tool
+  server, the grant hook and the launch all see the same list. Each reaches hubd with the session's own token, which names it
+  and its conversation; a token from an earlier conversation, or a call for an entry, report or round that isn't the
+  caller's, is refused.
+- **What starts it carries no transcript.** Its first prompt is its action's prompt and a block the hub writes from the
+  entry's named references; the owner's rolling summary, if named, sits between random marks as data. A return is a closed
+  set of fields each with a value from the definition, accepted only from the entry's current session; it is a fact, never text.
+- **Reports are a typed channel, not chat.** A report is a kind (`blocker`, `decision`), evidence and a proposal, each at
+  most 2000 characters with no invisible characters, at most 3 open per session. It reaches the owner as a labelled block in
+  its next turn (the reporter's words between marks, as data); if the owner is idle at its prompt the hub wakes it with
+  fixed words only. An answer is `approve` or `deny` and an optional note, marked the same way going down. The top of the
+  chain is a decision card in Needs you. Every report, forward and answer is in the machine log of both ends.
+- **A guard, not a limit.** A report can't move anything by itself: an approval report carries out only the move or start
+  it was made for, and only if that still holds. But an owner reads what its managed sessions write; words in a report can
+  sway its next turn like any text it reads. What limits the owner stays its own grant.
+- **An owner's end ends them.** When the owner's session ends, its terminal is gone or its record is lost, its managed
+  sessions are ended within 30 seconds, also after a restart of hubd; `on_exit = "keep"` only keeps one across the owner's
+  moves. At most 8 run at once in all, and each entry's `max`.
 
 ## The person's decisions
 
