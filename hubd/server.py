@@ -162,6 +162,9 @@ class Hubd:
         self.agents = agents
         # What a workflow move does to its session (012). A stand-in for the agents with no machines has no moves to watch.
         self.effects = Effects(agents, decision_store) if getattr(agents, "machines", None) is not None else None
+        if self.effects is not None and machine_run is not None:  # an exit that waits for an approval, and its answer
+            machine_run.on_blocked = self.effects.ask_approval
+            self.effects.approve_move = machine_run.approved
         self.work = work
         self._work_tasks: set[asyncio.Task] = set()  # or they could be collected mid-run
         self.apps = apps
@@ -219,6 +222,8 @@ class Hubd:
             return self.feed_record(req)
         if op == "session.signal":
             return self.session_signal(req)
+        if op == "session.request_move":
+            return await self.request_move(req)
         if op == "feed.changes":
             return await self.feed_changes(req)
         if op == "gh" and is_merge(req.get("argv")):
@@ -330,6 +335,20 @@ class Hubd:
         if self.machine_run:
             self.machine_run.hook(scope["session"], req.get("how"))
         return {"ok": True}
+
+    async def request_move(self, req: dict) -> dict:
+        """request_move: a session asks to take one of its state's on-request exits. Its own token says which session and
+        conversation, so a session can only ask about its own machine; the tool must be on its list."""
+        scope = self.agents.scope(req.get("agent_token")) if self.agents else None
+        if not scope or not scope.get("session"):
+            return {"ok": False, "refused": True, "error": "not a session's token"}
+        if not self._lists(scope, "request_move"):
+            return {"ok": False, "refused": True, "error": "this session can't use request_move"}
+        if self.machine_run is None:
+            return {"ok": False, "error": "the workflows don't move on their own here"}
+        if scope.get("instance") != self.agents.session_id_of(scope["session"]):
+            return {"ok": False, "refused": True, "error": "that token is from an earlier conversation of this session"}
+        return {"ok": True, **await self.machine_run.request(scope["session"], scope.get("instance"), req.get("to"))}
 
     def _decision_answered(self, record: dict) -> None:
         """hub:decision for the session a decision names, if it names one."""
@@ -583,8 +602,11 @@ class Hubd:
                     raise decisions.DecisionError("a workflow move's confirm is approved or denied")
                 said = req.get("words") if op == "decision.approve" else req.get("why")
                 said = decisions.text(said, decisions.MAX_WORDS, "what you said") if said else None
-                return {"ok": True, "decision": self.decisions.view(self.effects.answer(req.get("id"), op == "decision.approve",
-                                                                                         self.sessions.own_user(), said))}
+                if self.decisions._get(req.get("id"))["kind"] == decisions.APPROVE:
+                    answered = await self.effects.answer_approval(req.get("id"), op == "decision.approve", self.sessions.own_user(), said)
+                else:
+                    answered = self.effects.answer(req.get("id"), op == "decision.approve", self.sessions.own_user(), said)
+                return {"ok": True, "decision": self.decisions.view(answered)}
             if op == "decision.approve":
                 record = self.decisions._get(req.get("id"))
                 if record["kind"] == "merge" and self.decisions.current_state(record) == "requested":

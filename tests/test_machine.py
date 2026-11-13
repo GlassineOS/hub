@@ -31,7 +31,7 @@ github = ["pr.read", "issues.comment"]
 to = "escalated"
 decided_by = "judge"
 when = "The session seems stuck"
-requires = ["time.work > 7200 or tokens.work > 600000"]
+requires = ["time.work > 7200 or tokens.work > 600000", "pr.open"]
 on = ["turn.end"]
 
 [state.implement]
@@ -86,7 +86,7 @@ github = ["push"]
 to = "review"
 decided_by = "judge"
 when = "Every finding has a fixup commit or a reply"
-requires = ["pr.checks == pass"]
+requires = ["pr.checks == pass", "pr.open"]
 on = ["turn.end"]
 
 [state.merge-ready]
@@ -276,7 +276,7 @@ def test_check_cycle_bound_by_a_parent_counter():
     text = _with(IMPLEMENT, '"rounds.review < 3"', '"pr.open"')
     text = _with(text, 'decided_by = "counter"\nrequires = ["rounds.review >= 3"]', 'decided_by = "facts"\nrequires = ["pr.merged"]')
     assert not any("cycle" in p for p in _problems(text))
-    text = _with(text, 'requires = ["time.work > 7200 or tokens.work > 600000"]', 'requires = ["pr.open"]')
+    text = _with(text, 'requires = ["time.work > 7200 or tokens.work > 600000", "pr.open"]', 'requires = ["pr.open"]')
     assert any("cycle" in p for p in _problems(text))
 
 
@@ -298,12 +298,12 @@ def test_check_shadowing_needs_covered_signals_and_auto():
 
 def test_check_parent_exit_overridden_in_one_child_only():
     # implement moves to review on pr.open alone, which covers work's exit there, but work's exit still moves in fix
-    text = _with(IMPLEMENT, 'requires = ["time.work > 7200 or tokens.work > 600000"]', 'requires = ["pr.open", "rounds.work < 9"]')
+    text = _with(IMPLEMENT, 'requires = ["time.work > 7200 or tokens.work > 600000", "pr.open"]', 'requires = ["pr.open", "rounds.work < 9"]')
     text = _with(text, 'decided_by = "judge"\nwhen = "The change is complete"\nrequires = ["pr.open", "branch.pushed"]',
                  'decided_by = "facts"\nrequires = ["pr.open"]')
     assert not any("never moves" in p for p in _problems(text))
     # with fix and review covering it too, it never moves
-    text = _with(text, 'decided_by = "judge"\nwhen = "Every finding has a fixup commit or a reply"\nrequires = ["pr.checks == pass"]',
+    text = _with(text, 'decided_by = "judge"\nwhen = "Every finding has a fixup commit or a reply"\nrequires = ["pr.checks == pass", "pr.open"]',
                  'decided_by = "facts"\nrequires = ["pr.open"]')
     text = _with(text, 'requires = ["managed.reviewer.verdict == fail", "rounds.review < 3"]\non = ["hub:managed.return"]',
                  'requires = ["pr.open"]\non = ["turn.end"]')
@@ -464,3 +464,96 @@ def test_outline_diff_one_insert_moves_nothing(impl):
         review, exits=(Exit("merged", "hand"), *review.exits))})
     kinds = [r.kind for r in outline_diff(impl, b) if r.state == "review" and r.exit]
     assert kinds == ["added", "same", "same", "same"]
+
+
+# ---- FR-012: implementing states are left only with a pull request ---------------------------------
+
+PUSHING = '''
+schema = 1
+name = "p"
+initial = "work"
+[state.work]
+initial = "make"
+[state.work.grant]
+tools = ["Read", "Bash"]
+github = ["read"]
+[state.make]
+parent = "work"
+[state.make.grant]
+github = ["push"]
+[[state.make.exit]]
+to = "wait"
+decided_by = "judge"
+when = "It is done"
+requires = ["pr.open"]
+on = ["turn.end"]
+[[state.make.exit]]
+to = "gone"
+decided_by = "counter"
+requires = ["rounds.make > 5"]
+on = ["turn.end"]
+[[state.make.exit]]
+to = "aside"
+decided_by = "hand"
+[state.wait]
+parent = "work"
+[[state.wait.exit]]
+to = "make"
+decided_by = "facts"
+requires = ["pr.review == changes_requested", "rounds.make < 4"]
+on = ["feed:pr.review"]
+[state.aside]
+[[state.aside.exit]]
+to = "make"
+decided_by = "hand"
+[state.gone]
+final = true
+'''
+
+
+def test_leaving_the_pushing_states_requires_an_open_pull_request():
+    # to a state without push, to a final state, back into push, and by hand: all fine as written
+    assert _problems(PUSHING) == []
+    without = _with(PUSHING, 'requires = ["pr.open"]\non = ["turn.end"]', 'requires = ["pr.checks == pass"]\non = ["turn.end"]')
+    assert _problems(without) == ["state.make.exit.1: leaves the states that may push without a pull request: it requires pr.open (FR-012)"]
+    # one side of an `or` doesn't make sure of it, `pr.open != false` does
+    assert _problems(_with(PUSHING, '["pr.open"]', '["pr.open or rounds.make > 1"]'))
+    assert _problems(_with(PUSHING, '["pr.open"]', '["pr.open != false"]')) == []
+
+
+def test_a_parents_exit_out_of_the_pushing_states_is_held_to_it_too():
+    text = _with(PUSHING, '[state.make]', '[[state.work.exit]]\nto = "aside"\ndecided_by = "judge"\nwhen = "It is stuck"\n'
+                                          'requires = ["rounds.wait > 1"]\non = ["turn.end"]\n[state.make]')
+    assert _problems(text) == ["state.work.exit.1: leaves the states that may push without a pull request: it requires pr.open (FR-012)"]
+    # a parent whose own grant holds push: moving among its states needs nothing, leaving them does
+    moved = _with(_with(PUSHING, '[state.make.grant]\ngithub = ["push"]', ''), 'github = ["read"]', 'github = ["read", "push"]')
+    assert _problems(_with(moved, 'requires = ["pr.open"]\non = ["turn.end"]', 'requires = ["branch.pushed"]\non = ["turn.end"]')) == []
+
+
+def test_an_exit_on_request_needs_no_signal_and_isnt_shadowed():
+    text = _with(PUSHING, '[state.wait]', '[[state.make.exit]]\nto = "wait"\ndecided_by = "facts"\nrequires = ["pr.open"]\n'
+                                          'move = "on-request"\n[state.wait]')
+    assert _problems(text) == []
+    assert any("names no signal" in p for p in _problems(_with(text, 'move = "on-request"\n', '')))
+
+
+def test_the_default_implement_workflow_passes_its_checks():
+    from hubd.agents import Library
+    library = Library(Path(__file__).resolve().parents[1] / "agents")
+    d = library.workflows["implement"]
+    assert [f for f in check(d) if f.kind == "problem"] == []
+    # the review → fix → review round is bounded by review's counter on fix's rounds (SC-004)
+    assert [e.to for e in d.states["review"].exits] == ["merge-ready", "escalated", "fix"]
+    assert d.states["review"].exits[1].requires[0] == "rounds.fix >= 3"
+    # one access and one checkout in every state a session can be in: a conversation keeps both
+    leaves = [s for s in d.states if d.states[s].initial is None]
+    assert {(machine.effective(d, s).access, machine.effective(d, s).checkout) for s in leaves} == {("locked", "new-branch")}
+    # push only while implementing and fixing, never merge; merge-ready asks first, as merging is the maintainer's
+    assert [s for s in leaves if "push" in machine.effective(d, s).github] == ["implement", "fix"]
+    assert not any("merge" in machine.effective(d, s).github for s in leaves)
+    assert machine.effective(d, "merge-ready").asks_first == ("merge_pr",)
+    assert all(e.approve == "none" for s in d.states.values() for e in s.exits)
+    # without the cycle's counter, the check refuses it
+    text = library.workflow_texts["implement"].replace('requires = ["rounds.fix >= 3", "pr.review == changes_requested"]',
+                                                       'requires = ["pr.review == changes_requested", "pr.checks == fail"]')
+    assert any("has no exit that tests a counter" in p for p in _problems(text))

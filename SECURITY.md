@@ -34,7 +34,7 @@ public. A person's approval can't reliably break that chain, because a steered a
 | Browser attacks | `SameSite=Strict`, `HttpOnly` session cookie. Host must be on the allowlist, against DNS rebinding. Origin must match for writes and for the terminal's WebSocket. Content-Security-Policy without inline or remote scripts |
 | Network | Loopback by default. The app won't start on another address without TLS, as long as `HUB_BIND` names the address; `HUB_LISTEN` is for the container and overrides what the app binds. The tool server stays on loopback under compose |
 | The container | Runs as your uid, read-only, no capabilities, no credentials. Its only way to the host is the socket |
-| A session's rights | Its action's workflow (`agents/workflows/<name>.toml`) holds them: the effective grant of the state the session is in, its first at launch (every action's default workflow has one state). The action file holds none (hubd refuses one that sets any), so they are said once. hubd builds the tool lists, the permission mode, the checkout and the token's scope from that grant, and won't start on a workflow its checks refuse. The action's `ceiling` is that grant in plain words |
+| A session's rights | Its action's workflow (`agents/workflows/<name>.toml`) holds them: the effective grant of the state the session is in, its first at launch (most actions' default workflows have one state; `implement`'s has steps and runs sandboxed). The action file holds none (hubd refuses one that sets any), so they are said once. hubd builds the tool lists, the permission mode, the checkout and the token's scope from that grant, and won't start on a workflow its checks refuse. The action's `ceiling` is that grant in plain words |
 
 ## Guards, not limits
 
@@ -352,6 +352,20 @@ such as a decision answered for it (`hubd/machinerun.py`).
   pull requests it has looked up); a fact it can't tell doesn't hold either way, a failed or malformed verdict moves
   nothing, an exit with `approve` above `none` doesn't move on its own, and every evaluation is logged with each check
   and its value. Exits decided by hand or moved on request are never tried by a signal.
+- **A request to move is the session's own, and only a proposal.** `request_move` reaches hubd's `session.request_move`
+  with the session's own token, which names the session and its conversation: the request can't name another session, a
+  token from an earlier conversation under the same name is refused, and the tool must be on the session's list. Only an
+  exit of its current state marked `move = "on-request"` can be taken, and only if its `requires` hold; it is logged like
+  any evaluation.
+- **An approval is the maintainer's.** An exit that holds and whose `approve` names a level becomes a `machine.approve` card
+  in Needs you, made by hubd alone (`decision.add` and a token's `decision_request` refuse the kind), one per session,
+  state, version and exit. Approving it makes that move and nothing else, and only if the session is still in that state
+  on that version and the exit's `requires` hold again; it ends at once, and ends unanswered if the session moves another
+  way. The levels other than `me` name sessions that don't exist yet, so they ask the maintainer too.
+- **Implementation leaves its states only with a pull request** (FR-012). The checks refuse a workflow with an exit, other
+  than one by hand or to a final state, from a state whose grant has `push` to one without it, unless it requires
+  `pr.open`. In `implement`, review drops `push`, so its token can't change the branch under review, and merge-ready asks
+  first with `merge_pr`: a merge needs your decision for the head, as for any session on a list (Merges).
 
 ## The person's decisions
 

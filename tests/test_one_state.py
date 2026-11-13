@@ -78,11 +78,18 @@ def _differences(got, want, at="") -> list[str]:
     return [] if got == want else [f"{at}: {got!r} != {want!r}"[:400]]
 
 
+# The default workflows with steps (FR-072); every other action's has one state.
+STAGED = {"implement"}
+
+
 def test_every_action_has_a_one_state_workflow_of_its_name():
     library = Library(REPO / "agents")
     for action_id, action in library.actions.items():
         assert action["workflow"] == action_id
         definition = library.workflows[action_id]
+        if action_id in STAGED:
+            assert len(definition.states) > 1, action_id
+            continue
         assert len(definition.states) == 1 and definition.states[definition.initial].final, action_id
 
 

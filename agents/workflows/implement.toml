@@ -1,0 +1,97 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# From an issue to a merge-ready pull request (spec 012, User Story 1). The session runs sandboxed: its file tools read the
+# checkout as it was, and its edits, commits and pushes happen in the shell, whose changes stay in a private layer. So "no
+# edits" in review means no push: review's grant has no `push`, and its token can't change the branch.
+# Every state keeps the same access (locked) and checkout (new-branch): a conversation can't change either.
+schema = 1
+name = "implement"
+initial = "work"
+
+[state.work]
+initial = "implement"
+personas = ["engineer"]
+[state.work.grant]
+tools = ["Read", "Grep", "Glob", "Skill", "AskUserQuestion", "Bash"]
+hub_tools = ["get_issue", "get_pr", "get_pr_threads", "get_pr_diff", "list_runs", "get_run", "get_run_log", "docs_search",
+             "work_search", "request_repository", "code_search", "map_overview", "map_definition", "map_usages", "map_string",
+             "request_move"]
+checkout = "new-branch"
+github = ["read", "issues.comment", "pr.write"]
+
+[state.implement]
+parent = "work"
+instructions = """Make the change the issue asks for and test it. Commit, push your branch (`git push -u origin HEAD`) and \
+open a draft pull request whose body has a `Closes #<issue>` line. When it is pushed and its checks pass, you move to review: \
+on your own when your turn ends, or at once with `request_move` to `review`."""
+[state.implement.grant]
+github = ["push"]
+[[state.implement.exit]]
+to = "review"
+decided_by = "judge"
+when = "The change is complete: it is committed and pushed, and its draft pull request is open."
+requires = ["pr.open", "pr.checks == pass"]
+on = ["turn.end", "feed:pr.opened", "feed:pr.checks"]
+[[state.implement.exit]]
+to = "review"
+decided_by = "facts"
+requires = ["pr.open", "pr.checks == pass"]
+move = "on-request"
+
+[state.review]
+parent = "work"
+instructions = """Your pull request waits for review. Mark it ready (`gh pr ready`) and ask for a review. Don't change the \
+branch now: you can't push in this state. Answer questions on the pull request if you are asked. When a review asks for \
+changes you move to fix; when it approves and the checks pass, to merge-ready."""
+[[state.review.exit]]
+to = "merge-ready"
+decided_by = "facts"
+requires = ["pr.review == approved", "pr.checks == pass"]
+on = ["feed:pr.review", "feed:pr.checks", "turn.end"]
+[[state.review.exit]]
+to = "escalated"
+decided_by = "counter"
+requires = ["rounds.fix >= 3", "pr.review == changes_requested"]
+on = ["feed:pr.review", "feed:pr.checks", "turn.end"]
+[[state.review.exit]]
+to = "fix"
+decided_by = "facts"
+requires = ["pr.review == changes_requested"]
+on = ["feed:pr.review", "feed:pr.checks", "turn.end"]
+
+[state.fix]
+parent = "work"
+instructions = """The review asked for changes. Read its threads (`get_pr_threads`), address each point, test, commit and push. \
+When the checks pass you go back to review: on your own when your turn ends, or at once with `request_move` to `review`."""
+[state.fix.grant]
+github = ["push"]
+[[state.fix.exit]]
+to = "review"
+decided_by = "judge"
+when = "Every point of the review is addressed, and the fixes are committed and pushed."
+requires = ["pr.open", "pr.checks == pass"]
+on = ["turn.end", "feed:pr.checks"]
+[[state.fix.exit]]
+to = "review"
+decided_by = "facts"
+requires = ["pr.open", "pr.checks == pass"]
+move = "on-request"
+
+[state.merge-ready]
+final = true
+instructions = """The pull request is approved and its checks pass. Merging is the maintainer's decision: call `merge_pr` with \
+the pull request's head, which asks them on a card, and merge only if they allow it. If the head moves, ask again. Change \
+nothing else."""
+[state.merge-ready.grant]
+tools = ["Read", "Grep", "Glob", "AskUserQuestion"]
+hub_tools = ["get_issue", "get_pr", "get_pr_threads", "docs_search", "work_search", "request_repository"]
+asks_first = ["merge_pr"]
+checkout = "new-branch"
+
+[state.escalated]
+final = true
+instructions = """Three rounds of fixes haven't got the pull request approved. Stop changing it. Say in a few sentences what \
+the review still asks for and what you think blocks it: the maintainer decides how it goes on."""
+[state.escalated.grant]
+tools = ["Read", "Grep", "Glob", "AskUserQuestion"]
+hub_tools = ["get_issue", "get_pr", "get_pr_threads", "docs_search", "work_search", "request_repository"]
+checkout = "new-branch"
