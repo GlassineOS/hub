@@ -460,6 +460,8 @@ def start_marks(a_text: str | None, b_text: str, inherited=None) -> list[dict]:
     out = []
     mark = lambda sid, text: out.append({"kind": "mark", "where": f"start.{sid}", "text": text, "new": True})  # noqa: E731
     for sid, st in keyed(b).items():
+        if (st.state is not None and st.state not in b.states) or b.initial not in b.states:
+            continue  # the checks say so as a problem; nothing to mark until it names a state
         grant = machine.effective(b, machine.start_state(b, st))
         old = before.get(sid)
         if a is not None:

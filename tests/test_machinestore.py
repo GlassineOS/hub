@@ -481,3 +481,14 @@ def test_a_change_to_the_starts_marks_what_it_grants_or_moves():
     # every mark reaches the proposal card's list as new
     full = machinestore.sensitive_marks(MARKED, [], wider)
     assert {m["where"] for m in full} == {"start.w-b"} and all(m["new"] for m in full)
+
+
+def test_a_proposal_whose_start_names_no_state_is_a_card_with_the_problem(world):
+    """The marks read the starts of a text the checks haven't passed: a start naming a state the text lacks is a problem on
+    the card, not a failure making it."""
+    a, _decisions, hub, _login = world
+    assert machinestore.start_marks(MARKED, MARKED.replace('label = "Go"', 'label = "Go"\nstate = "gone"')) == []
+    text = text_of(ONE).replace('label = "Explain this run"', 'label = "Explain this run"\nstate = "gone"', 1)
+    reply = hub.workflows.request("workflow.propose", {"name": ONE, "scope": ORG, "text": text, "note": "x"}, "me")
+    assert reply["ok"], reply
+    assert any(f["kind"] == "problem" and "'gone' isn't a state" in f["text"] for f in reply["decision"]["scope"]["findings"])
