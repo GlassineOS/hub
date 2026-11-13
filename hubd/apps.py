@@ -25,6 +25,7 @@ import urllib.request
 from pathlib import Path
 
 from .ghpolicy import ORG
+from .machine import GITHUB
 
 log = logging.getLogger("hubd.apps")
 API = "https://api.github.com"
@@ -33,23 +34,35 @@ RENEW_BEFORE = 600
 _READ_VERBS = {"list", "view", "diff"}
 # What every scoped token reads. GitHub gives each App metadata anyway; contents is what a clone of a private repository needs.
 _BASE = {"metadata": "read", "contents": "read"}
-# A capability of a state's grant, as the GitHub App permissions it takes. GitHub doesn't separate pushing from merging:
-# both are contents:write, so a grant with push can merge, and only a guard outside the token stops it.
-CAPABILITIES = {
+# A capability of a state's grant (the names are machine.GITHUB's), as the GitHub App permissions it takes. GitHub doesn't
+# separate pushing from merging: both are contents:write, so a grant with push can merge, and only a guard outside the token
+# stops it. Comments and labels on a pull request go through the issues API, which takes either issues or pull_requests write.
+_PERMISSIONS = {
     "read": {},
     "issues.read": {"issues": "read"},
-    "pr.read": {"pull_requests": "read"},
-    "runs.read": {"actions": "read"},
     "issues.write": {"issues": "write"},
+    "issues.comment": {"issues": "write"},
+    "issues.label": {"issues": "write"},
+    "issues.delete": {"administration": "write"},
+    "pr.read": {"pull_requests": "read"},
     "pr.write": {"pull_requests": "write"},
+    "pr.comment": {"pull_requests": "write"},
     "pr.review": {"pull_requests": "write"},
+    "pr.label": {"pull_requests": "write"},
     "push": {"contents": "write"},
     "merge": {"contents": "write", "pull_requests": "write"},
+    "runs.read": {"actions": "read"},
     "runs.write": {"actions": "write"},
+    "runs.trigger": {"actions": "write"},
+    "runs.rerun": {"actions": "write"},
+    "runs.cancel": {"actions": "write"},
     "runs.approve": {"actions": "write"},
     "repo.public": {"administration": "write"},
     "repo.delete": {"administration": "write"},
 }
+if set(_PERMISSIONS) != set(GITHUB):  # a name added to one list and not the other mustn't load
+    raise ImportError(f"apps: GitHub capabilities differ from machine.GITHUB: {sorted(set(_PERMISSIONS) ^ set(GITHUB))}")
+CAPABILITIES = {name: _PERMISSIONS[name] for name in GITHUB}
 _LEVELS = {"read": 1, "write": 2}
 # What a session keeps when it may only read: a fork's pull request is an outsider's code running beside the token.
 READ_CAPABILITIES = frozenset(c for c, p in CAPABILITIES.items() if all(level == "read" for level in p.values()))

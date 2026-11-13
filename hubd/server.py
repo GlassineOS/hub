@@ -240,11 +240,13 @@ class Hubd:
             return await self.design_tool(op, req)
         if op in REPO_OPS:
             return await self.repo_request(op, req)
-        if op in ("shell.list", "shell.new", "shell.kill") or op.startswith(("agent.", "ask.", "work.", "decision.", "notes.", "interaction.", "usage.", "result.")):
+        if op in ("shell.list", "shell.new", "shell.kill") or op.startswith(("agent.", "ask.", "work.", "decision.", "notes.", "interaction.", "usage.", "result.", "machine.")):
             if not self.sessions.check(req.get("token")):
                 return {"ok": False, "error": "login required", "denied": True}
             if op.startswith("interaction."):
                 return await self.interaction_request(op, req)
+            if op.startswith("machine."):  # 012 FR-026: the maintainer's moves, logged as theirs
+                return self.agents.machines.request(op, req, self.sessions.own_user()) if self.agents else {"ok": False, "error": "agent sessions are not set up"}
             if op.startswith("usage."):
                 if op != "usage.status":
                     return {"ok": False, "error": f"unknown request: {op}"}
