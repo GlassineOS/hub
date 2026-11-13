@@ -2251,11 +2251,8 @@ class Agents:
             self._holding.difference_update(claims)
 
     def _claims(self, action: dict, config: dict) -> list[tuple]:
-        """The items a start will hold once its session is recorded: those of a workflow of more than one state."""
-        try:
-            if len(machine.parse(action["definition"]).states) < 2:
-                return []
-        except (machine.DefinitionError, KeyError):
+        """The items a start will hold once its session is recorded: any start but one that runs beside a holder."""
+        if action.get("when_held") == "beside" or action.get("singleton"):  # a singleton's name is its claim already
             return []
         kind = action["object"]
         if kind in NO_REPO_OBJECTS:
@@ -3106,13 +3103,17 @@ class Agents:
                 return None
         return False
 
-    def _may_hold(self, name: str) -> bool:
-        """A session holds what it carries while its workflow instance runs: it hasn't ended, and it is in a workflow of more
-        than one state, not in a final one. A one-state session is a task beside the item, never its owner."""
-        if (self.sessions / name / ENDED_FILE).exists():
+    def _may_hold(self, name: str, record: dict) -> bool:
+        """A session holds what it carries while its workflow instance runs: it hasn't ended, it isn't in a final state of a
+        workflow of more than one (a one-state workflow's only state is final and is where it works), and it didn't start
+        beside a holder: a start that runs beside one is a task next to the item, never its owner."""
+        if (self.sessions / name / ENDED_FILE).exists() or record.get("beside"):
+            return False
+        action = self.library.actions.get(record["config"].get("action"))
+        if action is not None and action.get("when_held") == "beside":
             return False
         chip = self.machines.summary(name)
-        return bool(chip and not chip["one_state"] and not chip["final"])
+        return bool(chip and (chip["one_state"] or not chip["final"]))
 
     def holders(self, kind, repo, number) -> tuple[list[str], list[str]]:
         """The instances holding an item, topmost first (a session managed by another holder of it is that one's, not a
@@ -3120,7 +3121,7 @@ class Agents:
         records = dict(self._records())
         held, unsure = [], []
         for name, record in records.items():
-            if not self._may_hold(name):
+            if not self._may_hold(name, record):
                 continue
             carries = self._carries(name, record, kind, repo, number)
             if carries:
@@ -3140,6 +3141,7 @@ class Agents:
         inst = self.machines.peek(name)
         if about is None or inst is None:
             return None
+        one_state = len(inst.definition().states) == 1
         d = inst.definition()
         path = list(reversed(machine.ancestors(d, inst.state)))
         here = " › ".join(path)
@@ -3154,7 +3156,7 @@ class Agents:
             next_words = f"Works in {inst.state}."
         return {"session": name, "title": about["title"], "persona": about["persona"], "persona_name": about["persona_name"],
                 "initials": about["initials"], "family": about["family"], "workflow": inst.workflow, "state": inst.state,
-                "path": path, "paused": inst.paused, "waits": inst.pending is not None, "next": next_words,
+                "path": path, "one_state": one_state, "paused": inst.paused, "waits": inst.pending is not None, "next": next_words,
                 "ended": about["ended"], "repo": about["repo"], "number": about["number"]}
 
     def _ask_route(self, holder: str, action: dict) -> dict | None:
