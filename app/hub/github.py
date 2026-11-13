@@ -358,9 +358,22 @@ class GitHub:
         return {k: reply[k] for k in ("moved", "why", "waits", "needs_confirm", "state") if reply.get(k) is not None}
 
     # --- the chain of owners: managed sessions, their results and reports -------------------
-    async def start_managed(self, entry) -> dict:
-        reply = await self.hubd.call(op="managed.start", agent_token=CALLER.get(), entry=entry)
+    async def start_managed(self, entry, item=None) -> dict:
+        reply = await self.hubd.call(op="managed.start", agent_token=CALLER.get(), entry=entry, item=item)
         return {k: reply[k] for k in ("started", "name", "resumed", "why") if reply.get(k) is not None}
+
+    # --- workflow drafts: a Workflow author drafts, and the hub checks; nothing here saves ------------
+    async def draft_workflow(self, name, scope, text, note, session=None) -> dict:
+        reply = await self.hubd.call(op="wfdraft.make", agent_token=CALLER.get(), name=name, scope=scope, text=text, note=note, session=session)
+        return {k: v for k, v in reply.items() if k != "ok"}
+
+    async def read_draft(self) -> dict:
+        reply = await self.hubd.call(op="wfdraft.read", agent_token=CALLER.get())
+        return {k: v for k, v in reply.items() if k != "ok"}
+
+    async def read_workflow(self, name, scope=None) -> dict:
+        reply = await self.hubd.call(op="wfdraft.workflow", agent_token=CALLER.get(), name=name, scope=scope)
+        return {k: v for k, v in reply.items() if k != "ok"}
 
     async def return_result(self, fields) -> dict:
         reply = await self.hubd.call(op="managed.return", agent_token=CALLER.get(), fields=fields)

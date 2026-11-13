@@ -3568,6 +3568,7 @@ function WorkflowEditor({ name, scope, proposal }) {
   const [replayed, setReplayed] = useState(null);
   const [saving, setSaving] = useState(false);
   const [proposing, setProposing] = useState(false);
+  const [asking, setAsking] = useState(false);
   const [note, setNote] = useState("");
   const [said, setSaid] = useState("");
   const [repo, setRepo] = useState("");
@@ -3662,10 +3663,12 @@ function WorkflowEditor({ name, scope, proposal }) {
       ${saveWhy && html`<span class="il-btn-reason" id="wfe-save-why">${saveWhy}</span>`}
       <button type="button" class="il-btn" disabled=${!dirty} onClick=${() => setProposing(true)}>Propose it…</button>
       ${!dirty && html`<span class="il-btn-reason">Propose waits: nothing is changed yet.</span>`}
+      <button type="button" class="il-btn" onClick=${() => setAsking(true)}>Ask for a change…</button>
       <span class="small soft" role="status" style="flex: 1 1 20rem">${said}</span>
       <${Err} text=${saving || proposing ? null : act.error} />
     </footer>
     ${saving && html`<${SaveDialog} name=${name} scope=${scope} next=${next} latest=${v.latest} text=${text} marks=${marks} running=${v.running} note=${note} setNote=${setNote} busy=${act.busy} error=${act.error} onSave=${save} onClose=${() => setSaving(false)} />`}
+    ${asking && html`<${AskChangeDialog} name=${name} scope=${scope} onClose=${() => setAsking(false)} />`}
     ${proposing && html`<${ProposeDialog} name=${name} scope=${scope} note=${note} setNote=${setNote} findings=${findings} busy=${act.busy} error=${act.error} onSend=${propose} onClose=${() => setProposing(false)} />`}
   </main>`;
 }
@@ -3686,6 +3689,30 @@ function SaveDialog({ name, scope, next, latest, text, marks, running, note, set
       <${Err} text=${error || diff.error} /></div>
     <div class="il-dialog__actions"><button type="button" class="il-btn" disabled=${busy} onClick=${onClose}>Keep editing</button>
       <button type="button" class="il-btn il-btn--primary" disabled=${busy} onClick=${onSave}>Save v${next}${marks.length ? `, with ${count(marks.length, "marked item")}` : ""}</button></div>
+  </dialog>`;
+}
+
+// FR-062, WorkflowAsk: a change asked for in words. It starts a workflow-change session, whose Workflow author drafts it; the hub
+// checks and replays each draft and puts the ready one in Needs you. The request goes in as your own notes, not as a brief.
+function AskChangeDialog({ name, scope, onClose }) {
+  const ref = useRef();
+  useModal(ref);
+  const [words, setWords] = useState("");
+  const act = useAct();
+  const ask = () => act.run(async () => {
+    const notes = `The workflow: ${name}, for ${scope === "org" ? "the organisation (scope org)" : `${scope.split("__")[1]} (scope ${scope})`}.\n\nThe change I ask for:\n${words.trim()}`;
+    const r = await post("agents/run", { action: "workflow-change", notes });
+    location.hash = hash("shells", { name: r.name });
+  });
+  return html`<dialog ref=${ref} class="il-dialog wfconfirm" aria-labelledby="wfa-t" onClose=${onClose}>
+    <div class="il-dialog__head"><span class="il-label">Workflows · ${name} · ask for a change</span><h2 class="il-dialog__title" id="wfa-t">Ask the Workflow author</h2></div>
+    <div class="il-dialog__body stack">
+      <p class="small">A Workflow author drafts the change. The hub checks and replays each draft; one that grants a sensitive item goes to a reviewer first, and after three failed drafts the author asks you. The ready draft comes to Needs you, and nothing is saved until you approve it there.</p>
+      <label class="stack tight small"><span class="eyebrow">Your request</span><textarea rows="5" maxlength="3000" value=${words} onInput=${(e) => setWords(e.target.value)}></textarea></label>
+      <${Err} text=${act.error} /></div>
+    <div class="il-dialog__actions"><button type="button" class="il-btn" disabled=${act.busy} onClick=${onClose}>Back to the editor</button>
+      <button type="button" class="il-btn il-btn--primary" disabled=${act.busy || !words.trim()} onClick=${ask}>Ask the Workflow author</button>
+      ${!words.trim() && html`<span class="il-btn-reason">Say what you want changed first.</span>`}</div>
   </dialog>`;
 }
 
@@ -4404,6 +4431,7 @@ function DecisionRow({ d, onChanged, where = "Needs you" }) {
     ${d.words && html`<p class="small" style="overflow-wrap: anywhere"><span class="soft">Your words: </span>${d.words}</p>`}
     ${d.asked_by && !d.kind.startsWith("machine.") && html`<p class="small soft">Asked for by ${d.asked_by}, in its own words, which aren't yours: <span style="overflow-wrap: anywhere">${d.why}</span></p>`}
     ${d.kind.startsWith("machine.") && html`<p class="small" style="overflow-wrap: anywhere">From the hub: ${d.why}</p>`}
+    ${d.scope && d.scope.type === "design" && html`<p class="row"><a class="il-btn" href=${hash("design", { name: d.scope.design })}>Look at the design</a></p>`}
     ${!d.asked_by && d.why && html`<p class="small soft" style="overflow-wrap: anywhere">Asked for by a hub shell, in its own words: ${d.why}</p>`}
     ${d.why_ended && html`<p class="small">Ended: ${d.why_ended}</p>`}
     ${(d.state === "current" || d.state === "using") && html`<p class="small">Left: ${leftWords(left)}.</p>`}

@@ -1,0 +1,13 @@
+# A QA engineer's audit of a pull request (spec 012, FR-070), started by a workflow that manages one. See
+# agents/workflows/qa-audit.toml.
+order = 9
+ceiling = "Runs the change in a sandboxed shell on the pull request's head, which can't push; reads GitHub. Never pushes, merges or comments. Runs only under another session."
+object = "pr"
+result = "findings"
+title = "QA audit"
+summary = "Runs the pull request's tests, checks and dev hub, audits whether what is tested matters, and hands a verdict with findings to its owner."
+personas = ["qa-engineer"]
+prompt = "qa-audit"
+models = ["sonnet", "opus"]
+efforts = ["high", "medium", "xhigh"]
+managed_only = true

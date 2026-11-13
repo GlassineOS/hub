@@ -222,7 +222,7 @@ TOOL_PERMISSIONS = {"roadmap_add": {"organization_projects": "write"}, "roadmap_
 # Writes that stay in the hub or the workspace: they need nothing of an App.
 HUB_WRITES = frozenset({"decision_request", "decision_end", "docs_reindex", "message_started_session", "message_session",
                         "spawn_session", "plan_work", "suggest_session", "submit_drafts", "submit_result", "notes_apply",
-                        "request_move", "start_managed", "return_result", "report_up", "answer_report"})
+                        "request_move", "start_managed", "return_result", "report_up", "answer_report", "draft_workflow"})
 if bad := sorted(c for caps in TOOL_CAPABILITIES.values() for c in caps if c not in CAPABILITIES):
     raise ImportError(f"apps: tool capabilities that aren't GitHub capabilities: {bad}")
 

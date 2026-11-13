@@ -1,0 +1,14 @@
+# One session for one repository, under the Steward (spec 012, FR-070): it tracks the repository's work and starts an
+# implementor for each ready issue. One runs per repository at a time. See agents/workflows/repo-maintainer.toml.
+order = 9
+ceiling = "Reads the repository's issues, pull requests, runs and sessions. Starts implementors for ready issues, the first time after your approval. Never writes to GitHub itself."
+object = "repo"
+result = "none"
+title = "Maintain this repository"
+summary = "A repository maintainer that tracks the repository's issues and pull requests through their stages, starts implementors for ready work and watches for stalls."
+personas = ["repo-maintainer"]
+prompt = "repo-maintainer"
+models = ["sonnet", "opus"]
+efforts = ["medium", "high"]
+plan = false
+per_repo = true

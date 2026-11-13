@@ -223,8 +223,8 @@ class Instance:
         names = {f.name for f in dataclasses.fields(cls)}
         if isinstance(raw, dict) and "managed" not in raw:  # a record from before managed sessions: it had none
             raw = {**raw, "managed": {}}
-        if isinstance(raw, dict) and isinstance(raw.get("managed"), dict):  # an entry from before heads were kept
-            raw = {**raw, "managed": {k: {"head": None, **v} if isinstance(v, dict) else v for k, v in raw["managed"].items()}}
+        if isinstance(raw, dict) and isinstance(raw.get("managed"), dict):  # an entry from before heads (or items, whens) were kept
+            raw = {**raw, "managed": {k: {**_empty_entry(), **v} if isinstance(v, dict) else v for k, v in raw["managed"].items()}}
         if set(raw) - {"schema"} != names:
             raise bad
         try:
@@ -283,7 +283,9 @@ class Instance:
 
 def _empty_entry() -> dict:
     # since: the head the last round reviewed; head: the pull request's newest head the hub knows (a new one voids the returns)
-    return {"returns": {}, "child": None, "round": 0, "allowed": {}, "since": None, "head": None}
+    # allowed_items: what an approval added for one named item only ("repo#N" or "repo"); when: the round its `when` was last
+    # judged in and what the judge said, so an exit can tell "judged not to hold" from "not started"
+    return {"returns": {}, "child": None, "round": 0, "allowed": {}, "since": None, "head": None, "allowed_items": {}, "when": None}
 
 
 def _managed_ok(v) -> bool:
@@ -295,7 +297,12 @@ def _managed_ok(v) -> bool:
                                    and all(isinstance(x, str) for x in child.values())))
             and type(v["round"]) is int and isinstance(v["allowed"], dict)
             and all(k in (*_LISTS, *_LEVELS, "checkout") and isinstance(x, list) for k, x in v["allowed"].items())
-            and (v["since"] is None or isinstance(v["since"], str)) and (v["head"] is None or isinstance(v["head"], str)))
+            and (v["since"] is None or isinstance(v["since"], str)) and (v["head"] is None or isinstance(v["head"], str))
+            and isinstance(v["allowed_items"], dict)
+            and all(isinstance(i, str) and isinstance(g, dict) and all(k in (*_LISTS, *_LEVELS, "checkout") and isinstance(x, list)
+                                                                      for k, x in g.items()) for i, g in v["allowed_items"].items())
+            and (v["when"] is None or (isinstance(v["when"], dict) and set(v["when"]) == {"round", "holds"}
+                                       and type(v["when"]["round"]) is int and type(v["when"]["holds"]) is bool)))
 
 
 def add_tokens(inst: Instance, tokens: int) -> None:

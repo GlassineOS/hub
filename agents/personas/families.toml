@@ -73,3 +73,23 @@ family = "organise"
 name = "Triage"
 initials = "TR"
 family = "organise"
+
+[implementor]
+name = "Implementor"
+initials = "IM"
+family = "organise"
+
+[qa-engineer]
+name = "QA engineer"
+initials = "QA"
+family = "review"
+
+[repo-maintainer]
+name = "Repository maintainer"
+initials = "RM"
+family = "organise"
+
+[workflow-author]
+name = "Workflow author"
+initials = "WA"
+family = "write"

@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# A QA audit (spec 012, FR-070, FR-072): the QA engineer runs the change where a code reviewer reads it, then reports. It runs
+# sandboxed on the pull request's head, a detached checkout that can't push, so it fits under an owner on a new branch. Run
+# has the shell; report keeps only what reading the results and handing them back needs, so the verdict comes from a state
+# that can't run anything new. Both keep the parent's access and checkout, as a conversation keeps them.
+schema = 1
+name = "qa-audit"
+initial = "audit"
+
+[state.audit]
+initial = "run"
+personas = ["qa-engineer"]
+[state.audit.grant]
+tools = ["Read", "Grep", "Glob", "AskUserQuestion"]
+hub_tools = ["get_pr", "get_pr_diff", "docs_search"]
+checkout = "pr"
+
+[state.run]
+parent = "audit"
+instructions = """Run the change: its tests, the repository's own checks, and the dev hub where the change shows there. A run on \
+a device needs the maintainer's go: ask for it with report_up, and don't assume one. Then audit what you ran: can the change be \
+tested, and do its tests check what matters? Note what is wrong with the test setup itself. When you are done you move to \
+report: on your own when your turn ends, or at once with `request_move` to `report`."""
+[state.run.grant]
+tools = ["Skill", "Bash"]
+hub_tools = ["get_issue", "get_pr_threads", "list_runs", "get_run", "get_run_log", "work_search", "request_repository",
+             "code_search", "map_overview", "map_definition", "map_usages", "map_string", "work_status", "docs_index_status",
+             "request_move"]
+github = ["read"]
+[[state.run.exit]]
+to = "report"
+decided_by = "judge"
+when = "The change has been run: its tests and checks ran, and what couldn't run is known."
+on = ["turn.end"]
+[[state.run.exit]]
+to = "report"
+decided_by = "judge"
+when = "The change has been run: its tests and checks ran, and what couldn't run is known."
+move = "on-request"
+
+[state.report]
+parent = "audit"
+final = true
+instructions = """Hand your result to your owner with return_result: verdict pass only if what you ran passed and its tests \
+check what matters; fail otherwise. In findings, one line each: what you ran and saw, what you couldn't run, and what the \
+test setup lacks, most severe first."""
