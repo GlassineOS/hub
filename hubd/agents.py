@@ -103,6 +103,7 @@ IGNORED_LIMIT = 1024 * 1024  # bytes a session's checkouts may hold in ignored f
 WORKSPACE_REPO = "workspace"
 TOKEN_FILE = "tool-token"
 GITHUB_FOLDER = "github"  # the session's GitHub token, renewed by hubd, for a launch that carries GitHub capabilities
+GITHUB_AS_FILE = "github_as"  # whose that token is: "app:<persona>", or "you" for the host's gh login when the persona has no App
 REPOS_FOLDER = "repos"  # a session's own snapshots of the hub's copies
 GUARD_FILE = "shell-guard"
 ENDED_FILE = "ended"  # Claude has ended in this session
@@ -898,6 +899,7 @@ class Agents:
         self._spawning = asyncio.Lock()
         self._sends: dict[str, list[str]] = {}
         self._senders: dict[str, asyncio.Task] = {}
+        self._own_prs: set[tuple[str, int]] = set()  # pull requests GitHub has said are the repository's own, which never changes
         self._lost: dict[str, str] = {}
         self._told: dict[str, tuple[str, list[dict]]] = {}  # session -> the context line hubd last wrote, and its chips
         self._from: dict[str, list[str | None]] = {}  # who each queued message is from, in step with _sends: None is the person
@@ -1467,13 +1469,24 @@ class Agents:
         except Exception:  # noqa: BLE001: unsure means a fork
             return True
 
+    async def _on_a_fork(self, config: dict, action: dict, known: bool = False) -> bool:
+        """Whether a session is on a fork's pull request, or one GitHub can't confirm as the repository's own (any covered one).
+        `known` takes the answers already had for the repository's own, which a pull request keeps."""
+        if action["object"] != "pr":
+            return False
+        for cover in config.get("covers") or [{"repo": config["repo"], "number": config["number"]}]:
+            key = (cover["repo"], cover["number"])
+            if known and key in self._own_prs:
+                continue
+            if await self._from_fork(*key):
+                return True
+            self._own_prs.add(key)
+        return False
+
     async def _github_for(self, config: dict, action: dict) -> dict:
         """A session on a fork's pull request keeps only its read capabilities: that code runs in the shell with the token."""
-        if not config.get("github") or action["object"] != "pr":
-            return config
-        for cover in config.get("covers") or [{"repo": config["repo"], "number": config["number"]}]:
-            if await self._from_fork(cover["repo"], cover["number"]):
-                return {**config, "github": [c for c in config["github"] if c in READ_CAPABILITIES]}
+        if config.get("github") and await self._on_a_fork(config, action):
+            return {**config, "github": [c for c in config["github"] if c in READ_CAPABILITIES]}
         return config
 
     async def _pr_branch(self, repo: str, number: int) -> str:
@@ -1867,11 +1880,13 @@ class Agents:
         if proc.returncode != 0:
             raise AgentError(f"this action's shell doesn't work on this host (bubblewrap 0.11 or later is needed): {err.decode(errors='replace').strip()[-300:]}")
 
-    async def _github_token(self, directory: Path, config: dict, action: dict) -> None:
+    async def _github_token(self, directory: Path, config: dict, action: dict, renewing: bool = False) -> None:
         """The session's GitHub token, limited to its repositories and capabilities, in a file only you can read. A
-        launch with no github list gets none. One that has a list and no token doesn't start: never a wider one, or yours."""
+        launch with no github list gets none. A persona with no App gets the host's gh login, which GitHub doesn't limit:
+        never on a fork's pull request, whose code runs beside it. One whose App fails, or with neither, doesn't start."""
         if config.get("github") is None:
             shutil.rmtree(directory / GITHUB_FOLDER, ignore_errors=True)  # one its action has since lost
+            (directory / GITHUB_AS_FILE).unlink(missing_ok=True)
             return
         repos = sorted({r for r in (_home(config, action), *(c["repo"] for c in config.get("covers", ())), *config.get("also_repos", ())) if r})
         if not repos:
@@ -1880,8 +1895,16 @@ class Agents:
             token = await self.apps.token(config["persona"], repos, permissions_for(config["github"])) if self.apps else None
         except AppError as e:
             raise AgentError(str(e)) from e
+        github_as = f"app:{config['persona']}"
         if token is None:
-            raise AgentError(f"GitHub capabilities need a GitHub App for {config['persona']}")
+            # Your login can't be narrowed to reads, so a fork's code never gets it.
+            if await self._on_a_fork(config, action, known=renewing):
+                raise AgentError(f"this pull request comes from a fork and {config['persona']} has no GitHub App: "
+                                 "its token must only read, and your login's can't be narrowed")
+            token = await self.gh.login_token() if self.gh is not None and hasattr(self.gh, "login_token") else None
+            if token is None:
+                raise AgentError(f"GitHub capabilities need a GitHub App for {config['persona']}, or a gh login on the host")
+            github_as = "you"
         # Asking GitHub takes a while, and a move can narrow the session meanwhile, or another renewal start with another list.
         # The record says what is in force now: a token made for anything else isn't written, and the one for that wins.
         try:
@@ -1895,6 +1918,13 @@ class Agents:
             return
         folder = directory / GITHUB_FOLDER
         folder.mkdir(mode=0o700, exist_ok=True)
+        whose = directory / GITHUB_AS_FILE
+        try:
+            unchanged = whose.read_text() == github_as
+        except OSError:
+            unchanged = False
+        if not unchanged:
+            whose.write_text(github_as)
         path = folder / shell_hook.GITHUB_TOKEN
         try:
             if path.read_text() == token:
@@ -1918,7 +1948,7 @@ class Agents:
                 continue
             try:
                 config = json.loads((directory / "session.json").read_text())["config"]
-                await self._github_token(directory, config, self.library.action(config["action"], config.get("repo")))
+                await self._github_token(directory, config, self.library.action(config["action"], config.get("repo")), renewing=True)
             except Exception:  # one session's failure mustn't hold the others' renewals
                 log.exception("couldn't renew the GitHub token of %s", directory.name)
 
@@ -2920,10 +2950,17 @@ class Agents:
                 "model": config["model"], "effort": config["effort"], "persona": config["persona"], "action": config["action"],
                 "persona_name": badge["name"], "initials": badge["initials"], "family": badge["family"],
                 "posts_as": self.apps.posts_as(config["persona"]) if self.apps else None,
+                "github_as": self._github_as(name),  # whose token its shell has: an App's, "you", or None without one
                 "full": record.get("full", False), "waiting": (self.sessions / name / "waiting").exists(), "idle": (self.sessions / name / IDLE_FILE).exists(),
                 "ended": (self.sessions / name / ENDED_FILE).exists(),
                 "machine": self.machines.summary(name),  # 012 FR-080: its state chip
                 "created": record.get("created"), "started_by": record.get("started_by")}
+
+    def _github_as(self, name: str) -> str | None:
+        try:
+            return (self.sessions / name / GITHUB_AS_FILE).read_text() or None
+        except OSError:
+            return None
 
     def manifest(self, name) -> dict:
         """What a running session was started with."""

@@ -828,7 +828,7 @@ function GitHubAppsCard() {
   const have = rows.filter((r) => r.app).length;
   return html`<section aria-labelledby="h-apps" class="stack tight">
     <h2 id="h-apps" class="dotted" style="font-size: 21px; font-weight: 600">GitHub Apps</h2>
-    <span class="small">${have} of ${count(rows.length, "persona")} ${have === 1 ? "has its" : "have their"} own App${have < rows.length ? "; the rest post as you" : ""}.</span>
+    <span class="small">${have} of ${count(rows.length, "persona")} ${have === 1 ? "has its" : "have their"} own App${have < rows.length ? "; the rest post and push as you, and their sessions get your login's token, which isn't limited to a session's repositories or capabilities" : ""}.</span>
     <a class="small" href=${hash("apps")}>Create or install Apps</a></section>`;
 }
 
@@ -2707,7 +2707,7 @@ function SessionSpec({ session, manifest: m, error }) {
       ${m && !m.checkouts.length && html`<dt>Worktree</dt><dd>none: it reads, with no checkout</dd>`}
       <dt>Branch</dt><dd class="mono">${m ? m.branch || "none" : "…"}</dd>
       <dt>Start command</dt><dd class="mono" style="overflow-wrap: anywhere">${m ? m.command : "…"}</dd>
-      <dt>Posts as</dt><dd class="mono">${a.posts_as || "you"}</dd>
+      <dt>Posts as</dt><dd class="mono">${a.github_as === "you" ? `you (no App for ${a.persona})` : a.posts_as || "you"}</dd>
       <dt>Attach</dt><dd class="mono">${attach}</dd></dl>
     ${m && html`<div class="stack tight"><h3 class="eyebrow">Skills</h3><div class="row" style="gap: 6px">${m.skills.map((s) => html`<span class="badge" style="text-transform: none; letter-spacing: 0; font-size: 12.5px">${s}</span>`)}</div></div>
       <div class="stack" style="gap: 4px"><h3 class="eyebrow">Tools${a.full ? "" : ` · ${m.config.tools.length + m.config.hub_tools.length}`}</h3>

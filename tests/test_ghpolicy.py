@@ -304,3 +304,16 @@ def test_only_the_review_document_takes_a_list_and_a_raw_mutation_stays_refused(
     with pytest.raises(Refused):
         check(["api", "graphql", "-f", "query=mutation{addPullRequestReview(input:{pullRequestId:\"x\"}){clientMutationId}}"])
     assert gh.is_mutation("pr_review_add")
+
+
+def test_the_login_token_is_ghs_own_and_kept_a_while(tmp_path):
+    gh, log = _recording_gh(tmp_path)
+    program = tmp_path / "gh"
+    program.write_text(program.read_text().replace("print(json.dumps(", "print('gho_' + 'a' * 36) if sys.argv[1:2] == ['auth'] else print(json.dumps("))
+    assert asyncio.run(gh.login_token()) == "gho_" + "a" * 36
+    assert asyncio.run(gh.login_token()) == "gho_" + "a" * 36
+    calls = [json.loads(line)["argv"] for line in log.read_text().splitlines()]
+    assert calls == [["auth", "token", "--hostname", "github.com"]]  # once: the renewal reuses it
+    gh._login = None
+    program.write_text("#!/bin/sh\necho 'not logged in' >&2\nexit 1\n")
+    assert asyncio.run(gh.login_token()) is None
