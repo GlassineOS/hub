@@ -90,12 +90,12 @@ in the header. Launch goes through five stages: the brief (action, items, model,
 each touches, and the briefing, which you can edit), the run (the session, its asks inline) and the
 result. Every Launch is a record in hubd, and the session shows it as its origin. The session runs in
 tmux and opens below the item, or in Sessions; "Send to background" lets it go on without you, and its
-asks and result come to Needs you. Actions with `plan = false` skip the planner: their plan is the action's
-own. The library is in `agents/`: actions, workflows, personas, prompts and a plugin with skills. Each
-action names its short `verb` and its `result` type, and its `workflow` (`agents/workflows/<name>.toml`, by default the one of its
-own name) holds what it may do: each action's is one state whose grant has its tools, hub tools, `asks_first`, access,
-permission mode, checkout and `all_repos`. hubd won't start on a workflow the checks refuse, nor on an action that sets any of
-those itself. Each persona has a display name, initials and
+asks and result come to Needs you. Starts with `plan = false` skip the planner: their plan is the start's
+own. The library is in `agents/`: workflows, personas and a plugin with skills. Each workflow
+(`agents/workflows/<name>.toml`) holds its states, whose grants have the tools, hub tools, `asks_first`, access, permission
+mode, checkout and `all_repos`, its `[launch]` (`verb`, `result`, personas) and its starts: the buttons on an item's page,
+the lead one first, with their label, prompt and what they do while another session holds the item (docs/workflows.md,
+Starts). hubd won't start on a workflow the checks refuse. Each persona has a display name, initials and
 one of five families in `agents/personas/families.toml`, and hubd won't start if one is missing.
 
 - **Review, Security audit, Triage, Diagnose and the other read-and-report actions** are locked: only the tools the action's workflow grants.
