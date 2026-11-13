@@ -379,3 +379,27 @@ def test_a_repositorys_override_that_renames_a_start_is_what_starts_there(hub, t
     assert "pr-reader-boot" not in [r["id"] for r in a.starts_for("pr", "kernel", PR)["starts"]]
     with pytest.raises(AgentError, match="unknown action: pr-reader-boot"):
         a.defaults("pr-reader-boot", "kernel", PR)
+
+
+def test_a_failed_pull_request_lookup_with_no_earlier_answer_keeps_the_item_unsure(hub):
+    """A session that pushes a branch holds the pull requests it opened. GitHub failing on its first lookup says nothing about
+    them, so the item stays unsure, and a start that would hold it waits: never free on a failed answer."""
+    h, a = hub
+    name = "x-impl"
+    (a.sessions / name).mkdir(parents=True)
+    record = {"name": name, "session_id": "sid", "object": "issue", "config": {"action": "implementor", "repo": "boot", "number": 3}, "created": 1.0}
+    (a.sessions / name / "session.json").write_text(json.dumps(record))
+    a.machines.start(a.sessions / name, a.library.actions["implementor"])
+    assert a.holders("pr", "boot", PR) == ([], [name])
+    asyncio.run(a.refresh_prs([name]))  # the fake GitHub fails every branch lookup
+    assert a.holders("pr", "boot", PR) == ([], [name]), "a failed lookup made the item look free"
+    assert rows(a.starts_for("pr", "boot", PR))["pr-own"]["availability"] == "hidden"
+    # GitHub answers the next lookup (no pull request on its branch): what it found is what it holds, nothing is unknown
+
+    class Answers(FakeGh):
+        async def run(self, argv, stdin=None, timeout=None, token=None):
+            return {"code": 0, "stdout": "[]", "stderr": ""} if argv[0] == "api" and "/pulls?" in argv[-1] else await super().run(argv)
+    a.gh = Answers()
+    a._prs[name] = (a._prs[name][0] - agents_module.PRS_FOR - 1, *a._prs[name][1:])
+    asyncio.run(a.refresh_prs([name]))
+    assert name not in a._prs_unknown and a.holders("pr", "boot", PR) == ([], [])

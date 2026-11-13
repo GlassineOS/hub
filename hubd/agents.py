@@ -1128,6 +1128,8 @@ class Agents:
         self._per_repo: set[tuple[str, str]] = set()  # (action, repository) of a per_repo start under way
         self._holding: set[tuple] = set()  # (kind, repository, number) a start of a workflow that will hold it is making
         self._prs: dict[str, tuple[float, list, str | None]] = {}  # session name: when looked up, its pull requests, which session id
+        # session name: (session id, the repositories whose lookup failed with no earlier answer): what it holds there isn't known
+        self._prs_unknown: dict[str, tuple[str | None, frozenset]] = {}
         self.switch_watchers: list = []  # called (name, old id, new id) as a fresh context takes over (handoff.py)
         self._pr_lookups: dict[str, asyncio.Task] = {}
         self._removing: set[str] = set()
@@ -3195,9 +3197,12 @@ class Agents:
             seen = self._prs.get(prs_of)
             if of_record.get("object") == "pr":
                 continue
+            unknown = self._prs_unknown.get(prs_of)
             if seen and seen[2] == of_record.get("session_id"):
                 if any(str(p["repo"]).lower() == str(repo).lower() and p["number"] == number for p in seen[1]):
                     return True
+                if unknown and unknown[0] == of_record.get("session_id") and str(repo).lower() in unknown[1]:
+                    return None  # its lookup there failed before any answer: not known, never free
             elif any(r.lower() == str(repo).lower() for r in self._pr_repos(of_record)):
                 return None
         return False
@@ -3403,18 +3408,27 @@ class Agents:
     async def _look_up_prs(self, name: str, record: dict, repos: list[str], seen) -> None:
         """Every repository at once, each with its own time limit; one that fails or is slow keeps what it had."""
         answers = await asyncio.gather(*(self._pr_of(repo, f"agent/{name}", timeout=PRS_ASK) for repo in repos), return_exceptions=True)
-        found = []
+        found, unknown = [], set()
+        earlier = seen is not None and seen[2] == record.get("session_id")
+        was_unknown = self._prs_unknown.get(name, (None, frozenset()))
+        was_unknown = was_unknown[1] if was_unknown[0] == record.get("session_id") else frozenset()
         for repo, pr in zip(repos, answers):
             if isinstance(pr, Exception):  # only shown, so nothing here may fail a list
                 log.info("pull requests of %s in %s: %s", name, repo, pr)
-                old = [p for p in (seen[1] if seen and seen[2] == record.get("session_id") else []) if p["repo"] == repo]
+                old = [p for p in (seen[1] if earlier else []) if p["repo"] == repo]
                 found += old
+                if not earlier or repo.lower() in was_unknown:  # no answer yet: it may hold one there, so it stays unsure
+                    unknown.add(repo.lower())
                 continue
             if pr:
                 found.append({"repo": repo, "number": pr["number"], "state": pr["state"]})
         if self.session_id_of(name) != record.get("session_id"):  # a new conversation took over meanwhile: its own lookup counts
             return
         self._prs[name] = (time.monotonic(), found, record.get("session_id"))
+        if unknown:
+            self._prs_unknown[name] = (record.get("session_id"), frozenset(unknown))
+        else:
+            self._prs_unknown.pop(name, None)
 
     # --- afterwards ------------------------------------------------------------------
     def describe(self, name: str) -> dict | None:
