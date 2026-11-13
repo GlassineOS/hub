@@ -172,7 +172,7 @@ def _state_json(s: machine.State) -> dict:
     return {"id": s.id, "parent": s.parent, "initial": s.initial, "final": s.final, "personas": list(s.personas),
             "context": s.context, "exits": [_exit_json(e) for e in s.exits],
             "manages": [{"name": m.name, "persona": m.persona, "workflow": m.workflow, "start": m.start, "max": m.max, "reuse": m.reuse,
-                         "on_exit": m.on_exit, "with": list(m.with_), "returns": {k: list(v) for k, v in m.returns.items()}}
+                         "on_exit": m.on_exit, "with": list(m.with_), "returns": {k: v if isinstance(v, str) else list(v) for k, v in m.returns.items()}}
                         for m in s.manages]}
 
 

@@ -130,7 +130,8 @@ def build(github: GitHub, docs: DocSearch) -> MCPServer:
     @_says_why
     async def return_result(fields: dict) -> dict:
         """Hand your result to your owner, the session whose workflow started you: every field your entry returns, each one of
-        its values (your first prompt lists them). It is a fact for your owner's workflow; call it once you are done."""
+        its values (your first prompt lists them); a field that takes lines of text is a list of short strings, which your owner
+        reads. A value is a fact for your owner's workflow; call it once you are done."""
         return await github.return_result(fields)
 
     @mcp.tool(annotations=WRITE)

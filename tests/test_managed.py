@@ -605,3 +605,14 @@ def test_a_move_counts_what_its_managed_sessions_would_hold_but_the_owner_runs_o
     # the move back widens only by what greedy would run with: its change shows list_prs, its own launch has nothing to take
     assert back["moved"] and back["widening"] and not back["own_widening"]
     assert "list_prs" in back["change"]["adds"].get("hub_tools", [])
+
+
+def test_a_text_list_return_is_for_the_owner_to_read_never_a_fact():
+    text = (REPO / "agents" / "workflows" / "implement.toml").read_text()
+    d = machine.parse(text)
+    assert d.states["review"].manages[0].returns == {"verdict": ("pass", "fail"), "findings": machine.TEXT_LIST}
+    wrong = text.replace('requires = ["pr.review == changes_requested or managed.reviewer.verdict == fail"]\non',
+                         'requires = ["managed.reviewer.findings == x"]\non', 1)
+    assert wrong != text
+    found = [f for f in machine.check(machine.parse(wrong)) if "not a fact" in str(f)]
+    assert found
