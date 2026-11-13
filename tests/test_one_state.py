@@ -146,6 +146,8 @@ def test_the_notes_search_holds_for_every_state_a_session_can_move_to(tmp_path):
     root = _copy(tmp_path)
     _edit(root / "workflows" / "knowledge-research.toml", "final = true",
           '[[state.session.exit]]\nto = "post"\ndecided_by = "hand"\n\n[state.post]\nfinal = true\n[state.post.grant]\nhub_tools = ["comment_issue"]')
+    # a start that runs beside a holder can't reach a state that writes either: it asks the owner, so the search rule is what's left
+    _edit(root / "workflows" / "knowledge-research.toml", 'when_held = "beside"', 'when_held = "ask"')
     with pytest.raises(LibraryError, match="in every state"):
         Library(root)
     _edit(root / "workflows" / "knowledge-research.toml", 'hub_tools = ["comment_issue"]', 'hub_tools = ["docs_search"]')
