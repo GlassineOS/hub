@@ -1840,7 +1840,7 @@ class Agents:
                     self._scopes[token] = _session_scope(name, config, _full(action), self._all_repos(config, action), self._asks_first(config, action),
                                                          record.get("session_id"))
             self.write_grant(directory, config, action)
-            if action.get("singleton"):  # what it's told has to match what it can do
+            if action.get("singleton") or staged:  # what it's told has to match what it can do
                 self._write_persona(config, action, directory)
             if not (directory / TOKEN_FILE).exists():
                 self._session_token(directory, config, _full(action), record.get("session_id"))

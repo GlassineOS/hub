@@ -189,7 +189,8 @@ A new restriction has to name the threat it stops, or be listed here as a guard.
   login, guarded by hubd and not limited by a token.
 - **Resuming a session.** A session that has stopped keeps its record, tool token and checkout until
   you discard it, and Resume starts it again with its conversation. It needs a login, like starting
-  one. Its rights are checked again against its action's workflow as it is now, and it refuses if they don't
+  one. Its rights are checked again against its action's workflow as it is now (for a session that can move, its current
+  state's grant), and it refuses if they don't
   fit. The conversation itself comes back as it was, including any outsider's text it had read.
 - **Personas on GitHub.** A persona with a GitHub App (`apps.toml`, made by
   `deploy/create-app.py`) makes its writes as that App: GitHub limits it to the App's
@@ -241,7 +242,8 @@ its current state's effective grant and nothing else; `hubd/effects.py` applies 
   Needs you that hubd alone makes (`decision.add` and a token's `decision_request` refuse the kind). It names the move, what it adds,
   takes away and keeps, and marks the sensitive items and a full grant; approving it confirms that move and nothing else, and it ends
   at once. A move that adds anything, confirmed now or before in the instance, takes effect only by resuming the same conversation
-  under a new launch with the new state's grant, once the session is at its prompt. A stopped session isn't started for it.
+  under a new launch with the new state's grant, once the session is at its prompt. A stopped session isn't started for it. A
+  relaunch still waiting when hubd stops is lost: the session keeps the old launch until it is resumed, which takes the new grant.
 - **A conversation keeps its access and its checkout.** A move to a state with other ones fails back: one that waits is declined,
   one that happened is rolled back (logged as the hub's), and the evaluation log says why. Resume refuses the same.
 - **The words a move adds** are the definition's instructions, marked as the hub's, never text from a transcript.
@@ -515,7 +517,7 @@ A tab under Work, over the work store and your decisions. It merges, reviews and
 
 - The history tab shows transcripts to whoever is logged in, for sessions the hub ran only. A transcript can hold
   anything the session read, an outsider's text included, and it's shown as plain text.
-- A resume reads the session's rights from its action's workflow as they are now. A restored checkout comes from GitHub:
+- A resume reads the session's rights from its action's workflow as they are now (its current state's, for one that can move). A restored checkout comes from GitHub:
   uncommitted files from a removed worktree don't come back, so the hub doesn't remove one that has them. Ignored files
   count too: a full session holding more than 1 MiB of them stays when it ends, and discarding it has to name them on a second card.
 - `agent.worktrees` (a login op) lists the folders a plain shell can start in for a repository: its workspace checkout and

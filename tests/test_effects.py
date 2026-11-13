@@ -433,3 +433,50 @@ def test_needs_you_answers_a_card_through_the_machine(world):
     assert not refused["ok"] and not added["ok"]
     assert answered["ok"] and answered["item"]["status"] == "denied" and answered["item"]["detail"]["why_ended"] == "you said no: later"
     assert a.machines.load(name)[1].pending is None
+
+
+def test_a_rolled_back_move_that_cant_take_effect_returns_to_where_it_was(world, monkeypatch):
+    a, decisions, effects = world
+
+    async def refuse(name, relaunch=False):
+        raise AgentError(f"{name} can't resume: the network is down")
+
+    async def go():
+        name = await start(a)
+        confirm(a, decisions, effects, name, "wide")
+        (a.sessions / name / IDLE_FILE).touch()
+        await effects.drain()
+        a.machines.move(name, "write", "hand")
+        await effects.drain()
+        monkeypatch.setattr(a, "resume", refuse)
+        (a.sessions / name / IDLE_FILE).touch()
+        assert a.machines.rollback(name, "me")["state"] == "wide"
+        await effects.drain()
+        return name
+    name = run(go())
+    assert a.machines.load(name)[1].state == "write"  # not research, the move before
+    assert scope_of(a, name)["tools"] == ["docs_search", "submit_result", "comment_issue"]
+
+
+def test_a_narrowed_github_token_that_cant_be_made_leaves_none(world, monkeypatch):
+    a, _d, effects = world
+
+    async def fails(directory, config, action):
+        raise AgentError("GitHub didn't answer")
+
+    async def go():
+        name = await start(a)
+        folder = a.sessions / name / agents_module.GITHUB_FOLDER
+        folder.mkdir()
+        (folder / "token").write_text("wide")
+        monkeypatch.setattr(a, "_github_token", fails)
+        await effects._renew_token(name, {}, {})
+        return folder
+    assert not run(go()).exists()
+
+
+def test_sensitive_marks_cover_what_asks_first_too():
+    from hubd.effects import sensitive_of
+    from hubd.machine import Grant
+    assert sensitive_of({"asks_first": ["merge_pr"]}, Grant()) == {"merge_pr": "merging to the default branch"}
+    assert "access" in sensitive_of({}, Grant(access="full"))

@@ -24,10 +24,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import shutil
 import sqlite3
 
 from . import instances, machine
-from .agents import HUB_SENDER, AgentError, _full, _mode
+from .agents import GITHUB_FOLDER, HUB_SENDER, AgentError, _full, _mode
 from .decisions import DecisionError
 from .instances import MachineError
 from .machine_log import LogError
@@ -71,7 +72,8 @@ def context_of(d: machine.Definition, frm: str, to: str) -> tuple[str, str]:
 def sensitive_of(adds: dict, grant: machine.Grant) -> dict[str, str]:
     """FR-034's marks on what a confirm adds, and a full session's. A mark adds no rule."""
     marks = {c: machine.SENSITIVE[c] for c in adds.get("github", ()) if c in machine.SENSITIVE}
-    marks |= {t: machine.SENSITIVE_HUB_TOOLS[t] for t in adds.get("hub_tools", ()) if t in machine.SENSITIVE_HUB_TOOLS}
+    marks |= {t: machine.SENSITIVE_HUB_TOOLS[t] for key in ("hub_tools", "asks_first") for t in adds.get(key, ())
+              if t in machine.SENSITIVE_HUB_TOOLS}
     if grant.access == "full":
         marks["access"] = FULL_MARK
     return marks
@@ -101,17 +103,18 @@ class Effects:
         if not result.get("moved"):
             return
         quiet = name in self._quiet
-        if not quiet and (problem := self.agents.launch_problem(name)):
-            self._fail_back(name, result, problem)
-            return
         try:
+            problem = None if quiet else self.agents.launch_problem(name)
+            if problem:
+                self._fail_back(name, result, problem)
+                return
             narrowed = self.agents.narrow_to_state(name)
         except Exception:  # noqa: BLE001: the move is saved, so the session can't keep the old grant: nothing, until a resume
             log.exception("%s: its grant couldn't follow its move, so its tools refuse everything", name)
             self.agents.lock_down(name)
             return
         if narrowed["github_changed"]:
-            self._spawn(self.agents._github_token(self.agents.sessions / name, narrowed["config"], narrowed["state"]))
+            self._spawn(self._renew_token(name, narrowed["config"], narrowed["state"]))
         if quiet:
             return
         _record, inst = self.machines.load(name)
@@ -227,10 +230,13 @@ class Effects:
         try:
             _record, inst = self.machines.load(name)
             d_to = inst.definition()
-            if inst.state == result["to"] and inst.trail:
+            if inst.state == result["to"]:
                 self._quiet.add(name)
                 try:
-                    self.machines.rollback(name, "hub")
+                    if result.get("by") == "rollback":  # its trail entry went with it: back by a move, not another roll-back
+                        self.machines.move(name, result["from"], "hand", who="hub")
+                    elif inst.trail:
+                        self.machines.rollback(name, "hub")
                 finally:
                     self._quiet.discard(name)
             _record, inst = self.machines.load(name)
@@ -241,6 +247,15 @@ class Effects:
         self._log_failure(name, result["to"], result["version"], why)
         self.agents.tell(name, f"{LABEL} Workflow: the move to {path_of(d_to, result['to'])} didn't take effect: {why}. "
                                f"Still in {path_of(inst.definition(), inst.state)}.")
+
+    async def _renew_token(self, name: str, config: dict, state: dict) -> None:
+        """The GitHub token again, with the capabilities left. If that fails the old, wider one goes: none rather than too much."""
+        directory = self.agents.sessions / name
+        try:
+            await self.agents._github_token(directory, config, state)
+        except Exception:  # noqa: BLE001: fails closed
+            log.exception("%s: its narrowed GitHub token couldn't be made, so it has none until a resume", name)
+            shutil.rmtree(directory / GITHUB_FOLDER, ignore_errors=True)
 
     # --- context ------------------------------------------------------------------------
     async def _compact(self, name: str, focus: str) -> None:
