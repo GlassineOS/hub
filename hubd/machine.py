@@ -63,7 +63,7 @@ SIGNALS = ("turn.end", "session.end", "tool.after", "compact.before",
 # <state> names a state of the definition; <entry>.<field> a `manages` entry of the state or an ancestor and a field of its
 # `returns`, whose values are the entry's.
 FACTS = {"pr.open": "bool", "pr.merged": "bool", "pr.checks": ("pass", "fail", "pending"),
-         "pr.review": ("approved", "changes_requested", "none"), "branch.pushed": "bool", "issue.linked": "bool",
+         "pr.review": ("approved", "changes_requested", "none"), "pr.reviewed": "bool", "branch.pushed": "bool", "issue.linked": "bool",
          "design.accepted": "bool", "report.answered": "bool",
          "rounds.<state>": "int", "time.<state>": "int", "tokens.<state>": "int", "managed.<entry>.<field>": "returns"}
 COUNTERS = ("rounds", "time", "tokens")

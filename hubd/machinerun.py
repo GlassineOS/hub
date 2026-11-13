@@ -85,6 +85,8 @@ def pr_facts(state: str | None, seen: dict, own_branch: bool) -> dict:
         out["pr.checks"] = CHECKS[seen["checks"]]
     if seen.get("review") in REVIEWS:
         out["pr.review"] = REVIEWS[seen["review"]]
+    if seen:  # the feed has seen it: whether a review came since its newest head, so a push since a review shows
+        out["pr.reviewed"] = seen.get("review") in REVIEWS
     if own_branch:  # found by the session's own branch, so that branch is on GitHub
         out["branch.pushed"] = True
     return out
@@ -365,16 +367,13 @@ class Runner:
             facts = await self._facts_now(name, record, inst)
             reqs = [check(expr, facts) for expr in exit_.requires]
             row = {"exit": index, "to": exit_.to, "decided_by": exit_.decided_by, "checks": reqs, "holds": all(r["holds"] for r in reqs)}
-            result = None
-            if row["holds"]:
-                try:
-                    result = self.machines.move(name, exit_.to, by="machine", enter=exit_.enter, who=who)
-                except (MachineError, OSError) as e:
-                    result = {"moved": False, "error": str(e)}
+            result = self._move(name, inst.state, inst.version, exit_, who) if row["holds"] else None
             self._log(record, name, ["hub:approved"], inst.state, inst.version, d, None, None, None, (index, exit_), [row], None, result)
         if result is None:
             failed = [t["fact"] for c in reqs if not c["holds"] for t in c["terms"]]
             raise MachineError(f"its requirements don't hold any more: {', '.join(dict.fromkeys(failed))}")
+        if result.get("stale"):  # a move by hand while its facts were looked up
+            raise MachineError("the session has moved since that was asked")
         return result
 
     def _facts_of(self, name: str, record: dict) -> dict:
@@ -411,13 +410,14 @@ class Runner:
             return ""
         return turn if isinstance(turn, str) else ""
 
-    def _move(self, name: str, state: str, version: str, exit_: machine.Exit) -> dict:
-        """Only if nothing moved the instance while the judge thought. No await between the look and the move."""
+    def _move(self, name: str, state: str, version: str, exit_: machine.Exit, who: str | None = None) -> dict:
+        """Only if nothing moved the instance while the judge thought or the facts were looked up. No await between the
+        look and the move. `who` agreed to it, for an approved exit."""
         try:
             _record, inst = self.machines.load(name)
             if (inst.state, inst.version) != (state, version) or inst.paused or inst.pending:
                 return {"moved": False, "stale": "the machine changed during the evaluation"}
-            return self.machines.move(name, exit_.to, by="machine", enter=exit_.enter)
+            return self.machines.move(name, exit_.to, by="machine", enter=exit_.enter, who=who)
         except (MachineError, OSError) as e:
             return {"moved": False, "error": str(e)}
 

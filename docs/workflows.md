@@ -60,7 +60,7 @@ The exits of a state are tried in order, its own before its parents', and the fi
 ## Facts and signals
 
 Facts: `pr.open`, `pr.merged`, `pr.checks` (`pass`, `fail`, `pending`), `pr.review` (`approved`, `changes_requested`,
-`none`), `branch.pushed`, `issue.linked`, the counters `rounds.<state>`, `time.<state>` (seconds) and `tokens.<state>`, and
+`none`), `pr.reviewed` (a review came since the newest head; `not pr.reviewed` means pushed since the review), `branch.pushed`, `issue.linked`, the counters `rounds.<state>`, `time.<state>` (seconds) and `tokens.<state>`, and
 `managed.<entry>.<field>` for what a managed session returns. A pull request's checks and review count only since its newest
 head: after a push they are unknown until the feed sees them again. The session's pull request is found by its branch,
 looked up at most once a minute.
