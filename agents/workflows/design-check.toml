@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# The Designer checks a user-facing pull request against the accepted design boards (spec 012, FR-074). It reads only: the
+# pull request at its head, in a detached checkout that can't push, and the boards of GlassineOS/ui as merged. Its grant is
+# a code reviewer's, so it fits under the same owners.
+schema = 1
+name = "design-check"
+initial = "session"
+
+[state.session]
+final = true
+[state.session.grant]
+tools = ["Read", "Grep", "Glob", "Skill", "AskUserQuestion", "Bash"]
+hub_tools = ["request_repository", "list_repo_files", "read_repo_file", "map_overview", "map_definition", "map_usages",
+             "map_string", "code_search", "get_pr", "get_pr_diff", "get_pr_threads", "docs_search", "work_search"]
+checkout = "pr"

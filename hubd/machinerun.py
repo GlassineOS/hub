@@ -109,6 +109,7 @@ class HubFacts:
 
     def __call__(self, name: str, record: dict) -> dict:
         out = {"issue.linked": True} if record.get("object") == "issue" else {}
+        out.update(self._design(name))
         prs = self.agents.known_prs(name)
         if prs is None:  # never looked up: whether there is one is unknown
             return out
@@ -117,6 +118,16 @@ class HubFacts:
         pr = min(prs, key=lambda p: p.get("state") != "OPEN")
         seen = self._seen(pr["repo"], pr["number"])
         return {**out, **pr_facts(seen.get("state") or pr.get("state"), seen, record.get("object") != "pr")}
+
+    def _design(self, name: str) -> dict:
+        """design.accepted (012 FR-073): a design session this one manages had its pull request merged, as the feed (or the
+        last lookup) says. False while its pull requests are there and none is merged; unknown before it has one."""
+        design_prs = getattr(self.agents, "design_prs", None)
+        prs = design_prs(name) if design_prs else []
+        if not prs:
+            return {}
+        states = [self._seen(p["repo"], p["number"]).get("state") or p.get("state") for p in prs]
+        return {"design.accepted": any(s == "MERGED" for s in states)}
 
     def _seen(self, repo: str, number: int) -> dict:
         if self.feed is None:
@@ -535,7 +546,8 @@ def for_hub(agents, feed, judges) -> Runner:
 
     def items(name, record):
         found = [(c["repo"], c["number"]) for c in covers_of(record.get("config", {}))]
-        return found + [(p["repo"], p["number"]) for p in agents.known_prs(name) or ()]
+        # what it carries, and its design sessions' pull requests, whose merge is its design.accepted
+        return found + [(p["repo"], p["number"]) for p in [*(agents.known_prs(name) or ()), *agents.design_prs(name)]]
 
     def turn(_name, record):
         session_id = record.get("session_id")

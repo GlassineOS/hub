@@ -61,11 +61,14 @@ SIGNALS = ("turn.end", "session.end", "tool.after", "compact.before",
 
 # The facts `requires` may test, with their value types: "bool", "int", or the tuple of values an enum takes.
 # <state> names a state of the definition; <entry>.<field> a `manages` entry of the state or an ancestor and a field of its
-# `returns`, whose values are the entry's.
+# `returns`, whose values are the entry's. started.<entry>: whether a session of that entry started in the entry's current
+# round, or its start waits for an approval, known for every entry in force. when.<entry>: what the judge said of an entry's
+# `when` this round, unknown until it is judged. draft.reviewed: the newest draft went to a reviewer. design.accepted: whether a design session the state manages had its pull request
+# merged. draft.*: the newest workflow draft of a workflow-change session, and its failed drafts in the current round.
 FACTS = {"pr.open": "bool", "pr.merged": "bool", "pr.checks": ("pass", "fail", "pending"),
          "pr.review": ("approved", "changes_requested", "none"), "pr.reviewed": "bool", "branch.pushed": "bool", "issue.linked": "bool",
-         "design.accepted": "bool", "report.answered": "bool",
-         "rounds.<state>": "int", "time.<state>": "int", "tokens.<state>": "int", "managed.<entry>.<field>": "returns"}
+         "design.accepted": "bool", "report.answered": "bool", "draft.ok": "bool", "draft.sensitive": "bool", "drafts.failed": "int",
+         "draft.reviewed": "bool", "started.<entry>": "bool", "when.<entry>": "bool", "rounds.<state>": "int", "time.<state>": "int", "tokens.<state>": "int", "managed.<entry>.<field>": "returns"}
 COUNTERS = ("rounds", "time", "tokens")
 # A `returns` field is a list of the values it takes (a fact), or TEXT_LIST: short lines of text handed to the owner as data,
 # never a fact. Bounds on what such a field carries:
@@ -199,6 +202,8 @@ def fact_type(name: str):
         return "int"
     if len(parts) == 3 and parts[0] == "managed" and _ID.fullmatch(parts[1]) and _FIELD.fullmatch(parts[2]):
         return "returns"
+    if len(parts) == 2 and parts[0] in ("started", "when") and _ID.fullmatch(parts[1]):
+        return "bool"
     return None
 
 
@@ -747,6 +752,8 @@ def check(d: Definition) -> list[Finding]:
                     kind = t.name.split(".")
                     if kind[0] in COUNTERS and len(kind) == 2 and kind[1] not in d.states:
                         problem(f"{where}.requires", f"{t.name}: {kind[1]!r} isn't a state")
+                    if kind[0] in ("started", "when") and len(kind) == 2 and kind[1] not in returns:
+                        problem(f"{where}.requires", f"{t.name}: no managed entry here is named {kind[1]}")
                     if kind[0] == "managed" and len(kind) == 3:
                         values = returns.get(kind[1], {}).get(kind[2])
                         if values is None:
