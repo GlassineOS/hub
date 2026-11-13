@@ -3250,3 +3250,14 @@ def test_the_workflow_editor_has_a_starts_section_and_the_list_is_by_kind():
     listed = _component(script, "WorkflowList")
     assert "START_KINDS.map(" in listed and "Managed only" in listed and "w.managed_only" in listed
     assert "Starts that change" in _component(script, "SaveDialog")
+
+
+def test_launchs_choices_are_the_starts():
+    """005 FR-012 through 012 FR-102: Launch chooses among the starts by their labels: on an item, its kind's starts, then the
+    new work any item can lead to (no one-per-repository or singleton start); with nothing covered, every start by kind."""
+    script = _app_js()
+    brief = _component(script, "LaunchBrief")
+    assert "`For ${covers.map(ref).join(\", \")}`, leadFirst(actions.filter((a) => a.object === kindNow))" in brief
+    assert '"Or new work from this", actions.filter((a) => NEW_FROM.includes(a.object) && a.object !== kindNow && !a.one)' in brief
+    assert "START_KINDS.map(([k, words]) => [words, actions.filter((a) => a.object === k)])" in brief
+    assert "${a.title}${RESULT_TAG[a.result]" in brief and "verbs.map" not in brief and "More…" not in brief

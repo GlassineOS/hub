@@ -1104,6 +1104,7 @@ class Agents:
                  "full": _full(a), "plan": a.get("plan", True), "models": a["models"], "needs": a.get("needs"),
                  "verb": a.get("verb"), "result_words": RESULTS[a["result"]], "repository": a.get("repository"),
                  "lead": bool(a.get("lead")), "when_held": a.get("when_held"), "workflow": a["workflow"], "state": a.get("state"),
+                 "one": bool(a.get("singleton") or a.get("per_repo")),
                  "family": self.library.family(a["personas"][0])["family"],
                  "persona_name": self.library.family(a["personas"][0])["name"],
                  "persona": a["personas"][0], "initials": self.library.family(a["personas"][0])["initials"]}

@@ -277,3 +277,12 @@ def test_a_one_state_session_holds_its_item_unless_it_started_beside_a_holder(hu
         # the reader ran beside it, so it holds nothing when the holder ends
         assert (await h.item_starts("pr", "boot", PR))["holder"] is None and reader not in a.holders("pr", "boot", PR)[0]
     asyncio.run(go())
+
+
+def test_a_start_that_runs_once_says_so_so_launch_offers_it_on_its_own_item_only(hub):
+    """Launch's "new work from this" leaves out starts that run once: a singleton (the Steward) and one per repository (a
+    repository's maintainer). Every other start says it may run more than once."""
+    a = hub[1]
+    one = {r["id"]: r["one"] for kind in ("issue", "pr", "run", "repo", "project", "knowledge", "notes") for r in a.actions(kind)}
+    assert one["project-steward"] and one["repo-maintainer"]
+    assert not any(v for k, v in one.items() if k not in ("project-steward", "repo-maintainer")), one
