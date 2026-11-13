@@ -299,6 +299,9 @@ its current state's effective grant and nothing else; `hubd/effects.py` applies 
   never a judge's evidence or a transcript. It goes out as the persona's App, or the hub's login for a persona without one,
   as an applied result does; an App that fails posts nothing. Its App asks for comment rights for that, and it edits only
   the comment it posted, by the id it kept.
+- **The costs are a login's.** `machine.costs` (`hubd/machinecost.py`) reads the machine log, the session folders and the
+  history, and only a login's token reaches it, as for `machine.history`; a session's token is refused. Its figures are
+  counts, times, tokens and money, never an evaluation's evidence.
 - **A fresh context starts from references, not the transcript.** A state with `context = "fresh"` ends the conversation
   and starts a new one under the same instance (`hubd/handoff.py`): its prompt is the action's first prompt and a note the
   hub writes from the issue, the pull request, the states' instructions and the moves the log kept (state ids and how each

@@ -97,6 +97,8 @@ class FakeHubd(Hubd):
                 return {"ok": True, "instance": {"state": "review", "pending": None}, "exits": [], "states": [], "path": ["work", "review"]}
             if op == "machine.history":
                 return {"ok": True, "evaluations": [], "moves": [{"by": "hand"}]}
+            if op == "machine.costs":
+                return {"ok": True, "sessions": [], "at_once": 0, "workflows": []}
             if op == "machine.move" and request.get("to") == "merge-ready":
                 return {"ok": True, "moved": False, "needs_confirm": True, "pending": "p1", "to": "merge-ready",
                         "change": {"adds": {"github": ["merge"]}, "removes": {}, "keeps": {}}, "adds": {"github": ["merge"]},
@@ -3084,6 +3086,22 @@ def test_the_machine_panel_goes_with_the_login(client, hubd):
     assert got["path"] == ["work", "review"] and "ok" not in got
     assert client.get("/api/machines/s/history").json() == {"evaluations": [], "moves": [{"by": "hand"}]}
     assert hubd.commands[-1] == ("machine.history", {"op": "machine.history", "token": "good", "name": "s"})
+
+
+def test_the_costs_go_with_the_login_and_an_item_is_a_repository_and_a_number(client, hubd):
+    """012 FR-090: one session's piece of work, every piece on one item, each workflow's averages."""
+    assert client.get("/api/machines/s/costs").status_code == 401
+    assert client.get("/api/machine-costs").status_code == 401
+    signed_in(client)
+    got = client.get("/api/machines/s/costs").json()
+    assert "ok" not in got and got["at_once"] == 0
+    assert hubd.commands[-1] == ("machine.costs", {"op": "machine.costs", "token": "good", "session": "s"})
+    client.get("/api/machine-costs")
+    assert hubd.commands[-1][1] == {"op": "machine.costs", "token": "good", "workflows": True}
+    client.get("/api/machine-costs?repo=boot&number=7")
+    assert hubd.commands[-1][1] == {"op": "machine.costs", "token": "good", "repo": "boot", "number": 7}
+    for bad in ("?repo=boot", "?number=7", "?repo=boot&number=-1", "?repo=boot&number=%C2%B2", "?repo=boot&number=1234567890"):
+        assert client.get("/api/machine-costs" + bad).status_code == 400, bad
 
 
 def test_a_widening_move_comes_back_waiting_and_is_confirmed_or_cancelled(client, hubd):

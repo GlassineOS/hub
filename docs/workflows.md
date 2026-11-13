@@ -149,6 +149,21 @@ While a "Workflow approval" card is up for where a session is, nothing else is t
 
 Every evaluation and move is in the machine log, with each check and the value it saw, the judge, its time and its cost.
 
+## What it cost
+
+A session's panel has a **Cost** section for its piece of work: the session and the sessions it manages, over every
+conversation it has had. It shows the most sessions that ran at once, the judge's calls with their time and cost, tokens,
+cost and time per state (tokens and cost as the session's status line reported them, banked into the state it was in before
+each move; a state counts the states inside it), and overrides: a move by hand that rolled back a move of the machine, or
+replaced one within ten minutes. The workflows list shows each workflow's averages over its sessions: judge calls per session,
+the share of the machine's moves that were overridden, and the median time from a signal to its move. Only a login reads them
+(`machine.costs`).
+
+That time, from the first signal of a pass to its move being logged, is kept with each evaluation that moved. Its fixed parts
+are shown beside it: the debounce of 2 seconds, the 3 seconds a pass waits for a pull request lookup, the judge's time limit,
+and the lookup itself, at most once a minute per session. The change feed doesn't carry a pull request's branch, so a new pull
+request reaches its session at the next lookup, not with the feed's event.
+
 ## Versions and the editor
 
 The file under `agents/workflows` is version 0 of the organisation's workflow. Saving one in the editor (`#/workflows`) writes the

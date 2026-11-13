@@ -49,7 +49,7 @@ from .codemap import UNREADABLE, CodeMaps, MapError
 from .codesearch import CodeSearch, SearchError
 from .ghpolicy import ORG, Refused
 from .history import History
-from .instances import FILE as MACHINE_FILE, UNREADABLE, MachineError, Machines
+from .instances import FILE as MACHINE_FILE, UNREADABLE, USAGE_KEY as MACHINE_USAGE, MachineError, Machines
 from .instances import _parse as instances_parse
 from .results import APPLY_TOOLS
 from .seeds import SeedError, Seeds, remove_tree
@@ -3169,7 +3169,7 @@ class Agents:
         directory = self.sessions / name
         if not directory.exists():
             directory.mkdir(mode=0o700)
-            (directory / "session.json").write_text(json.dumps({k: record[k] for k in record if k not in ("how", "ended", "machine", UNREADABLE)}))
+            (directory / "session.json").write_text(json.dumps({k: record[k] for k in record if k not in ("how", "ended", "machine", UNREADABLE, MACHINE_USAGE)}))
             try:
                 self.machines.restore(directory, record)
             except MachineError as e:  # its record stays in the history
