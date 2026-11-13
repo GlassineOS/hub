@@ -1115,12 +1115,13 @@ def test_needs_you_is_one_modal_with_decisions_go_and_grants_in_it():
     assert "GoPanel" not in _component(script, "DeviceCard") and 'needsYou({ filter: "grants" })' in _component(script, "DeviceCard")
 
 
-def test_the_header_has_six_views_needs_you_new_work_and_the_meter():
+def test_the_header_has_its_views_needs_you_new_work_and_the_meter():
     """A static check: the page isn't run here. FR-082-FR-086a, 007 FR-003, and the old addresses still land somewhere."""
     script = _app_js()
     nav = re.search(r"const NAV = \[(.*?)\];", script)[1]
     assert re.findall(r'\["(\w+)", "([^"]+)"\]', nav) == [("overview", "Overview"), ("roadmap", "Roadmap"), ("work", "Work"),
-                                                       ("knowledge", "Knowledge"), ("notes", "Notes"), ("shells", "Sessions")]
+                                                       ("knowledge", "Knowledge"), ("notes", "Notes"), ("shells", "Sessions"),
+                                                       ("workflows", "Workflows"), ("apps", "Apps")]
     views = re.search(r"const views = \{(.*?)\};", script)[1]
     assert "knowledge: Knowledge" in views and "notes: NotesPage" in views and "device" not in views and "docs" not in views
     for gone in ("function DeviceView(", "function DocsTabs(", "function Docs(", "function Budget(", "nav-count"):
@@ -1629,7 +1630,8 @@ def test_the_work_item_has_its_black_github_button_and_its_sections():
     assert "<${SuggestBest} " in _component(script, "SessionsOn")
     assert 'launch({ verb: "address", covers: [{ kind: "pr", repo, number }], pins: address.map(threadPin)' in _component(script, "Threads")
     assert 'launch({ verb: "review", covers: [{ kind: "pr", repo, number }]' in _component(script, "PrDetail")
-    assert "＋ New work from this…" in _component(script, "LaunchRow") and "bestAction(kind, facts, offered)" in _component(script, "LaunchRow")
+    starts = _component(script, "Starts")  # 012 FR-102: the lead start, then the quick tasks the item's state offers
+    assert "New work from this…" in starts and "offeredFor(starts.filter((s) => s !== lead), facts)" in starts
 
 
 ALL_VERBS = ("review", "fix", "address", "triage", "implement", "investigate")
@@ -1639,8 +1641,9 @@ ALL_VERBS = ("review", "fix", "address", "triage", "implement", "investigate")
     ({"failing": True}, "pr", "fix", ALL_VERBS), ({"failing": True}, "run", "fix", ALL_VERBS),
     ({"failing": True}, "run", "investigate", ("investigate", "review")),  # no fix offered: investigate
     ({"changesRequested": True, "openThreads": 0}, "pr", "address", ALL_VERBS),
-    ({"openThreads": 2}, "pr", "address", ALL_VERBS), ({"untriaged": True}, "issue", "triage", ALL_VERBS), ({}, "pr", "review", ALL_VERBS),
-    ({}, "issue", "implement", ALL_VERBS), ({}, "run", "investigate", ALL_VERBS),
+    ({"openThreads": 2}, "pr", "address", ALL_VERBS), ({"untriaged": True}, "issue", "triage", ALL_VERBS),
+    # otherwise the kind's lead start (012 FR-102), which has no verb: Take this on, Work on this, run-diagnose
+    ({}, "pr", "lead", ALL_VERBS), ({}, "issue", "lead", ALL_VERBS), ({}, "run", "lead", ALL_VERBS),
 ])
 def test_best_action_picks_by_the_items_state(facts, kind, verb, offered):
     """bestAction (006 FR-007) runs in node, on the function as it is in app.js. Work's rows and the item page share it."""
@@ -1649,9 +1652,9 @@ def test_best_action_picks_by_the_items_state(facts, kind, verb, offered):
     if not shutil.which("node"):
         pytest.skip("node isn't installed")
     script = _app_js()
-    src = script[script.index("const BEST_VERB"):script.index("const useKindActions")]
-    actions = [{"id": v, "verb": v} for v in offered]
-    code = src + f"\nconsole.log(bestAction({json.dumps(kind)}, {{openThreads: 0, ...{json.dumps(facts)}}}, {json.dumps(actions)}).verb);"
+    src = script[script.index("function bestAction"):script.index("const useKindActions")]
+    actions = [{"id": v, "verb": v} for v in offered] + [{"id": "lead", "verb": None, "lead": True}]
+    code = src + f"\nconsole.log(bestAction({json.dumps(kind)}, {{openThreads: 0, ...{json.dumps(facts)}}}, {json.dumps(actions)}).id);"
     assert subprocess.run(["node", "-e", code], capture_output=True, text=True, check=True).stdout.strip() == verb
 
 
@@ -1825,7 +1828,7 @@ def test_launch_is_one_modal_with_five_stages_opened_by_one_event():
     assert 'mode="compact"' in _component(script, "LaunchRun")
     # Each entry point says where it was opened (005 FR-001), in the screens hubd knows.
     assert 'launch({ action: action.id, covers: [{ kind, repo: row.repo, number: row.number }], from: { view: "Work"' in _component(script, "WorkRow")
-    assert 'from: { view: "Work", ref: here }' in _component(script, "LaunchRow")
+    assert 'from: { view: "Work", ref: here }' in _component(script, "Starts")
     assert 'from: { view: "Roadmap" }' in _component(script, "Roadmap") and 'from: { view: "Overview" }' in _component(script, "RepoDetail")
     # The Steward panel's ＋ asks the Steward in its chat (010 FR-006); its suggestions open Launch.
     assert "launch(" not in _component(script, "Steward")
@@ -2066,8 +2069,8 @@ def test_work_groups_rows_by_what_they_need():
              ("actions", run(), False, "Recent", "investigate")]
     offered = {"prs": [{"id": "pr-review", "verb": "review"}, {"id": "pr-fix-checks", "verb": "fix", "when": "failing"},
                        {"id": "pr-address-review", "verb": "address", "needs": "review"}],
-               "issues": [{"id": "issue-triage", "verb": "triage"}, {"id": "issue-docs", "verb": "implement"}],
-               "actions": [{"id": "run-diagnose", "verb": "investigate"}, {"id": "run-fix", "verb": "fix", "when": "failing"}]}
+               "issues": [{"id": "issue-triage", "verb": "triage"}, {"id": "implementor", "verb": "implement", "lead": True}],
+               "actions": [{"id": "run-diagnose", "verb": "investigate", "lead": True}, {"id": "run-fix", "verb": "fix", "when": "failing"}]}
     kinds = {"prs": "pr", "issues": "issue", "actions": "run"}
     code = "".join(f"""{{const r = ROWS[{json.dumps(tab)}]({json.dumps(row)}); const s = {"{agent: {waiting: false}}" if in_session else "undefined"};
       const a = r.startable ? bestAction({json.dumps(kinds[tab])}, r.facts, offeredFor({json.dumps(offered[tab])}, r.facts)) : null;
@@ -2411,7 +2414,7 @@ def test_roadmap_page_static_parts():
     assert "sessionsOn(" in card and "SessionChip" in card and "item.assignees" in card and "road: 1" in card
     assert "`${p.done} of ${p.total} done`" in _component(script, "Progress")
     assert "options.find((o) => o.mapped)" in _component(script, "Roadmap"), "a move never picks an option with no column"
-    assert 'road=${kind === "issue" && query.road === "1"}' in script and 'planIssues(repo, number, "Work")' in _component(script, "LaunchRow")
+    assert 'road=${kind === "issue" && query.road === "1"}' in script and 'planIssues(repo, number, "Work")' in _component(script, "Starts")
 
 
 # --- Knowledge: both indexes in one search (008) ---------------------------------------------------------
@@ -3219,3 +3222,30 @@ def test_the_callbacks_code_stays_out_of_the_access_log():
     assert "SECRETCODE1" not in text and "nonce12345" not in text and "/apps/callback?(hidden)" in text
     assert "/api/apps?x=1" in text
     assert "web.redact_access_log()" in (Path(main.__file__)).read_text()
+
+
+def test_an_items_starts_lead_and_a_held_item_leads_with_its_instance():
+    """A static check (012 FR-102 to FR-104): the item page's starts come from hubd's agent.starts; a held item shows its
+    holder first, then the asks of its owner, the read-only starts beside it, and the hidden ones behind a disclosure."""
+    script = _app_js()
+    starts = _component(script, "Starts")
+    assert 'post("agents/starts", { object: kind, repo, number })' in script and "<${Starts} key=${current.key}" in script
+    assert "function LaunchRow(" not in script and "BEST_VERB" not in script
+    assert 'class="primary lead"' in starts and "Quick tasks" in starts and "<span class=\"eyebrow\">May</span>" in starts
+    assert ">Held by<" in starts and "<${SessionChip} session=${session} />" in starts and "<b>Next:</b> ${holder.next}" in starts
+    assert 'post("agents/ask_owner", { object: kind, repo, number, ...body })' in starts
+    assert "Runs beside it · read-only" in starts and "<details" in starts and "Hidden while ${holder.session} holds this" in starts
+    assert 'size="lg"' in starts, "the state chip is yellow only when the holder waits for you (chipOf)"
+
+
+def test_the_workflow_editor_has_a_starts_section_and_the_list_is_by_kind():
+    """A static check (012 FR-105): every workflow is listed under the kinds its starts are on, or as managed only; the editor
+    edits one start through hubd's workflow.start, shows what its session receives, and saves through the editor's save."""
+    script = _app_js()
+    section = _component(script, "StartsSection")
+    assert "hub-workflows/${encodeURIComponent(name)}/start" in section and "onText(r.text)" in section
+    assert "What the session receives" in section and "Item details · data, not instructions" in section
+    assert "needs no confirm" in section and "<${StartsSection} name=${name}" in _component(script, "WorkflowEditor")
+    listed = _component(script, "WorkflowList")
+    assert "START_KINDS.map(" in listed and "Managed only" in listed and "w.managed_only" in listed
+    assert "Starts that change" in _component(script, "SaveDialog")
