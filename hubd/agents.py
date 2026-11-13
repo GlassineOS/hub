@@ -42,7 +42,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
-from . import auth, machine, machinerun, machinestore, shell_hook, usage
+from . import auth, handoff, machine, machinerun, machinestore, shell_hook, usage
 from .apps import CAPABILITIES, READ_CAPABILITIES, AppError, permissions_for
 from .asks import FOREVER, HOOK_MARGIN, QUESTION_TOOL, WAIT
 from .codemap import UNREADABLE, CodeMaps, MapError
@@ -2151,75 +2151,93 @@ class Agents:
             narrowed["github"] = [c for c in config["github"] if c in grant.github]
         return narrowed
 
-    async def resume(self, name, relaunch: bool = False) -> dict:
+    async def resume(self, name, relaunch: bool = False, fresh: dict | None = None) -> dict:
         """Any session that has stopped, with the conversation it had, the same checkout and its own token.
         The rights are read again from the action, so a resume can't keep what the action has since lost. A session that can
         move gets its workflow's current state's. `relaunch`: one still running is ended and started again so (effects.py, after
-        a move that widens), once the checks below have passed."""
+        a move that widens), once the checks below have passed. `fresh` ({note, persona}): a new conversation of that persona
+        takes over, with the hand-off note, once the checks have passed (012 FR-021, handoff.py)."""
         if not (isinstance(name, str) and _NAME_RE.fullmatch(name)):
             raise AgentError(f"no such session: {name}")
         directory = self.sessions / name
         async with self._resuming:
+            persona_was = handoff.set_persona(self, name, fresh["persona"]) if fresh else None
             try:
-                record = json.loads((directory / "session.json").read_text())
-            except (OSError, ValueError) as e:
-                raise AgentError(f"not a managed session: {name}") from e
-            live = any(s["name"] == name for s in await self.shells.list())
-            if live and not (directory / ENDED_FILE).exists() and not relaunch:
-                raise AgentError(f"{name} is still running")
-            # A move can come in at any await below, and its narrowing writes the record, the scopes and grant.json. Each round
-            # starts from the instance as it is; one that finds it has moved since is built again, so a stale state never wins.
-            for _round in range(RESUME_ROUNDS):
-                mark = self._machine_mark(name)
-                record = json.loads((directory / "session.json").read_text())
-                first = self.library.actions.get(record["config"].get("action"))
-                state = self._state_action(name, first) if first else None
-                staged = state is not None and state is not first
-                config = validate(self.library, self._current_config(record["config"], name, record.get("launched")), state)
-                action = state if staged else self.library.action(config["action"], config.get("repo"))
-                config = await self._github_for(config, action)
-                self._check_sandbox(config, action)
-                if _full(action) != record.get("full", False):
-                    raise AgentError(f"{name} can't resume: its action's access has changed")
-                if staged and (problem := self.launch_problem(name, _grant(action))):
-                    raise AgentError(f"{name} can't resume: {problem}")
-                present = self._present(name)
-                if len(present) < len(self._checkouts(name, config, action)):
-                    raise AgentError(f"{name} can't resume: its checkout is gone")
-                if staged:  # what it was launched with stays, for what the next state takes off (_state_config)
-                    record = {**record, "launched": record.get("launched") or record["config"], "checkout": record.get("checkout", _grant(first).checkout)}
-                if staged or any(config.get(f) != record["config"].get(f) for f in ("model", "tools", "hub_tools", "github")) or record.get("permission_mode") != _mode(action):
-                    # A resume runs with what the action says now (_argv), so the record says that too.
-                    (directory / "session.json").write_text(json.dumps({**record, "config": config, "permission_mode": _mode(action)}))
-                    self._load_scopes()
-                    for token in [t for t, s in self._scopes.items() if s["session"] == name]:
-                        self._scopes[token] = _session_scope(name, config, _full(action), self._all_repos(config, action), self._asks_first(config, action),
-                                                             record.get("session_id"), self.chain_tools(name, first))
-                self.write_grant(directory, config, action)
-                if action.get("singleton") or staged:  # what it's told has to match what it can do
-                    self._write_persona(config, action, directory)
-                if not (directory / TOKEN_FILE).exists():
-                    self._session_token(directory, config, _full(action), record.get("session_id"), self.chain_tools(name, first))
-                (directory / REPOS_FOLDER).mkdir(exist_ok=True)  # one from before there were snapshots
-                self._prepare_shell(directory, config, action)
-                await self._github_token(directory, config, action)
-                await self._probe_sandbox(directory, config, action)
-                if self._machine_mark(name) == mark:
-                    break
-            else:
-                raise AgentError(f"{name} can't resume: its workflow kept moving while it was set up")
-            (directory / LOCKED_FILE).unlink(missing_ok=True)  # its rights were worked out again just now
-            argv = self._argv(config, action, directory, present[0] if present else None, record["session_id"],
-                              self._prepare_home(), resume=True, chain=self.chain_tools(name, first))
-            script = self._launcher(directory, "resume.sh", shlex.join(argv))
-            cwd = self.workspace if _full(action) else self.home
-            if live:
-                await self.shells.kill(name)
-            (directory / "settings.json").write_text(json.dumps(self._hooks(directory, config, action, self.owner_record(name) is not None)))  # as they are now
-            self.machines.resumed(name)  # after the ended marker says when its clock stopped
-            for marker in (ENDED_FILE, "waiting", IDLE_FILE, ASKING_FILE):
-                (directory / marker).unlink(missing_ok=True)
-            await self.shells.new(name, str(cwd), self._command(directory, script))
+                return await self._resume(name, directory, relaunch, fresh)
+            except BaseException:
+                if fresh and persona_was is not None and not (directory / handoff.FRESH_FILE).exists():
+                    handoff.set_persona(self, name, persona_was)  # the old conversation goes on as it was
+                raise
+
+    async def _resume(self, name: str, directory: Path, relaunch: bool, fresh: dict | None) -> dict:
+        try:
+            record = json.loads((directory / "session.json").read_text())
+        except (OSError, ValueError) as e:
+            raise AgentError(f"not a managed session: {name}") from e
+        live = any(s["name"] == name for s in await self.shells.list())
+        if live and not (directory / ENDED_FILE).exists() and not relaunch:
+            raise AgentError(f"{name} is still running")
+        # A move can come in at any await below, and its narrowing writes the record, the scopes and grant.json. Each round
+        # starts from the instance as it is; one that finds it has moved since is built again, so a stale state never wins.
+        for _round in range(RESUME_ROUNDS):
+            mark = self._machine_mark(name)
+            record = json.loads((directory / "session.json").read_text())
+            first = self.library.actions.get(record["config"].get("action"))
+            state = self._state_action(name, first) if first else None
+            staged = state is not None and state is not first
+            config = validate(self.library, self._current_config(record["config"], name, record.get("launched")), state)
+            action = state if staged else self.library.action(config["action"], config.get("repo"))
+            config = await self._github_for(config, action)
+            self._check_sandbox(config, action)
+            if _full(action) != record.get("full", False):
+                raise AgentError(f"{name} can't resume: its action's access has changed")
+            if staged and (problem := self.launch_problem(name, _grant(action))):
+                raise AgentError(f"{name} can't resume: {problem}")
+            present = self._present(name)
+            if len(present) < len(self._checkouts(name, config, action)):
+                raise AgentError(f"{name} can't resume: its checkout is gone")
+            if staged:  # what it was launched with stays, for what the next state takes off (_state_config)
+                record = {**record, "launched": record.get("launched") or record["config"], "checkout": record.get("checkout", _grant(first).checkout)}
+            if staged or any(config.get(f) != record["config"].get(f) for f in ("model", "tools", "hub_tools", "github")) or record.get("permission_mode") != _mode(action):
+                # A resume runs with what the action says now (_argv), so the record says that too.
+                (directory / "session.json").write_text(json.dumps({**record, "config": config, "permission_mode": _mode(action)}))
+                self._load_scopes()
+                for token in [t for t, s in self._scopes.items() if s["session"] == name]:
+                    self._scopes[token] = _session_scope(name, config, _full(action), self._all_repos(config, action), self._asks_first(config, action),
+                                                         record.get("session_id"), self.chain_tools(name, first))
+            self.write_grant(directory, config, action)
+            if action.get("singleton") or staged:  # what it's told has to match what it can do
+                self._write_persona(config, action, directory)
+            if not (directory / TOKEN_FILE).exists():
+                self._session_token(directory, config, _full(action), record.get("session_id"), self.chain_tools(name, first))
+            (directory / REPOS_FOLDER).mkdir(exist_ok=True)  # one from before there were snapshots
+            self._prepare_shell(directory, config, action)
+            await self._github_token(directory, config, action)
+            await self._probe_sandbox(directory, config, action)
+            if self._machine_mark(name) == mark:
+                break
+        else:
+            raise AgentError(f"{name} can't resume: its workflow kept moving while it was set up")
+        (directory / LOCKED_FILE).unlink(missing_ok=True)  # its rights were worked out again just now
+        if fresh:  # every check has passed: the old conversation ends here, and a new one takes over
+            handoff.begin(self, name, fresh["note"])
+            record = json.loads((directory / "session.json").read_text())
+            self._session_token(directory, config, _full(action), record["session_id"], self.chain_tools(name, first))
+        new_conversation = handoff.owed(self, directory, record["session_id"])
+        argv = self._argv(config, action, directory, present[0] if present else None, record["session_id"],
+                          self._prepare_home(), resume=not new_conversation, chain=self.chain_tools(name, first))
+        command = shlex.join(argv)
+        if new_conversation:  # from the prompt with its hand-off note, as a start runs from its first prompt
+            command += f' -- "$(cat {shlex.quote(str(directory / "prompt.md"))})"'
+        script = self._launcher(directory, "resume.sh", command)
+        cwd = self.workspace if _full(action) else self.home
+        if live:
+            await self.shells.kill(name)
+        (directory / "settings.json").write_text(json.dumps(self._hooks(directory, config, action, self.owner_record(name) is not None)))  # as they are now
+        self.machines.resumed(name)  # after the ended marker says when its clock stopped
+        for marker in (ENDED_FILE, "waiting", IDLE_FILE, ASKING_FILE):
+            (directory / marker).unlink(missing_ok=True)
+        await self.shells.new(name, str(cwd), self._command(directory, script))
         log.info("agent session %s resumed", name)
         return {"name": name, "title": record["title"], "config": config}
 

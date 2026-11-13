@@ -18,6 +18,7 @@ from pathlib import Path
 KEEP_ROWS = 100000      # per table
 MAX_READ = 1000
 MAX_TEXT = 4000         # a proposal or a piece of evidence, clipped
+MAX_IDS = 64            # conversations one history read covers
 MOVE_KINDS = ("hand", "machine", "rollback", "pause", "resume")
 
 _SCHEMA = """
@@ -152,6 +153,16 @@ class Log:
                                    (state, decision, _clip(note), _clip(answered_by, 64), self._clock(), report_id, state)).rowcount
         return self.get_report(report_id) if done else None
 
+    def retarget(self, old: str, new: str) -> int:
+        """A session's new conversation takes over what is still open of the old one's reports: those it sent and those sent
+        to it, so an answer reaches it and it can answer (handoff.py). Answered ones stay as they were."""
+        if not all(isinstance(x, str) and x for x in (old, new)):
+            raise LogError("both conversations are named")
+        with self.lock, self.db:
+            moved = self.db.execute("UPDATE reports SET to_sid = ? WHERE to_sid = ? AND state IN ('open', 'forwarded')", (new, old)).rowcount
+            moved += self.db.execute("UPDATE reports SET from_sid = ? WHERE from_sid = ? AND state IN ('open', 'forwarded')", (new, old)).rowcount
+        return moved
+
     def reports(self, *, from_sid: str | None = None, to_sid: str | None = None, state: str | None = None,
                 to_name: str | None = None, limit: int = MAX_READ) -> list[dict]:
         """Reports, oldest first, by who sent them, who they're for, or their state."""
@@ -182,20 +193,23 @@ class Log:
         return [{"session_id": r["session_id"], "name": r["name"], "last": r["last"], "evaluations": r["n"],
                  "versions": (r["versions"] or "").split(",")} for r in rows]
 
-    def history(self, session_id: str, limit: int = MAX_READ) -> dict:
-        """The session's evaluations and moves, oldest first, each list the newest `limit` rows."""
+    def history(self, session_id, limit: int = MAX_READ) -> dict:
+        """The session's evaluations and moves, oldest first, each list the newest `limit` rows. `session_id` is one
+        conversation id or a list of them: a session whose context was made fresh is one session over its conversations."""
         limit = max(1, min(MAX_READ, limit)) if isinstance(limit, int) and not isinstance(limit, bool) else MAX_READ
+        ids = [session_id] if isinstance(session_id, str) else [s for s in session_id if isinstance(s, str)][-MAX_IDS:]
+        marks = ", ".join("?" * len(ids)) or "NULL"
         with self.lock:
             evaluations = self.db.execute(
-                "SELECT * FROM (SELECT * FROM evaluations WHERE session_id = ? ORDER BY seq DESC LIMIT ?) ORDER BY seq",
-                (session_id, limit)).fetchall()
+                f"SELECT * FROM (SELECT * FROM evaluations WHERE session_id IN ({marks}) ORDER BY seq DESC LIMIT ?) ORDER BY seq",
+                (*ids, limit)).fetchall()
             moves = self.db.execute(
-                "SELECT * FROM (SELECT * FROM moves WHERE session_id = ? ORDER BY seq DESC LIMIT ?) ORDER BY seq",
-                (session_id, limit)).fetchall()
+                f"SELECT * FROM (SELECT * FROM moves WHERE session_id IN ({marks}) ORDER BY seq DESC LIMIT ?) ORDER BY seq",
+                (*ids, limit)).fetchall()
         with self.lock:
             reports = self.db.execute(
-                "SELECT * FROM (SELECT * FROM reports WHERE from_sid = ? OR to_sid = ? ORDER BY seq DESC LIMIT ?) ORDER BY seq",
-                (session_id, session_id, limit)).fetchall()
+                f"SELECT * FROM (SELECT * FROM reports WHERE from_sid IN ({marks}) OR to_sid IN ({marks}) ORDER BY seq DESC LIMIT ?) ORDER BY seq",
+                (*ids, *ids, limit)).fetchall()
         return {"evaluations": [{**dict(r), "checks": json.loads(r["checks"]), "failed": bool(r["failed"])} for r in evaluations],
                 "reports": [_report(r) for r in reports],
                 "moves": [{**{k: r[k] for k in r.keys() if k not in ("from_state", "to_state")}, "from": r["from_state"],

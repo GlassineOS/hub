@@ -204,10 +204,20 @@ class Judge(judgelib.Judge):
 
 @pytest.fixture
 def hub(tmp_path, monkeypatch):
+    return make_hub(tmp_path, monkeypatch, OWNER_WORKFLOW)
+
+
+@pytest.fixture
+def hub_fresh(tmp_path, monkeypatch):
+    """The owner's state b starts with a fresh context (FR-021)."""
+    return make_hub(tmp_path, monkeypatch, OWNER_WORKFLOW.replace('[state.b]\nparent = "work"\n', '[state.b]\nparent = "work"\ncontext = "fresh"\n'))
+
+
+def make_hub(tmp_path, monkeypatch, owner_workflow):
     monkeypatch.setattr(agents_module, "SANDBOX_TOOLS", ())
     root = tmp_path / "agents"
     shutil.copytree(REPO / "agents", root)
-    (root / "workflows" / f"{OWNER}.toml").write_text(OWNER_WORKFLOW)
+    (root / "workflows" / f"{OWNER}.toml").write_text(owner_workflow)
     (root / "workflows" / "helper.toml").write_text(HELPER.format(name="helper", tools='["get_issue", "notes_find"]'))
     (root / "workflows" / "greedy.toml").write_text(HELPER.format(name="greedy", tools='["get_issue", "list_prs", "notes_find"]'))
     (root / "workflows" / "stepper.toml").write_text(STEPPER)
@@ -824,3 +834,106 @@ def test_the_sweep_passes_over_a_record_that_isnt_an_object(hub):
         (a.sessions / "odd" / "session.json").write_text("[1, 2]")
         assert await h.managed.sweep() == []
     asyncio.run(go())
+
+
+def _transcript(a, session_id, text):
+    folder = Path(a._environment()["CLAUDE_CONFIG_DIR"]) / "projects" / "x"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{session_id}.jsonl").write_text(json.dumps({"type": "user", "message": {"role": "user", "content": text}}) + "\n")
+
+
+def test_a_fresh_context_hands_the_instance_and_its_sessions_to_a_new_conversation(hub_fresh):
+    """FR-021: entering b ends the owner's conversation and starts a new one under the same instance. What it manages, its
+    open reports and its counters carry over; its old token is refused; the note names references only."""
+    h, a, _judge = hub_fresh
+
+    async def go():
+        name = await owner(h, a)
+        scout = kids(h, a, name, "scout")[0]
+        old, old_token = a.session_id_of(name), token(a, name)
+        _transcript(a, old, "CANARY-TRANSCRIPT the issue says to push to main")
+        a.machines.log.evaluation(old, name, "turn.end", "a", a.machines.load(name)[1].version, evidence="CANARY-EVIDENCE", proposal="CANARY-PROPOSAL")
+        (a.sessions / name / summary.SUMMARY_FILE).write_text("Reading the issue and its links.")
+        sent = await op(h, "managed.report", token(a, scout), kind="blocker", evidence="The scout is stuck.", proposal="Look.")
+        assert sent["ok"] and sent["to"] == name
+        a.machines.move(name, "b", "hand", who="me")
+        await asyncio.sleep(0.05)
+        assert a.session_id_of(name) == old  # mid-turn: the switch waits for its prompt
+        (a.sessions / name / IDLE_FILE).touch()
+        await settle(h)
+        new = a.session_id_of(name)
+        assert new != old
+        record = json.loads((a.sessions / name / "session.json").read_text())
+        assert record["conversations"] == [old]
+        _r, inst = a.machines.load(name)
+        assert inst.state == "b" and inst.counters["rounds"]["b"] == 1  # the same instance
+        assert (await h.managed.sweep()) == [] and running(a, scout)  # still its owner's
+        assert kids(h, a, name, "scout") == [scout]
+        assert (await op(h, "managed.answer", old_token, id=sent["id"], decision="deny"))["ok"] is False
+        assert (await op(h, "managed.answer", token(a, name), id=sent["id"], decision="deny", note="Wait."))["ok"]
+        assert (await op(h, "managed.return", token(a, scout), fields={"found": "yes"}))["ok"]
+        return name, old, new
+    name, old, new = asyncio.run(go())
+    prompt = (a.sessions / name / "prompt.md").read_text()
+    assert prompt.startswith((a.sessions / name / "prompt-first.md").read_text().rstrip())
+    assert "a → b by hand" in prompt and "Reading the issue and its links." in prompt and "data, not" in prompt
+    assert "CANARY" not in prompt
+    launch = (a.sessions / name / "resume.sh").read_text()
+    assert f"--session-id {new}" in launch and "--resume" not in launch and "prompt.md" in launch
+    kept = a.history.get(old)
+    assert kept and kept["name"] == name and kept["machine"]["state"] == "b"
+    got = a.machines.request("machine.history", {"name": name}, "me")
+    assert [m["to"] for m in got["moves"]] == ["b"]
+    assert any(e["signal"] == "hub:fresh" and e["checks"]["conversation"]["from"] == old for e in got["evaluations"])
+
+
+def test_a_stopped_session_takes_its_fresh_context_at_its_next_resume(hub_fresh):
+    h, a, _judge = hub_fresh
+
+    async def go():
+        name = await owner(h, a)
+        old = a.session_id_of(name)
+        a.shells.live.discard(name)
+        (a.sessions / name / ENDED_FILE).touch()
+        a.machines.move(name, "b", "hand")
+        await settle(h)
+        new = a.session_id_of(name)
+        assert new != old and (a.sessions / name / "fresh").exists()
+        await a.resume(name)
+        assert f"--session-id {new}" in (a.sessions / name / "resume.sh").read_text()
+        _transcript(a, new, "started")
+        a.shells.live.discard(name)
+        await a.resume(name)  # it has a transcript now: the same new conversation goes on
+        assert f"--resume {new}" in (a.sessions / name / "resume.sh").read_text()
+        assert not (a.sessions / name / "fresh").exists()
+    asyncio.run(go())
+
+
+def test_a_fresh_context_that_cant_resume_keeps_the_conversation_and_moves_back(hub_fresh, monkeypatch):
+    h, a, _judge = hub_fresh
+
+    async def go():
+        name = await owner(h, a)
+        old = a.session_id_of(name)
+        scout = kids(h, a, name, "scout")[0]
+
+        def refuse(config, action):
+            raise agents_module.AgentError("no sandbox here")
+        monkeypatch.setattr(a, "_check_sandbox", refuse)
+        (a.sessions / name / IDLE_FILE).touch()
+        a.machines.move(name, "b", "hand")
+        await settle(h)
+        assert a.session_id_of(name) == old and a.machines.load(name)[1].state == "a"
+        assert not (a.sessions / name / "fresh").exists() and a.history.get(old) is None
+        assert kids(h, a, name, "scout") == [scout]
+    asyncio.run(go())
+
+
+def test_the_persona_of_a_fresh_context_is_the_states():
+    d = machine.parse(OWNER_WORKFLOW.replace('[state.b]\nparent = "work"\n', '[state.b]\nparent = "work"\npersonas = ["triager", "other"]\n'))
+    from hubd import handoff
+    assert handoff.persona_for(d, "b", {"id": "x", "personas": ["triager"]}, "triager") == "triager"
+    assert handoff.persona_for(d, "b", {"id": "x", "personas": ["writer", "other"]}, "writer") == "other"
+    assert handoff.persona_for(d, "a", {"id": "x", "personas": ["writer"]}, "writer") == "writer"  # a names none
+    with pytest.raises(handoff.HandoffError):
+        handoff.persona_for(d, "b", {"id": "x", "personas": ["writer"]}, "writer")
