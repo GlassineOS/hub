@@ -746,6 +746,92 @@ function RepoCopies() {
   </section>`;
 }
 
+// --- the personas' GitHub Apps (012 FR-032) ----------------------------------------------------------------------------
+// hubd writes the manifest and keeps the nonce, the code exchange and the key; this page posts the manifest form to GitHub
+// from your browser, as GitHub's manifest flow wants, and hands GitHub's code back to hubd.
+const PERMISSION_WORDS = { contents: "Contents", metadata: "Metadata", issues: "Issues", pull_requests: "Pull requests", actions: "Actions",
+  administration: "Administration", organization_projects: "Organization projects" };
+function permissionWords(permissions) {
+  return Object.entries(permissions || {}).map(([name, level]) => `${PERMISSION_WORDS[name] || name}: ${level}`).join(" · ");
+}
+function appState(row) {
+  if (!row.app) return "No App yet: its writes go out as you";
+  if (row.installed === true) return `Has an App, ${row.slug}, installed in the organization`;
+  return `Has an App, ${row.slug}; whether it's installed isn't checked here`;
+}
+
+// GitHub's manifest flow: a plain form post, from this page, to the URL hubd gave, never anywhere but github.com.
+function submitManifest(url, manifest) {
+  if (!String(url).startsWith("https://github.com/")) throw new Error("the manifest doesn't go to GitHub");
+  const form = document.createElement("form");
+  form.method = "post";
+  form.action = url;
+  const field = document.createElement("input");
+  field.type = "hidden";
+  field.name = "manifest";
+  field.value = JSON.stringify(manifest);
+  form.append(field);
+  document.body.append(form);
+  form.submit();
+}
+
+const convertedStates = new Set(); // a state goes to hubd once, even if the page draws again
+function AppsPage({ query }) {
+  const list = useLoad(() => api("apps"), []);
+  const [made, setMade] = useState(null);
+  const [replacing, setReplacing] = useState(null);
+  const finish = useAct(() => list.reload());
+  const create = useAct();
+  useEffect(() => {
+    const { code, state } = query;
+    if (!code && !state) return;
+    history.replaceState(null, "", hash("apps")); // the code works once, but it shouldn't stay in the address or the history
+    if (!code || !state || convertedStates.has(state)) return;
+    convertedStates.add(state);
+    finish.run(async () => setMade(await post("apps/convert", { code, state })));
+  }, []);
+  const start = (persona, replace) => create.run(async () => {
+    const reply = await post("apps/manifest", { persona, replace });
+    submitManifest(reply.url, reply.manifest);
+  });
+  const rows = list.data ? list.data.apps.filter((r) => r.persona) : [];
+  const tableError = list.data && list.data.apps.find((r) => r.error);
+  return html`<main class="page"><div class="stack tight"><${Eyebrow} soft>Settings<//><h1>GitHub Apps</h1></div>
+    <p class="small soft">Each persona posts on GitHub as its own App, so its work shows it came from an agent. Creating one opens GitHub's form with the App already described: you press Create there, and GitHub sends you back here. Its private key stays with hubd on this computer.</p>
+    ${query.failed && html`<div class="notice" role="status"><span>GitHub's answer didn't carry a code and a state, so nothing was created here. Start again below.</span></div>`}
+    ${finish.busy && html`<div class="notice quiet" role="status"><span>Finishing the App with GitHub…</span></div>`}
+    <${Err} text=${finish.error} />
+    ${made && html`<div class="notice" role="status"><span class="grow"><b>Created ${made.slug}</b> for ${made.persona}${made.replaced ? ", in place of its earlier App" : ""}. Next, install it on the organization: GitHub asks whether it gets all repositories or the ones you choose.</span>
+      <a class="button primary" href=${made.install_url} target="_blank" rel="noopener noreferrer">Install on the organization</a></div>`}
+    <${Err} text=${list.error || (tableError && tableError.error)} />
+    <${Err} text=${create.error} />
+    ${!list.data && !list.error && html`<p class="soft">Loading…</p>`}
+    <section class="stack tight" aria-label="Personas">
+      ${rows.map((r) => html`<div class="tool-row" key=${r.persona}>
+        <span class="stack tight grow"><span><b>${r.name}</b> <span class="mono small soft">${r.persona}</span></span>
+          <span class="small">${appState(r)}</span>
+          <span class="small soft">Asks GitHub for ${permissionWords(r.permissions)}</span></span>
+        <span class="row" style="gap: 8px">
+          ${!r.app && html`<button class="primary" disabled=${create.busy} onClick=${() => start(r.persona, false)}>Create the App on GitHub</button>`}
+          ${r.app && r.install_url && html`<a class="button" href=${r.install_url} target="_blank" rel="noopener noreferrer">Install or change repositories</a>`}
+          ${r.app && replacing !== r.persona && html`<button class="plain" onClick=${() => setReplacing(r.persona)}>Replace…</button>`}</span>
+        ${replacing === r.persona && html`<div class="notice quiet" style="flex-basis: 100%"><span class="grow">A new App takes over from ${r.slug} once GitHub creates it. The old one stays on GitHub until you delete it there, and its name is taken: change the name on GitHub's form.</span>
+          <button class="primary" disabled=${create.busy} onClick=${() => start(r.persona, true)}>Create a new App on GitHub</button>
+          <button onClick=${() => setReplacing(null)}>Cancel</button></div>`}</div>`)}
+    </section></main>`;
+}
+
+function GitHubAppsCard() {
+  const { data } = useLoad(() => api("apps").catch(() => null), [], 300000);
+  if (!data) return null;
+  const rows = data.apps.filter((r) => r.persona);
+  const have = rows.filter((r) => r.app).length;
+  return html`<section aria-labelledby="h-apps" class="stack tight">
+    <h2 id="h-apps" class="dotted" style="font-size: 21px; font-weight: 600">GitHub Apps</h2>
+    <span class="small">${have} of ${count(rows.length, "persona")} ${have === 1 ? "has its" : "have their"} own App${have < rows.length ? "; the rest post as you" : ""}.</span>
+    <a class="small" href=${hash("apps")}>Create or install Apps</a></section>`;
+}
+
 // 007 FR-001: what waits for you, from the interactions' counts: how many, of which kinds, and the longest wait. It opens Needs you.
 const KIND_PLURAL = { permission: "permissions", question: "questions", decision: "decisions", suggestion: "suggestions", result: "results" };
 const waitWords = (s) => (s < 90 ? "under a minute" : s < 5400 ? `${Math.round(s / 60)} min` : s < 129600 ? `${Math.round(s / 3600)} h` : `${Math.round(s / 86400)} d`);
@@ -889,6 +975,7 @@ function Overview({ asks }) {
         <${DeviceCard} asks=${asks} />
         <${Workspace} />
         <${RepoCopies} />
+        <${GitHubAppsCard} />
       </aside>
     </div>
   </main>`;
@@ -4710,7 +4797,7 @@ function Hub({ host: first, route, onOut }) {
   // Links from before Work was one page, the Docs and Device pages, and the items a card points to.
   const { path, query, moved, to } = movedRoute(route);
   useEffect(() => { if (moved) history.replaceState(null, "", to || hash(path)); }, [route.path, route.query.tab]);
-  const views = { overview: Overview, roadmap: Roadmap, work: Work, knowledge: Knowledge, notes: NotesPage, shells: Sessions, design: DesignView };
+  const views = { overview: Overview, roadmap: Roadmap, work: Work, knowledge: Knowledge, notes: NotesPage, shells: Sessions, design: DesignView, apps: AppsPage };
   const View = views[path] || Overview;
   const here = path;
   const unreachable = Boolean(hostPoll.error || listed.error);
