@@ -461,3 +461,28 @@ def test_a_failing_verdict_goes_to_fix_and_each_round_gets_a_fresh_reviewer_up_t
     name = asyncio.run(go())
     moves = [(m["from"], m["to"]) for m in history(a, name)["moves"]]
     assert moves == [("implement", "review")] + [("review", "fix"), ("fix", "review")] * 3 + [("review", "escalated")]
+
+
+def test_a_verdict_is_about_the_head_it_was_given_on_a_new_head_it_no_longer_holds(hub):
+    h, a, gh, _apps, _judge = hub
+
+    async def go():
+        name = (await a.start(a.defaults("implement", "boot", 7)))["name"]
+        await into_review(h, a, gh, name)
+        [child] = reviewers(h, a, name)
+        await feed(h, ev("checks", "pending"))
+        assert (await returns(h, token_of(a, child), verdict="pass", findings=[]))["ok"]
+        await settle(h)
+        assert state_of(a, name) == "review"  # its checks are pending
+        assert a.machines.load(name)[1].facts(time.time())["managed.reviewer.verdict"] == "pass"
+        # a push after the pass: the pass was about the old head, so it doesn't take the new one to merge-ready
+        new = "b" * 40
+        gh.head = new
+        await feed(h, ev("head", old_head=HEAD, new_head=new), ev("checks", "passing"))
+        await turn_ends(h, a, name)
+        assert state_of(a, name) == "review"
+        assert "managed.reviewer.verdict" not in a.machines.load(name)[1].facts(time.time())
+        assert a.machines.load(name)[1].managed["reviewer"]["head"] == new
+        return name
+    name = asyncio.run(go())
+    assert "reviewer's return voided" in [e["proposal"] for e in history(a, name)["evaluations"]]

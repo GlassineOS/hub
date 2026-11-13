@@ -152,6 +152,7 @@ class Runner:
         self.waiting_starts = None
         self.try_starts = None
         self.more_facts = None
+        self.on_head = None  # (name, sha): a pull request it covers has a new head, before the signal is routed (managed.py)
         self.debounce = debounce
         self._sleep = sleep
         self._waiting: dict[str, list[str]] = {}       # signals that came since the last pass began
@@ -184,6 +185,12 @@ class Runner:
             if signal not in machine.SIGNALS or item is None:
                 continue
             index = self.index() if index is None else index
+            if row.get("what") == "head" and self.on_head is not None and isinstance(row.get("new_head"), str) and row["new_head"]:
+                for name in sorted(index.get(item, ())):
+                    try:
+                        self.on_head(name, row["new_head"])
+                    except Exception:  # noqa: BLE001 — the signal still goes on
+                        log.exception("%s: its new head couldn't be noted", name)
             routed += self._route(signal, sorted(index.get(item, ())))
         return list(dict.fromkeys(routed))
 

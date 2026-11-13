@@ -71,7 +71,7 @@ start = "auto"                # on entering the state, or "on-request": the owne
 when = ""                     # for start = "auto": a plain-language condition the judge tests on the owner's turn end
 max = 1                       # how many of this entry run at once
 reuse = "fresh"               # or "resume": the entry's last session, when it has stopped, gets the new round
-on_exit = "stop"              # when the owner leaves the state: stop, keep, or handover (to an entry of the same name)
+on_exit = "stop"              # when the owner leaves the state: stop, keep, or handover (to an entry of the same name, workflow, persona and returns; else it stops)
 with = ["pr", "diff.since_last_round"]   # what its first prompt names
 returns = { verdict = ["pass", "fail"], findings = "text-list" }  # what it hands back with return_result
 ```
@@ -79,12 +79,13 @@ returns = { verdict = ["pass", "fail"], findings = "text-list" }  # what it hand
 - **What a managed session starts with** is its action's prompt and a hub-written block that names the references in `with`:
   the owner's issue or pull request, the head the last round reviewed (`diff.since_last_round`), a brief from the library,
   and with `owner.summary` the owner's rolling summary between marks, as data. Never the owner's transcript.
-- **Its grant is capped by its owner's** where the owner is when it starts (not again on later moves). Each list is the intersection of the two, each level the lower, and a checkout it
+- **Its grant is capped by what its owner holds**, at all times: when the owner narrows, so do the sessions it manages. Each list is the intersection of the two, each level the lower, and a checkout it
   can't push to fits under any checkout. A workflow that needs more than that waits for an approval above the owner
-  (its own owner's session, or the maintainer), and the start comes after the yes; the instance keeps what was approved.
+  (its own owner's session if that holds the extra items itself, else the maintainer), and the start comes after the yes;
+  the instance keeps what was approved.
 - **Returns** are checked against `returns`: every field, each one of its values, or for `"text-list"` up to 20 lines of
   up to 500 characters, which go to the owner's next turn as a marked data block and are never a fact. The values are kept
-  as the owner's facts `managed.<entry>.<field>`, cleared when a new round starts; each return signals `hub:managed.return`, and the end of a
+  as the owner's facts `managed.<entry>.<field>` (a new head of the pull request voids them), cleared when a new round starts; each return signals `hub:managed.return`, and the end of a
   managed session `hub:managed.end`.
 - **When the owner ends**, crashes or is lost, its managed sessions end with it; hubd checks on start and every 30 seconds.
 - **Reports**: a managed session sends a `blocker` or `decision` up with `report_up` (evidence and a proposal); the owner

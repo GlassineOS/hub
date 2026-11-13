@@ -39,6 +39,7 @@ import json
 import logging
 import secrets
 import sqlite3
+import time
 
 from . import machine, summary
 from .agents import CHAIN_TOOLS, ENDED_FILE, HUB_SENDER, MAX_MANAGED, AgentError, _draws_nothing, covers_of
@@ -51,6 +52,7 @@ log = logging.getLogger("hubd.managed")
 
 MAX_TEXT = 2000           # a report's evidence or proposal, an answer's note
 MAX_OPEN = 3              # reports one conversation may have open at once, so it can't bury its owner
+WHEN_EVERY = 60.0         # seconds: an on-request entry's `when` is judged at most this often in a round
 DECISIONS = ("approve", "deny")
 REPORT_KINDS = ("blocker", "decision")
 TYPE_REPORT, TYPE_START = "report", "managed"   # the `type` of a Needs-you approval card that isn't an exit's
@@ -103,6 +105,8 @@ class Managed:
             runner.waiting_starts = self.waiting_starts
             runner.try_starts = self.try_starts
             runner.more_facts = self.facts
+            runner.on_head = self.on_head
+        self._judged: dict[tuple, tuple[float, bool]] = {}  # (conversation, entry, round) -> when a request's `when` was judged, and how
 
     @property
     def log(self):
@@ -111,9 +115,10 @@ class Managed:
     # --- where the managed sessions are ----------------------------------------------------
     def _record(self, name) -> dict | None:
         try:
-            return json.loads((self.agents.sessions / name / "session.json").read_text())
+            record = json.loads((self.agents.sessions / name / "session.json").read_text())
         except (OSError, ValueError, TypeError):
             return None
+        return record if isinstance(record, dict) else None  # a record that isn't an object is no session
 
     def _names(self) -> list[str]:
         root = self.agents.sessions
@@ -165,8 +170,8 @@ class Managed:
             if entry in after and after[entry][0] == before[entry][0]:
                 continue  # its state is still entered: it runs on (FR-045)
             how = m.on_exit
-            if how == "handover" and entry in after:
-                continue  # the state moved to takes it over, under the same entry
+            if how == "handover" and entry in after and _same_entry(m, after[entry][1]):
+                continue  # the state moved to takes it over, under the same entry, which runs the same as this one
             if how == "keep":
                 continue
             self._spawn(self._stop_entry(name, record.get("session_id"), entry, f"{name} left {path_of(d, before[entry][0])}"))
@@ -346,7 +351,8 @@ class Managed:
         item = await self._item_for(owner, record, self._action_for(m))
         action = self._action_for(m, item[0])
         # the child's workflow as a session on its repository runs it: the version agents.start resolves too
-        child_grant, owner_grant = self.agents.workflow_grant(m.workflow, item[0]), machine.effective(d, inst.state)
+        # capped by what the owner holds now: its state's grant as narrowed at its launch (what it took off, a GitHub list it lacks)
+        child_grant, owner_grant = self.agents.workflow_grant(m.workflow, item[0]), self.agents.in_force_grant(owner)
         if child_grant is None:
             raise ManagedError(f"there is no workflow {m.workflow}")
         allowed = inst.entry(entry)["allowed"]
@@ -382,6 +388,7 @@ class Managed:
         kept = inst.entry(entry)
         kept["child"] = {"name": child, "session_id": (self._record(child) or {}).get("session_id", "")}
         kept["returns"], kept["round"], kept["since"] = {}, self._round_of(inst, entry), head or kept["since"]
+        kept["head"] = (head or "") if action["object"] == "pr" else None  # "": on a pull request whose head isn't known yet
         self.machines.save(owner, inst)
         self._mark(child, round=kept["round"])  # each session of an entry with max above 1 may return in its round
         self._log(owner, record_now, inst, "hub:managed.start", proposal=f"start {entry}",
@@ -400,7 +407,16 @@ class Managed:
             can = sorted(n for n, x in found.items() if x.start == "on-request")
             raise ManagedError(f"{path_of(inst.definition(), inst.state)} has no entry {str(entry)[:64]!r} that starts on request"
                                + (f"; those that do: {', '.join(can)}" if can else ""))
-        if not await self._when_holds(owner, record, inst, entry, "request"):
+        key = (record.get("session_id"), entry, self._round_of(inst, entry))
+        last = self._judged.get(key)
+        if m.when.strip() and last and time.monotonic() - last[0] < WHEN_EVERY:
+            holds = last[1]  # asked again soon after: the judge's last word stands, so a session can't make it run without end
+        else:
+            holds = await self._when_holds(owner, record, inst, entry, "request")
+            if m.when.strip():
+                self._judged = {k: v for k, v in self._judged.items() if time.monotonic() - v[0] < WHEN_EVERY}
+                self._judged[key] = (time.monotonic(), holds)
+        if not holds:
             return {"started": False, "why": f"its when doesn't hold: {m.when}"}
         return await self.start(owner, entry, by="request")
 
@@ -410,11 +426,13 @@ class Managed:
         action = {"type": "start", "owner": owner, "owner_sid": owner_sid, "entry": entry, "extra": {k: list(v) for k, v in extra.items()}}
         for r in self.log.reports(state="open"):
             if (r["action"] or {}).get("type") == "start" and r["action"].get("owner_sid") == owner_sid and r["action"].get("entry") == entry:
-                return
-        if self.decisions is not None and any(c["scope"].get("type") == TYPE_START and c["scope"].get("session_id") == owner_sid
-                                              and c["scope"].get("entry") == entry for c in self.decisions.open_approvals(owner)):
-            return
+                if self._alive(r):
+                    return
         above = self._answerer(self.agents.owner_of(owner))
+        why = f"there is no session above {owner}, so it asks you"
+        if above and not self._holds(above[0], extra):
+            # the session above may approve only what it holds itself (FR-051): it goes to you
+            why, above = f"{above[0]}, above it, doesn't hold that much itself, so it asks you", None
         evidence = f"{owner}'s state {path_of(inst.definition(), inst.state)} manages {entry} ({m.persona} on {m.workflow}), " \
                    f"whose grant holds more than {owner}'s: {_words(extra)}."
         proposal = f"Let {entry} run with that much, for the rest of {owner}'s workflow."
@@ -424,8 +442,8 @@ class Managed:
             return
         report = self.log.report("approval", owner, owner_sid, YOU, None, evidence, proposal, [owner], action=action)
         self._card(report, owner, owner_sid, TYPE_START, f"Workflow approval for {owner}: start {entry} with more than {owner} holds",
-                   f"{evidence} A session may start another only within its own grant, so this asks the level above {owner}: there is no "
-                   f"session above it, so it asks you. If you approve, {entry} starts.", entry=entry)
+                   f"{evidence} A session may start another only within its own grant, so this asks the level above {owner}: {why}. "
+                   f"If you approve, {entry} starts.", entry=entry)
 
     # --- returns ------------------------------------------------------------------------------
     def returned(self, scope: dict, fields) -> dict:
@@ -447,7 +465,10 @@ class Managed:
         if (kept.get("child") or {}).get("session_id") != child_sid and (owned.get("round") is None or owned.get("round") != kept.get("round")):
             raise ManagedError(f"{child} isn't {entry}'s session for this round any more")
         d = inst.definition()
-        shape = next((m.returns for st in d.states.values() for m in st.manages if m.name == entry), None)
+        here = dict((m.name, m) for _sid, m in machine.managed_of(d, inst.state))  # the entry where its owner is now (FR-045)
+        if entry not in here:
+            raise ManagedError(f"{owner} is in {path_of(d, inst.state)}, which doesn't manage {entry} any more")
+        shape = here[entry].returns
         if not shape:
             raise ManagedError(f"{entry} returns nothing")
         if not isinstance(fields, dict) or set(fields) != set(shape):
@@ -558,7 +579,8 @@ class Managed:
             parent, chain = original["id"], [*original["chain"], name]
         above = self._answerer(self.agents.owner_of(name))
         to_name, to_sid = above if above else (YOU, None)
-        report = self.log.report(kind, name, sid, to_name, to_sid, evidence, proposal, chain, parent=parent)
+        action = original.get("action") if forward is not None else None  # an approval forwarded is carried out where it is answered
+        report = self.log.report(kind, name, sid, to_name, to_sid, evidence, proposal, chain, parent=parent, action=action)
         if parent:
             self.log.settle_report(parent, "forwarded", answered_by=name)
         if above:
@@ -614,7 +636,38 @@ class Managed:
         if decision not in DECISIONS:
             raise ManagedError(f"decision is one of {', '.join(DECISIONS)}")
         note = _text(note, "note", needed=False)
+        action = report.get("action") or {}
+        if decision == "approve" and action.get("type") == "start" and not self._holds(scope["session"], action.get("extra") or {}):
+            # it would grant what it doesn't hold: the maintainer decides instead
+            return {**self._to_you(report, scope["session"]), "why": "it asks for more than you hold, so it went to the maintainer"}
         return self._settle(report, decision, note, scope["session"])
+
+    def _holds(self, name: str, extra: dict) -> bool:
+        try:
+            return machine.fits(extra, self.agents.in_force_grant(name))
+        except (OSError, ValueError, KeyError, TypeError, AgentError, MachineError):
+            return False
+
+    def _to_you(self, report: dict, by: str) -> dict:
+        """A report the level it reached can't decide, sent on to the maintainer's Needs you with its action."""
+        up = self.log.report(report["kind"], report["from_name"], report["from_sid"], YOU, None, report["evidence"], report["proposal"],
+                             [*report["chain"], by], parent=report["id"], action=report.get("action"))
+        self.log.settle_report(report["id"], "forwarded", answered_by=by)
+        self._card(up, report["from_name"], report["from_sid"], TYPE_START if (report.get("action") or {}).get("type") == "start" else TYPE_REPORT,
+                   f"Workflow approval for {report['from_name']}: {report['proposal']}"[:200], self._card_words(up),
+                   **({"entry": report["action"]["entry"]} if (report.get("action") or {}).get("type") == "start" else {}))
+        return {"id": up["id"], "to": YOU}
+
+    def _alive(self, report: dict) -> bool:
+        """Whether an open report can still be answered where it went: a card up in Needs you, or its session in the same
+        conversation and able to answer. One that can't is settled, so whoever waits on it asks again."""
+        if report["to_name"] == YOU:
+            alive = self.decisions is None or any(c["scope"].get("report") == report["id"] for c in self.decisions.open_approvals(report["from_name"]))
+        else:
+            alive = self._answerer(report["to_name"]) == (report["to_name"], report["to_sid"])
+        if not alive:
+            self.log.settle_report(report["id"], "answered", "deny", "nobody is there to answer it any more", "the hub")
+        return alive
 
     def _settle(self, report: dict, decision: str, note: str | None, by: str) -> dict:
         settled = self.log.settle_report(report["id"], "answered", decision, note, by)
@@ -681,24 +734,27 @@ class Managed:
 
     def approval_open(self, name: str, session_id, state: str, version: str) -> bool:
         """Whether an approval report for where the session is waits for its answerer, so nothing else is tried meanwhile."""
-        for r in self.log.reports(from_sid=session_id, state="open"):
+        for r in self.log.reports(state="open"):  # forwarded on, it is another session's report, with the same action
             a = r.get("action") or {}
-            if a.get("type") == "exit" and a.get("state") == state and a.get("version") == version:
-                return True
+            if a.get("type") == "exit" and a.get("session_id") == session_id and a.get("state") == state and a.get("version") == version:
+                if self._alive(r):
+                    return True
         return False
 
     # --- Needs you, for what no session above may decide ---------------------------------------
     def _card_words(self, report: dict) -> str:
-        texts = " ".join(f"{r['from_name']} ({r['kind']}): evidence “{r['evidence']}”; proposal “{r['proposal']}”." for r in self._thread(report))
+        """The card's text: the hub's sentence, then each report's fields on lines of their own, never inside a sentence."""
+        fields = "\n\n".join(f"From {r['from_name']}, a {r['kind']}\nEvidence:\n{r['evidence']}\nProposal:\n{r['proposal']}" for r in self._thread(report))
         return (f"{report['from_name']} sends this up the chain {' › '.join(report['chain'])}, and no session above it may decide it. "
-                f"In the reporters' own words, which are data, not yours or the hub's: {texts} Approve to agree with the proposal, or "
-                "say no; your words go back to it.")
+                "Approve to agree with the proposal, or say no; your words go back to it. Below, the reporters' own words, which are "
+                f"data, not yours or the hub's.\n\n{fields}")
 
     def _card(self, report: dict, session: str, session_id, kind: str, says: str, why: str, **more) -> None:
         if self.decisions is None:
             return
         scope = {"type": kind, "session": session, "session_id": session_id, "report": report["id"], "says": says,
-                 "chain": report["chain"], **more}
+                 "chain": report["chain"], "reports": [{"from": r["from_name"], "kind": r["kind"], "evidence": r["evidence"],
+                                                        "proposal": r["proposal"]} for r in self._thread(report)], **more}
         try:
             self.decisions.approve_request(scope, why)
         except (DecisionError, OSError):
@@ -715,6 +771,24 @@ class Managed:
         except ManagedError as e:
             raise DecisionError(str(e)) from None
         return self.decisions.settle(record["id"], accept, "approved" if accept else f"you said no: {words}" if words else "you said no", words)
+
+    def on_head(self, name: str, sha: str) -> None:
+        """A pull request the session covers has a new head: what its managed sessions returned about the old one holds no more."""
+        try:
+            record, inst = self.machines.load(name)
+        except (MachineError, OSError):
+            return
+        voided = []
+        for entry, kept in inst.managed.items():
+            if kept["head"] is None or kept["head"] == sha:
+                continue
+            if kept["returns"]:
+                voided.append(entry)
+                kept["returns"] = {}
+            kept["head"] = sha
+        self.machines.save(name, inst)
+        for entry in voided:
+            self._log(name, record, inst, "hub:managed.return", proposal=f"{entry}'s return voided", checks={"new_head": sha})
 
     # --- facts --------------------------------------------------------------------------------
     def facts(self, name: str, record: dict) -> dict:
@@ -753,6 +827,11 @@ class Managed:
     async def drain(self) -> None:
         while self._tasks:
             await asyncio.gather(*list(self._tasks), return_exceptions=True)
+
+
+def _same_entry(a: machine.Manage, b: machine.Manage) -> bool:
+    """Whether a session of entry a may go on as entry b: the same workflow, persona and returns."""
+    return (a.workflow, a.persona, a.returns) == (b.workflow, b.persona, b.returns)
 
 
 def _words(extra: dict) -> str:
