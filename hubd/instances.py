@@ -719,7 +719,9 @@ class Machines:
             if op == "machine.get":
                 return {"ok": True, **self.view(*self.load(name))}
             if op == "machine.history":
-                return {"ok": True, **self.log.history(self.load(name)[0]["session_id"])}
+                record = self.load(name)[0]  # every conversation it has had: a fresh context starts a new one (handoff.py)
+                earlier = record.get("conversations") if isinstance(record.get("conversations"), list) else []
+                return {"ok": True, **self.log.history([*earlier, record["session_id"]])}
             if op == "machine.move":
                 return {"ok": True, **self.move(name, req.get("to"), "hand", req.get("enter", "first"), who)}
             if op == "machine.confirm":

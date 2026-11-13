@@ -294,6 +294,12 @@ its current state's effective grant and nothing else; `hubd/effects.py` applies 
 - **A conversation keeps its access and its checkout.** A move to a state with other ones fails back: one that waits is declined,
   one that happened is rolled back (logged as the hub's), and the evaluation log says why. Resume refuses the same.
 - **The words a move adds** are the definition's instructions, marked as the hub's, never text from a transcript.
+- **A fresh context starts from references, not the transcript.** A state with `context = "fresh"` ends the conversation
+  and starts a new one under the same instance (`hubd/handoff.py`): its prompt is the action's first prompt and a note the
+  hub writes from the issue, the pull request, the states' instructions and the moves the log kept (state ids and how each
+  was made), with the rolling summary between random marks as data; never what an evaluation kept as evidence. The new
+  conversation gets a new tool token, so the old one is refused, and what the old one owned (the sessions it manages,
+  open reports) is moved to the new id inside the resume's lock, so the sweep can't take them for orphans meanwhile.
 - **A full session's state is guarded, not limited** (Guards, not limits): it has your rights in any state.
 - **The notes** stay with sessions that can't carry them out: a workflow whose states can read them only loads if every state only
   reads (Notes).

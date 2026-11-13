@@ -32,13 +32,22 @@ requires = ["pr.open", "pr.checks == pass"]
 on = ["turn.end", "feed:pr.checks"]
 ```
 
-A state has `instructions` (put in the session's next turn when it enters), `personas`, `context` (`keep`, or `compact`
-with a `focus`), its `grant`, its `exit`s, and `final = true` if nothing follows. A grant holds `access` (`locked` or
+A state has `instructions` (put in the session's next turn when it enters), `personas`, `context` (`keep`, `compact`
+with a `focus`, or `fresh`), its `grant`, its `exit`s, and `final = true` if nothing follows. A grant holds `access` (`locked` or
 `full`), `permission_mode`, `tools`, `hub_tools`, `asks_first`, `checkout`, `all_repos` and `github` (the capabilities of
 the session's own token, such as `read`, `pr.write`, `push`).
 
 Every state a session can be in must have the same `access` and `checkout`: a conversation keeps both, and a move that
 would change them fails back. Set them once on the parent, and again on a top-level final state.
+
+With `context = "fresh"` the session's conversation ends once it is at its prompt, and a new one of the state's persona
+(the session's own if the state names it or names none, else the first the state names that the action runs) takes over
+under the same name, checkout and instance: the state, the counters, the managed sessions, their open reports and the
+held grant carry over. It starts from the action's first prompt and a hand-off note the hub writes from named references
+only: the issue, the pull request, the instructions of the states it is in, the moves the log kept, and the rolling
+summary between marks, as data. Never a transcript's words. The old conversation stays in the history, and the machine
+log reads both as one session. A stopped session takes the new conversation at its next resume; one that can't resume
+keeps its conversation, and the move goes back.
 
 ## Exits
 
