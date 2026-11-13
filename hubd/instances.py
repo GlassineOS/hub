@@ -11,8 +11,8 @@ grant waits for the maintainer's confirm; one back into what was held already do
 Rounds: every move into a state counts a round for that state and for each of its parents, so a parent's counter
 bounds a cycle among its children, as `machine.check` assumes. Creating an instance counts the initial state's first
 round. A roll-back undoes the move's place in the trail but not its counters: rounds, time and tokens spent stay spent.
-Time is the wall time in a state, left out while the session has ended and its folder is gone; a stopped session whose
-folder stays keeps counting.
+Time counts only while the session runs and the machine isn't paused: it is banked when the session ends (the time its
+terminal marked), when hubd finds it stopped, and on a pause, and the clock starts again on a resume or an unpause.
 
 Only state lives here. What a move does to the running session (instructions, context, the grant in force) is not
 applied by this module.
@@ -40,6 +40,7 @@ SCHEMA = 1
 FILE = "machine.json"
 MAX_TRAIL = 50                  # moves that can be rolled back, newest last
 ONE_STATE = "session"           # the state of a definition made from an action
+ENDED = "ended"                 # the marker a session's terminal leaves when Claude ends (agents.ENDED_FILE)
 OPS = ("machine.get", "machine.history", "machine.move", "machine.confirm", "machine.rollback", "machine.pause")
 
 _LISTS = ("tools", "hub_tools", "asks_first", "github")
@@ -68,7 +69,10 @@ _parsed: dict[str, Definition] = {}
 def _parse(text: str) -> Definition:
     key = version_of(text)
     if key not in _parsed:
-        d = machine.parse(text)
+        try:
+            d = machine.parse(text)
+        except DefinitionError as e:
+            raise MachineError(f"the definition has problems: {e}") from None
         if problems := [f for f in machine.check(d) if f.kind == "problem"]:
             raise MachineError("the definition has problems: " + "; ".join(f"{p.where}: {p.text}" for p in problems[:5]))
         if len(_parsed) > 256:
@@ -157,6 +161,7 @@ class Instance:
     counters: dict[str, dict[str, float]] = field(default_factory=lambda: {c: {} for c in machine.COUNTERS})
     paused: bool = False
     kept: bool = False               # stays on its version until a move by hand: the newest one dropped its state
+    stopped: bool = False            # the session isn't running: its clock doesn't run, as while paused
     trail: list[dict] = field(default_factory=list)        # {from, from_version, to, to_version}, newest last
     pending: dict | None = None
     created: float = 0.0
@@ -197,7 +202,7 @@ class Instance:
             d = inst.definition()
         except (DefinitionError, MachineError):
             raise bad from None
-        if not _is_leaf(d, inst.state) or not isinstance(inst.paused, bool) or not isinstance(inst.kept, bool) or not _held_ok(inst.held):
+        if not _is_leaf(d, inst.state) or not isinstance(inst.paused, bool) or not isinstance(inst.kept, bool) or not isinstance(inst.stopped, bool) or not _held_ok(inst.held):
             raise bad
         if not isinstance(inst.history, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in inst.history.items()):
             raise bad
@@ -214,6 +219,10 @@ class Instance:
             raise bad
         return inst
 
+    @property
+    def ticking(self) -> bool:
+        return not self.paused and not self.stopped
+
     def facts(self, now: float) -> dict:
         """The counters as `requires` names them, with the time in the current state up to now."""
         d = self.definition()
@@ -221,7 +230,7 @@ class Instance:
         out = {}
         for sid in d.states:
             out[f"rounds.{sid}"] = int(self.counters["rounds"].get(sid, 0))
-            out[f"time.{sid}"] = int(self.counters["time"].get(sid, 0) + (max(0.0, now - self.entered) if sid in chain else 0))
+            out[f"time.{sid}"] = int(self.counters["time"].get(sid, 0) + (max(0.0, now - self.entered) if sid in chain and self.ticking else 0))
             out[f"tokens.{sid}"] = int(self.counters["tokens"].get(sid, 0))
         return out
 
@@ -295,12 +304,14 @@ def confirm_move(inst: Instance, pending_id, who: str | None, accept: bool = Tru
     return _apply(inst, text, p["to"], p["kind"], p["who"], who, change, now)
 
 
-def pause(inst: Instance, paused: bool, who: str | None = None) -> dict:
-    """While paused, the machine doesn't move on its own. Moves by hand and roll-backs still do."""
+def pause(inst: Instance, paused: bool, who: str | None = None, now: float | None = None) -> dict:
+    """While paused, the machine doesn't move on its own and its clock doesn't run. Moves by hand and roll-backs still
+    move."""
     if not isinstance(paused, bool):
         raise MachineError("paused is true or false")
     if inst.paused == paused:
         return {"paused": paused, "changed": False}
+    _bank(inst, time.time() if now is None else now)
     inst.paused = paused
     return {"paused": paused, "changed": True,
             "log": {"from_state": inst.state, "to_state": inst.state, "from_version": inst.version, "to_version": inst.version,
@@ -324,11 +335,21 @@ def _propose(inst: Instance, text: str, leaf: str, by: str, who, now: float) -> 
 
 
 def _bank(inst: Instance, now: float) -> None:
-    """The time since the current state was entered, counted in it and its parents."""
-    elapsed = max(0.0, now - inst.entered)
-    for s in machine.ancestors(inst.definition(), inst.state):
-        inst.counters["time"][s] = inst.counters["time"].get(s, 0) + elapsed
-    inst.entered = now
+    """The time since the clock last started, counted in the current state and its parents if the clock is running."""
+    if inst.ticking:
+        elapsed = max(0.0, now - inst.entered)
+        for s in machine.ancestors(inst.definition(), inst.state):
+            inst.counters["time"][s] = inst.counters["time"].get(s, 0) + elapsed
+    inst.entered = max(inst.entered, now)
+
+
+def set_stopped(inst: Instance, stopped: bool, at: float) -> bool:
+    """The session stopped running at `at`, or runs again from `at`. Whether that changed anything."""
+    if inst.stopped == stopped:
+        return False
+    _bank(inst, at)
+    inst.stopped = stopped
+    return True
 
 
 def _apply(inst: Instance, text: str, leaf: str, by: str, who, confirmed_by, change: machine.Change, now: float) -> dict:
@@ -413,16 +434,14 @@ class Machines:
             inst = Instance.from_json(json.loads((Path(directory) / FILE).read_text()))
         except (OSError, ValueError, MachineError):
             return {}
-        _bank(inst, self.clock())
+        set_stopped(inst, True, self._ended_at(Path(directory), inst))
         return {"machine": inst.to_json()}
 
     def restore(self, directory: Path, record: dict) -> None:
         """When resume brings a folder back from the history: the machine it had, if the record kept one."""
         if "machine" in record:
             try:
-                inst = Instance.from_json(record["machine"])
-                inst.entered = self.clock()
-                self._write(directory, inst)
+                self._write(directory, Instance.from_json(record["machine"]))  # stopped: resume starts its clock
             except MachineError as e:  # it starts again from its workflow's first state, on the next look
                 log.warning("%s: %s", record.get("name"), e)
 
@@ -445,7 +464,34 @@ class Machines:
             return record, inst
         except (OSError, ValueError) as e:
             raise MachineError("the session's machine record can't be read") from e
-        return record, Instance.from_json(raw)
+        inst = Instance.from_json(raw)
+        if not inst.stopped and (directory / ENDED).exists():  # Claude has ended there: its clock stopped then
+            set_stopped(inst, True, self._ended_at(directory, inst))
+            self._write(directory, inst)
+        return record, inst
+
+    def _ended_at(self, directory: Path, inst: Instance) -> float:
+        try:
+            at = (directory / ENDED).stat().st_mtime
+        except OSError:
+            at = self.clock()
+        return min(at, self.clock())
+
+    def stopped(self, name: str) -> None:
+        """Its terminal is gone: the clock stops now, if nothing said so sooner."""
+        self._running(name, False)
+
+    def resumed(self, name: str) -> None:
+        """Called as a session starts again, before its markers go: the clock runs from now."""
+        self._running(name, True)
+
+    def _running(self, name: str, running: bool) -> None:
+        try:
+            _record, inst = self.load(name)
+            if set_stopped(inst, not running, self.clock()):
+                self.save(name, inst)
+        except (MachineError, OSError) as e:
+            log.warning("%s: %s", name, e)
 
     def save(self, name: str, inst: Instance) -> None:
         self._write(self.sessions / name, inst)
@@ -494,7 +540,7 @@ class Machines:
         return self._act(name, lambda _record, inst, now: confirm_move(inst, pending_id, who, accept, now))
 
     def pause(self, name, paused, who: str | None = None) -> dict:
-        return self._act(name, lambda _record, inst, _now: pause(inst, paused, who))
+        return self._act(name, lambda _record, inst, now: pause(inst, paused, who, now))
 
     # --- the socket ops (maintainer only: the caller checks the login) ----------------
     def request(self, op: str, req: dict, who: str | None) -> dict:

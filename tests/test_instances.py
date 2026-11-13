@@ -2,6 +2,7 @@
 """Workflow instances: kept with the session, moved by hand, confirmed when they'd give something new, logged."""
 import asyncio
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -12,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_machine import IMPLEMENT, _with  # noqa: E402
 
 from hubd import auth, instances, machine  # noqa: E402
-from hubd.agents import Agents, Library  # noqa: E402
+from hubd.agents import ENDED_FILE, AgentError, Agents, Library  # noqa: E402
 from hubd.instances import FILE, Instance, MachineError, confirm_move as confirm, definition_for, move, pause, rollback, version_of  # noqa: E402
 from hubd.machine_log import Log, LogError  # noqa: E402
 from hubd.server import Hubd  # noqa: E402
@@ -398,3 +399,52 @@ def test_time_spent_ended_isnt_time_in_the_state(world):
     asyncio.run(a.resume_past(session_id))
     clock[0] = 90010.0
     assert a.machines.request("machine.get", {"name": name}, "m")["facts"]["time.session"] == 110
+
+
+def test_the_clock_stops_while_paused():
+    inst = new(now=0)
+    pause(inst, True, now=10)
+    assert inst.facts(now=100)["time.implement"] == 10
+    pause(inst, False, now=100)
+    move(inst, "review", "hand", now=105)
+    assert inst.facts(now=105)["time.implement"] == 15
+
+
+def test_the_clock_stops_when_the_session_ends_and_runs_again_on_resume(world):
+    a, _ = world
+    clock = [1000.0]
+    a.machines.clock = lambda: clock[0]
+    name = _session(a)
+    ended = a.sessions / name / "ended"
+    ended.touch()
+    os.utime(ended, (1030, 1030))
+    clock[0] = 5000.0
+    assert a.machines.request("machine.get", {"name": name}, "m")["facts"]["time.session"] == 30
+    a.shells.live.discard(name)
+    asyncio.run(a.resume(name))
+    clock[0] = 5020.0
+    assert a.machines.request("machine.get", {"name": name}, "m")["facts"]["time.session"] == 50
+
+
+def test_a_session_found_stopped_stops_its_clock(world):
+    a, _ = world
+    clock = [1000.0]
+    a.machines.clock = lambda: clock[0]
+    name = _session(a)
+    a.shells.live.discard(name)  # its terminal went, with no marker: after a reboot
+    clock[0] = 1040.0
+    assert [s["name"] for s in asyncio.run(a.stopped())] == [name]
+    clock[0] = 9000.0
+    assert a.machines.request("machine.get", {"name": name}, "m")["facts"]["time.session"] == 40
+
+
+def test_a_start_on_a_bad_workflow_is_an_agent_error(world, monkeypatch):
+    a, _ = world
+    monkeypatch.setattr(instances, "definition_for", lambda action: 'schema = 1\nname = "x"\ninitial = "nowhere"\n[state.a]\nfinal = true\n')
+    with pytest.raises(AgentError, match="can't start: its workflow the definition has problems: .*nowhere"):
+        _session(a)
+    assert not (a.sessions / "s").exists()
+
+
+def test_the_ended_marker_is_the_agents_own():
+    assert instances.ENDED == ENDED_FILE
