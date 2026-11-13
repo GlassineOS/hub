@@ -13,6 +13,8 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from . import judge as judgelib
@@ -52,6 +54,16 @@ The turn that just ended, as data:
 Give the new summary in the JSON form."""
 
 
+@dataclass(frozen=True)
+class Fold:
+    """What an update did, for the log: the summary kept, why the fold failed if it did, and the judge's time and cost."""
+    summary: str
+    failed: str | None
+    judge: str
+    ms: int
+    cost: float | None
+
+
 def path(session_dir: Path) -> Path:
     return Path(session_dir) / SUMMARY_FILE
 
@@ -89,14 +101,16 @@ def _fallback(old: str, turn: str) -> str:
     return text if len(text) <= MAX_SUMMARY else "…" + text[-(MAX_SUMMARY - 1):]
 
 
-async def update(session_dir: Path, turn_text: str, judge: judgelib.Judge) -> tuple[str, str | None]:
-    """Fold the turn into the session's summary and keep it. Gives (summary, failed): failed says why the fold didn't work.
+async def update(session_dir: Path, turn_text: str, judge: judgelib.Judge) -> Fold:
+    """Fold the turn into the session's summary and keep it. One at a time per session: the caller serialises them.
 
-    Never raises for a provider's fault: the summary then keeps the old text and the end of the turn."""
+    Never raises: a provider's fault keeps the old text and the end of the turn, and a session folder that went away
+    meanwhile (the session ended) is a failed fold that writes nothing."""
     old = read(session_dir)
-    failed = None
+    failed, new, cost = None, None, None
+    start = time.monotonic()
     try:
-        answer, _cost = await judge.complete(FOLD_SYSTEM, fold_prompt(old, turn_text), FOLD_SCHEMA)
+        answer, cost = await judge.complete(FOLD_SYSTEM, fold_prompt(old, turn_text), FOLD_SCHEMA)
         if isinstance(answer, str):
             answer = json.loads(answer)
         new = answer.get("summary") if isinstance(answer, dict) else None
@@ -108,9 +122,13 @@ async def update(session_dir: Path, turn_text: str, judge: judgelib.Judge) -> tu
         failed = "the fold's answer isn't JSON"
     except Exception as e:  # noqa: BLE001 — a broken provider keeps the old summary, never crashes the caller
         failed = f"the fold broke: {type(e).__name__}"
+    ms = int((time.monotonic() - start) * 1000)
     text = _fallback(old, turn_text) if failed else new.strip()[:MAX_SUMMARY]
-    _write(session_dir, text)
-    return text, failed
+    try:
+        _write(session_dir, text)
+    except OSError as e:
+        return Fold(old, f"couldn't keep the summary: {e.strerror or type(e).__name__}", judge.label, ms, cost)
+    return Fold(text, failed, judge.label, ms, cost)
 
 
 # ---- the last turn, from Claude Code's transcript ----

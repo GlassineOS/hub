@@ -22,14 +22,28 @@ class Fixed(Judge):
         self.seen = (system, user, schema)
         if isinstance(self.answer, BaseException):
             raise self.answer
-        return self.answer, None
+        return self.answer, 0.01
+
+
+def unpack(coro):
+    fold = asyncio.run(coro)
+    return fold.summary, fold.failed
+
+
+def test_a_session_that_went_away_is_a_failed_fold_and_nothing_is_written(tmp_path):
+    gone = tmp_path / "ended"
+    fold = asyncio.run(summary.update(gone, "turn", Fixed({"summary": "new"})))
+    assert fold.summary == "" and fold.failed.startswith("couldn't keep the summary")
+    assert not gone.exists()
 
 
 def test_a_turn_is_folded_into_the_summary(tmp_path):
     (tmp_path / summary.SUMMARY_FILE).write_text("Started on the fix.")
     fake = Fixed({"summary": "  Started on the fix; tests pass now.  "})
-    text, failed = asyncio.run(summary.update(tmp_path, "assistant: ran the tests, all pass", fake))
+    fold = asyncio.run(summary.update(tmp_path, "assistant: ran the tests, all pass", fake))
+    text, failed = fold.summary, fold.failed
     assert (text, failed) == ("Started on the fix; tests pass now.", None)
+    assert fold.judge == "default (fake fixed)" and fold.cost == 0.01 and fold.ms >= 0
     assert summary.read(tmp_path) == text
     assert stat.S_IMODE((tmp_path / summary.SUMMARY_FILE).stat().st_mode) == 0o600
     system, user, schema = fake.seen
@@ -39,12 +53,12 @@ def test_a_turn_is_folded_into_the_summary(tmp_path):
 
 
 def test_a_json_string_fold_is_read_too(tmp_path):
-    text, failed = asyncio.run(summary.update(tmp_path, "turn", Fixed(json.dumps({"summary": "new"}))))
+    text, failed = unpack(summary.update(tmp_path, "turn", Fixed(json.dumps({"summary": "new"}))))
     assert (text, failed) == ("new", None)
 
 
 def test_the_summary_is_bounded(tmp_path):
-    text, failed = asyncio.run(summary.update(tmp_path, "turn", Fixed({"summary": "y" * 5000})))
+    text, failed = unpack(summary.update(tmp_path, "turn", Fixed({"summary": "y" * 5000})))
     assert failed is None and len(text) == summary.MAX_SUMMARY
     assert len(summary.read(tmp_path)) == summary.MAX_SUMMARY
 
@@ -55,7 +69,7 @@ def test_a_failed_fold_keeps_the_old_summary_and_the_end_of_the_turn(tmp_path):
     for answer, why in ((JudgeFault("the endpoint answered 500"), "answered 500"), ("{nope", "isn't JSON"),
                         ({"summary": "   "}, "no summary"), ({"other": 1}, "no summary"), (RuntimeError("x"), "broke")):
         (tmp_path / summary.SUMMARY_FILE).write_text("Old summary.")
-        text, failed = asyncio.run(summary.update(tmp_path, turn, Fixed(answer)))
+        text, failed = unpack(summary.update(tmp_path, turn, Fixed(answer)))
         assert why in failed
         assert text.startswith("Old summary.") and text.endswith("the very end") and "start" not in text
         assert len(text) <= len("Old summary.") + summary.FAILED_TAIL + 40
@@ -63,7 +77,7 @@ def test_a_failed_fold_keeps_the_old_summary_and_the_end_of_the_turn(tmp_path):
 
 def test_repeated_failures_stay_within_the_bound(tmp_path):
     for i in range(20):
-        text, failed = asyncio.run(summary.update(tmp_path, "z" * 300 + f" turn {i}", Fixed(JudgeFault("down"))))
+        text, failed = unpack(summary.update(tmp_path, "z" * 300 + f" turn {i}", Fixed(JudgeFault("down"))))
     assert failed == "down" and len(text) <= summary.MAX_SUMMARY and text.endswith("turn 19")
     assert "turn 0" not in text
 
