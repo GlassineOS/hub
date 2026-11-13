@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from starts_util import start_again
 from hubd import agents as agents_module
 from hubd import judge as judgelib
 from hubd import machine, machinestore, summary
@@ -423,7 +424,7 @@ def test_approve_steward_reaches_the_steward_session(team):
 # --- the Workflow author's drafts (FR-062) ---------------------------------------------------------------------------
 
 def _implement_text(edit=None) -> str:
-    text = (REPO / "agents" / "workflows" / "implement.toml").read_text()
+    text = start_again((REPO / "agents" / "workflows" / "implement.toml").read_text(), "implement")  # as the team's library has it
     return edit(text) if edit else text
 
 
@@ -702,11 +703,11 @@ def test_the_engineers_pull_request_comes_before_one_the_implementor_opened(team
     asyncio.run(go())
 
 
-def test_the_drafting_states_are_named_in_the_action_and_checked_on_load(tmp_path):
+def test_the_drafting_states_are_named_in_the_launch_and_checked_on_load(tmp_path):
     import shutil  # noqa: PLC0415
     lib = tmp_path / "agents"
     shutil.copytree(REPO / "agents", lib)
-    path = lib / "actions" / "workflow-change.toml"
+    path = lib / "workflows" / "workflow-change.toml"
     path.write_text(path.read_text().replace('propose = "propose"', 'propose = "draft"'))
     with pytest.raises(agents_module.LibraryError, match="propose is a final state"):
         Library(lib)

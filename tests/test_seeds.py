@@ -234,7 +234,7 @@ def _with_session(tmp_path, remote, name, full, tools=("Read", "Grep", "Glob")):
     a.seeds.btrfs = "btrfs" if on_btrfs(tmp_path) else NO_BTRFS
     directory = a.sessions / name
     directory.mkdir(parents=True)
-    config = {"action": "issue-implement" if full else "pr-review", "tools": list(tools), "hub_tools": ["request_repository"], "repo": "alpha", "number": 1, "persona": "engineer", "model": "opus", "effort": "high"}
+    config = {"action": "issue-docs" if full else "pr-review", "tools": list(tools), "hub_tools": ["request_repository"], "repo": "alpha", "number": 1, "persona": "engineer", "model": "opus", "effort": "high"}
     (directory / "session.json").write_text(json.dumps({"name": name, "config": config, "full": full, "title": "t", "object": "issue", "session_id": "id"}))
     asyncio.run(a.seeds.refresh_all())
     return a, directory

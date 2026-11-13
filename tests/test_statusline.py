@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from starts_util import with_launch
 from hubd import agents as agents_module
 from hubd import machine, machinerun
 from hubd.agents import Agents, Library
@@ -103,7 +104,7 @@ def world(tmp_path, monkeypatch, request):
     root = tmp_path / "agents"
     shutil.copytree(REPO / "agents", root)
     status = getattr(request, "param", "status = true")
-    (root / "workflows" / f"{ACTION}.toml").write_text(WORKFLOW.format(status=status))
+    (root / "workflows" / f"{ACTION}.toml").write_text(with_launch(WORKFLOW.format(status=status), ACTION))
     claude = tmp_path / "claude"
     claude.write_text("#!/bin/sh\n")
     claude.chmod(0o755)

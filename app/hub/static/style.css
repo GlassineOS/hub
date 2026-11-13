@@ -716,6 +716,9 @@ dialog.menu { padding: 0; }
 .menu-body .needs-open { align-self: flex-start; }
 .steward-fab { position: fixed; right: 16px; bottom: 16px; z-index: 30; width: 56px; min-width: 56px; height: 56px; box-shadow: 0 3px 0 var(--shade); }
 @media (max-width: 760px) {
+  .wfe-starts .wfe-starts-grid { grid-template-columns: minmax(0, 1fr); }
+  button.lead { width: 100%; }
+  .startgrid { grid-template-columns: minmax(0, 1fr); }
   .top { padding: 8px 16px; gap: 12px; }
   .top.phone { flex-wrap: nowrap; justify-content: space-between; }
   .page, .page.wide { padding: 20px 16px 88px; }
@@ -776,3 +779,27 @@ dialog.menu { padding: 0; }
   .wforder .il-btn { min-width: 44px; }
   .wforder li { grid-template-columns: 1.6em minmax(0, 1fr); grid-template-areas: "n to" "n why" "n btns"; }
 }
+
+/* 012 FR-102 to FR-104: an item's starts. The lead start is the one filled button; quick tasks and asks are tiles. A held
+   item's box is drawn heavier; only the state chip of a move that waits for you is yellow. */
+.starts .eyebrow { margin: 0; }
+.starts.held { border-width: 2px; }
+button.dashed { border-style: dashed; }
+.leadstart { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: flex-start; }
+.leadstart > .stack { flex: 1 1 280px; min-width: 0; }
+button.lead { display: flex; gap: 12px; align-items: center; padding: 12px 18px; font-size: 17px; flex: 0 1 auto; max-width: 100%; }
+button.lead .small { color: inherit; opacity: .9; }
+.startgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.starttile { display: flex; gap: 10px; align-items: flex-start; text-align: left; padding: 10px 12px; border: 1.5px solid var(--ink); border-radius: 10px; background: var(--paper); box-shadow: none; min-width: 0; font-weight: 400; justify-content: flex-start; }
+.starttile b { font-size: 15px; font-weight: 600; }
+.starttile .soft { overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.starttile[aria-pressed="true"] { box-shadow: inset 0 0 0 1.5px var(--ink), 0 3px 0 var(--shade); }
+.asktile { width: 100%; text-align: left; padding: 10px 12px; background: var(--sheet); border-radius: 10px; }
+.pill .result-tag { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; opacity: .8; }
+.wflead { display: inline-block; padding: 0 6px; border: 1.5px solid var(--ink); border-radius: 6px; font: 600 11px/1.6 var(--mono, monospace); text-transform: uppercase; letter-spacing: .06em; }
+.wfe-starts { grid-column: 1 / -1; }
+.wfe-starts-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 16px; align-items: start; }
+.wfe-startform fieldset { border: 0; padding: 0; margin: 0; }
+.details-box { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1.5px dashed var(--ink); border-radius: 10px; }
+.details-box dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 16px; margin: 0; }
+.details-box dd { margin: 0; overflow-wrap: anywhere; }
