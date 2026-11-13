@@ -35,6 +35,7 @@ they return, ends them when their owner leaves their state or ends, and carries 
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import re
 import logging
@@ -43,7 +44,7 @@ import sqlite3
 import time
 
 from . import machine, summary
-from .agents import CHAIN_TOOLS, DESIGN_ACTION, ENDED_FILE, HUB_SENDER, IDLE_FILE, MAX_MANAGED, NO_REPO_OBJECTS, AgentError, _draws_nothing, covers_of
+from .agents import CHAIN_TOOLS, DESIGN_ACTION, ENDED_FILE, HUB_SENDER, IDLE_FILE, MAX_MANAGED, NO_REPO_OBJECTS, AgentError, ForkError, _draws_nothing, covers_of
 from .decisions import APPROVE, DecisionError
 from .effects import LABEL, path_of
 from .instances import MachineError
@@ -58,11 +59,18 @@ DECISIONS = ("approve", "deny")
 REPORT_KINDS = ("blocker", "decision")
 TYPE_REPORT, TYPE_START = "report", "managed"   # the `type` of a Needs-you approval card that isn't an exit's
 TYPE_DESIGN = "design"   # "Look at the design" (012 FR-073): a design session started under a workflow, to look at
+TYPE_STUCK = "stuck"     # a managed session that can't start for a reason that won't change by itself: for you to look at
 _ITEM = re.compile(r"(?:GlassineOS/)?(\.?[A-Za-z0-9_][A-Za-z0-9._-]{0,99})(?:#([1-9][0-9]{0,9}))?")  # repo or repo#N, GlassineOS/ or not
 
 
 class ManagedError(Exception):
     """A request about a managed session or a report that can't be done; the message goes back to the caller."""
+
+
+class ManagedStuck(ManagedError):
+    """A managed start that can't happen for a reason that won't change by itself (the owner is on no item of the kind its
+    workflow needs, the workflow is gone, a fork's branch to push to). Told to the owner once, raised to you, and not tried
+    again in the round."""
 
 
 def _text(value, what: str, needed: bool = True) -> str | None:
@@ -111,6 +119,7 @@ class Managed:
             runner.on_head = self.on_head
         self._judged: dict[tuple, tuple[float, bool]] = {}  # (conversation, entry, round, item) -> when a request's `when` was judged, and how
         self._full: set[tuple] = set()  # (owner, conversation, entry, round) told that MAX_MANAGED held its start back: told once, signalled on room
+        self._stuck: dict[tuple, str] = {}  # (conversation, entry, round, item) -> why it can't start: told and raised once, not tried again
 
     @property
     def log(self):
@@ -224,7 +233,7 @@ class Managed:
         sid = self._sid_of(name)
         return [m.name for _sid, m in machine.managed_of(inst.definition(), inst.state)
                 if m.start == "auto" and inst.managed.get(m.name, {}).get("round") != self._round_of(inst, m.name)
-                and not self._pending(sid, m.name)]
+                and not self._pending(sid, m.name) and (sid, m.name, self._round_of(inst, m.name), None) not in self._stuck]
 
     def _sid_of(self, name: str) -> str | None:
         return (self._record(name) or {}).get("session_id")
@@ -291,7 +300,7 @@ class Managed:
         so a workflow with a second start (the implementor's on a pull request) runs its managed sessions as before."""
         action = self.agents.library.actions.get(m.workflow)
         if not action or action.get("workflow") != m.workflow or m.persona not in action["personas"]:
-            raise ManagedError(f"no action runs {m.workflow} as {m.persona}")
+            raise ManagedStuck(f"no action runs {m.workflow} as {m.persona}")
         return self.agents.library.resolved(action, repo)
 
     async def _item_for(self, owner: str, record: dict, action: dict, wanted: str | None = None) -> tuple[str | None, int | None]:
@@ -305,12 +314,12 @@ class Managed:
             return None, None
         if action["object"] == "repo":
             if record.get("object") != "repo":
-                raise ManagedError(f"{action['id']} is about a repository: name it as item")
+                raise ManagedStuck(f"{action['id']} is about a repository: name it as item")
             return config["repo"], None
         if action["object"] == "issue":
             issue = next((c for c in covers_of(config)), None) if record.get("object") == "issue" else None
             if issue is None:
-                raise ManagedError(f"{owner} isn't on an issue")
+                raise ManagedStuck(f"{owner} isn't on an issue")
             return issue["repo"], issue["number"]
         if action["object"] == "pr":
             prs = self.agents.known_prs(owner)
@@ -321,7 +330,7 @@ class Managed:
             if not prs:
                 raise ManagedError(f"{owner} has no pull request yet")
             return prs[0]["repo"], prs[0]["number"]
-        raise ManagedError(f"{action['id']} is on {action['object']}, and a managed session works on its owner's pull request or issue")
+        raise ManagedStuck(f"{action['id']} is on {action['object']}, and a managed session works on its owner's pull request or issue")
 
     @staticmethod
     def _wanted(owner: str, record: dict, action: dict, wanted) -> tuple[str, int | None]:
@@ -406,8 +415,12 @@ class Managed:
             return f"- The brief {template}: its template can't be filled in."
 
     async def start(self, owner: str, entry: str, by: str = "entry", item: str | None = None) -> dict:
-        """Starts (or, with reuse = resume, resumes) a session of one entry, if it holds where the owner is now."""
+        """Starts (or, with reuse = resume, resumes) a session of one entry, if it holds where the owner is now. One that can't
+        for a reason that won't change by itself is told and raised once, and not tried again in the round."""
         async with self._lock:
+            key = self._stuck_key(owner, entry, item)
+            if key in self._stuck:
+                return {"started": False, "why": self._stuck[key], "stuck": True}
             try:
                 return await self._start(owner, entry, by, item)
             except (ManagedError, AgentError, MachineError) as e:
@@ -417,8 +430,38 @@ class Managed:
                     self._log(owner, record, inst, "hub:managed.start", proposal=f"start {entry}", checks={"started": False, "why": str(e)},
                               failed=True)
                 except (MachineError, OSError):
-                    pass
+                    record = inst = None
+                if isinstance(e, (ManagedStuck, ForkError)) and key is not None and inst is not None:
+                    self._stuck[key] = str(e)
+                    self._stuck_up(owner, record, inst, entry, str(e))
+                    return {"started": False, "why": str(e), "stuck": True}
                 return {"started": False, "why": str(e)}
+
+    def _stuck_key(self, owner: str, entry: str, item: str | None) -> tuple | None:
+        try:
+            record, inst = self.machines.load(owner)
+        except (MachineError, OSError):
+            return None
+        return (record.get("session_id"), entry, self._round_of(inst, entry), item)
+
+    def _stuck_up(self, owner: str, record: dict, inst, entry: str, why: str) -> None:
+        """A start that won't happen this round: its owner hears it once, and a card in Needs you says why."""
+        sid = record.get("session_id")
+        where = path_of(inst.definition(), inst.state)
+        self.agents.tell(owner, f"{LABEL} {entry} can't start: {why}. It isn't tried again in this round; the maintainer is told.")
+        if self.decisions is None:
+            return
+        if any(r["scope"].get("type") == TYPE_STUCK and r["scope"].get("session_id") == sid and r["scope"].get("entry") == entry
+               for r in self.decisions.open_approvals(owner)):
+            return
+        scope = {"type": TYPE_STUCK, "session": owner, "session_id": sid, "entry": entry, "state": inst.state,
+                 "says": f"{entry} can't start under {owner}"}
+        text = (f"{owner}'s state {where} starts {entry}, and it can't: {why}. It isn't tried again in this round, so {owner} "
+                f"waits in {where}: move it on by hand, or end it. Approve to say you've seen this.")
+        try:
+            self.decisions.approve_request(scope, text)
+        except (DecisionError, OSError):
+            log.exception("%s: its stuck start couldn't be put in Needs you", owner)
 
     async def _start(self, owner: str, entry: str, by: str, wanted: str | None = None) -> dict:
         record, inst = self.machines.load(owner)
@@ -427,6 +470,8 @@ class Managed:
         if entry not in found:
             raise ManagedError(f"{path_of(d, inst.state)} manages no {str(entry)[:64]!r}")
         _sid, m = found[entry]
+        if m.on_pr and record.get("object") == "pr":  # an owner on a pull request and no issue: the entry's workflow for one
+            m = dataclasses.replace(m, workflow=m.on_pr)
         owner_sid = record.get("session_id")
         live = await self._live()
         running = [n for n, _r in self.children(owner, owner_sid, entry) if self._running(n, live)]
@@ -449,7 +494,7 @@ class Managed:
         # capped by what the owner holds now: its state's grant as narrowed at its launch (what it took off, a GitHub list it lacks)
         child_grant, owner_grant = self.agents.workflow_grant(m.workflow, item[0]), self.agents.in_force_grant(owner)
         if child_grant is None:
-            raise ManagedError(f"there is no workflow {m.workflow}")
+            raise ManagedStuck(f"there is no workflow {m.workflow}")
         # what an approval added: for the instance, and for a named item only for that item
         allowed = _merged(inst.entry(entry)["allowed"], inst.entry(entry)["allowed_items"].get(item_key or "", {}))
         extra = {k: v for k, v in machine.beyond(child_grant, owner_grant).items() if any(x not in allowed.get(k, ()) for x in v)}
@@ -898,6 +943,8 @@ class Managed:
         """The maintainer's answer on a report's or a managed start's card, or a design card's, which only says they looked."""
         if record["scope"].get("type") == TYPE_DESIGN:
             return self.decisions.settle(record["id"], accept, "you looked at the design" if accept else "set aside", words)
+        if record["scope"].get("type") == TYPE_STUCK:
+            return self.decisions.settle(record["id"], accept, "you've seen it" if accept else "set aside", words)
         report = self.log.get_report(record["scope"].get("report"))
         if not report or report["state"] != "open":
             self.decisions.settle(record["id"], False, "it was answered another way")

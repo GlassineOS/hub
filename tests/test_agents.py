@@ -53,12 +53,14 @@ def test_library_is_complete():
             assert LIBRARY.text("personas", persona)
         assert not {"Write", "Edit", "Agent"} & set(action["grant"].tools)
         # A plain shell would walk around the tool server and the host's policy. These get the sandbox.
-        assert ("Bash" in action["grant"].tools) == (action["id"] in ("pr-review", "pr-security-audit", "implement", "implementor", "implementor-pr", "engineer", "qa-audit", "design-check"))
+        assert ("Bash" in action["grant"].tools) == (action["id"] in ("pr-review", "pr-security-audit", "implement", "implementor", "implementor-pr", "engineer", "pr-engineer", "qa-audit", "design-check"))
         assert "merge_pr" not in action["grant"].hub_tools
         if action["grant"].access == "full":
             assert action["grant"].checkout in ("pr-branch", "new-branch") and action["grant"].permission_mode == "auto"
         elif action["id"] in ("implement", "implementor", "engineer"):  # sandboxed on its own branch, which it pushes with its own token (012 FR-031)
             assert action["grant"].checkout == "new-branch" and "push" in action["grant"].github
+        elif action["id"] == "pr-engineer":  # sandboxed on the pull request's own branch, for an implementor that took it on
+            assert action["grant"].checkout == "pr-branch" and "push" in action["grant"].github
         elif action["id"] == "implementor-pr":  # from review, where nothing pushes until a move to fix, which you confirm
             assert action["grant"].checkout == "new-branch" and "push" not in action["grant"].github
         else:
@@ -133,7 +135,7 @@ def test_every_persona_has_a_family_and_every_action_a_result():
     assert verbs[("run", "fix")] == "run-fix"  # fix on a run, beside fix on a pull request
     # The rest stay in the library, under "More…". Those that post or open a PR say so.
     handed = {"pr-security-audit": "comment", "issue-docs": "pr", "implement": "pr", "issue-implement": "pr", "implementor-pr": "pr", "notes-compact": "notes", "notes-sweep": "drafts",
-              "implementor": "pr", "engineer": "pr", "qa-audit": "findings", "design-check": "findings", "workflow-review": "findings"}  # the last two open from Notes
+              "implementor": "pr", "engineer": "pr", "pr-engineer": "pr", "qa-audit": "findings", "design-check": "findings", "workflow-review": "findings"}  # the last two open from Notes
     assert all(a["result"] == handed.get(a["id"], "none") for a in LIBRARY.actions.values() if not a.get("verb"))
     assert LIBRARY.action("pr-fix-checks")["personas"] == ["ci-fixer", "engineer"]
 
@@ -1327,7 +1329,7 @@ def test_actions_carry_their_verb_result_and_persona_family(tmp_path):
     rows = {x["id"]: x for kind in (None, "repo") for x in a.actions(kind)}
     # every shipped action loads and is offered somewhere, but those only a workflow starts
     assert set(rows) == {i for i, x in LIBRARY.actions.items() if not x.get("managed_only")}
-    assert {i for i, x in LIBRARY.actions.items() if x.get("managed_only")} == {"engineer", "qa-audit", "design-check", "workflow-review", "implement", "issue-implement"}
+    assert {i for i, x in LIBRARY.actions.items() if x.get("managed_only")} == {"engineer", "pr-engineer", "qa-audit", "design-check", "workflow-review", "implement", "issue-implement"}
     review = rows["pr-review"]
     assert (review["verb"], review["result"], review["family"], review["persona_name"]) == ("review", "comment", "review", "Code reviewer")
     assert review["result_words"] == RESULTS["comment"]

@@ -55,13 +55,14 @@ class FakeGh:
     """GitHub as hubd asks it: the session's branch's pull requests, and a pull request's head for a merge."""
     def __init__(self):
         self.prs, self.ran, self.head = [], [], HEAD
+        self.pr_more = {}  # more of a pull request's view: its branch, whether it is a fork's
 
     async def run(self, argv, stdin=None, timeout=None, token=None):
         self.ran.append(argv)
         if argv[0] == "api" and "/pulls?" in argv[1]:
             return {"code": 0, "stdout": json.dumps(self.prs), "stderr": ""}
         if argv[:2] == ["pr", "view"]:
-            return {"code": 0, "stdout": json.dumps({"state": "OPEN", "headRefOid": self.head, "baseRefName": "main"}), "stderr": ""}
+            return {"code": 0, "stdout": json.dumps({"state": "OPEN", "headRefOid": self.head, "baseRefName": "main", **self.pr_more}), "stderr": ""}
         if argv[0] == "api":
             return {"code": 0, "stdout": '{"private": false}', "stderr": ""}
         return {"code": 1, "stdout": "", "stderr": f"not faked: {argv[:2]}"}
@@ -516,12 +517,18 @@ def test_take_this_on_has_an_implementor_hold_an_open_pull_request_from_review(h
 
 
 
-def test_a_fix_round_on_a_pull_request_taken_on_waits_for_you(hub):
-    """A pull request taken on with Take this on has no issue for an engineer. A fail asks you to confirm fix (it adds push);
-    in fix the engineer doesn't start, each try is a failed line in the machine log, one per turn, and the implementor stays
-    in fix until you move it."""
-    h, a, gh, _apps, _judge = hub
-    turns = 3
+
+def _branch_in_remote(tmp_path, branch):
+    subprocess.run(["git", "branch", branch], cwd=tmp_path / "remote" / "boot", check=True, capture_output=True)
+
+
+def test_a_fix_round_on_a_pull_request_taken_on_runs_an_engineer_on_its_branch(hub, tmp_path):
+    """A pull request taken on with Take this on has no issue: a fail asks you to confirm fix (it adds push), and fix starts
+    an engineer on the pull request's own branch (pr-engineer), whose token may push there. Its pushed fix with passing
+    checks takes the implementor back to review, and nothing is tried and failed on the way."""
+    h, a, gh, apps, _judge = hub
+    gh.pr_more = {"isCrossRepository": False, "headRefName": "ink-curve"}
+    _branch_in_remote(tmp_path, "ink-curve")
 
     async def go():
         name = (await a.start(a.defaults("implementor-pr", "boot", PR)))["name"]
@@ -534,14 +541,44 @@ def test_a_fix_round_on_a_pull_request_taken_on_waits_for_you(hub):
         assert inst.state == "review" and inst.pending["to"] == "fix" and inst.pending["adds"] == {"github": ["push"]}
         a.machines.confirm_move(name, inst.pending["id"], "me")
         await settle(h)
-        for _ in range(turns):
-            await turn_ends(h, a, name)
+        assert state_of(a, name) == "fix"
+        engineer = a.machines.load(name)[1].managed["engineer"]["child"]["name"]
+        record = json.loads((a.sessions / engineer / "session.json").read_text())
+        assert record["config"]["action"] == "pr-engineer" and record["config"]["number"] == PR and record["object"] == "pr"
+        assert record["owner"]["name"] == name and record["config"]["persona"] == "engineer"
+        where = a._checkouts(engineer, record["config"], a.library.action("pr-engineer"))[0][1]
+        git = lambda *args: subprocess.run(["git", *args], cwd=where, capture_output=True, text=True, check=True).stdout.strip()  # noqa: E731
+        assert git("branch", "--show-current") == "ink-curve" and git("rev-parse", "--abbrev-ref", "@{upstream}") == "origin/ink-curve"
+        assert push_allowed(apps.asked[-1]) and "push" in record["config"]["github"]
+        assert "You are on its branch" in (a.sessions / engineer / "prompt.md").read_text()
+        # it pushes the fix, the new head's checks pass, and it hands back: back to review, for a fresh reviewer
+        new = "b" * 40
+        gh.head = new
+        await feed(h, ev("head", old_head=HEAD, new_head=new), ev("checks", "passing"))
+        assert (await returns(h, token_of(a, engineer), status="done", summary=["Added the test."]))["ok"]
+        await settle(h)
         return name
     name = asyncio.run(go())
-    assert state_of(a, name) == "fix"
-    assert a.machines.load(name)[1].managed["engineer"]["child"] is None
     log = history(a, name)
-    tries = [e for e in log["evaluations"] if e["proposal"] == "start engineer"]
-    assert tries and all(e["failed"] and e["checks"] == {"started": False, "why": f"{name} isn't on an issue"} for e in tries)
-    assert len(tries) <= turns + 2, "a try per turn, never a loop of its own"
-    assert [(m["from"], m["to"], m["confirmed_by"]) for m in log["moves"]] == [("review", "fix", "me")]
+    assert state_of(a, name) == "review"
+    assert len(reviewers(h, a, name)) == 2 and running(a, reviewers(h, a, name)[-1])  # a fresh reviewer for the new round
+    assert [(m["from"], m["to"]) for m in log["moves"]] == [("review", "fix"), ("fix", "review")]
+    assert not [e for e in log["evaluations"] if e["failed"] and e["proposal"] == "start engineer"]
+
+
+def test_take_this_on_refuses_a_forks_pull_request(hub):
+    """Nobody here may push to a fork's branch, so a start whose workflow pushes can't take a fork's pull request on: its page
+    says why, and a start is refused with the same reason. What runs beside, read-only, still runs."""
+    h, a, gh, _apps, _judge = hub
+    gh.pr_more = {"isCrossRepository": True, "headRefName": "theirs"}
+
+    async def go():
+        view = await h.item_starts("pr", "boot", PR)
+        rows = {r["id"]: r for r in view["starts"]}
+        assert rows["implementor-pr"]["availability"] == "refused" and "fork" in rows["implementor-pr"]["why"]
+        assert rows["pr-review"]["availability"] == "runs"
+        with pytest.raises(agents_module.ForkError, match="Take this on can't run on a fork's pull request"):
+            await a.start(a.defaults("implementor-pr", "boot", PR))
+        assert not a.sessions.exists() or not list(a.sessions.glob("*/session.json"))
+    asyncio.run(go())
+

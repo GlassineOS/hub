@@ -150,6 +150,7 @@ class Manage:
     name: str
     persona: str
     workflow: str
+    on_pr: str = ""                # the workflow it runs instead for an owner on a pull request and no issue (a PR taken on)
     start: str = "auto"
     when: str = ""
     max: int = 1
@@ -551,7 +552,8 @@ def _manage(r: _Reader, raw, where: str) -> Manage:
     if most < 1:
         r.problems.append(Problem(f"{where}.max", "is at least 1"))
     return Manage(name=r.get(t, "name", where, str, "", pattern=_ID), persona=r.get(t, "persona", where, str, "", pattern=_NAME),
-                  workflow=r.get(t, "workflow", where, str, "", pattern=_NAME), start=r.get(t, "start", where, str, "auto", STARTS),
+                  workflow=r.get(t, "workflow", where, str, "", pattern=_NAME), on_pr=r.get(t, "on_pr", where, str, "", pattern=_NAME),
+                  start=r.get(t, "start", where, str, "auto", STARTS),
                   when=r.get(t, "when", where, str, ""), max=most, reuse=r.get(t, "reuse", where, str, "resume", REUSES),
                   on_exit=r.get(t, "on_exit", where, str, "stop", ON_EXIT), with_=refs, returns=returns)
 
@@ -727,14 +729,16 @@ def managed_of(d: Definition, state_id: str) -> list[tuple[str, Manage]]:
 
 
 def _checkout_fits(child, owner) -> bool:
+    # A pull request's own branch fits under an owner on a new branch: the one a managed session gets is always its owner's own
+    # pull request (the one it opened, or the one it took on), never a fork's (the checkout refuses those).
     child, owner = (False if v is None else v for v in (child, owner))
-    return child is False or child == owner or (child in READ_CHECKOUTS and owner is not False)
+    return child is False or child == owner or (child in READ_CHECKOUTS and owner is not False) or (child, owner) == ("pr-branch", "new-branch")
 
 
 def beyond(child: Grant, owner: Grant) -> dict[str, tuple]:
     """What a managed session's grant holds that its owner's effective grant doesn't, per key, as Change.adds lists it.
-    Lists by item, ordered keys by level; a checkout fits when it is none, the owner's, or a detached one under an owner
-    that has a checkout at all."""
+    Lists by item, ordered keys by level; a checkout fits when it is none, the owner's, a detached one under an owner
+    that has a checkout at all, or its pull request's branch under an owner on a new branch."""
     out = {}
     for key in _SET_KEYS:
         if extra := tuple(x for x in getattr(child, key) if x not in getattr(owner, key)):
