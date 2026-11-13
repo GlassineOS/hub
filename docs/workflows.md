@@ -231,8 +231,9 @@ id is the action id the API, the records and the history use, so the ids of the 
 
 The checks refuse a start without a label, one that names a state the workflow doesn't have or starts in a final one, two
 starts with the same label on one kind of item, two leads for one kind of item (across the library too), a start id used
-twice, an `ask_move` on a start that doesn't ask, and a start whose first state writes on the item (full access, a GitHub
-capability beyond reading, or a hub tool that writes) with `when_held = "beside"`: what runs beside a holder only reads.
+twice, an `ask_move` on a start that doesn't ask, and a start with `when_held = "beside"` whose first state, or any state
+its session can move to, writes on the item (full access, a GitHub capability beyond reading, or a hub tool that writes):
+what runs beside a holder only reads.
 
 ### Held items
 
