@@ -1222,8 +1222,9 @@ function Starts({ kind, repo, number, facts, road }) {
 function SuggestBest({ kind, repo, number, facts }) {
   const { data } = useKindActions(kind);
   const best = bestAction(kind, facts, offeredFor(data, facts));
-  if (!best) return html`<p class="small soft">No session on this item.</p>`;
   const here = `${repo}#${number}`;
+  // The lead start is already the first button in the item's starts: a suggestion would only repeat it.
+  if (!best || best.lead) return html`<p class="small soft">No session covers ${here} yet.</p>`;
   return html`<article class="ask calm compact"><div class="ask-head"><span class="ask-kind">SESSION · SUGGESTED</span></div>
     <div class="ask-body"><h3 class="ask-title">${best.title} ${here}</h3><p class="small">${best.summary}</p>
       <p class="small soft">A planner reads this first. Nothing runs until you've read its plan.</p>

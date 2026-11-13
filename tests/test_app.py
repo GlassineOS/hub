@@ -1628,6 +1628,7 @@ def test_the_work_item_has_its_black_github_button_and_its_sections():
     assert '<li class=${l.error ? "err" : ""}' in _component(script, "FailedStep")
     assert "Sessions on ${here} · ${sessions.length}" in _component(script, "SessionsOn") and "sent to background" in _component(script, "SessionsOn")
     assert "<${SuggestBest} " in _component(script, "SessionsOn")
+    assert "if (!best || best.lead) return" in _component(script, "SuggestBest"), "the lead start is not suggested twice"
     assert 'launch({ verb: "address", covers: [{ kind: "pr", repo, number }], pins: address.map(threadPin)' in _component(script, "Threads")
     assert 'launch({ verb: "review", covers: [{ kind: "pr", repo, number }]' in _component(script, "PrDetail")
     starts = _component(script, "Starts")  # 012 FR-102: the lead start, then the quick tasks the item's state offers
