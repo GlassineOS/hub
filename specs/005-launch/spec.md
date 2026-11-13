@@ -88,8 +88,8 @@ that spec's name and number, as in "App frame (001) FR-011".
 
 #### Actions and result types
 
-- **FR-012**: The action library has these actions, each with a fixed persona, result
-  type and ceiling:
+- **FR-012**: The action library is the starts of the default workflows (Workflows (012) FR-100); each
+  action has a fixed persona, result type and ceiling:
 
   | Action | Persona | Result | Applies to |
   |---|---|---|---|
@@ -112,7 +112,8 @@ that spec's name and number, as in "App frame (001) FR-011".
 
 - **FR-013**: Each action has a default model (Fable, Opus, Sonnet or Haiku) that the
   brief can change.
-- **FR-014**: An action is a workflow (Workflows (012) FR-010) and its ceiling (read-only,
+- **FR-014**: An action is a start of a workflow (Workflows (012) FR-010, FR-100); its label, summary and prompt
+  are the start's, and its ceiling (read-only,
   comment, branch + draft PR) is the grant of its first state, enforced by the session's
   permissions, not only shown (Workflows (012) FR-031).
 - **FR-015**: A drafts result lists draft issues; each can be filed as is, edited and
