@@ -429,3 +429,26 @@ def test_a_managed_start_is_refused_on_an_item_held_by_a_session_outside_its_cha
                                                                          "entry": "fixer", "round": 1})
         assert a.chain_of(beside) == [beside] and a.foreign_holder("pr", "boot", PR, a.chain_of(beside)) == holder
     asyncio.run(go())
+
+
+def test_a_session_holds_by_what_its_start_did_when_it_started_not_by_a_later_version(hub, tmp_path):
+    """Whether a session holds its item is kept in its record when it starts: a later version of its start that runs beside
+    doesn't free the item, and a later one that holds doesn't make a session that started beside a holder."""
+    from hubd.machinestore import ORG, Store
+    h, a = hub
+    lib = a.library
+    lib.use_store(Store(tmp_path / "store", lib.defaults))
+
+    async def go():
+        own = (await a.start(a.defaults("pr-own", "boot", PR)))["name"]
+        assert json.loads((a.sessions / own / "session.json").read_text())["when_held"] == "hide"
+        lib.store.save("pr-own", ORG, lib.workflow_texts["pr-own"].replace('when_held = "hide"', 'when_held = "beside"'), 0, "me")
+        lib.saved()
+        assert a.holders("pr", "boot", PR)[0] == [own]
+        (a.sessions / own / ENDED_FILE).touch()
+        reader = (await a.start(a.defaults("pr-reader", "kernel", PR)))["name"]
+        lib.store.save("pr-reader", ORG, lib.workflow_texts["pr-reader"].replace('when_held = "beside"', 'when_held = "hide"'), 0, "me")
+        lib.saved()
+        assert a.holders("pr", "kernel", PR)[0] == []
+        assert json.loads((a.sessions / reader / "session.json").read_text())["when_held"] == "beside"
+    asyncio.run(go())

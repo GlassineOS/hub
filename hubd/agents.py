@@ -2466,6 +2466,8 @@ class Agents:
                 record["owner"] = owner
             if held_by is not None:  # 012 FR-104: a start that runs beside the instance holding its item, and which one
                 record["beside"] = held_by
+            if action["object"] in machine.START_ON:  # what its start did while the item was held, as it was when it started
+                record["when_held"] = action.get("when_held", "ask")
             if origin is not None:  # 005 FR-010: the Launch record it came from, shown as its origin
                 record["origin"] = origin
             (directory / "session.json").write_text(json.dumps(record))
@@ -3234,8 +3236,10 @@ class Agents:
         beside a holder: a start that runs beside one is a task next to the item, never its owner."""
         if (self.sessions / name / ENDED_FILE).exists() or record.get("beside"):
             return False
-        action = self.library.actions.get(record["config"].get("action"))
-        if action is not None and action.get("when_held") == "beside":
+        when_held = record.get("when_held")
+        if when_held is None:  # a record from before it was kept: the start as the library has it now
+            when_held = (self.library.actions.get(record["config"].get("action")) or {}).get("when_held")
+        if when_held == "beside":
             return False
         chip = self.machines.summary(name)
         return bool(chip and (chip["one_state"] or not chip["final"]))
