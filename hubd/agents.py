@@ -1704,8 +1704,14 @@ class Agents:
         return json.loads(reply["stdout"])
 
     async def _from_fork(self, repo: str, number: int) -> bool:
-        """Whether a pull request comes from a fork. If GitHub can't say, it does."""
-        return await self.pr_fork_state(repo, number) is not False
+        """Whether a pull request comes from a fork, as GitHub says now (a token is made on its answer). If it can't say, it does."""
+        try:
+            fork = (await self._pr_head(repo, number)).get("isCrossRepository")
+        except Exception:  # noqa: BLE001: unsure means a fork
+            return True
+        if fork is True:
+            self._fork_prs.add((repo, number))
+        return fork is not False
 
     async def pr_fork_state(self, repo: str, number: int) -> bool | None:
         """Whether a pull request is a fork's, for an item's page: None when GitHub can't say, so nothing is refused on a guess
@@ -1731,6 +1737,8 @@ class Agents:
             key = (cover["repo"], cover["number"])
             if known and key in self._own_prs:
                 continue
+            if known and key in self._fork_prs:
+                return True
             if await self._from_fork(*key):
                 return True
             self._own_prs.add(key)
