@@ -44,7 +44,7 @@ import sqlite3
 import time
 
 from . import machine, summary
-from .agents import CHAIN_TOOLS, DESIGN_ACTION, ENDED_FILE, HUB_SENDER, IDLE_FILE, MAX_MANAGED, NO_REPO_OBJECTS, AgentError, ForkError, HeldError, _draws_nothing, covers_of
+from .agents import CHAIN_TOOLS, DESIGN_ACTION, managed_line, ENDED_FILE, HUB_SENDER, IDLE_FILE, MAX_MANAGED, NO_REPO_OBJECTS, AgentError, ForkError, HeldError, _draws_nothing, covers_of
 from .decisions import APPROVE, DecisionError
 from .effects import LABEL, path_of
 from .instances import MachineError
@@ -551,8 +551,12 @@ class Managed:
                   checks={"started": child, "resumed": bool(resumed), "by": by, "grant": _grant_words(capped)})
         if entry not in {m.name for _s, m in machine.managed_of(inst.definition(), inst.state)} or record_now.get("session_id") != owner_sid:
             await self._end(child, "its owner moved on while it started")  # moved on while it started
-        elif action["id"] == DESIGN_ACTION and not resumed:
-            self._look_at_design(owner, owner_sid, entry, child, item)
+        else:
+            if by != "request":  # it asked for none and gets no answer: it hears once, at its next turn, what runs under it now
+                self.agents.tell(owner, f"{LABEL} {entry} {'resumed' if resumed else 'started'} under you as {child}. It hands "
+                                        "back by itself with return_result: wait for that, don't start it or do its work.")
+            if action["id"] == DESIGN_ACTION and not resumed:
+                self._look_at_design(owner, owner_sid, entry, child, item)
         return {"started": True, "name": child, "resumed": bool(resumed)}
 
     def _look_at_design(self, owner: str, owner_sid, entry: str, child: str, item) -> None:
@@ -573,16 +577,95 @@ class Managed:
         except (DecisionError, OSError):
             log.exception("%s: its design card couldn't be put in Needs you", child)
 
+    # --- how the sessions under an owner stand: for its turn, start_managed and managed_status -----------
+    def under_you(self, name: str, inst, frm: str | None = None) -> str | None:
+        """The line an owner's turn gets on entering a state: its entries in force, and the sessions running under it now.
+        `frm`: the state a move left, whose stopped entries no longer count; one newly entered hasn't started yet."""
+        d = inst.definition()
+        after = dict((m.name, (sid, m)) for sid, m in machine.managed_of(d, inst.state))
+        before = dict((m.name, (sid, m)) for sid, m in machine.managed_of(d, frm)) if frm in d.states else None
+        running: dict[str, list[str]] = {}
+        for child, record in self.children(name, self._sid_of(name)):
+            entry = record["owner"].get("entry")
+            if entry not in after or self._ended(child) or record["owner"].get("ended"):
+                continue
+            if before is not None:
+                was = before.get(entry)
+                if was is None or not (was[0] == after[entry][0] or was[1].on_exit == "keep"
+                                       or (was[1].on_exit == "handover" and _same_entry(was[1], after[entry][1]))):
+                    continue  # its state was left and it stops, or its entry was just entered and starts anew
+            running.setdefault(entry, []).append(child)
+        return managed_line(d, inst.state, running)
+
+    async def status(self, scope: dict) -> dict:
+        """managed_status: the entries in force where the owner is, and how each stands. It reads only."""
+        owner = scope["session"]
+        record, inst = self.machines.load(owner)
+        d = inst.definition()
+        live = await self._live()
+        entries = [await self._standing(owner, record, inst, m, live) for _sid, m in machine.managed_of(d, inst.state)]
+        here = {m.name for _sid, m in machine.managed_of(d, inst.state)}
+        others = [self._session_row(n, r, live) for n, r in self.children(owner, record.get("session_id"))
+                  if r["owner"].get("entry") not in here and self._running(n, live) and not r["owner"].get("ended")]
+        return {"state": path_of(d, inst.state), "entries": entries, "others": others}
+
+    def _session_row(self, name: str, record: dict, live: set[str]) -> dict:
+        ended = not self._running(name, live) or bool(record["owner"].get("ended"))
+        directory = self.agents.sessions / name
+        return {"name": name, "entry": record["owner"].get("entry"), "state": self.agents._state_word(directory, ended),
+                "idle": not ended and (directory / IDLE_FILE).exists(), "ended": ended}
+
+    async def _standing(self, owner: str, record: dict, inst, m: machine.Manage, live: set[str]) -> dict:
+        """One entry: how it starts, its sessions under this conversation of the owner (newest first), and in a sentence what
+        it waits for, from the hub's own records: nothing a session wrote."""
+        sid = record.get("session_id")
+        kids = sorted(self.children(owner, sid, m.name), key=lambda c: c[1].get("created", 0), reverse=True)
+        rows = [self._session_row(n, r, live) for n, r in kids[:5]]
+        names = [r["name"] for r in rows if not r["ended"]]
+        rnd = self._round_of(inst, m.name)
+        kept = inst.entry(m.name)
+        when = " ".join(m.when.split())
+        if names:
+            note = (f"{m.name} runs under you as {', '.join(names)}. It hands back by itself with return_result: wait for "
+                    "that, and answer its reports.")
+        elif m.start == "on-request":
+            note = f"{m.name} starts when you call start_managed" + (f", if this holds: {when}" if when else "") + "."
+        elif kept.get("round") == rnd and kept.get("child"):
+            note = f"{m.name}'s session for this round has ended" + (" after it handed back" if kept.get("returns") else "") + "."
+        elif (sid, m.name, rnd, None) in self._stuck:
+            note = f"{m.name} can't start in this round: {self._stuck[(sid, m.name, rnd, None)]}. The maintainer is told."
+        elif self._pending(sid, m.name):
+            note = f"{m.name}'s start waits for an approval above you; it starts once that is given."
+        elif held := [k[4] for k in self._held if k[:4] == (sid, m.name, rnd, None)]:
+            note = f"{m.name} waits: {held[-1]}. It starts once that session lets the item go."
+        elif (owner, sid, m.name, rnd) in self._full:
+            note = f"{m.name} waits: {MAX_MANAGED} managed sessions are running, the most at once. It starts when one ends."
+        elif when and not (kept.get("when") or {}).get("round") == rnd:
+            note = f"{m.name} starts once the hub judges that this holds: {when}. It is judged when your turns end."
+        elif when:
+            note = (f"{m.name} hasn't started: the hub judged this round that this doesn't hold yet: {when}. It is judged again "
+                    "when your turns end.")
+        else:
+            note = f"{m.name} starts by itself; it hasn't started yet, and the hub tries again on your workflow's next signals."
+        if m.start == "auto" and not names:
+            note += " Don't start it or do its work."
+        return {"entry": m.name, "persona": m.persona, "starts": "on request" if m.start == "on-request" else "by itself",
+                "when": when or None, "sessions": rows, "note": note}
+
     async def request_start(self, scope: dict, entry, item=None) -> dict:
         """start_managed: the owning session asks for one of its state's on-request entries; its `when` and `max` decide."""
         owner = scope["session"]
         record, inst = self.machines.load(owner)
         found = dict((m.name, m) for _sid, m in machine.managed_of(inst.definition(), inst.state))
         m = found.get(entry) if isinstance(entry, str) else None
-        if m is None or m.start != "on-request":
-            can = sorted(n for n, x in found.items() if x.start == "on-request")
-            raise ManagedError(f"{path_of(inst.definition(), inst.state)} has no entry {str(entry)[:64]!r} that starts on request"
-                               + (f"; those that do: {', '.join(can)}" if can else ""))
+        if m is None:
+            ways = ", ".join(f"{n} ({_how(x)})" for n, x in found.items())
+            raise ManagedError(f"{path_of(inst.definition(), inst.state)} has no entry {str(entry)[:64]!r}"
+                               + (f"; its entries: {ways}" if ways else "; it manages no sessions"))
+        if m.start == "auto":
+            # it is the hub's to start, so asking isn't an error: the answer is how it stands, and nothing starts or is judged
+            got = await self._standing(owner, record, inst, m, await self._live())
+            return {"by_itself": True, "sessions": got["sessions"], "note": got["note"]}
         if item is not None:
             # a wrong item is refused before the judge is asked, so it neither costs a judgement nor holds its answer
             try:
@@ -1059,6 +1142,12 @@ class Managed:
 def _same_entry(a: machine.Manage, b: machine.Manage) -> bool:
     """Whether a session of entry a may go on as entry b: the same workflow, persona and returns."""
     return (a.workflow, a.persona, a.returns) == (b.workflow, b.persona, b.returns)
+
+
+def _how(m: machine.Manage) -> str:
+    if m.start == "on-request":
+        return "on request"
+    return "starts by itself once its when holds" if m.when.strip() else "starts by itself"
 
 
 def _item_key(item) -> str:
