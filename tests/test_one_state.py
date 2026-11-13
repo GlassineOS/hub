@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Every action runs as a one-state workflow (012 FR-010): its launch is what it was when the action held its own rights.
+"""Every action runs as a one-state workflow (012 FR-010): its launch is what it was when the action held its own rights, and
+what it was when actions were files of their own, before each became a start of its workflow (FR-100).
 
 one_state_launch.json holds, for each action, what the code made from the action files alone: the defaults, the preview
 command, the resume command, the settings and hooks, the token's scope and what the app gets of its rights. Words a
@@ -85,11 +86,11 @@ STAGED = {"implement", "implementor", "qa-audit", "workflow-change", "repo-maint
 def test_every_action_has_a_one_state_workflow_of_its_name():
     library = Library(REPO / "agents")
     for action_id, action in library.actions.items():
-        assert action["workflow"] == action_id
-        definition = library.workflows[action_id]
-        if action_id in STAGED:
+        definition = library.workflows[action["workflow"]]
+        if action["workflow"] in STAGED:
             assert len(definition.states) > 1, action_id
             continue
+        assert action["workflow"] == action_id
         assert len(definition.states) == 1 and definition.states[definition.initial].final, action_id
 
 
@@ -99,24 +100,30 @@ def _copy(tmp_path) -> Path:
     return root
 
 
-def test_an_action_runs_under_the_workflow_it_names(tmp_path):
+def test_a_second_start_names_its_id_and_shares_its_workflows_launch(tmp_path):
     root = _copy(tmp_path)
-    path = root / "actions" / "pr-explain.toml"
-    path.write_text('workflow = "pr-review"\n' + path.read_text())
+    _edit(root / "workflows" / "pr-review.toml", "[[start]]", '[[start]]\nid = "pr-review-again"\non = "pr"\nlabel = "Review again"\n'
+          'models = ["haiku"]\nefforts = ["low"]\nprompt = "Review #{number} again."\n\n[[start]]')
     library = Library(root)
-    assert library.action("pr-explain")["workflow"] == "pr-review"
-    assert library.action("pr-explain")["grant"] == library.action("pr-review")["grant"]
+    again, first = library.action("pr-review-again"), library.action("pr-review")
+    assert again["workflow"] == first["workflow"] == "pr-review" and again["grant"] == first["grant"]
+    assert again["models"] == ["haiku"] and again["result_tools"] == ["review_pr"] and again["prompt"] == "Review #{number} again."
 
 
 @pytest.mark.parametrize("change, error", [
-    (lambda r: _append(r / "actions" / "pr-explain.toml", 'access = "full"\n'), "access belong to its workflow"),
-    (lambda r: _append(r / "actions" / "pr-explain.toml", 'tools = ["Read"]\n'), "tools belong to its workflow"),
-    (lambda r: _append(r / "actions" / "pr-explain.toml", 'github = ["pr.read"]\n'), "github belong to its workflow"),
-    (lambda r: (r / "workflows" / "pr-explain.toml").unlink(), "workflow 'pr-explain' isn't one of"),
+    (lambda r: _edit(r / "workflows" / "pr-explain.toml", "[launch]", '[launch]\naccess = "full"'), "launch: unknown key 'access'"),
+    (lambda r: _edit(r / "workflows" / "pr-explain.toml", "[[start]]", '[[start]]\ntools = ["Read"]'), "start.1: unknown key 'tools'"),
+    (lambda r: _edit(r / "workflows" / "pr-explain.toml", "[[start]]", '[[start]]\ngithub = ["pr.read"]'), "start.1: unknown key 'github'"),
+    (lambda r: _edit(r / "workflows" / "pr-explain.toml", 'result = "none"', 'result = "post"'), "result 'post' isn't one of"),
+    (lambda r: _edit(r / "workflows" / "engineer.toml", 'label = "Engineer for an implementor"', ""), "has its managed session's on, label and prompt"),
     (lambda r: _edit(r / "workflows" / "pr-explain.toml", 'name = "pr-explain"', 'name = "pr-other"'), "not the file's"),
     (lambda r: _edit(r / "workflows" / "pr-explain.toml", 'checkout = "pr"', 'checkout = "main"'), "checkout"),
     (lambda r: _edit(r / "workflows" / "pr-explain.toml", "final = true", "final = false"), "isn't final and has no exit"),
     (lambda r: _append(r / "workflows" / "pr-explain.toml", '\n[state.more]\nfinal = true\n'), "can't be reached"),
+    (lambda r: _edit(r / "workflows" / "pr-explain.toml", 'label = "Explain the diff"', 'label = "Review this PR"'), "has the label 'Review this PR' on a pr too"),
+    (lambda r: _edit(r / "workflows" / "pr-explain.toml", "Explain the diff of pull request #{number}", "Explain {repo.__class__}"), "isn't one of"),
+    (lambda r: _edit(r / "workflows" / "pr-explain.toml", "Explain the diff of pull request #{number}", "Explain {"), "a brace doesn't close"),
+    (lambda r: _edit(r / "workflows" / "pr-explain.toml", "order = 3", 'order = 3\nstate = "nowhere"'), "'nowhere' isn't a state"),
 ])
 def test_the_library_refuses_rights_out_of_place_and_a_broken_workflow(tmp_path, change, error):
     root = _copy(tmp_path)

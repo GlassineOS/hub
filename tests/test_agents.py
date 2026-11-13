@@ -48,7 +48,7 @@ def test_library_is_complete():
     assert {"pr-review", "pr-security-audit", "issue-triage", "run-diagnose"} <= set(LIBRARY.actions)
     for action in LIBRARY.actions.values():
         assert action["ceiling"] and action.get("when") in (None, "failing", "not-failing")
-        LIBRARY.text("prompts", action["prompt"]).format(repo="r", number=1, checkout="c")
+        action["prompt"].format(repo="r", number=1, checkout="c")
         for persona in action["personas"]:
             assert LIBRARY.text("personas", persona)
         assert not {"Write", "Edit", "Agent"} & set(action["grant"].tools)
@@ -82,19 +82,19 @@ def _edit(path, old, new):
     (lambda r: _edit(r / "personas" / "families.toml", 'family = "build"', 'family = "fixing"'), "isn't one of build"),
     (lambda r: _edit(r / "personas" / "families.toml", 'initials = "EN"', 'initials = "ENG"'), "1-2 capital letters"),
     (lambda r: _edit(r / "personas" / "families.toml", 'name = "Engineer"\n', ""), "exactly name, initials and family"),
-    (lambda r: _edit(r / "actions" / "pr-explain.toml", 'result = "none"', 'verb = "review"\nresult = "none"'),
+    (lambda r: _edit(r / "workflows" / "pr-explain.toml", "order = 3", 'order = 3\nverb = "review"'),
      "verb 'review' is already pr-explain's for a pr"),
-    (lambda r: _edit(r / "actions" / "pr-explain.toml", 'result = "none"', 'result = "essay"'), "result 'essay'"),
-    (lambda r: _edit(r / "actions" / "pr-explain.toml", 'result = "none"\n', ""), "result None"),
-    (lambda r: _edit(r / "actions" / "pr-explain.toml", 'personas = ["reviewer"]', 'personas = ["ghost"]'),
+    (lambda r: _edit(r / "workflows" / "pr-explain.toml", 'result = "none"', 'result = "essay"'), "result 'essay'"),
+    (lambda r: _edit(r / "workflows" / "pr-explain.toml", 'result = "none"\n', ""), "result ''"),
+    (lambda r: _edit(r / "workflows" / "pr-explain.toml", 'personas = ["reviewer"]', 'personas = ["ghost"]'),
      "names persona ghost"),
     # 011 FR-003: only a full session on an item gets its worktree in a repository of the action's choosing.
-    (lambda r: _edit(r / "actions" / "pr-explain.toml", 'result = "none"', 'result = "none"\nrepository = "ui"'),
+    (lambda r: _edit(r / "workflows" / "pr-explain.toml", 'result = "none"', 'result = "none"\nrepository = "ui"'),
      "repository is a repository name, for a full session"),
-    (lambda r: _edit(r / "actions" / "design.toml", 'repository = "ui"', 'repository = "../ui"'),
+    (lambda r: _edit(r / "workflows" / "design.toml", 'repository = "ui"', 'repository = "../ui"'),
      "repository is a repository name, for a full session"),
-    (lambda r: _edit(r / "actions" / "design.toml", 'repository = "ui"', 'repository = 7'),
-     "repository is a repository name, for a full session"),
+    (lambda r: _edit(r / "workflows" / "design.toml", 'repository = "ui"', 'repository = 7'),
+     "launch.repository: must be str"),
 ])
 def test_the_library_refuses_personas_and_actions_that_dont_fit(tmp_path, change, words):
     from hubd.agents import LibraryError
@@ -106,8 +106,7 @@ def test_the_library_refuses_personas_and_actions_that_dont_fit(tmp_path, change
 def test_a_verb_may_repeat_on_another_kind_of_item(tmp_path):
     # fix on a pull request and fix on a run: two actions, one short name each per kind.
     assert LIBRARY.actions["pr-fix-checks"]["verb"] == LIBRARY.actions["run-fix"]["verb"] == "fix"
-    root = _library_copy(tmp_path, lambda r: _edit(r / "actions" / "run-explain.toml", 'result = "none"',
-                                                     'verb = "check"\nresult = "none"'))
+    root = _library_copy(tmp_path, lambda r: _edit(r / "workflows" / "run-explain.toml", "order = 3", 'order = 3\nverb = "check"'))
     assert Library(root).actions["run-explain"]["verb"] == "check"
 
 
@@ -3224,8 +3223,8 @@ def test_the_library_refuses_a_result_tool_its_result_cant_use(tmp_path):
     from hubd.agents import LibraryError
     root = tmp_path / "agents"
     shutil.copytree(Path(__file__).resolve().parents[1] / "agents", root)
-    path = root / "actions" / "run-diagnose.toml"
-    path.write_text(path.read_text() + '\nresult_tools = ["merge_pr"]\n')
+    path = root / "workflows" / "run-diagnose.toml"
+    path.write_text(path.read_text().replace('result = "findings"', 'result = "findings"\nresult_tools = ["merge_pr"]'))
     with pytest.raises(LibraryError, match="result_tools for a findings result"):
         Library(root)
 
@@ -3344,7 +3343,7 @@ def test_the_design_action_and_its_designer():
     for words in ("tools/in-alpine tools/boards shot", "tools/in-alpine make designs-check", "designs/<project>/", "proposal",
                   "tokens and components", "e-ink scheme always", "no claude.ai, no gists", "Assisted-by:", "never `Signed-off-by`"):
         assert words in persona, words
-    prompt = LIBRARY.text("prompts", "design").format(repo="shell", number=12, checkout="/w")
+    prompt = LIBRARY.actions["design"]["prompt"].format(repo="shell", number=12, checkout="/w")
     for words in ("Refs GlassineOS/shell#12", "never with a closing word", "File none of it", "combinations you looked", "draft pull request"):
         assert words in prompt, words
 

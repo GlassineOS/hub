@@ -1,9 +1,11 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Managed agent sessions: one click on an object, one Claude Code session working on it.
 
-An action (agents/actions/*.toml) says what an agent is for, and its workflow (agents/workflows/*.toml, by
-default the one of the action's name) what it may do: the grant of the workflow's first state. A short planner
-run reads the object and fills in the rest of the invocation, and the session then starts in tmux.
+A workflow (agents/workflows/*.toml) says what an agent is for and what it may do. Its starts (`[[start]]`) are the
+actions on an item's page, each a way to begin it on one kind of item, in a state whose grant is all it may do; its
+`[launch]` table is what every session of it is (persona, result type), and what a managed session of it starts with. An
+action, below, is one start with its workflow's launch, or a workflow without starts as a managed session runs it. A short
+planner run reads the object and fills in the rest of the invocation, and the session then starts in tmux.
 
 The planner reads text that outsiders can write, so its output isn't trusted: the schema
 offers only what the action's grant lists, `validate` checks that again in code, and the command
@@ -331,19 +333,28 @@ MAX_PERSONA_NAME = 40
 
 
 class LibraryError(Exception):
-    """The action, workflow and persona files don't fit together. hubd won't start on them."""
+    """The workflow and persona files don't fit together. hubd won't start on them."""
 
 
-_GRANT_KEYS = tuple(f.name for f in fields(machine.Grant))
+class _Actions(dict):
+    """The actions in force, by id. A lookup by id also finds one a later version removed (a start taken out, or a workflow's
+    starts edited), so a session that started on it keeps resuming; listing them gives only those in force."""
+
+    def __init__(self, live: dict, gone: dict):
+        super().__init__(live)
+        self.gone = gone
+
+    def get(self, key, default=None):
+        return super().get(key) if key in self else self.gone.get(key, default) if isinstance(key, str) else default
 
 
 DRAFTING = ("draft", "review", "reviewer", "propose")
 
 
 def _check_drafting(action: dict, d) -> None:
-    """A Workflow author's action names the states the hub acts on for its drafts (hubd/drafts.py): where it drafts, the
+    """A Workflow author's workflow names the states the hub acts on for its drafts (hubd/drafts.py): where it drafts, the
     state whose `reviewer` entry reads a sensitive draft, and the final state whose entry proposes it."""
-    where = f"actions/{action['id']}.toml: drafting"
+    where = f"workflows/{action['workflow']}.toml: launch.drafting"
     got = action["drafting"]
     if not isinstance(got, dict) or set(got) != set(DRAFTING) or not all(isinstance(v, str) for v in got.values()):
         raise LibraryError(f"{where} names exactly {', '.join(DRAFTING)}")
@@ -356,9 +367,13 @@ def _check_drafting(action: dict, d) -> None:
 
 
 class Library:
-    """The actions, personas and workflows. A workflow's text is the one its store resolves (hubd/machinestore.py): a version
-    the maintainer saved for the organisation, else the file under agents/workflows. A repository's own override is a view
-    (`resolved`), so the Library itself, and every action read from it without a repository, stays the organisation's."""
+    """The workflows, their starts (the actions) and the personas. A workflow's text is the one its store resolves
+    (hubd/machinestore.py): a version the maintainer saved for the organisation, else the file under agents/workflows. A
+    repository's own override is a view (`resolved`), so the Library itself, and every action read from it without a
+    repository, stays the organisation's.
+
+    A saved version or override that names no starts (one saved before workflows had them) takes the file's, and its
+    `[launch]` is always the file's: what a session hands in and how a person applies it isn't changed by a save."""
 
     def __init__(self, root: Path):
         self.root = root
@@ -366,11 +381,9 @@ class Library:
         self.workflows = {name: definition for name, (definition, _text) in loaded.items()}
         self.workflow_texts = {name: text for name, (_definition, text) in loaded.items()}  # what an instance keeps and hashes
         self.defaults = dict(self.workflow_texts)  # the files, version 0 of each workflow
-        self.actions = {p.stem: {**tomllib.loads(p.read_text()), "id": p.stem}
-                        for p in sorted((root / "actions").glob("*.toml"))}
-        for action in self.actions.values():
-            action["grant"] = self._grant_of(action)
+        self.files = dict(self.workflows)  # their definitions: the launch every version has, the starts one without its own takes
         self.families = tomllib.loads((root / "personas" / "families.toml").read_text())
+        self.actions = _Actions(self._actions_of(self.workflows), {})
         self._check()
         self.store = None
         self.refused: dict[tuple[str, str], str] = {}  # (scope, workflow): why its newest saved version isn't used
@@ -395,21 +408,71 @@ class Library:
         found = {}
         for path in sorted(folder.glob("*.toml")):
             text = path.read_text()
-            found[path.stem] = (cls._definition(path.stem, text, f"workflows/{path.name}"), text)
+            d = cls._definition(path.stem, text, f"workflows/{path.name}")
+            if d.launch is None:
+                raise LibraryError(f"workflows/{path.name}: a workflow's file has a [launch] table")
+            found[path.stem] = (d, text)
         return found
+
+    def starts_of(self, name: str, d: machine.Definition | None = None) -> tuple[machine.Start, ...]:
+        """The starts in force for a workflow: its own, or the file's for a version that names none."""
+        d = d or self.workflows[name]
+        return machine.effective_starts(d, self.files[name].starts if name in self.files else None)
+
+    def _actions_of(self, workflows: dict[str, machine.Definition]) -> dict[str, dict]:
+        """Every action: one per start, and for a workflow without starts the one a managed session of it runs."""
+        out: dict[str, dict] = {}
+        for name, d in workflows.items():
+            file = self.files.get(name, d)
+            launch = file.launch
+            starts = self.starts_of(name, d)
+            base = {"workflow": name, "personas": list(launch.personas), "result": launch.result, "plan": launch.plan,
+                    **({"result_tools": list(launch.result_tools)} if launch.result_tools else {}),
+                    **{k: getattr(launch, k) for k in ("per_repo", "roadmap", "asks_wait_for_you") if getattr(launch, k)},
+                    **{k: getattr(launch, k) for k in ("singleton", "repository", "repo") if getattr(launch, k) is not None},
+                    **({"drafting": dict(launch.drafting)} if launch.drafting is not None else {})}
+            made = []
+            for place, st in enumerate(starts, 1):
+                action = {**base, "id": machine.start_id(d, st, place), "object": st.on, "title": st.label,
+                          "summary": st.summary or launch.summary, "ceiling": st.ceiling or launch.ceiling,
+                          "order": st.order if st.order is not None else launch.order,
+                          "models": list(st.models or launch.models), "efforts": list(st.efforts or launch.efforts),
+                          "prompt": st.prompt or launch.prompt, "lead": st.lead, "when_held": st.when_held, "start": place,
+                          **({"state": st.state} if st.state is not None else {}),
+                          **({"ask_move": st.ask_move} if st.ask_move is not None else {}),
+                          **{k: getattr(st, k) for k in ("verb", "when", "needs") if getattr(st, k) is not None},
+                          **{k: True for k in ("asks_describe", "asks_paths") if getattr(st, k)}}
+                made.append(action)
+            if not starts:
+                made.append({**base, "id": name, "object": launch.on, "title": launch.label, "summary": launch.summary,
+                             "ceiling": launch.ceiling, "order": launch.order, "models": list(launch.models),
+                             "efforts": list(launch.efforts), "prompt": launch.prompt, "managed_only": True})
+            for action in made:
+                if action["order"] is None:
+                    del action["order"]
+                if action["id"] in out:
+                    raise LibraryError(f"workflows/{name}.toml: the start id {action['id']!r} is {out[action['id']]['workflow']}'s too")
+                action["definition"] = self.workflow_texts[name]  # what a session's instance runs on
+                action["grant"] = self._grant_in(d, action)
+                out[action["id"]] = action
+        return out
 
     # --- saved versions (spec 012 FR-001) ------------------------------------------------
     def _with_texts(self, texts: dict[str, str], where: str) -> Library:
-        """A copy of the library on these workflow texts, with every action's grant and definition made again from them and
-        every check of the files run: what hubd wouldn't start on, it doesn't take as a saved version either."""
+        """A copy of the library on these workflow texts, with every action made again from them and every check of the files
+        run: what hubd wouldn't start on, it doesn't take as a saved version either."""
         new = object.__new__(Library)
-        new.root, new.families, new.defaults, new.store = self.root, self.families, self.defaults, self.store
+        new.root, new.families, new.defaults, new.store, new.files = self.root, self.families, self.defaults, self.store, self.files
         new.refused, new._views = self.refused, {}
         new.workflows = {name: self._definition(name, text, f"{where} {name}") for name, text in texts.items()}
+        for name, d in new.workflows.items():
+            if d.launch is not None and d.launch != self.files[name].launch:
+                raise LibraryError(f"{where} {name}: its [launch] is the file's (agents/workflows/{name}.toml); a saved version "
+                                   "leaves it out or keeps it as it is")
+            if problems := [f for f in machine.check_starts(d, self.starts_of(name, d)) if f.kind == "problem"] if d.starts is None else []:
+                raise LibraryError(f"{where} {name}, with the file's starts: " + "; ".join(f"{f.where}: {f.text}" for f in problems))
         new.workflow_texts = dict(texts)
-        new.actions = {aid: {k: v for k, v in a.items() if k not in ("grant", "definition")} for aid, a in self.actions.items()}
-        for action in new.actions.values():
-            action["grant"] = new._grant_of(action)
+        new.actions = _Actions(new._actions_of(new.workflows), {})
         new._check()
         return new
 
@@ -440,10 +503,20 @@ class Library:
         self._adopt(self._with_texts(texts, "the saved version of"))
 
     def _adopt(self, new: Library) -> None:
-        """In place, so whatever holds an action of this library reads its new grant and definition."""
+        """In place, so whatever holds an action of this library reads it as the new version has it: its grant, definition,
+        label, prompt. One the new version doesn't have any more is kept for lookups by id (`_Actions`)."""
         self.workflows, self.workflow_texts = new.workflows, new.workflow_texts
+        live = {}
         for aid, action in new.actions.items():
-            self.actions[aid]["grant"], self.actions[aid]["definition"] = action["grant"], action["definition"]
+            mine = dict.get(self.actions, aid) or self.actions.gone.get(aid)
+            if mine is None:
+                mine = action
+            else:
+                mine.clear()
+                mine.update(action)
+            live[aid] = mine
+        gone = {**self.actions.gone, **{aid: a for aid, a in dict.items(self.actions) if aid not in live}}
+        self.actions = _Actions(live, {aid: a for aid, a in gone.items() if aid not in live})
         self._views = {}
         self.refused = {k: v for k, v in self.refused.items() if k[0] == "org"}  # a repository's are found again on its next view
 
@@ -476,6 +549,7 @@ class Library:
             if overrides:
                 try:
                     view = self._with_texts({**self.workflow_texts, **overrides}, f"{repo}'s override of")
+                    view.actions.gone = self.actions  # a start the override drops is still found by id
                 except LibraryError as e:
                     for name in overrides:
                         self.refused[(self.store.scope_of(repo), name)] = str(e)
@@ -483,17 +557,10 @@ class Library:
             self._views[repo] = view
         return view
 
-    def _grant_of(self, action: dict) -> machine.Grant:
-        """The grant of the action's workflow as a session starts in it. The action itself holds no rights, so they are said once."""
-        where = f"actions/{action['id']}.toml"
-        if held := [k for k in _GRANT_KEYS if k in action]:
-            raise LibraryError(f"{where}: {', '.join(held)} belong to its workflow's grant, not the action")
-        name = action.setdefault("workflow", action["id"])
-        if not isinstance(name, str) or name not in self.workflows:
-            raise LibraryError(f"{where}: workflow {name!r} isn't one of workflows/*.toml")
-        definition = self.workflows[name]
-        action["definition"] = self.workflow_texts[name]  # what a session's instance runs on
-        first = definition.initial
+    @staticmethod
+    def _grant_in(definition: machine.Definition, action: dict) -> machine.Grant:
+        """The grant a session of the action starts with: its start's state's effective grant, or the initial state's."""
+        first = definition.initial if action.get("state") is None else action["state"]
         while definition.states[first].initial is not None:  # a parent starts in its first state, down to a leaf
             first = definition.states[first].initial
         return machine.effective(definition, first)
@@ -507,7 +574,9 @@ class Library:
         return [{**action, "grant": machine.effective(definition, sid)} for sid, st in definition.states.items() if st.initial is None]
 
     def _check(self) -> None:
-        """A new persona can't ship without its badge, nor an action without its result type."""
+        """A new persona can't ship without its badge, nor a workflow without its result type. Across the library: one label
+        per kind of item, one lead start per kind (FR-101), and a managed entry's workflow has the launch a managed session of
+        it runs (the action of the workflow's name)."""
         files = {p.stem for p in (self.root / "personas").glob("*.md")}
         if missing := sorted(files - set(self.families)):
             raise LibraryError(f"no entry in families.toml for {', '.join(missing)}")
@@ -522,17 +591,34 @@ class Library:
                 raise LibraryError(f"families.toml: {persona}'s name must be 1-{MAX_PERSONA_NAME} characters")
             if not isinstance(entry["initials"], str) or not _INITIALS_RE.fullmatch(entry["initials"]):
                 raise LibraryError(f"families.toml: {persona}'s initials must be 1-2 capital letters")
-        verbs = {}
+        verbs, labels, leads = {}, {}, {}
         for action in self.actions.values():
+            where = f"workflows/{action['workflow']}.toml" + (f": start {action['start']} ({action['id']})" if action.get("start") else ": launch")
             if action.get("result") not in RESULTS:
-                raise LibraryError(f"actions/{action['id']}.toml: result {action.get('result')!r} isn't one of {', '.join(RESULTS)}")
+                raise LibraryError(f"{where}: result {action.get('result')!r} isn't one of {', '.join(RESULTS)}")
+            if not action["personas"]:
+                raise LibraryError(f"{where}: launch.personas names who its sessions are")
             for persona in action["personas"]:
                 if persona not in self.families:
-                    raise LibraryError(f"actions/{action['id']}.toml names persona {persona}, which isn't in families.toml")
+                    raise LibraryError(f"{where} names persona {persona}, which isn't in families.toml")
+            for key in ("models", "efforts"):
+                if not action[key]:
+                    raise LibraryError(f"{where}: {key} lists what a brief may choose, here or in launch")
+            if action["object"] is None or not action["title"] or not action["prompt"]:
+                raise LibraryError(f"{where}: a workflow without starts has its managed session's on, label and prompt in launch")
+            if action.get("start"):
+                key = (action["object"], action["title"].strip().lower())
+                if key in labels:
+                    raise LibraryError(f"{where}: {labels[key]} has the label {action['title']!r} on a {action['object']} too")
+                labels[key] = action["id"]
+                if action.get("lead"):
+                    if action["object"] in leads:
+                        raise LibraryError(f"{where}: {leads[action['object']]} is the lead start for a {action['object']} already")
+                    leads[action["object"]] = action["id"]
             # What a person's press may write through to apply this action's result. The session doesn't get them.
             result_tools = action.get("result_tools", [])
             if not isinstance(result_tools, list) or set(result_tools) - set(APPLY_TOOLS.get(action["result"], ())):
-                raise LibraryError(f"actions/{action['id']}.toml: result_tools for a {action['result']} result are among "
+                raise LibraryError(f"{where}: result_tools for a {action['result']} result are among "
                                    f"{', '.join(APPLY_TOOLS.get(action['result'], ())) or 'none'}")
             # The notes are kept for agents to read (SECURITY.md, Notes), so a locked action that only reads has the search. One that
             # can post, send or ask first doesn't: nothing technical stops a steered session putting a note in public. A full
@@ -553,14 +639,9 @@ class Library:
                     # A full session uses the host's login and is guarded, not limited; without a shell a token has no use.
                     raise LibraryError(f"workflows/{action['workflow']}.toml: github is a list of GitHub capabilities "
                                        f"({', '.join(CAPABILITIES)}), for a locked action with Bash")
-            for flag in ("managed_only", "per_repo"):
-                if not isinstance(action.get(flag, False), bool):
-                    raise LibraryError(f"actions/{action['id']}.toml: {flag} is true or false")
             if action.get("per_repo") and action["object"] != "repo":
                 # one session per repository: an action about a repository, not about one item in it
-                raise LibraryError(f"actions/{action['id']}.toml: per_repo is for an action on a repository")
-            if action.get("managed_only") and action.get("verb"):
-                raise LibraryError(f"actions/{action['id']}.toml: an action only a workflow starts has no verb on the item's menu")
+                raise LibraryError(f"{where}: per_repo is for a workflow on a repository")
             if "drafting" in action:
                 _check_drafting(action, self.workflows.get(action["workflow"]))
             home = action.get("repository")
@@ -568,17 +649,25 @@ class Library:
                                          and _full(action) and _grant(action).checkout == "new-branch"
                                          and action["object"] not in (*NO_REPO_OBJECTS, "repo")):
                 # Its worktree is a new branch there whatever the item's repository: only a full session on an item opens one.
-                raise LibraryError(f"actions/{action['id']}.toml: repository is a repository name, for a full session on an item "
+                raise LibraryError(f"{where}: repository is a repository name, for a full session on an item "
                                    "with checkout new-branch")
             verb = action.get("verb")
             if verb is None:
                 continue
             if not isinstance(verb, str) or not re.fullmatch(r"[a-z]{2,20}", verb):
-                raise LibraryError(f"actions/{action['id']}.toml: verb must be a short lower-case word")
+                raise LibraryError(f"{where}: verb must be a short lower-case word")
             # One short name per kind of item: "fix" on a pull request and "fix" on a run are two actions.
             other = verbs.setdefault((action["object"], verb), action["id"])
             if other != action["id"]:
-                raise LibraryError(f"actions/{action['id']}.toml: verb {verb!r} is already {other}'s for a {action['object']}")
+                raise LibraryError(f"{where}: verb {verb!r} is already {other}'s for a {action['object']}")
+        for name, d in self.workflows.items():
+            for _sid, st in d.states.items():
+                for m in st.manages:
+                    own = self.actions.get(m.workflow) if isinstance(self.actions, dict) else None
+                    if own is None or dict.get(self.actions, m.workflow) is None or own["workflow"] != m.workflow:
+                        raise LibraryError(f"workflows/{name}.toml: {m.name} manages {m.workflow}, which has no start or launch of that id")
+                    if m.persona not in own["personas"]:
+                        raise LibraryError(f"workflows/{name}.toml: {m.name} runs {m.workflow} as {m.persona}, which isn't one of its personas")
 
     def family(self, persona) -> dict | None:
         """{name, initials, family} of a persona, or None for one the library doesn't have (an old session's)."""
@@ -1704,8 +1793,7 @@ class Agents:
     def _prompt(self, config: dict, action: dict, checkout, also=(), commit=None, beside=None, unnamed=None) -> str:
         """unnamed: the covered repositories the pull request mustn't name (_unnamed_here); None when it wasn't asked,
         as for a preview, which then says so for all of them."""
-        prompt = self.library.text("prompts", action["prompt"]).format(
-            repo=config["repo"], number=config["number"], checkout=checkout or "(none)")
+        prompt = action["prompt"].format(repo=config["repo"], number=config["number"], checkout=checkout or "(none)")
         if commit:
             prompt += f"\n\nThe checkout is at commit {commit}."
         if beside and beside.get("from"):
