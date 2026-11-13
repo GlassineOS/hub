@@ -51,6 +51,7 @@ on = ["turn.end", "feed:pr.checks"]
 [state.review]
 parent = "work"
 context = "compact"
+focus = "the open findings and what each needs"
 [state.review.grant]
 permission_mode = "plan"
 [[state.review.exit]]
@@ -169,6 +170,7 @@ def test_parse_reads_the_example(impl):
     assert impl.states["review"].manages[0].returns == {"verdict": ("pass", "fail")}
     assert impl.states["review"].manages[0].with_ == ("pr", "diff.since_last_round", "owner.summary")
     assert impl.states["escalated"].exits[0].enter == "history"
+    assert impl.states["review"].focus == "the open findings and what each needs" and impl.states["work"].focus == ""
     assert parse(ONE).states["session"].grant.checkout is False
 
 
@@ -187,6 +189,10 @@ def test_parse_reads_the_example(impl):
     ('on = ["hub:decision"]', 'on = ["feed:issue.checks"]', "state.escalated.exit.1.on"),
     ('decided_by = "counter"\n', '', "state.review.exit.3.decided_by"),
     ('context = "compact"', 'context = "forget"', "state.review.context"),
+    ('focus = "the open findings and what each needs"\n', '', "state.review.focus"),
+    ('focus = "the open findings and what each needs"', 'focus = " "', "state.review.focus"),
+    ('focus = "the open findings and what each needs"', 'focus = 3', "state.review.focus"),
+    ('context = "compact"', 'context = "keep"', "state.review.focus"),
     ('final = true', 'final = "yes"', "state.merged.final"),
     ('access = "locked"', 'access = "root"', "state.work.grant.access"),
     ('permission_mode = "plan"', 'permission_mode = "yolo"', "state.review.grant.permission_mode"),
@@ -224,7 +230,7 @@ def test_parse_refuses_bad_toml_and_parent_loops():
 
 def test_parse_collects_every_problem():
     with pytest.raises(DefinitionError) as e:
-        parse(_with(_with(IMPLEMENT, 'approve = "me"', 'approve = "x"'), 'context = "compact"', 'context = "y"'))
+        parse(_with(_with(IMPLEMENT, 'approve = "me"', 'approve = "x"'), 'reuse = "fresh"', 'reuse = "y"'))
     assert len(e.value.problems) == 2
 
 

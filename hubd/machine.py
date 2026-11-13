@@ -137,6 +137,7 @@ class State:
     instructions: str = ""
     personas: tuple[str, ...] = ()
     context: str = "keep"
+    focus: str = ""                # what a compaction keeps, for context = "compact"
     final: bool = False
     initial: str | None = None
     grant: Grant = Grant()
@@ -323,11 +324,11 @@ def parse(text: str) -> Definition:
         where = f"state.{sid}"
         if not _ID.fullmatch(sid) or sid in _RESERVED:
             r.problems.append(Problem(where, "a state id is lower-case letters, digits, - and _"))
-        t = r.table(raw, where, ("parent", "instructions", "personas", "context", "final", "initial", "grant", "exit", "manages"))
+        t = r.table(raw, where, ("parent", "instructions", "personas", "context", "focus", "final", "initial", "grant", "exit", "manages"))
         states[sid] = State(
             id=sid, parent=r.get(t, "parent", where, str, None), instructions=r.get(t, "instructions", where, str, ""),
             personas=r.get(t, "personas", where, list, (), pattern=_NAME),
-            context=r.get(t, "context", where, str, "keep", CONTEXTS), final=r.get(t, "final", where, bool, False),
+            context=r.get(t, "context", where, str, "keep", CONTEXTS), focus=r.get(t, "focus", where, str, ""), final=r.get(t, "final", where, bool, False),
             initial=r.get(t, "initial", where, str, None), grant=_grant(r, t.get("grant"), f"{where}.grant") if "grant" in t else Grant(),
             exits=tuple(_exit(r, e, f"{where}.exit.{i}") for i, e in enumerate(_array(r, t, "exit", where), 1)),
             manages=tuple(_manage(r, m, f"{where}.manages.{i}") for i, m in enumerate(_array(r, t, "manages", where), 1)))
@@ -431,6 +432,10 @@ def _structure(r: _Reader, initial: str, states: dict[str, State]) -> None:
                 r.problems.append(Problem(f"{where}.initial", "a parent names one of its own states as its first"))
         elif s.initial is not None:
             r.problems.append(Problem(f"{where}.initial", "only a parent names a first state"))
+        if s.context == "compact" and not s.focus.strip():
+            r.problems.append(Problem(f"{where}.focus", "a compacting state names what to keep"))
+        elif s.context != "compact" and s.focus:
+            r.problems.append(Problem(f"{where}.focus", "only a state with context = \"compact\" has a focus"))
         if s.final and s.exits:
             r.problems.append(Problem(where, "a final state has no exits"))
         for i, e in enumerate(s.exits, 1):
