@@ -209,6 +209,10 @@ class ForkError(AgentError):
     """A fork's pull request or run where a session would push, or run an outsider's tree with your rights."""
 
 
+class HeldError(AgentError):
+    """A start on an item another session holds (or may hold, or is starting on), which this start doesn't run beside."""
+
+
 def _qualified(name: str) -> str:
     return f"mcp__{HUB_SERVER}__{name}"
 
@@ -2347,12 +2351,13 @@ class Agents:
         if action["object"] in machine.START_ON:
             # A managed start too: its owner, or a session above it, may hold the item; any other holder refuses it
             if action["object"] == "pr" and action.get("when_held", "ask") != "beside":
-                unsure = sorted({n for c in covers_of(config) for n in self.unsure_prs("pr", c["repo"], c["number"]) if n not in chain})
+                # every one, the chain's too: an ancestor not yet known to hold it would leave a session under it looking topmost
+                unsure = sorted({n for c in covers_of(config) for n in self.unsure_prs("pr", c["repo"], c["number"])})
                 if unsure:
                     await self.refresh_prs(unsure)
             # from here to the claim nothing is awaited, so two starts on one item can't both find it free (FR-103)
             if (why := self._held_problem(action, config, chain)):
-                raise AgentError(why)
+                raise HeldError(why)
             if owner is None:
                 held_by = next((h for c in (covers_of(config) or [{}]) for h in self.holders(action["object"], c.get("repo"), c.get("number"))[0]), None)
             claims = [(c, root) for c in self._claims(action, config)]
