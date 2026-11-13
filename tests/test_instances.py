@@ -450,6 +450,14 @@ def test_the_ended_marker_is_the_agents_own():
     assert instances.ENDED == ENDED_FILE
 
 
-def test_token_only_capability_names_stay_out_of_the_grant():
+def test_the_grant_carries_every_github_capability_of_the_action():
     action = {**LIBRARY.actions["pr-review"], "github": ["read", "pr.read", "runs.read"]}
-    assert machine.effective(machine.parse(definition_for(action)), "session").github == ("pr.read",)
+    assert machine.effective(machine.parse(definition_for(action)), "session").github == ("read", "pr.read", "runs.read")
+
+
+def test_every_github_capability_maps_to_permissions():
+    from hubd import apps
+    assert list(apps.CAPABILITIES) == list(machine.GITHUB)
+    for name in machine.GITHUB:
+        permissions = apps.permissions_for([name])
+        assert name == "read" or permissions != {"metadata": "read", "contents": "read"}, name  # more than the reads

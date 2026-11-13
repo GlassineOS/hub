@@ -28,9 +28,11 @@ CONTEXTS = ("keep", "compact", "fresh")
 ACCESS = ("locked", "full")                                  # ordered, narrowest first
 PERMISSION_MODES = ("plan", "dontAsk", "default", "acceptEdits", "auto", "bypassPermissions")  # ordered, narrowest first
 CHECKOUTS = (False, "default", "pr", "pr-branch", "new-branch")
-GITHUB = ("issues.read", "issues.write", "issues.comment", "issues.label", "issues.delete",
+# The one list of GitHub capability names: a state's grant names them, and a session's token (apps.CAPABILITIES) maps each
+# to the GitHub App permissions it takes.
+GITHUB = ("read", "issues.read", "issues.write", "issues.comment", "issues.label", "issues.delete",
           "pr.read", "pr.write", "pr.comment", "pr.review", "pr.label", "push", "merge",
-          "runs.trigger", "runs.rerun", "runs.cancel", "runs.approve", "repo.public", "repo.delete")
+          "runs.read", "runs.write", "runs.trigger", "runs.rerun", "runs.cancel", "runs.approve", "repo.public", "repo.delete")
 # FR-034. The mark adds no rule.
 SENSITIVE = {"merge": "merging to the default branch", "runs.approve": "approving workflow runs from forks",
              "repo.public": "making a repository public", "repo.delete": "deleting a repository"}
