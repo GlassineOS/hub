@@ -124,8 +124,18 @@ def build(github: GitHub, docs: DocSearch) -> MCPServer:
         """Start one of the sessions your current state manages on request, by its entry's name. It starts only if the entry's
         `when` holds and fewer than its `max` run, with the context your state names for it and a grant no wider than yours.
         Its result comes back to you as facts of your workflow. It works on your own issue or pull request; a session on no
-        single item (a repository's maintainer, the Steward) names one as item: repo#N, or a repository's name alone."""
+        single item (a repository's maintainer, the Steward) names one as item: repo#N, or a repository's name alone. An entry
+        that starts by itself isn't yours to start: asking about one starts nothing and says how it stands (by_itself, its
+        sessions, a note)."""
         return await github.start_managed(entry, item)
+
+    @mcp.tool(annotations=READ)
+    @_says_why
+    async def managed_status() -> dict:
+        """The sessions your current state manages: each entry in force, whether it starts by itself or on request, its
+        sessions under you (name, state, idle, ended) and a note on what it waits for; and any other session still running
+        under you. It reads only. A session that starts by itself hands back on its own: wait for it, don't start it."""
+        return await github.managed_status()
 
     @mcp.tool(annotations=WRITE)
     @_says_why

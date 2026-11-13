@@ -101,7 +101,8 @@ on = ["hub:decision"]
 [state.review]
 parent = "work"
 instructions = """Your draft grants a sensitive item, so a code reviewer reads it before it reaches the maintainer. You can't \
-draft while it does: what it reviews is what is proposed."""
+draft while it does: what it reviews is what is proposed. The reviewer starts by itself and hands back by itself: don't start \
+it, wait for its verdict."""
 [[state.review.manages]]
 name = "reviewer"
 persona = "reviewer"

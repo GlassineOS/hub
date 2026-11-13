@@ -40,7 +40,7 @@ import shutil
 import sqlite3
 
 from . import handoff, instances, machine
-from .agents import ENDED_FILE, GITHUB_FOLDER, HUB_SENDER, AgentError, NotAtPrompt, _full, _mode
+from .agents import ENDED_FILE, GITHUB_FOLDER, HUB_SENDER, AgentError, NotAtPrompt, _full, _mode, managed_line
 from .decisions import APPROVE, WIDEN, DecisionError
 from .instances import MachineError
 from .machine_log import LogError
@@ -144,6 +144,8 @@ class Effects:
         _record, inst = self.machines.load(name)
         d = inst.definition()
         words = instructions_of(d, result["from"], result["to"])
+        if line := self._under_you(name, inst, result["from"]):  # what runs under it here, and what starts by itself
+            words = (words or f"{LABEL} Workflow: now in {path_of(d, result['to'])}.") + "\n\n" + line
         context, focus = context_of(d, result["from"], result["to"])
         if context == "fresh":  # a new conversation takes over: its launch has the new grant and its note the instructions
             self._spawn(self._fresh(name, result))
@@ -159,6 +161,12 @@ class Effects:
             self.agents.tell(name, words)
         if context == "compact":
             self._spawn(self._compact(name, focus))
+
+    def _under_you(self, name: str, inst, frm: str | None = None) -> str | None:
+        """The managed sessions line for the session's turn: from the hub's records with managed.py, else the definition's."""
+        if self.managed is not None:
+            return self.managed.under_you(name, inst, frm)
+        return managed_line(inst.definition(), inst.state)
 
     # --- widening ---------------------------------------------------------------------
     def _ask(self, name: str, result: dict) -> None:
@@ -347,7 +355,7 @@ class Effects:
                 action = self.agents.library.actions.get((record.get("config") or {}).get("action")) or {}
                 d = inst.definition()
                 persona = handoff.persona_for(d, inst.state, action, record["config"].get("persona"))
-                text = handoff.note(self.agents, name, record, d, inst.state, persona)
+                text = handoff.note(self.agents, name, record, d, inst.state, persona, self._under_you(name, inst))
                 if state == "Stopped":
                     async with self.agents._resuming:
                         if await self._live(name):

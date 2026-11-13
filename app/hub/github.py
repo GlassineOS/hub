@@ -360,7 +360,11 @@ class GitHub:
     # --- the chain of owners: managed sessions, their results and reports -------------------
     async def start_managed(self, entry, item=None) -> dict:
         reply = await self.hubd.call(op="managed.start", agent_token=CALLER.get(), entry=entry, item=item)
-        return {k: reply[k] for k in ("started", "name", "resumed", "why") if reply.get(k) is not None}
+        return {k: reply[k] for k in ("started", "name", "resumed", "why", "by_itself", "sessions", "note") if reply.get(k) is not None}
+
+    async def managed_status(self) -> dict:
+        reply = await self.hubd.call(op="managed.status", agent_token=CALLER.get())
+        return {k: reply[k] for k in ("state", "entries", "others") if k in reply}
 
     # --- workflow drafts: a Workflow author drafts, and the hub checks; nothing here saves ------------
     async def draft_workflow(self, name, scope, text, note, session=None) -> dict:
