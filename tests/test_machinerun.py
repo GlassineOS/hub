@@ -183,8 +183,8 @@ def _machine_entries(settings):
 
 def test_the_hook_is_installed_only_for_the_signals_a_workflow_names(tmp_path):
     a = _agents(tmp_path)
-    action = LIBRARY.actions["issue-implement"]
-    config = a.defaults("issue-implement", "boot", 5)
+    action = LIBRARY.actions["issue-docs"]
+    config = a.defaults("issue-docs", "boot", 5)
     directory = a.sessions / "x"
     plain = a._hooks(directory, config, action)
     assert not any(_machine_entries(plain).values())
@@ -201,16 +201,16 @@ def test_the_hook_is_installed_only_for_the_signals_a_workflow_names(tmp_path):
 
 def test_a_resumed_session_on_a_workflow_with_steps_gets_the_hook(tmp_path):
     a = _agents(tmp_path)
-    action = LIBRARY.actions["issue-implement"]
+    action = LIBRARY.actions["issue-docs"]
     directory = a.sessions / "x"
     directory.mkdir(parents=True)
     (directory / FILE).write_text(json.dumps(Instance.new(TWO, 0).to_json()))
-    assert _machine_entries(a._hooks(directory, a.defaults("issue-implement", "boot", 5), action))["Stop"]
+    assert _machine_entries(a._hooks(directory, a.defaults("issue-docs", "boot", 5), action))["Stop"]
 
 
 def test_no_socket_no_hook(tmp_path):
     a = Agents(LIBRARY, None, tmp_path / "state")
-    action = LIBRARY.actions["issue-implement"]
+    action = LIBRARY.actions["issue-docs"]
     assert a._machine_hooks(a.sessions / "x", {**action, "definition": TWO}) == {}
 
 

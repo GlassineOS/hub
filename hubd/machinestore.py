@@ -45,7 +45,7 @@ _NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 _REPO = re.compile(r"\.?[A-Za-z0-9_][A-Za-z0-9._-]{0,99}")
 _FILE = re.compile(r"v([1-9][0-9]{0,6})\.toml")
 OPS = ("workflow.list", "workflow.get", "workflow.check", "workflow.diff", "workflow.replay", "workflow.save",
-       "workflow.propose", "workflow.reorder")
+       "workflow.propose", "workflow.reorder", "workflow.start")
 
 
 class StoreError(Exception):
@@ -258,7 +258,7 @@ def _leaf(d: Definition, sid: str) -> str:
     return _enter(d, sid, {}, "first")
 
 
-def outline(d: Definition) -> dict:
+def outline(d: Definition, inherited=None) -> dict:
     """The definition as the editor's outline and inspector read it: states in the order the text lists them."""
     states = []
     for s in d.states.values():
@@ -277,7 +277,51 @@ def outline(d: Definition) -> dict:
                                      for i, e in enumerate(d.states[owner].exits, 1)],
                        "manages": [{**{k: (list(v) if isinstance(v, tuple) else v) for k, v in dataclasses.asdict(m).items() if k != "with_"},
                                     "with": list(m.with_), "returns": {k: list(v) for k, v in m.returns.items()}} for m in s.manages]})
-    return {"name": d.name, "initial": d.initial, "judge": d.judge, "status": d.status, "states": states}
+    return {"name": d.name, "initial": d.initial, "judge": d.judge, "status": d.status, "states": states,
+            "launch": _launch_json(d.launch), "starts": starts_outline(d, inherited), "starts_named": d.starts is not None}
+
+
+def _launch_json(launch) -> dict | None:
+    if launch is None:
+        return None
+    return {k: (list(v) if isinstance(v, tuple) else v) for k, v in dataclasses.asdict(launch).items() if v not in (None, (), "")}
+
+
+def starts_outline(d: Definition, inherited=None) -> list[dict]:
+    """The starts in force (FR-105): the text's own, or the file's when it names none, each with where it starts, whether its
+    grant there can write on the item, and what a session of it receives."""
+    from .agents import details_preview  # agents imports this module
+    out = []
+    for place, st in enumerate(machine.effective_starts(d, inherited), 1):
+        leaf = machine.start_state(d, st) if (st.state is None or st.state in d.states) else None
+        prompt = st.prompt or (d.launch.prompt if d.launch else "")
+        out.append({**machine.start_json(st), "place": place, "id": machine.start_id(d, st), "starts_in": leaf,
+                    "path": list(reversed(machine.ancestors(d, leaf))) if leaf else [],
+                    "writes": machine.writes_on_item(machine.effective(d, leaf)) if leaf else [],
+                    "persona": next((p for s in (machine.ancestors(d, leaf) if leaf else ()) for p in d.states[s].personas),
+                                    (d.launch.personas[0] if d.launch and d.launch.personas else None)),
+                    "inherited": d.starts is None, "receives": details_preview(st.on, prompt)})
+    return out
+
+
+def edit_start(text: str, place, start, inherited=None) -> str:
+    """The text with one start changed (`place`, 1-based), added (place None) or removed (start None), written again by
+    machine.emit (comments go). A text that names no starts takes the file's first, so editing one keeps the others."""
+    d = machine.parse(text)
+    starts = list(machine.effective_starts(d, inherited))
+    if place is not None and (not isinstance(place, int) or isinstance(place, bool) or not 1 <= place <= len(starts)):
+        raise StoreError("place is a start's place, from 1")
+    if start is None:
+        if place is None:
+            raise StoreError("name the start to remove")
+        del starts[place - 1]
+    else:
+        new = machine.start_from(start)
+        if place is None:
+            starts.append(new)
+        else:
+            starts[place - 1] = new
+    return machine.emit(dataclasses.replace(d, starts=tuple(starts)))
 
 
 def _finding(f) -> dict:
@@ -293,7 +337,10 @@ def examine(text, name: str | None = None, library=None, repo: str | None = None
         d = machine.parse(text)
     except DefinitionError as e:
         return {"findings": [{"kind": "problem", "where": p.where, "text": p.text} for p in e.problems], "outline": None}
+    inherited = _file_starts(library, name)
     findings = [_finding(f) for f in machine.check(d)]
+    if d.starts is None and inherited:  # the file's starts are in force: they are checked against this text's states
+        findings += [_finding(f) for f in machine.check_starts(d, inherited)]
     if name is not None and d.name != name:
         findings.insert(0, {"kind": "problem", "where": "workflow.name", "text": f"is {d.name!r}: this is {name!r}'s version"})
     elif name is not None and library is not None and not any(f["kind"] == "problem" for f in findings):
@@ -302,7 +349,13 @@ def examine(text, name: str | None = None, library=None, repo: str | None = None
             library.trial(name, text, repo)
         except LibraryError as e:
             findings.insert(0, {"kind": "problem", "where": "library", "text": str(e)})
-    return {"findings": findings, "outline": outline(d)}
+    return {"findings": findings, "outline": outline(d, inherited)}
+
+
+def _file_starts(library, name):
+    """The starts of the workflow's file, which a version naming none inherits."""
+    d = (getattr(library, "files", None) or {}).get(name) if library is not None and name is not None else None
+    return d.starts if d is not None else None
 
 
 def problems_of(findings: list[dict]) -> list[dict]:
@@ -361,26 +414,73 @@ def text_diff(a: str, b: str) -> list[dict]:
     return out
 
 
-def diff(a_text: str, b_text: str) -> dict:
-    """The outline diff (machine.outline_diff, with each side's summary) and the text diff. Rows need both to parse."""
+def diff(a_text: str, b_text: str, inherited=None) -> dict:
+    """The outline diff (machine.outline_diff, with each side's summary), the starts' (a prompt's edit among them) and the
+    text diff. Rows need both to parse."""
     lines = text_diff(a_text, b_text)
     stat = {"added": sum(1 for x in lines if x["kind"] == "add"), "removed": sum(1 for x in lines if x["kind"] == "del")}
     try:
         a, b = machine.parse(a_text), machine.parse(b_text)
     except DefinitionError:
-        return {"rows": None, "text": lines, "stat": stat}
-    return {"rows": [_row_json(a, b, r) for r in machine.outline_diff(a, b)], "text": lines, "stat": stat}
+        return {"rows": None, "starts": None, "text": lines, "stat": stat}
+    return {"rows": [_row_json(a, b, r) for r in machine.outline_diff(a, b)], "starts": machine.starts_diff(a, b, inherited),
+            "text": lines, "stat": stat}
 
 
-def sensitive_marks(a_text: str | None, findings: list[dict]) -> list[dict]:
-    """The marks of the new text, each saying whether the old text had it already (`new`)."""
+def sensitive_marks(a_text: str | None, findings: list[dict], b_text: str | None = None, inherited=None) -> list[dict]:
+    """The marks of the new text, each saying whether the old text had it already (`new`), and with the new text, what its
+    starts change that a reviewer should see (start_marks)."""
     old = set()
     if a_text is not None:
         try:
             old = {(f.where, f.text) for f in machine.check(machine.parse(a_text)) if f.kind == "mark"}
         except DefinitionError:
             old = set()
-    return [{**f, "new": (f["where"], f["text"]) not in old} for f in findings if f["kind"] == "mark"]
+    out = [{**f, "new": (f["where"], f["text"]) not in old} for f in findings if f["kind"] == "mark"]
+    return out + (start_marks(a_text, b_text, inherited) if b_text is not None else [])
+
+
+def _an(kind: str) -> str:
+    return f"{'an' if kind[:1] in 'aeiou' else 'a'} {kind}"
+
+
+def start_marks(a_text: str | None, b_text: str, inherited=None) -> list[dict]:
+    """What a change to the starts grants or moves, as marks: a start whose session begins holding more than the same start
+    did (or, for a new one, more than the workflow's first state), one that now begins on another kind of item or takes or
+    gives up the lead, and one whose starting grant writes on the item differently while its ceiling, the words its item's page
+    shows, stays as it was."""
+    try:
+        b = machine.parse(b_text)
+        a = machine.parse(a_text) if a_text is not None else None
+    except DefinitionError:
+        return []
+    def keyed(d):
+        return {machine.start_id(d, st): st for st in machine.effective_starts(d, inherited)}
+    before = keyed(a) if a is not None else {}
+    out = []
+    mark = lambda sid, text: out.append({"kind": "mark", "where": f"start.{sid}", "text": text, "new": True})  # noqa: E731
+    for sid, st in keyed(b).items():
+        if (st.state is not None and st.state not in b.states) or b.initial not in b.states:
+            continue  # the checks say so as a problem; nothing to mark until it names a state
+        grant = machine.effective(b, machine.start_state(b, st))
+        old = before.get(sid)
+        if a is not None:
+            base = machine.effective(a, machine.start_state(a, old)) if old is not None and (old.state is None or old.state in a.states) \
+                else machine.effective(a, machine._leaf(a, a.initial)) if a.initial in a.states else machine.Grant()
+            if wider := machine.beyond(grant, base):
+                words = "; ".join(f"{k} {', '.join(map(str, v))}" for k, v in wider.items())
+                mark(sid, f"wider start: {st.label} begins in {machine.start_state(b, st)}, holding more than before ({words})")
+        if old is None:
+            continue
+        if old.on != st.on:
+            mark(sid, f"another item: {st.label} now starts on {_an(st.on)}, not {_an(old.on)}")
+        if old.lead != st.lead:
+            mark(sid, f"lead: {st.label} " + ("now leads" if st.lead else "no longer leads") + f" the starts of {_an(st.on)}")
+        writes = machine.writes_on_item(grant)
+        if a is not None and writes and old.ceiling == st.ceiling and (old.state is None or old.state in a.states) \
+                and writes != machine.writes_on_item(machine.effective(a, machine.start_state(a, old))):
+            mark(sid, f"ceiling unchanged: {st.label} writes on its item ({', '.join(writes[:4])}), and its ceiling words are as before")
+    return out
 
 
 def reorder(text: str, state: str, place, by) -> str:
@@ -604,8 +704,13 @@ class Workflows:
         for name in sorted(self.store.defaults):
             org = self.store.latest_number(name, ORG)
             d = self.library.workflows.get(name)
+            starts = [a for a in self.library.actions.values() if a.get("workflow") == name and not a.get("managed_only")]
             rows.append({"name": name, "org": org, "states": len(d.states) if d else None,
                          "actions": sorted(a["id"] for a in self.library.actions.values() if a.get("workflow") == name),
+                         # FR-105: what each starts on, for a list by kind; a workflow without starts is managed only
+                         "starts": [{"id": a["id"], "on": a["object"], "label": a["title"], "lead": bool(a.get("lead")),
+                                     "when_held": a.get("when_held")} for a in sorted(starts, key=lambda a: a.get("start", 0))],
+                         "kinds": sorted({a["object"] for a in starts}), "managed_only": not starts,
                          "overrides": [{"scope": s, "repo": repo_of(s), "v": self.store.latest_number(name, s)} for s in self.store.scopes(name) if s != ORG],
                          "refused": {s: why for (s, n), why in self.library.refused.items() if n == name}})
         return {"workflows": rows}
@@ -686,7 +791,7 @@ class Workflows:
         text = req.get("text")
         if not isinstance(text, str) or len(text) > MAX_TEXT:
             raise StoreError("text is the definition, at most 128 KiB")
-        return diff(self._from_text(name, scope, req.get("from")), text)
+        return diff(self._from_text(name, scope, req.get("from")), text, _file_starts(self.library, name))
 
     def _replay(self, req, _who) -> dict:
         name = self._known(req.get("name"))
@@ -711,7 +816,14 @@ class Workflows:
                 for row in self._instance_texts(session):
                     known.setdefault(version_of(row), machine.parse(row))
                 break
-        return {"session": session, **replay(d, history, known)}
+        # a start's prompt or fields don't change a move: the replay says which changed, as sessions started after a save get them
+        try:
+            now = machine.parse(self._from_text(name, self._scope(req)[0], None))
+            starts = [r for r in machine.starts_diff(now, d, _file_starts(self.library, name)) if r["kind"] != "same"]
+        except (DefinitionError, StoreError):
+            starts = None
+        return {"session": session, **replay(d, history, known), "starts": starts,
+                "starts_note": "Starts don't move a session: what changed in them reaches the sessions started after the save."}
 
     def _instance_texts(self, session_id: str) -> list[str]:
         for directory in self.agents.sessions.iterdir() if self.agents.sessions.is_dir() else ():
@@ -756,6 +868,23 @@ class Workflows:
         except DefinitionError as e:
             raise StoreError(f"the text doesn't parse: {e}") from None
 
+    def _start(self, req, _who) -> dict:
+        """One start of the text changed, added or removed (FR-105), for the editor to show and check: nothing is saved. The
+        saved version still goes through workflow.save or workflow.propose, and a prompt's edit is in their diff and replay."""
+        name = self._known(req.get("name"))
+        text = req.get("text")
+        if not isinstance(text, str) or len(text) > MAX_TEXT:
+            raise StoreError("text is the definition, at most 128 KiB")
+        start = req.get("start")
+        if start is not None and not isinstance(start, dict):
+            raise StoreError("start is a table of a start's fields, or none to remove it")
+        try:
+            new = edit_start(text, req.get("place"), start, _file_starts(self.library, name))
+        except DefinitionError as e:
+            raise StoreError("; ".join(f"{p.where}: {p.text}" for p in e.problems[:5])) from None
+        _scope, repo = self._scope(req)
+        return {"text": new, **examine(new, name, self.library, repo)}
+
     def _propose(self, req, who) -> dict:
         from .decisions import DecisionError  # decisions imports agents, which imports this module
         if self.decisions is None:
@@ -770,10 +899,10 @@ class Workflows:
         before = self._from_text(name, scope, base)
         if before == text:
             raise StoreError("it's the same as the version it starts from")
-        changed = diff(before, text)
+        changed = diff(before, text, _file_starts(self.library, name))
         card = {"workflow": name, "scope": scope, "repo": repo, "base_version": base, "text": text, "note": note.strip(),
-                "proposed_by": who, "rows": changed["rows"], "text_diff": changed["text"], "stat": changed["stat"],
-                "findings": found["findings"], "sensitive": sensitive_marks(before, found["findings"])}
+                "proposed_by": who, "rows": changed["rows"], "starts": changed["starts"], "text_diff": changed["text"], "stat": changed["stat"],
+                "findings": found["findings"], "sensitive": sensitive_marks(before, found["findings"], text, _file_starts(self.library, name))}
         session = req.get("session")
         if session is not None:
             try:

@@ -3,6 +3,26 @@ schema = 1
 name = "run-slow"
 initial = "session"
 
+[launch]
+personas = ["ci-diagnostician"]
+result = "none"
+
+[[start]]
+on = "run"
+label = "Why was it slow?"
+summary = "Finds the slowest steps against recent runs. Reports in the session."
+ceiling = "Read only."
+order = 4
+when = "not-failing"
+when_held = "beside"
+models = ["sonnet", "opus"]
+efforts = ["low", "medium", "high"]
+prompt = '''
+Find the slowest steps of Actions run {number} of GlassineOS/{repo} against recent runs of the
+workflow, and suggest what would help. Report here, in this session. You change nothing.
+'''
+
+
 [state.session]
 final = true
 [state.session.grant]

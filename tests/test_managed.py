@@ -18,6 +18,7 @@ from hubd.decisions import Decisions
 from hubd.instances import Instance
 from hubd.managed import Managed
 from hubd.server import Hubd
+from starts_util import launch, with_launch
 
 REPO = Path(__file__).resolve().parents[1]
 OWNER = "issue-triage"  # an action on an issue with no checkout, given a workflow that manages sessions
@@ -145,19 +146,9 @@ checkout = false
 '''
 
 
-def action(name, workflow):
-    return f'''order = 90
-ceiling = "Reads the issue."
-object = "issue"
-result = "comment"
-title = "{name}"
-summary = "A helper on the issue."
-personas = ["triager"]
-prompt = "issue-triage"
-models = ["sonnet"]
-efforts = ["low"]
-workflow = "{workflow}"
-'''
+def action(name):
+    """A helper workflow's launch and its one start, on an issue."""
+    return launch(name)
 
 
 class FakeShells:
@@ -217,12 +208,10 @@ def make_hub(tmp_path, monkeypatch, owner_workflow):
     monkeypatch.setattr(agents_module, "SANDBOX_TOOLS", ())
     root = tmp_path / "agents"
     shutil.copytree(REPO / "agents", root)
-    (root / "workflows" / f"{OWNER}.toml").write_text(owner_workflow)
-    (root / "workflows" / "helper.toml").write_text(HELPER.format(name="helper", tools='["get_issue", "notes_find"]'))
-    (root / "workflows" / "greedy.toml").write_text(HELPER.format(name="greedy", tools='["get_issue", "list_prs", "notes_find"]'))
-    (root / "workflows" / "stepper.toml").write_text(STEPPER)
-    for name in ("helper", "greedy", "stepper"):
-        (root / "actions" / f"{name}.toml").write_text(action(name, name))
+    (root / "workflows" / f"{OWNER}.toml").write_text(with_launch(owner_workflow, OWNER))
+    (root / "workflows" / "helper.toml").write_text(HELPER.format(name="helper", tools='["get_issue", "notes_find"]') + action("helper"))
+    (root / "workflows" / "greedy.toml").write_text(HELPER.format(name="greedy", tools='["get_issue", "list_prs", "notes_find"]') + action("greedy"))
+    (root / "workflows" / "stepper.toml").write_text(STEPPER + action("stepper"))
     claude = tmp_path / "claude"
     claude.write_text("#!/bin/sh\n")
     claude.chmod(0o755)
@@ -558,6 +547,9 @@ def test_the_cap_and_what_lies_beyond_it():
     assert machine.cap(child, owner_, {"tools": ["Edit"]}).tools == ("Read", "Edit")
     # a checkout that can push doesn't fit under an owner whose checkout is another
     assert machine.beyond(G(checkout="pr-branch"), G(checkout="new-branch")) == {"checkout": ("pr-branch",)}
+    assert machine.beyond(G(checkout="new-branch"), G(checkout="pr-branch")) == {"checkout": ("new-branch",)}
+    assert machine.beyond(G(checkout="pr-branch"), G(checkout="default")) == {"checkout": ("pr-branch",)}
+    assert machine.beyond(G(checkout="pr-branch"), G(checkout=False)) == {"checkout": ("pr-branch",)}
     assert machine.beyond(G(checkout="pr"), G(checkout=False)) == {"checkout": ("pr",)}
     assert machine.cap(G(checkout="pr"), G(checkout=False)).checkout is False
 

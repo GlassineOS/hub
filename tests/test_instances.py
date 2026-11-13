@@ -206,8 +206,9 @@ def test_every_action_runs_on_its_workflows_own_text():
         text = definition_for(action)
         assert text == (LIBRARY.root / "workflows" / f"{action['workflow']}.toml").read_text()
         d = machine.parse(text)
-        if len(d.states) > 1:  # it starts in its first state's first leaf, with that leaf's grant
-            assert action["grant"] == machine.effective(d, new(text).state) and not d.states[new(text).state].final
+        if len(d.states) > 1:  # it starts in its start's state (or the first state), down its first leaves, with that leaf's grant
+            leaf = Instance.new(text, 0.0, action.get("state")).state
+            assert action["grant"] == machine.effective(d, leaf) and not d.states[leaf].final
             continue
         g = machine.effective(d, "session")
         assert d.states["session"].final and g.tools == action["grant"].tools and g.checkout == action["grant"].checkout
@@ -271,7 +272,7 @@ def world(tmp_path):
 
 
 def _session(a):
-    return asyncio.run(a.start({**a.defaults("issue-implement", "boot", 1), "name": "s"}))["name"]
+    return asyncio.run(a.start({**a.defaults("issue-docs", "boot", 1), "name": "s"}))["name"]
 
 
 def _as_implement(a, name, text=IMPLEMENT):
@@ -289,8 +290,8 @@ def test_a_session_starts_with_its_machine(world):
     a, _ = world
     name = _session(a)
     raw = json.loads((a.sessions / name / FILE).read_text())
-    assert raw["workflow"] == "issue-implement" and raw["state"] == "session"
-    assert raw["definitions"][raw["version"]] == definition_for(LIBRARY.actions["issue-implement"])
+    assert raw["workflow"] == "issue-docs" and raw["state"] == "session"
+    assert raw["definitions"][raw["version"]] == definition_for(LIBRARY.actions["issue-docs"])
 
 
 def test_the_machine_survives_a_resume_and_a_resume_after_the_folder_went(world):
@@ -333,7 +334,7 @@ def test_the_ops_move_confirm_pause_and_log_as_the_maintainer(world):
     m = a.machines
     got = m.request("machine.get", {"name": name}, "m")
     assert [e["to"] for e in got["exits"]] == ["review", "escalated"] and got["facts"]["rounds.work"] == 1
-    assert got["newer"] == {"version": version_of(definition_for(LIBRARY.actions["issue-implement"])), "has_state": False, "kept": False}
+    assert got["newer"] == {"version": version_of(definition_for(LIBRARY.actions["issue-docs"])), "has_state": False, "kept": False}
     asked = m.request("machine.move", {"name": name, "to": "merge-ready"}, "maintainer")
     assert asked["ok"] and asked["needs_confirm"] and asked["state"] == "implement"
     assert m.request("machine.get", {"name": name}, "m")["instance"]["pending"]["to"] == "merge-ready"
@@ -354,7 +355,7 @@ def test_a_hand_move_takes_the_newest_version(world):
     asked = a.machines.request("machine.move", {"name": name, "to": "session"}, "m")
     assert asked["needs_confirm"] and asked["adds"]["access"] == ["full"]
     got = a.machines.request("machine.confirm", {"name": name, "pending": asked["pending"]}, "m")
-    assert got["moved"] and got["version"] == version_of(definition_for(LIBRARY.actions["issue-implement"]))
+    assert got["moved"] and got["version"] == version_of(definition_for(LIBRARY.actions["issue-docs"]))
 
 
 def test_the_log_is_per_conversation_not_per_name(world):
@@ -511,7 +512,7 @@ def test_the_session_list_carries_the_state_chip_without_writing(world):
     a, _ = world
     name = _session(a)
     one = a.describe(name)["machine"]
-    assert one == {"workflow": "issue-implement", "state": "session", "path": ["session"], "one_state": True, "final": True,
+    assert one == {"workflow": "issue-docs", "state": "session", "path": ["session"], "one_state": True, "final": True,
                    "paused": False, "waits": False}
     _as_implement(a, name)
     a.machines.request("machine.move", {"name": name, "to": "review"}, "m")

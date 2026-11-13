@@ -34,7 +34,7 @@ public. A person's approval can't reliably break that chain, because a steered a
 | Browser attacks | `SameSite=Strict`, `HttpOnly` session cookie. Host must be on the allowlist, against DNS rebinding. Origin must match for writes and for the terminal's WebSocket. Content-Security-Policy without inline or remote scripts |
 | Network | Loopback by default. The app won't start on another address without TLS, as long as `HUB_BIND` names the address; `HUB_LISTEN` is for the container and overrides what the app binds. The tool server stays on loopback under compose |
 | The container | Runs as your uid, read-only, no capabilities, no credentials. Its only way to the host is the socket |
-| A session's rights | Its action's workflow holds them: the effective grant of the state the session is in, its first at launch (most actions' default workflows have one state; `implement`'s has steps and runs sandboxed). The workflow is the version the hub resolves for the session's repository: that repository's newest override, else the organisation's newest saved version, else `agents/workflows/<name>.toml` (version 0). The action file holds none (hubd refuses one that sets any), so they are said once. hubd builds the tool lists, the permission mode, the checkout and the token's scope from that grant, and won't start on, or save, a workflow its checks refuse. The action's `ceiling` is that grant in plain words |
+| A session's rights | Its workflow holds them: the effective grant of the state the session is in, its first at launch (most default workflows have one state; `implementor`'s has steps and runs sandboxed). The workflow is the version the hub resolves for the session's repository: that repository's newest override, else the organisation's newest saved version, else `agents/workflows/<name>.toml` (version 0). A start or `[launch]` holds none (the checks refuse one that sets any as an unknown key), so they are said once. hubd builds the tool lists, the permission mode, the checkout and the token's scope from that grant, and won't start on, or save, a workflow its checks refuse. The action's `ceiling` is that grant in plain words |
 | Who changes a workflow | Only a login. Saving a version (`workflow.save`) and approving a proposed one (a `workflow.change` card in Needs you) are ops behind the login check; the tool server has none, so a session, steered or not, can't save a version or approve one, and can't make the card either. This stops an agent widening its own or another session's rights by rewriting its workflow. A save is checked again in hubd whoever asks: a problem the checks find, or one the library's own checks would refuse at start (a GitHub list without a locked shell, the notes search where a state can post), refuses it, and so does a version saved meanwhile. A version is a file written once and never overwritten. A running session takes the new version at its next move, so a save widens nothing in a session until then, and a one-state session's tool list and token stay what they were until it resumes |
 
 ## Guards, not limits
@@ -441,8 +441,11 @@ the person or session that started work in the hub.
 
 - **A managed session never holds more than its owner, at all times.** Its grant is its workflow's grant capped by what the
   owner holds in force: the owner's state grant narrowed as its launch narrowed it (what it took off, a GitHub list it
-  lacks). Each list is the intersection, each level the lower, and a checkout must be the owner's, none, or one that can't
-  push. The cap is part of how a managed session's rights are worked out, at start, resume and every narrowing, and when
+  lacks). Each list is the intersection, each level the lower, and a checkout must be the owner's, none, one that can't
+  push, or a pull request's own branch under an owner on a new branch when that pull request is the owner's own (one its
+  engineer opened, or one it took on with Take this on). A pull request a maintainer or the Steward names is anyone's: its
+  branch asks above the owner as any wider checkout does. That checkout refuses a fork's pull request, as does an unclear
+  answer from GitHub. The cap is part of how a managed session's rights are worked out, at start, resume and every narrowing, and when
   the owner is narrowed (a move, a library change) every running session it manages is narrowed to its cap again, and
   theirs: its token, its grant hook (a managed session has one even with a one-state workflow) and its GitHub token, made
   again. One whose cap can't be worked out is locked. What lies beyond the cap isn't dropped silently: the start waits
@@ -497,7 +500,7 @@ the person or session that started work in the hub.
 - **One maintainer per repository.** A `per_repo` action is claimed per repository before anything is awaited, through its
   start, a resume and a past session's resume, and refused while another runs; one in a final state doesn't count.
   A maintainer names only items of its own repository for the sessions it starts; the Steward may name any of the
-  organisation's. A `managed_only` action can't be started from the hub's menus or ops without an owner.
+  organisation's. A workflow without starts is managed only: it can't be started from the hub's menus or ops without an owner.
 - **The Steward manages maintainers.** Its grant holds all the maintainer's, so a maintainer starts with no card; an
   implementor holds more than either (a shell, a new branch, `push`), so a maintainer's implementor start asks you, once
   for each issue: the approval carries the issue, starts it for that issue and widens nothing for another. The judge's
@@ -506,6 +509,32 @@ the person or session that started work in the hub.
   approval, and the work waits while it does. Its "Look at the design" card only opens the design view: answering it
   changes nothing.
 - **Waking for a `when`.** Entering a state whose auto entry has a `when` wakes an idle owner with fixed words only.
+
+### Starts and held items
+
+A workflow names how it begins on an item in its `[[start]]` tables (spec 012, FR-100 to FR-104); `hubd/machine.py` checks them
+and `hubd/agents.py` holds the item.
+
+- **The item's details are data.** A session's first prompt is its start's prompt, from the library, then the item as hubd's
+  own `gh` read it when the session started: kind, repository, number, title, state, branch, labels, checks and a link, one
+  field a line between two random marks, under a heading that says they are data and never what to do. Each value is folded
+  onto its line, cut to a fixed length and has what no card would draw dropped, so a title can't open a line of its own or
+  hide one; a look that fails leaves kind, repository and number and says so. A start's prompt fills in only `{repo}`,
+  `{number}` and `{checkout}`: the library refuses any other field, so a prompt can't reach an object's attributes.
+- **One instance holds an item.** A session that didn't start beside a holder holds, until it ends or reaches a final state of a workflow of more than one, the items it is on and the
+  pull requests it, or a session it manages, opened. A start refused beside it is refused by hubd's start too, not only hidden
+  on the page, and the item is claimed before anything is awaited, so two starts can't both take it. A session whose pull
+  requests aren't looked up yet makes the item unknown, never free.
+- **Beside means it can't write on the item.** A start runs beside a holder (`when_held = "beside"`) only if its starting
+  state's effective grant can't write on the item: no full access, no GitHub capability beyond `read`, `issues.read`,
+  `pr.read` and `runs.read`, and no hub tool, listed or asked first, beyond the read-only ones and those that only reach the
+  hub (submitting drafts, asking for a move, drafting a workflow). A result the maintainer applies isn't the session writing:
+  the press is theirs. The library refuses a start that breaks this.
+- **Asking the owner takes the owner's path.** A start that asks (`when_held = "ask"`) starts nothing beside the holder. The
+  login's ask becomes a managed start under the holder, when its state manages the start's workflow on request, so the
+  holder's cap and the approval above it apply as for any managed start (the card comes first, the session after); or a
+  move request on one of the holder's on-request exits, which its `requires` decide and a widening move's confirm still
+  guards. Only a login reaches `agent.ask_owner`; a session's token can't.
 
 ## The person's decisions
 

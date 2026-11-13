@@ -908,7 +908,7 @@ class InteractionAgents:
     """Two sessions, as describe() gives them, with the tokens a session would hold."""
     library = LIBRARY
     SESSIONS = {"impl": {"persona": "engineer", "persona_name": "Engineer", "initials": "EN", "family": "build", "object": "issue",
-                         "covers": [{"repo": "boot", "number": 9}, {"repo": "kernel", "number": 2}], "action": "issue-implement"},
+                         "covers": [{"repo": "boot", "number": 9}, {"repo": "kernel", "number": 2}], "action": "issue-docs"},
                 "steward": {"persona": "steward", "persona_name": "Steward", "initials": "S", "family": "organise", "object": "project",
                             "covers": [], "action": "project-steward"}}
 
@@ -1093,11 +1093,11 @@ class ResultAgents:
 
     def __init__(self):
         self.sessions = {"pr-review-boot-5": ("pr-review", "pr", 5, "reviewer"), "issue-triage-boot-7": ("issue-triage", "issue", 7, "triager"),
-                         "issue-implement-boot-9": ("issue-implement", "issue", 9, "engineer")}
+                         "issue-docs-boot-9": ("issue-docs", "issue", 9, "engineer")}
         self.tools = {"review-token": ("pr-review-boot-5", RESULT_LIBRARY.actions["pr-review"]["grant"].hub_tools),
                       "old-review-token": ("pr-review-boot-5", ["get_pr", "review_pr"]),  # started before results
                       "triage-token": ("issue-triage-boot-7", RESULT_LIBRARY.actions["issue-triage"]["grant"].hub_tools),
-                      "full-token": ("issue-implement-boot-9", None)}
+                      "full-token": ("issue-docs-boot-9", None)}
         self.ended = set()
 
     def scope(self, token):
@@ -1343,12 +1343,12 @@ def test_findings_and_reports_arent_applied_and_a_report_is_kept(result_hub):
 
 def test_a_session_that_opened_a_pull_request_has_it_as_its_result(result_hub):
     """005 FR-016: on an issue once its branch has one; on a pull request once Claude has ended there. Once a run."""
-    result_hub.agents.prs = {"issue-implement-boot-9": [{"repo": "boot", "number": 12, "state": "OPEN"}]}
+    result_hub.agents.prs = {"issue-docs-boot-9": [{"repo": "boot", "number": 12, "state": "OPEN"}]}
     rows = [{"name": n, "agent": result_hub.agents.describe(n)} for n in result_hub.agents.sessions]
     result_hub._note_pr_results(rows)
     result_hub._note_pr_results(rows)
     made = [(r["session"], r["payload"]) for r in result_hub.results.all()]
-    assert made == [("issue-implement-boot-9", {"repo": "boot", "number": 12})]
+    assert made == [("issue-docs-boot-9", {"repo": "boot", "number": 12})]
     # pr-review covers a pull request but ends in a comment; a pr action on a pull request waits for its end.
     result_hub.agents.sessions["pr-address-review-boot-5"] = ("pr-address-review", "pr", 5, "engineer")
     result_hub._note_pr_results([{"name": "pr-address-review-boot-5", "agent": result_hub.agents.describe("pr-address-review-boot-5")}])

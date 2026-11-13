@@ -1,8 +1,9 @@
 # Workflows
 
 A session holds a state machine: its **workflow** (spec 012). The state it is in says what it is told, what it may use and
-when it moves on. Every action runs on one, in `agents/workflows/<action>.toml`; most have one state, whose grant is what the
-action allows. `implement` is the first with steps: implement, review and fix inside `work`, then `merge-ready`, or
+when it moves on. Every workflow is one file, `agents/workflows/<name>.toml`: its states, its `[launch]` (what Launch shows and
+runs with) and its `[[start]]`s, the buttons it puts on an item's page (see Starts). Most have one state, whose grant is what
+the session may do. `implement` is the first with steps: implement, review and fix inside `work`, then `merge-ready`, or
 `escalated` when the fix rounds run out. hubd refuses to start on a file its checks refuse.
 
 ## The file
@@ -76,6 +77,7 @@ A state can run other sessions under it, each an entry in its `manages` list; a 
 name = "reviewer"             # the entry, and the fact prefix: managed.reviewer.<field>
 persona = "reviewer"
 workflow = "pr-review"        # an action that runs this workflow as this persona starts it
+on_pr = ""                    # the workflow it runs instead when the owner is on a pull request and no issue (the engineer's: pr-engineer)
 start = "auto"                # on entering the state, or "on-request": the owner's start_managed tool
 when = ""                     # for start = "auto": a plain-language condition the judge tests on the owner's turn end
 max = 1                       # how many of this entry run at once
@@ -89,7 +91,8 @@ returns = { verdict = ["pass", "fail"], findings = "text-list" }  # what it hand
   the owner's issue or pull request, the head the last round reviewed (`diff.since_last_round`), a brief from the library,
   and with `owner.summary` the owner's rolling summary between marks, as data. Never the owner's transcript.
 - **Its grant is capped by what its owner holds**, at all times: when the owner narrows, so do the sessions it manages. Each list is the intersection of the two, each level the lower, and a checkout it
-  can't push to fits under any checkout. A workflow that needs more than that waits for an approval above the owner
+  can't push to fits under any checkout, as does a pull request's own branch under an owner on a new branch when the pull
+  request is the owner's own (one it or its engineer opened, or the one it is on), never one a maintainer names. A workflow that needs more than that waits for an approval above the owner
   (its own owner's session if that holds the extra items itself, else the maintainer), and the start comes after the yes;
   the instance keeps what was approved.
 - **Returns** are checked against `returns`: every field, each one of its values, or for `"text-list"` up to 20 lines of
@@ -105,6 +108,10 @@ returns = { verdict = ["pass", "fail"], findings = "text-list" }  # what it hand
   At most 20 managed sessions run at once in all, not counting one of a staged workflow that is idle in a final state (an
   implementor that is merge-ready). A start that this holds back tells the owner once, and an automatic entry that didn't
   start in its round is tried again on the owner's next signals, and when a managed session ends.
+- **A start that can't happen.** One that can't start for a reason that won't change by itself (its workflow works on an
+  issue and the owner is on none, the workflow is gone, a fork's branch to push to) is one failed line in the machine log,
+  one word to the owner and one card in Needs you that says why. It isn't tried again in that round, nor waited on: the
+  owner stays where it is until it is moved by hand or a new round comes.
 - **Naming the item.** An owner on no single item (a repository's maintainer, the Steward) names what a managed session
   works on with `start_managed`'s `item`: a repository alone for an action on a repository, `repo#N` (with or without
   `GlassineOS/`) for one on an issue or pull request. A maintainer names only items of its own repository; an owner on its
@@ -119,7 +126,7 @@ returns = { verdict = ["pass", "fail"], findings = "text-list" }  # what it hand
   isn't: it only feeds the owner's `design.accepted`.
 - **Waking for a `when`.** An auto entry's `when` is judged on the owner's turn ends; on entering a state with one, an owner
   idle at its prompt is woken with fixed words, so it gets a turn to judge.
-- **Actions only for managed sessions.** An action with `managed_only = true` (the engineer, the QA audit, the design check,
+- **Actions only for managed sessions.** An action with `managed_only = true` (the engineer, on an issue or a pull request, the QA audit, the design check,
   the workflow review) is on no menu and starts only under an owner. One with `per_repo = true` (the repository maintainer)
   runs once per repository at a time.
 
@@ -190,6 +197,80 @@ are shown beside it: the debounce of 2 seconds, the 3 seconds a pass waits for a
 and the lookup itself, at most once a minute per session. The change feed doesn't carry a pull request's branch, so a new pull
 request reaches its session at the next lookup, not with the feed's event.
 
+## Starts
+
+A start is a button on an item's page: how a workflow begins on an issue, a pull request, a run, a repository, the project,
+knowledge or notes. A workflow with no `[[start]]` is **managed only**: it runs under another session whose workflow starts it
+(an engineer under an implementor), or resumes where one already ran. The list groups workflows by the kind of item they start
+on, with the managed-only ones last.
+
+```toml
+[launch]                       # what every start of this file shares, unless a start sets it again
+personas = ["implementor"]
+result = "pr"
+
+[[start]]
+id = "implementor-pr"          # by default the workflow's name; ids are unique across the library
+on = "pr"                      # issue, pr, run, repo, project, knowledge or notes
+label = "Take this on"         # the button
+summary = "One line: what the session does."
+ceiling = "What it may do at most, in words: the MAY line under the button."
+state = "review"               # where it starts; by default the workflow's `initial`
+lead = true                    # the item's first button; one lead per kind of item across the library
+when_held = "hide"             # beside, ask or hide (below)
+models = ["sonnet", "opus"]    # what the brief may choose
+efforts = ["medium", "high", "xhigh"]
+prompt = """
+Carry pull request #{number} of GlassineOS/{repo} to where the maintainer can merge it.
+"""
+```
+
+A start takes `verb`, `result`, `plan`, `personas`, `when`, `needs` and the other `[launch]` fields too; one it doesn't set
+comes from `[launch]`. Launch opened from a start is that start: its action is the start's id, its title the label. A start's
+id is the action id the API, the records and the history use, so the ids of the old actions carry on unchanged.
+
+The checks refuse a start without a label, one that names a state the workflow doesn't have or starts in a final one, two
+starts with the same label on one kind of item, two leads for one kind of item (across the library too), a start id used
+twice, an `ask_move` on a start that doesn't ask, and a start with `when_held = "beside"` whose first state, or any state
+its session can move to, writes on the item (full access, a GitHub capability beyond reading, or a hub tool that writes):
+what runs beside a holder only reads.
+
+### Held items
+
+A session **holds** its item while it isn't ended or final (a workflow with one state holds while it runs): an issue, a pull
+request, a run or a repository it was started on, and for a pull request also the ones it or the sessions under it opened.
+Only the topmost holds: an engineer under an implementor doesn't, its implementor does. A session started beside a holder
+never holds. While the hub doesn't yet know which pull requests a session opened, the item is "unsure", never free: starts that
+would hold wait.
+
+While an item is held, its page names the holder first (its persona, state and next moves) and each start does what its
+`when_held` says:
+
+- **`beside`** runs anyway, next to the holder, read-only.
+- **`ask`** goes to the holder, not to a new session: if the holder's state starts that start's workflow on request, it is
+  a managed start under the holder, with the holder's caps and the approval card as if it had asked; else if the start
+  names `ask_move` and the holder's state has an on-request exit there, it is a move request on the holder; else it is
+  hidden, with why.
+- **`hide`** isn't offered; the page says how many are hidden.
+
+Two starts on the same free item at once: the first claims it before anything else waits, the second is refused and the
+page shows the holder. Starts that hold nothing (singletons such as the Steward, and `beside`) claim nothing.
+
+### What a session receives
+
+A start's first prompt ends with the item's details, read from GitHub by hubd when the session starts and marked as data,
+not instructions: kind, repository, number, title, state, labels and links. Each value is folded to one line and cut, and
+characters that draw nothing are dropped, so text from anyone is quoted to the session, never followed. If GitHub doesn't
+answer, the block says so. The editor's Starts section shows the prompt with this block, filled with placeholders.
+
+Taking a pull request on with "Take this on" starts the implementor in `review`, with that pull request as its own: the hub
+looks its state up, so `pr.open` is known though the feed may have seen nothing change. A fail asks you to confirm `fix`,
+which adds `push`. With no issue, `fix` runs its engineer entry's `on_pr` workflow, `pr-engineer`: an engineer on the pull
+request's own branch, whose token may push there, never merge. Its fix pushed and its checks passing, the implementor goes
+back to `review` for a fresh reviewer. A fork's pull request can't be taken on, nor any start whose workflow pushes or works
+on its branch: nobody here may push to a fork's branch. Its page says so beside the start, and a start is refused with the
+same words; when GitHub can't say whether it is a fork's, the engineer's checkout refuses it.
+
 ## Versions and the editor
 
 The file under `agents/workflows` is version 0 of the organisation's workflow. Saving one in the editor (`#/workflows`) writes the
@@ -208,6 +289,11 @@ their states, the start dot, H where an exit goes back to where it was, a double
 labelled with how it decides (≈ a judge, = facts, # a counter, dotted by hand). The panel marks where the session is and the
 exits its machine took, in the shapes and in a line of words under it; the outline beside it is its text, and stands alone on
 a phone. The layout is worked out the same way every time, from the definition alone.
+
+The editor's Starts section lists the workflow's starts by kind of item, with those it inherits from the file; a start is
+edited there (kind, label, summary, the state it starts in, lead, what it does when the item is held, models, efforts,
+prompt) through hubd, like a move of exits, and the save dialog, the Workflow change card and `draft_workflow` list the starts
+that change. Every workflow opens in the editor, one-state ones too.
 
 The editor's Text view is the definition. Its outline and inspector read what hubd parsed; ↑ and ↓ on a state's exits write the
 text again through hubd, which drops its comments.
@@ -241,7 +327,7 @@ Steps after the first difference are less certain.
   it to ask you with `report_up`, and a token budget ends the run. On entering `propose`, the hub puts the newest passing
   draft in Needs you as a "Workflow change" card with its replay; only your approval saves it. A draft from a version that
   is no longer the newest isn't proposed: the author is moved back to drafting, told why. The states the hub acts on are
-  named in the action's `drafting` table (draft, review, reviewer, propose), which the library checks. The editor's "Ask for
+  named in its `[launch.drafting]` table (draft, review, reviewer, propose), which the library checks. The editor's "Ask for
   a change…" starts one with your request as its notes.
 - **`project-steward`** can start repository maintainers (`start_managed`, with the repository as the item; two at once)
   and answers what they report up. The tree fits the cap: 2 maintainers, each with 3 implementors, each running at most

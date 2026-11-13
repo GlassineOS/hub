@@ -3,6 +3,33 @@ schema = 1
 name = "pr-fix-checks"
 initial = "session"
 
+# Full sessions push to the pull request's branch, so never on a fork's: see hubd/agents.py.
+[launch]
+personas = ["ci-fixer", "engineer"]
+result = "pr"
+
+[[start]]
+on = "pr"
+label = "Fix failing checks"
+summary = "A full session on the pull request's branch: finds why checks fail, fixes and pushes."
+ceiling = "A full Claude Code with your rights, on this pull request's branch. Refuses forks."
+order = 2
+verb = "fix"
+when = "failing"
+when_held = "ask"
+ask_move = "fix"
+models = ["opus", "sonnet"]
+efforts = ["high", "xhigh", "medium"]
+prompt = '''
+Make the failing checks of pull request #{number} of GlassineOS/{repo} pass. You are on its
+branch, in {checkout}.
+
+Read the failed runs' logs, find the real cause and fix that, not the check. Run what you can
+locally, commit and push to this branch. If the failure isn't caused by this change, say so
+with `comment_pr` instead of working around it.
+'''
+
+
 [state.session]
 final = true
 [state.session.grant]

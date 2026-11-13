@@ -23,10 +23,6 @@
    },
    {
     "full": true,
-    "id": "issue-implement"
-   },
-   {
-    "full": true,
     "id": "pr-fix-checks"
    },
    {
@@ -90,10 +86,6 @@
    {
     "full": false,
     "id": "issue-triage"
-   },
-   {
-    "full": true,
-    "id": "issue-implement"
    },
    {
     "full": true,

@@ -459,9 +459,9 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
 
     async def agent_step(r, b, token):
         op = p(r, "step")
-        if op not in ("action", "defaults", "plan", "run", "start", "preview", "manifest", "resume", "draft", "state", "press", "interrupt", "context", "view", "say", "buttons", "steward", "past", "past_transcript", "past_search", "resume_past", "cleanup", "cleanup_remove", "worktrees"):
+        if op not in ("starts", "ask_owner", "action", "defaults", "plan", "run", "start", "preview", "manifest", "resume", "draft", "state", "press", "interrupt", "context", "view", "say", "buttons", "steward", "past", "past_transcript", "past_search", "resume_past", "cleanup", "cleanup_remove", "worktrees"):
             raise BadRequest(f"unknown step: {op}")
-        fields = ("id", "words", "ids", "after_merge", "model", "planner_model", "action", "repo", "number", "config", "name", "notes", "pins", "kind", "object", "button", "screen", "selection", "repos", "thread", "mode", "where", "ref", "persona", "outcome")
+        fields = ("id", "words", "ids", "after_merge", "model", "planner_model", "action", "repo", "number", "config", "name", "notes", "pins", "kind", "object", "button", "screen", "selection", "repos", "thread", "mode", "where", "ref", "persona", "outcome", "to")
         # Typed words go only to say (004 FR-008): press stays a preset button's own text, with no free text beside it.
         if op == "say":
             fields = ("name", "text", "where")
@@ -634,7 +634,7 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
 
     wf_steps = {"check": ("text", "scope"), "diff": ("scope", "from", "text"), "replay": ("text", "session"),
                 "save": ("scope", "text", "base_version", "note"), "propose": ("scope", "text", "note", "session"),
-                "reorder": ("text", "state", "place", "by")}
+                "reorder": ("text", "state", "place", "by"), "start": ("text", "place", "start", "scope")}
 
     async def wf_step(r, b, token):
         step = p(r, "step")
