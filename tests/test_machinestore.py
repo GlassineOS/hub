@@ -212,13 +212,13 @@ def test_get_and_check_say_where_a_grant_comes_from_and_whether_an_exit_widens(w
 
 def test_diff_gives_the_outline_rows_and_the_text(world):
     _a, _d, hub, _login = world
-    text = text_of("implement").replace('requires = ["rounds.fix >= 3", "pr.review == changes_requested"]',
-                                        'requires = ["rounds.fix >= 2", "pr.review == changes_requested"]')
+    text = text_of("implement").replace('requires = ["rounds.fix >= 3", "pr.review == changes_requested or managed.reviewer.verdict == fail"]',
+                                        'requires = ["rounds.fix >= 2", "pr.review == changes_requested or managed.reviewer.verdict == fail"]')
     got = hub.workflows.request("workflow.diff", {"name": "implement", "scope": ORG, "from": 0, "text": text}, "me")
     changed = [r for r in got["rows"] if r["kind"] != "same"]
     assert [(r["kind"], r["state"], r["exit"], r["fields"]) for r in changed] == [("changed", "review", 2, ["requires"])]
     assert changed[0]["before"]["requires"][0] == "rounds.fix >= 3" and changed[0]["after"]["requires"][0] == "rounds.fix >= 2"
-    assert {"kind": "add", "text": 'requires = ["rounds.fix >= 2", "pr.review == changes_requested"]'} in got["text"]
+    assert {"kind": "add", "text": 'requires = ["rounds.fix >= 2", "pr.review == changes_requested or managed.reviewer.verdict == fail"]'} in got["text"]
     assert got["stat"] == {"added": 1, "removed": 1}
 
 
@@ -311,7 +311,8 @@ HISTORY = {"moves": [], "evaluations": [
                                                     {"requires": "pr.checks == pass", "terms": [{"fact": "pr.checks", "op": "==", "want": "pass", "value": "pass", "holds": True}], "holds": True}],
                                          "holds": True}], "review", "exit 0 to review", "small"),
     _ev(2, 20, "review", "feed:pr.review", [{"exit": 0, "to": "merge-ready", "decided_by": "facts",
-                                            "checks": [{"requires": "pr.review == approved", "terms": [{"fact": "pr.review", "op": "==", "want": "approved", "value": "changes_requested", "holds": False}], "holds": False}], "holds": False},
+                                            "checks": [{"requires": "pr.review == approved or managed.reviewer.verdict == pass", "terms": [{"fact": "pr.review", "op": "==", "want": "approved", "value": "changes_requested", "holds": False},
+                                                                                                                       {"fact": "managed.reviewer.verdict", "op": "==", "want": "pass", "value": None, "holds": None}], "holds": False}], "holds": False},
                                            {"exit": 1, "to": "escalated", "decided_by": "counter",
                                             "checks": [{"requires": "rounds.fix >= 3", "terms": [{"fact": "rounds.fix", "op": ">=", "want": 3, "value": 0, "holds": False}], "holds": False}], "holds": False},
                                            {"exit": 2, "to": "fix", "decided_by": "facts", "checks": [], "holds": True}], "fix"),
@@ -327,7 +328,7 @@ def test_replay_of_the_same_definition_finds_no_difference_and_is_deterministic(
 
 
 def test_replay_says_where_a_changed_definition_moves_differently():
-    sooner = IMPL.replace('requires = ["rounds.fix >= 3", "pr.review == changes_requested"]', 'requires = ["rounds.fix >= 0", "pr.review == changes_requested"]')
+    sooner = IMPL.replace('requires = ["rounds.fix >= 3", "pr.review == changes_requested or managed.reviewer.verdict == fail"]', 'requires = ["rounds.fix >= 0", "pr.review == changes_requested or managed.reviewer.verdict == fail"]')
     d = machine.parse(sooner)
     got = replay(d, HISTORY, {"v": machine.parse(IMPL)})
     second = got["steps"][1]
@@ -336,7 +337,7 @@ def test_replay_says_where_a_changed_definition_moves_differently():
 
 
 def test_replay_cant_tell_a_fact_the_log_didnt_keep_or_a_question_not_asked():
-    asks_more = IMPL.replace('requires = ["pr.review == approved", "pr.checks == pass"]', 'requires = ["pr.review == changes_requested", "issue.linked"]')
+    asks_more = IMPL.replace('requires = ["pr.review == approved or managed.reviewer.verdict == pass", "pr.checks == pass"]', 'requires = ["pr.review == changes_requested", "issue.linked"]')
     got = replay(machine.parse(asks_more), HISTORY, {"v": machine.parse(IMPL)})
     assert got["steps"][1]["replay"]["result"] == "cant_tell" and got["steps"][1]["differs"] is None
     assert "issue.linked" in got["unknown_facts"]

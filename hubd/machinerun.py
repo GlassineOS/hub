@@ -54,9 +54,16 @@ REVIEWS = {"APPROVED": "approved", "CHANGES_REQUESTED": "changes_requested", "RE
 PR_STATES = ("OPEN", "CLOSED", "MERGED")
 
 
+WHEN_SIGNALS = ("turn.end",)  # what a `manages` entry that starts on its own once its `when` holds is tried on
+
+
 def wanted(d: machine.Definition, among=SESSION_SIGNALS) -> set[str]:
-    """The signals among `among` that an exit of the definition names: what a session on it needs to send."""
-    return {s for st in d.states.values() for e in st.exits for s in e.on if s in among}
+    """The signals among `among` that an exit of the definition names, or that a `manages` entry with a `when` is tried on:
+    what a session on it needs to send."""
+    out = {s for st in d.states.values() for e in st.exits for s in e.on if s in among}
+    if any(m.start == "auto" and m.when.strip() for st in d.states.values() for m in st.manages):
+        out |= {s for s in WHEN_SIGNALS if s in among}
+    return out
 
 
 def tried(d: machine.Definition, state_id: str, signals) -> list[tuple[int, machine.Exit]]:
@@ -140,6 +147,12 @@ class Runner:
         self._refresh = refresh  # async (name): look up what facts need a look first (its pull requests), if it's due
         self.on_blocked = None   # (name, wait) when an exit holds and its `approve` asks someone first
         self.approval_open = None  # (name, session_id, state, version): whether its card for that is still up
+        # The managed sessions (managed.py): `waiting_starts(name, inst)` the entries whose `when` waits for a signal, tried by
+        # `try_starts(name, record, inst, signals)` before the exits; `more_facts(name, record)` what they returned and reports.
+        self.waiting_starts = None
+        self.try_starts = None
+        self.more_facts = None
+        self.on_head = None  # (name, sha): a pull request it covers has a new head, before the signal is routed (managed.py)
         self.debounce = debounce
         self._sleep = sleep
         self._waiting: dict[str, list[str]] = {}       # signals that came since the last pass began
@@ -172,6 +185,12 @@ class Runner:
             if signal not in machine.SIGNALS or item is None:
                 continue
             index = self.index() if index is None else index
+            if row.get("what") == "head" and self.on_head is not None and isinstance(row.get("new_head"), str) and row["new_head"]:
+                for name in sorted(index.get(item, ())):
+                    try:
+                        self.on_head(name, row["new_head"])
+                    except Exception:  # noqa: BLE001 — the signal still goes on
+                        log.exception("%s: its new head couldn't be noted", name)
             routed += self._route(signal, sorted(index.get(item, ())))
         return list(dict.fromkeys(routed))
 
@@ -197,9 +216,21 @@ class Runner:
     def _listens(self, name: str, signal: str) -> bool:
         try:
             record, inst = self.machines.load(name)
-            return (not inst.paused and not inst.pending and not self._approval_waits(name, record, inst)
-                    and bool(tried(inst.definition(), inst.state, [signal])))
+            if inst.paused or inst.pending:
+                return False
+            if signal in WHEN_SIGNALS and self._starts_wait(name, inst):
+                return True
+            return not self._approval_waits(name, record, inst) and bool(tried(inst.definition(), inst.state, [signal]))
         except (MachineError, OSError):
+            return False
+
+    def _starts_wait(self, name: str, inst) -> bool:
+        if self.waiting_starts is None:
+            return False
+        try:
+            return bool(self.waiting_starts(name, inst))
+        except Exception:  # noqa: BLE001
+            log.exception("%s: its managed sessions couldn't be looked at", name)
             return False
 
     def _approval_waits(self, name: str, record: dict, inst) -> bool:
@@ -260,6 +291,17 @@ class Runner:
             return {"skipped": "paused"}
         if inst.pending:  # another proposal would replace the one waiting for the maintainer's confirm
             return {"skipped": "a move waits for a confirm"}
+        if self.try_starts is not None and set(signals) & set(WHEN_SIGNALS) and self._starts_wait(name, inst):
+            try:
+                await self.try_starts(name, record, inst, signals)
+            except Exception:  # noqa: BLE001 — a start that fails leaves the exits to be tried
+                log.exception("%s: its managed sessions' starts broke", name)
+            try:
+                record, inst = self.machines.load(name)
+            except (MachineError, OSError) as e:
+                return {"skipped": str(e)}
+            if inst.paused or inst.pending:
+                return {"skipped": "the machine changed while its managed sessions started"}
         if self._approval_waits(name, record, inst):
             return {"skipped": "a move waits for an approval"}
         d, state, version = inst.definition(), inst.state, inst.version
@@ -391,11 +433,25 @@ class Runner:
         return result
 
     def _facts_of(self, name: str, record: dict) -> dict:
-        try:
-            return dict(self._facts(name, record))
-        except Exception:  # noqa: BLE001 — a fact that can't be read is unknown, never a crash
-            log.exception("%s: the facts can't be read", name)
-            return {}
+        out = {}
+        for source in (self._facts, self.more_facts):
+            if source is None:
+                continue
+            try:
+                out.update(source(name, record))
+            except Exception:  # noqa: BLE001 — a fact that can't be read is unknown, never a crash
+                log.exception("%s: the facts can't be read", name)
+        return out
+
+    async def facts_now(self, name: str, record: dict, inst) -> dict:
+        """The facts an evaluation would see now, for a managed session's `when` (managed.py)."""
+        return await self._facts_now(name, record, inst)
+
+    async def judge_when(self, name: str, record: dict, inst, facts: dict, label: str, question: str):
+        """Puts one plain-language question to the judge, as the one exit of the state it is in: whether a managed session's
+        `when` holds. The verdict, with the summary fold, as an exit's judgement has them."""
+        d = inst.definition()
+        return await self._judge(name, record, d, inst.state, facts, [(0, machine.Exit(to=label, decided_by="judge", when=question))])
 
     async def _judge(self, name, record, d, state, facts, offered):
         try:

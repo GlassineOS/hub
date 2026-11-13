@@ -125,8 +125,14 @@ async def start(a) -> str:
 
 
 def scope_of(a, name) -> dict:
+    """Its token's scope, with the grant's tools alone: every session whose workflow can move also has report_up, from where it
+    stands in the chain of owners rather than from its state (tested once, below)."""
     token = (a.sessions / name / agents_module.TOKEN_FILE).read_text().strip()
-    return a.scope(token)
+    scope = a.scope(token)
+    if scope.get("tools") is None or scope["tools"] == []:  # full, or locked down
+        return scope
+    assert "report_up" in scope["tools"]
+    return {**scope, "tools": [t for t in scope["tools"] if t not in agents_module.CHAIN_TOOLS]}
 
 
 def grant_of(a, name) -> dict:
@@ -163,7 +169,8 @@ def told(a, name) -> str:
 def test_a_session_that_can_move_starts_with_its_first_states_grant_and_the_hook(world):
     a, _d, _e = world
     name = run(start(a))
-    assert grant_of(a, name) == {"tools": ["AskUserQuestion", "Read"], "hub_tools": TOOLS, "server": agents_module.HUB_SERVER}
+    # report_up comes from its place in the chain of owners: a session whose workflow can move reports up (012 FR-051)
+    assert grant_of(a, name) == {"tools": ["AskUserQuestion", "Read"], "hub_tools": [*TOOLS, "report_up"], "server": agents_module.HUB_SERVER}
     assert hook(a, name, "mcp__glassine-hub__get_issue") is None
     assert "Bash" in hook(a, name, "Bash")
 
@@ -652,7 +659,7 @@ def test_a_level_above_the_session_asks_you_for_now_and_a_no_keeps_it_there(worl
         name = await start(a)
         effects.ask_approval(name, wait_of(a, name, approve="steward"))
         card, = decisions.open_approvals(name)
-        assert card["scope"]["level"] == "the Steward" and "no the Steward session yet, so it asks you" in card["why"]
+        assert card["scope"]["level"] == "the Steward" and "no the Steward session that can answer, so it asks you" in card["why"]
         return name, await effects.answer_approval(card["id"], False, "me", "not yet")
     name, ended = run(go())
     assert ended["why_ended"] == "you said no: not yet" and a.machines.load(name)[1].state == "research"

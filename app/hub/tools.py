@@ -118,6 +118,37 @@ def build(github: GitHub, docs: DocSearch) -> MCPServer:
         instructions at your next turn."""
         return await github.request_move(to)
 
+    @mcp.tool(annotations=WRITE)
+    @_says_why
+    async def start_managed(entry: str) -> dict:
+        """Start one of the sessions your current state manages on request, by its entry's name. It starts only if the entry's
+        `when` holds and fewer than its `max` run, with the context your state names for it and a grant no wider than yours.
+        Its result comes back to you as facts of your workflow."""
+        return await github.start_managed(entry)
+
+    @mcp.tool(annotations=WRITE)
+    @_says_why
+    async def return_result(fields: dict) -> dict:
+        """Hand your result to your owner, the session whose workflow started you: every field your entry returns, each one of
+        its values (your first prompt lists them); a field that takes lines of text is a list of short strings, which your owner
+        reads. A value is a fact for your owner's workflow; call it once you are done."""
+        return await github.return_result(fields)
+
+    @mcp.tool(annotations=WRITE)
+    @_says_why
+    async def report_up(kind: str, evidence: str, proposal: str, forward: str | None = None) -> dict:
+        """Report to your owner something you may not do or a decision that isn't yours: kind is blocker or decision, evidence
+        what you found, proposal what you suggest. To send a report you were given further up, name its id as forward. With no
+        session above you it goes to the person. The answer comes in a later turn."""
+        return await github.report_up(kind, evidence, proposal, forward)
+
+    @mcp.tool(annotations=WRITE)
+    @_says_why
+    async def answer_report(id: str, decision: str, note: str | None = None) -> dict:
+        """Answer a report or an approval sent up to you, by its id: decision is approve or deny, within your own grant; note is
+        what you want the reporter to know. Send it further up with report_up instead if it isn't yours to decide."""
+        return await github.answer_report(id, decision, note)
+
     @mcp.tool(annotations=READ)
     @_says_why
     async def roadmap() -> dict:

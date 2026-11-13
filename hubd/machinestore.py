@@ -418,13 +418,19 @@ def _asked(ev: dict, old: Definition | None) -> set[tuple[str, str]]:
     return {(exits[i].to, exits[i].when) for i in places if isinstance(i, int) and 0 <= i < len(exits)}
 
 
+NO_VALUE = object()  # a fact the log shows the hub had no value for then (a managed entry that hadn't returned, say)
+
+
 def _logged_facts(ev: dict) -> dict:
     facts = {}
     for row in (ev.get("checks") or {}).get("exits") or []:
         for c in row.get("checks") or []:
             for t in c.get("terms") or []:
-                if isinstance(t, dict) and isinstance(t.get("fact"), str) and t.get("value") is not None:
-                    facts[t["fact"]] = t["value"]
+                if isinstance(t, dict) and isinstance(t.get("fact"), str) and "value" in t:
+                    if t["value"] is not None:
+                        facts[t["fact"]] = t["value"]
+                    else:
+                        facts.setdefault(t["fact"], NO_VALUE)
     return facts
 
 
@@ -439,7 +445,9 @@ def _three(expr: str, facts: dict) -> str:
         req = machine.parse_requires(expr)
     except DefinitionError:
         return "unknown"
-    results = {"unknown" if facts.get(t.name) is None else "holds" if t.holds(facts) else "fails" for t in req.terms}
+    # a fact logged without a value held neither way then, so the hub went on past its term: here it doesn't hold either
+    results = {"fails" if facts.get(t.name) is NO_VALUE else "unknown" if facts.get(t.name) is None else "holds" if t.holds(facts)
+               else "fails" for t in req.terms}
     return "holds" if "holds" in results else "unknown" if "unknown" in results else "fails"
 
 

@@ -357,6 +357,24 @@ class GitHub:
         reply = await self.hubd.call(op="session.request_move", agent_token=CALLER.get(), to=to)
         return {k: reply[k] for k in ("moved", "why", "waits", "needs_confirm", "state") if reply.get(k) is not None}
 
+    # --- the chain of owners: managed sessions, their results and reports -------------------
+    async def start_managed(self, entry) -> dict:
+        reply = await self.hubd.call(op="managed.start", agent_token=CALLER.get(), entry=entry)
+        return {k: reply[k] for k in ("started", "name", "resumed", "why") if reply.get(k) is not None}
+
+    async def return_result(self, fields) -> dict:
+        reply = await self.hubd.call(op="managed.return", agent_token=CALLER.get(), fields=fields)
+        return {k: reply[k] for k in ("returned", "to") if k in reply}
+
+    async def report_up(self, kind, evidence, proposal, forward=None) -> dict:
+        reply = await self.hubd.call(op="managed.report", agent_token=CALLER.get(), kind=kind, evidence=evidence, proposal=proposal,
+                                     forward=forward)
+        return {k: reply[k] for k in ("id", "to") if k in reply}
+
+    async def answer_report(self, report_id, decision, note=None) -> dict:
+        reply = await self.hubd.call(op="managed.answer", agent_token=CALLER.get(), id=report_id, decision=decision, note=note)
+        return {k: reply[k] for k in ("id", "decision") if k in reply}
+
     # --- the work store's own answers -------------------------------------------
     def work_status(self) -> dict:
         return self.sync.status() if self.sync else {"enabled": False}
