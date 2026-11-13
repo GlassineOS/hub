@@ -448,7 +448,7 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         return reply
 
     async def interaction_answer(r, b, token):
-        fields = {k: b.get(k) for k in ("verdict", "reason", "answers", "words", "scope", "ends", "why", "where", "indexes", "index", "found")}
+        fields = {k: b.get(k) for k in ("verdict", "reason", "answers", "words", "scope", "ends", "why", "where", "indexes", "index", "found", "changes")}
         return {"item": (await hubd.call(op="interaction.answer", token=token, id=p(r, "id"), **fields))["item"]}
 
     async def agent_actions(r, _b, token):
@@ -599,6 +599,32 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         reply.pop("ok", None)
         return reply  # a move that widens the grant comes back with needs_confirm and its pending id, and waits
 
+    # 012 FR-060, FR-061: the workflow editor, for the maintainer only. Not in the tool server: a session proposes no version
+    # through here, and only a login saves one. hubd takes who saved it from the token.
+    def relay(reply: dict) -> dict:
+        reply.pop("ok", None)
+        return reply
+
+    async def wf_list(_r, _b, token):
+        return relay(await hubd.call(op="workflow.list", token=token))
+
+    async def wf_get(r, _b, token):
+        version = r.query_params.get("version")
+        if version is not None and not (version.isascii() and version.isdigit() and len(version) <= 7):
+            raise BadRequest("version is a whole number")
+        return relay(await hubd.call(op="workflow.get", token=token, name=p(r, "name"), scope=r.query_params.get("scope") or "org",
+                                     version=int(version) if version is not None else None, proposal=r.query_params.get("proposal") or None))
+
+    wf_steps = {"check": ("text", "scope"), "diff": ("scope", "from", "text"), "replay": ("text", "session"),
+                "save": ("scope", "text", "base_version", "note"), "propose": ("scope", "text", "note", "session"),
+                "reorder": ("text", "state", "place", "by")}
+
+    async def wf_step(r, b, token):
+        step = p(r, "step")
+        if step not in wf_steps:
+            raise BadRequest(f"unknown step: {step}")
+        return relay(await hubd.call(op=f"workflow.{step}", token=token, name=p(r, "name"), **{k: b[k] for k in wf_steps[step] if k in b}))
+
     # --- the personas' GitHub Apps (FR-032): the page relays, hubd holds the nonce, the code exchange and the key ---------
     async def apps_list(_r, _b, token):
         return {"apps": (await hubd.call(op="apps.list", token=token))["apps"]}
@@ -691,6 +717,9 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         Route("/api/asks", api(asks)),
         Route("/api/asks/{id}/answer", api(ask_answer), methods=["POST"]),
         Route("/api/agents/{step}", api(agent_step), methods=["POST"]),
+        Route("/api/hub-workflows", api(wf_list)),
+        Route("/api/hub-workflows/{name}", api(wf_get)),
+        Route("/api/hub-workflows/{name}/{step}", api(wf_step), methods=["POST"]),
         Route("/api/machines/{name}", api(machine_get)),
         Route("/api/machines/{name}/history", api(machine_history)),
         Route("/api/machines/{name}/{move}", api(machine_move), methods=["POST"]),
