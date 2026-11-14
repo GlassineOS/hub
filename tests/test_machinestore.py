@@ -492,3 +492,30 @@ def test_a_proposal_whose_start_names_no_state_is_a_card_with_the_problem(world)
     reply = hub.workflows.request("workflow.propose", {"name": ONE, "scope": ORG, "text": text, "note": "x"}, "me")
     assert reply["ok"], reply
     assert any(f["kind"] == "problem" and "'gone' isn't a state" in f["text"] for f in reply["decision"]["scope"]["findings"])
+
+
+def test_an_entrys_prompt_shows_filled_from_an_example_and_is_edited_through_the_text(world):
+    """FR-048: the outline shows each `manages` entry with what a session it starts receives, its prompt filled from the
+    example item; workflow.entry writes a new prompt into the text, which the checks then hold to FR-046."""
+    _a, _d, hub, _login = world
+    text = text_of("implementor")
+    got = hub.workflows.request("workflow.check", {"name": "implementor", "scope": ORG, "text": text}, "me")
+    review = next(s for s in got["outline"]["states"] if s["id"] == "review")
+    [reviewer] = review["manages"]
+    shown = reviewer["receives"]
+    assert shown.startswith("Review pull request #42 of GlassineOS/example for implementor-example-42")
+    assert "Review this PR" not in shown and "submit_result" not in shown and "{" not in shown.split("[The item's")[0]
+    assert "the pull request's checks, each by name" in shown and shown.rstrip().endswith("Your owner decides, or sends it up.")
+    edited = hub.workflows.request("workflow.entry", {"name": "implementor", "text": text, "state": "review", "entry": "reviewer",
+                                                       "prompt": "Review #{number} for {owner}: {checks}.\n"}, "me")
+    assert edited["ok"] and machine.parse(edited["text"]).states["review"].manages[0].prompt == "Review #{number} for {owner}: {checks}.\n"
+    assert [f for f in edited["findings"] if f["kind"] == "problem"] == []
+    assert machine.parse(edited["text"]).states["fix"].manages[0].prompt == machine.parse(text).states["fix"].manages[0].prompt
+    diffed = hub.workflows.request("workflow.diff", {"name": "implementor", "scope": ORG, "from": 0, "text": edited["text"]}, "me")
+    assert any(r["state"] == "review" and "manages" in r["fields"] for r in diffed["rows"])
+    bad = hub.workflows.request("workflow.entry", {"name": "implementor", "text": text, "state": "review", "entry": "reviewer",
+                                                    "prompt": "Hand in with submit_result."}, "me")
+    assert bad["ok"] and any("names submit_result" in f["text"] for f in bad["findings"] if f["kind"] == "problem")
+    assert not hub.workflows.request("workflow.save", {"name": "implementor", "scope": ORG, "text": bad["text"], "base_version": 0}, "me")["ok"]
+    for wrong in ({"state": "nowhere", "entry": "reviewer"}, {"state": "review", "entry": "nobody"}, {"state": "review", "entry": "reviewer", "prompt": 3}):
+        assert not hub.workflows.request("workflow.entry", {"name": "implementor", "text": text, "prompt": "x", **wrong}, "me")["ok"]

@@ -83,13 +83,32 @@ when = ""                     # for start = "auto": a plain-language condition t
 max = 1                       # how many of this entry run at once
 reuse = "fresh"               # or "resume": the entry's last session, when it has stopped, gets the new round
 on_exit = "stop"              # when the owner leaves the state: stop, keep, or handover (to an entry of the same name, workflow, persona and returns; else it stops)
-with = ["pr", "diff.since_last_round"]   # what its first prompt names
+with = ["pr", "diff.since_last_round", "checks"]   # what its first prompt names
 returns = { verdict = ["pass", "fail"], findings = "text-list" }  # what it hands back with return_result
+prompt = """
+Review pull request #{number} of GlassineOS/{repo} for {owner}. The pull request's checks: {checks}. ...
+"""
 ```
 
-- **What a managed session starts with** is its action's prompt and a hub-written block that names the references in `with`:
-  the owner's issue or pull request, the head the last round reviewed (`diff.since_last_round`), the pull request's
-  failing check runs with their links (`checks.failing`, read with `get_run_log`), a brief from the library,
+- **What a managed session starts with**: its persona, then the entry's `prompt`, never the prompt of one of its workflow's
+  starts (a start is how a person begins the work: who reads the result and how it is handed in don't hold under an
+  owner). Then the item's details, as a start's are, and a hub-written block that names the references in `with`, as
+  data; then how to hand back with `return_result` (the `returns` shape) and to report up. The workflow still gives the
+  session its personas, grant, checkout and result type. A version saved before entries had prompts runs with a fixed
+  prompt the hub writes, which names no hand-in tool.
+- **The prompt's slots**, filled from facts when the session starts, and again on each later round: `{repo}` and
+  `{number}` (the item it works on; a repository alone has "(no number)"), `{owner}` (the owner session's name), `{head}`
+  (the pull request's head commit, for a session on a pull request; else "(not known yet)"), `{checks}` (the pull
+  request's checks counted in the hub's words, such as "all 6 passed" or "1 of 6 failed": never a check's name, which is
+  an outsider's text and goes in the `checks` block) and `{checkout}` (the session's checkout). `{{` and `}}` write a brace.
+  The checks refuse an entry without a prompt, a slot not in this list, and a prompt that names `submit_result` or
+  `submit_drafts`: a managed session hands back, never hands in for a person. A version saved before prompts still loads;
+  saving it again needs them.
+- **A later round** (`reuse = "resume"`): the resumed session gets the entry's prompt again, its slots filled for that round,
+  then that round's `with` block.
+- **The references in `with`**: the owner's issue or pull request, the head the last round reviewed
+  (`diff.since_last_round`), the pull request's checks as they stand, each with its name and how it stands (`checks`),
+  its failing check runs with their links (`checks.failing`, read with `get_run_log`), notes topics (`notes:<topic>`),
   with `owner.summary` the owner's rolling summary between marks, as data, and with `owner.briefing` what the owner's start
   carried besides its prompt (the starter's notes and pins, the planner's briefing, docs and steps), as the
   owner's first prompt has them, between marks; nothing when the start carried none. Never the owner's transcript.
@@ -356,6 +375,11 @@ The editor's Starts section lists the workflow's starts by kind of item, with th
 edited there (kind, label, summary, the state it starts in, lead, what it does when the item is held, models, efforts,
 prompt) through hubd, like a move of exits, and the save dialog, the Workflow change card and `draft_workflow` list the starts
 that change. Every workflow opens in the editor, one-state ones too.
+
+The inspector shows each of a state's `manages` entries with what a session it starts would receive, its prompt filled from
+an example item (GlassineOS/example#42) as the hub fills it, then where the item's details, the `with` block and the
+hand-back go. Its prompt is edited there and applied to the text through hubd (`workflow.entry`); like a start's, an edit
+grants nothing and needs no confirm, and it is part of the next version, in its diff and replay.
 
 The editor's Text view is the definition. Its outline and inspector read what hubd parsed; ↑ and ↓ on a state's exits write the
 text again through hubd, which drops its comments.

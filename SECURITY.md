@@ -309,7 +309,7 @@ its current state's effective grant and nothing else; `hubd/effects.py` applies 
   history, and only a login's token reaches it, as for `machine.history`; a session's token is refused. Its figures are
   counts, times, tokens and money, never an evaluation's evidence.
 - **A fresh context starts from references, not the transcript.** A state with `context = "fresh"` ends the conversation
-  and starts a new one under the same instance (`hubd/handoff.py`): its prompt is the action's first prompt and a note the
+  and starts a new one under the same instance (`hubd/handoff.py`): its prompt is the session's first prompt and a note the
   hub writes from the issue, the pull request, the states' instructions and the moves the log kept (state ids and how each
   was made), with the rolling summary between random marks as data; never what an evaluation kept as evidence. The new
   conversation gets a new tool token, so the old one is refused, and what the old one owned (the sessions it manages,
@@ -464,8 +464,10 @@ the person or session that started work in the hub.
 - **What wakes a session is the hub's own words.** A session idle at its prompt is woken with fixed sentences and facts the
   hub holds (an entry's name, a status, a fact's value, report ids), never a managed session's text, which reaches the
   owner only between marks as data.
-- **What starts it carries no transcript.** Its first prompt is its action's prompt and a block the hub writes from the
-  entry's named references; the owner's rolling summary, if named, sits between random marks as data. A return is a closed set of fields, each a value from the definition (a fact, never text) or, for a `text-list`
+- **What starts it carries no transcript.** Its first prompt is its `manages` entry's prompt (never one of its workflow's
+  starts', written for a person), whose slots the hub fills only from facts (a check's name, an outsider's text, never fills
+  one: `{checks}` is a count), then the item's details and a block the hub writes from the entry's named references, the
+  pull request's checks by name among them, as data; the owner's rolling summary, if named, sits between random marks as data. A return is a closed set of fields, each a value from the definition (a fact, never text) or, for a `text-list`
   field, at most 20 lines of at most 500 characters with no invisible characters, which reach the owner's next turn
   between marks as the managed session's own words, as data, and are never a fact. A return is accepted only from a
   session of the entry started in the current round, and only while its entry holds where the owner is. A return about a
