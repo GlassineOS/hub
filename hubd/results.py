@@ -39,6 +39,8 @@ def _pr_settled() -> dict:
     return {"state": "applied", "applied_at": now, "applied_by": "the hub", "note": PR_SETTLED,
             "handled": {"by": "the hub", "where": None, "at": now}}
 KEEP = 200  # results kept; settled ones go first, oldest first
+PR_SEEN_FILE = "pr-seen.json"  # the pull requests already noted, per run: kept apart, so a pruned result isn't made again
+PR_SEEN_KEEP = 5000
 PAGE = 20
 INTERRUPTED = "hubd restarted while this was being applied: check GitHub before applying it again."
 NOTES_INTERRUPTED = ("hubd restarted while these were being applied. What finished is marked; the one that was running is "
@@ -178,12 +180,21 @@ def clean_payload(kind: str, payload, items: list[dict]) -> dict:
     raise ResultError(f"a result is one of {', '.join(TYPES)}")
 
 
+def _pr_key(record: dict) -> str:
+    return json.dumps([record.get("session"), record.get("session_id"), record["payload"].get("repo"), record["payload"].get("number")])
+
+
 class Results:
     def __init__(self, folder: Path):
         self.folder = Path(folder)
         self.folder.mkdir(parents=True, exist_ok=True, mode=0o700)
         os.chmod(self.folder, 0o700)
         self.records: dict[str, dict] = {}
+        try:
+            seen = json.loads((self.folder / PR_SEEN_FILE).read_text())
+        except (OSError, ValueError):
+            seen = []
+        self._pr_seen: list[str] = [s for s in seen if isinstance(s, str)] if isinstance(seen, list) else []
         for path in self.folder.glob("r-*.json"):
             try:
                 record = json.loads(path.read_text())
@@ -202,6 +213,10 @@ class Results:
                         op.update(state="unknown", said=OP_INTERRUPTED)
                 record.update(state="pending", note=NOTES_INTERRUPTED if record.get("type") == "notes" else INTERRUPTED)
                 self._save(record)
+        known = [_pr_key(r) for r in self.records.values() if r.get("type") == "pr" and isinstance(r.get("payload"), dict)]
+        if any(k not in self._pr_seen for k in known):  # those noted before the list was kept
+            self._pr_seen = [*self._pr_seen, *(k for k in known if k not in self._pr_seen)][-PR_SEEN_KEEP:]
+            self._save_seen()
 
     def _save(self, record: dict) -> None:
         path = self.folder / f"{record['id']}.json"
@@ -252,11 +267,22 @@ class Results:
         """The pull request a session opened (or worked on), once per run. It is on GitHub already, so there is nothing to
         apply and nothing to ask: it is settled as it is made, and its card only links it."""
         payload = clean_payload("pr", {"repo": repo, "number": number}, items)
-        if any(r["type"] == "pr" and r["session"] == session and r.get("session_id") == session_id and r["payload"] == payload
-               for r in self.records.values()):
+        key = _pr_key({"session": session, "session_id": session_id, "payload": payload})
+        if key in self._pr_seen or any(r["type"] == "pr" and r["session"] == session and r.get("session_id") == session_id
+                                       and r["payload"] == payload for r in self.records.values()):
             return None
+        self._pr_seen = [*self._pr_seen, key][-PR_SEEN_KEEP:]
+        self._save_seen()
         return self._new(type="pr", payload=payload, session=session, session_id=session_id, launch=launch, items=items,
                          action=action, persona=persona, **_pr_settled())
+
+    def _save_seen(self) -> None:
+        path = self.folder / PR_SEEN_FILE
+        scratch = path.with_suffix(".tmp")
+        fd = os.open(scratch, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            json.dump(self._pr_seen, f)
+        os.replace(scratch, path)
 
     def list(self, kind=None, kept=None, session=None, after=None) -> list[dict]:
         rows = sorted(self.records.values(), key=lambda r: r["made"], reverse=True)
