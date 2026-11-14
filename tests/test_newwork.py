@@ -894,7 +894,8 @@ def test_a_planned_suggestion_starts_once_and_settles(hub):
     assert record["state"] == "started" and record["session"]  # it hands in no drafts, so it's not left waiting for them
     config, _by = hub.agents.started[0]
     assert config["brief"] == "edited" and config["model"] == "sonnet" and config["also_numbers"] == [11]
-    assert f"started it as {record['session']}" in hub.agents.told[-1][1]
+    # The Steward's own suggestion started: an event that wakes it (012 FR-056), not a line for its next turn.
+    assert f"started it as {record['session']}" in hub.steward_events.pending[-1]["text"]
     assert "isn't a suggested session" in call(hub, "work.plan", token="login", id=work)["error"]
 
 

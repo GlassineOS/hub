@@ -184,8 +184,6 @@ Name the Claude login there, and any other variable they need, then restart hubd
 CLAUDE_CONFIG_DIR=~/.claude-something
 # which Claude Code, if not the one on PATH
 HUBD_CLAUDE=/path/to/claude
-# seconds between pings to a Steward about changes: 60 to 86400, 300 if unset or not a number
-HUBD_PING_SECONDS=300
 # dollars for the header's usage meter to compare the cost of today's sessions with, when the status line gives no rate limit
 HUBD_DAILY_USAGE_USD=20
 ```
@@ -202,8 +200,12 @@ replaced by an empty one (your settings file is not touched). That is intended: 
 
 The work sync records what changed (an issue, a pull request or a run: its state, head commit, who, when and a link,
 never a title or text) in hubd's change feed, `feed.sqlite` in its state folder. Each running Steward reads it from its
-own cursor with `changes_since`, and gets at most one ping per interval, only a count, and none when nothing it hasn't
-read has changed. A ping is sent only to a Steward at its prompt; during a turn the next round tries again. `/api/changes` serves the same feed to you without moving a Steward's cursor.
+own cursor with `changes_since`, narrowed to a repository or an item, or as a short digest per repository. Nothing in the
+feed wakes the Steward on a timer or with counts: it is woken only by events about its own work (its suggestions started,
+set aside or applied; sessions it started finishing a turn, reporting or ending; your answers to its reports and cards;
+and a merge, a close, failing checks, a review or a new comment on an item it named), batched into one turn at its prompt
+and kept in `steward-events.json` in the state folder until then. `/api/changes` serves the same feed to you without moving a Steward's cursor
+(`repo`, `item` and `digest=1` narrow it the same way).
 
 ```sh
 systemctl --user restart glassine-hubd
