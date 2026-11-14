@@ -458,11 +458,14 @@ number, as in "Launch (005) FR-012".
 - **FR-103**: An item's page lists the starts for its kind: the lead start first, the others as quick tasks. Each
   shows the persona of its starting state and the plain-words summary of that state's grant.
 - **FR-104**: An instance holds the items its session carries, and the pull requests its managed sessions open in
-  its repository. An item an instance holds leads with that instance: its owner, its state chip and its next
-  step. Each start says what happens then: it runs beside the instance, it asks the owner, or it is hidden. Asking
-  the owner sends the request to the owner session as a move request or a managed start under it, so grants, caps
-  and approvals apply as if the owner had asked. The checks refuse "runs beside" for a start whose starting grant
-  can write on the item.
+  its repository, only if its workflow can build on them: some state's grant, or a session it manages, can push
+  to a branch or open or update a pull request. An instance that only reads, comments or hands in a result for
+  the maintainer to apply (a triage, a review, an audit) holds nothing, so it never hides or redirects another
+  start. An item an instance holds leads with that instance: its owner, its state chip and its next step. Each
+  start says what happens then: it runs beside the instance, it asks the owner, or it is hidden. Asking the owner
+  sends the request to the owner session as a move request or a managed start under it, so grants, caps and
+  approvals apply as if the owner had asked. The checks refuse "runs beside" for a start whose workflow can build
+  on the item.
 - **FR-105**: The Workflows page is reached from the primary navigation, and lists each workflow's starts by
   kind of item.
 
