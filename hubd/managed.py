@@ -44,7 +44,8 @@ import sqlite3
 import time
 
 from . import machine, summary
-from .agents import CHAIN_TOOLS, DESIGN_ACTION, managed_line, ENDED_FILE, HUB_SENDER, IDLE_FILE, MAX_MANAGED, NO_REPO_OBJECTS, AgentError, ForkError, HeldError, _draws_nothing, _plain, covers_of
+from .agents import (CHAIN_TOOLS, DESIGN_ACTION, managed_line, ENDED_FILE, HUB_SENDER, IDLE_FILE, MAX_MANAGED, NO_REPO_OBJECTS, OUTCOMES_FILE,
+                     AgentError, ForkError, HeldError, _draws_nothing, _plain, _small_file, covers_of)
 from .decisions import APPROVE, DecisionError
 from .effects import LABEL, path_of
 from .instances import MachineError
@@ -66,6 +67,8 @@ NAMED_WAKE_GAP = 300.0  # seconds: a report's reporter is woken for its named fa
 STALL_AFTER = 600.0      # seconds a workflow sits stalled before it is put to you: long enough for checks and lookups to land
 WAKE_WAIT = 30.0         # seconds a wake waits for the evaluation its signal started, so it comes after any move it makes
 TURN_GRACE = 30.0        # seconds an owner has sat at its prompt before the tick wakes it for an unjudged `when`
+MOVE_GRACE = 5.0         # seconds a session has sat at its prompt before the tick wakes it for a move's words it hasn't read
+MAX_OUTCOMES = 1024 * 1024  # bytes of what waits for a session's next turn read to tell whether a move's words are in it
 START_RETRIES = (5.0, 15.0, 45.0)  # seconds before an automatic start on entering that didn't happen is tried again
 MAX_WHY_CARD = 2000      # a stall card's text
 MAX_CHECKS = 50          # check runs of a pull request looked at for the failing ones
@@ -143,6 +146,7 @@ class Managed:
         self._named: dict[str, dict] = {}  # report id -> the facts its words named, as they were: a change wakes its reporter
         self._after_relaunch: dict[str, list[str]] = {}  # owner -> a wake's sentences held while its move relaunches it
         self._turn_asked: dict[str, tuple] = {}  # owner -> (conversation, state, entered, rounds) woken on the tick for an unjudged `when`
+        self._woken: dict[str, tuple] = {}  # session -> (conversation, state, entered): the stay the hub last woke it in
         self.relaunching = None  # (name) -> whether a move relaunches it now (effects.py)
         self._sleep = asyncio.sleep  # injectable, so tests don't wait for a retry
         # owner -> {move (state, entered): (conversation, entries)}: the starts a move that relaunches it waits to make
@@ -485,6 +489,7 @@ class Managed:
         """Fixed words sent to a session that was just resumed: queued until it is at its prompt, so its round begins."""
         try:
             await self.agents._send(name, words, by=HUB_SENDER)
+            self._woke(name)
         except Exception:  # noqa: BLE001 — what it was told waits for its next turn
             log.info("%s wasn't sent its new round's word", name)
 
@@ -1267,8 +1272,27 @@ class Managed:
         try:
             if (await self.agents.session_state(name))["state"] == "Idle":
                 await self.agents._send(name, words, by=HUB_SENDER)
+                self._woke(name)
         except Exception:  # noqa: BLE001 — it reads the report at its next turn anyway
             log.info("%s wasn't woken for its report", name)
+
+    def _stay(self, name: str) -> tuple | None:
+        try:
+            record, inst = self.machines.load(name)
+        except (MachineError, OSError):
+            return None
+        return (record.get("session_id"), inst.state, inst.entered)
+
+    def _woke(self, name: str) -> None:
+        """The hub's words went to its prompt: the turn they begin reads all that waits for it, a move's words too."""
+        if (stay := self._stay(name)) is not None:
+            self._woken[name] = stay
+
+    def moved(self, name: str) -> None:
+        """A move's words (its states' instructions, what runs under it) wait for the session's next turn (effects.py). An
+        idle session is woken for them now, with fixed words; one at work, or being relaunched, once that is done (the
+        relaunch's own wake, or the tick's look at _unread_move)."""
+        self.wake_owner(name, MOVED_WORDS)
 
     def answer(self, scope: dict, report_id, decision, note=None) -> dict:
         """answer_report: the session a report is for answers it (FR-051)."""
@@ -1403,9 +1427,15 @@ class Managed:
             except Exception:  # noqa: BLE001 — one session's fault mustn't keep the others from being looked at
                 log.exception("%s: whether it stalled couldn't be told", name)
             try:
-                self._owe_turn(name, live)
+                woke = self._owe_turn(name, live)
             except Exception:  # noqa: BLE001
+                woke = False
                 log.exception("%s: whether it waits for a turn to judge couldn't be told", name)
+            try:
+                if not woke:  # the turn it was woken for reads the move's words too
+                    self._unread_move(name, live)
+            except Exception:  # noqa: BLE001
+                log.exception("%s: whether a move's words wait for it couldn't be told", name)
 
     def _check_stall(self, name: str, live: set[str], now: float) -> None:
         if not self._running(name, live):
@@ -1503,36 +1533,70 @@ class Managed:
                 out.append(entry)
         return out
 
-    def _owe_turn(self, name: str, live: set[str]) -> None:
+    def _owe_turn(self, name: str, live: set[str]) -> bool:
         """On the tick: an owner idle at its prompt in a state whose `when` isn't judged yet is woken, once a stay and round,
         whatever moved it there and whatever became of the wake on entering (sent while it was busy, held for a relaunch
-        that didn't run, lost). Not while a turn, a pass, a relaunch or words are on their way: their ends judge it."""
+        that didn't run, lost). Not while a turn, a pass, a relaunch or words are on their way: their ends judge it. Whether
+        it woke it."""
         if not self._running(name, live):
             self._turn_asked.pop(name, None)
-            return
+            return False
         try:
             record, inst = self.machines.load(name)
         except (MachineError, OSError):
-            return
+            return False
         entries = [] if inst.paused or inst.pending else self._unjudged(name, inst)
         if not entries:
             self._turn_asked.pop(name, None)
-            return
+            return False
         key = (record.get("session_id"), inst.state, inst.entered, tuple((e, self._round_of(inst, e)) for e in entries))
         if self._turn_asked.get(name) == key:
-            return
+            return False
         try:
             since = (self.agents.sessions / name / IDLE_FILE).stat().st_mtime
         except OSError:
-            return  # its turn goes on: its end judges the `when`
+            return False  # its turn goes on: its end judges the `when`
         if time.time() - since < TURN_GRACE:
-            return  # a turn just ended: the pass its end started judges it
+            return False  # a turn just ended: the pass its end started judges it
         relaunching, running = getattr(self, "relaunching", None), getattr(self.runner, "running", None)
         if self.agents._sends.get(name) or name in self._wakes or name in self._after_relaunch \
                 or (relaunching is not None and relaunching(name)) or (running is not None and running(name) is not None):
-            return
+            return False
         self._turn_asked[name] = key
         self._spawn(self._wake(name, WHEN_WORDS))
+        return True
+
+    def _unread_move(self, name: str, live: set[str]) -> bool:
+        """On the tick: a session at its prompt whose move's words still wait for its next turn, which no wake of the hub's
+        began in this stay (it was at work when it moved, the wake was lost, the hub restarted), is woken once, final states
+        too: merge-ready's words ask for the merge. Not while a turn, a pass, a relaunch or words are on their way: the turn
+        they begin reads them. A conversation that took over (`fresh`) began with them in its note. Whether it woke it."""
+        if not self._running(name, live):
+            return False
+        try:
+            record, inst = self.machines.load(name)
+        except (MachineError, OSError):
+            return False
+        stay = (record.get("session_id"), inst.state, inst.entered)
+        if self._woken.get(name) == stay or inst.pending:
+            return False
+        directory = self.agents.sessions / name
+        waiting = _small_file(directory / OUTCOMES_FILE, MAX_OUTCOMES)
+        if not waiting or f"{LABEL} Workflow: now in {path_of(inst.definition(), inst.state)}." not in waiting:
+            return False
+        try:
+            since = (directory / IDLE_FILE).stat().st_mtime
+        except OSError:
+            return False  # its turn goes on: the wake comes at its end
+        if time.time() - since < MOVE_GRACE:
+            return False  # a turn just ended: the pass it started may move it again
+        relaunching, running = getattr(self, "relaunching", None), getattr(self.runner, "running", None)
+        if self.agents._sends.get(name) or name in self._wakes or name in self._after_relaunch \
+                or (relaunching is not None and relaunching(name)) or (running is not None and running(name) is not None):
+            return False
+        self._woken[name] = stay
+        self._spawn(self._wake(name, MOVED_WORDS))
+        return True
 
     def _waits_on_someone(self, name: str, sid, children: list[tuple[str, dict]]) -> bool:
         """Whether it, or a session under it, waits on an answer: a report it sent up, a card in Needs you (a report's, a

@@ -621,3 +621,11 @@ def test_an_edit_that_would_be_refused_anyway_doesnt_ask_you(name, arguments):
 def test_a_well_formed_edit_asks_you(name, arguments):
     assert _edit_problem(name, arguments) is None
 
+
+
+def test_the_mark_ready_tool_marks_a_draft_ready_through_hubds_policy(hubd, tmp_path):
+    """The one way a session without a shell (merge-ready) takes a draft out of draft: a draft doesn't merge."""
+    github = served(hubd, tmp_path)
+    result = run(tools.build(github, FakeDocs())._tool_manager.call_tool("mark_ready", {"repo": "hub", "number": 5}, None))
+    assert result == {"ok": True}
+    assert [argv for argv, _stdin in hubd.commands if argv[:2] == ["pr", "ready"]] == [["pr", "ready", "5", "-R", "GlassineOS/hub"]]
