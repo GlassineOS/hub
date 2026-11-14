@@ -248,6 +248,131 @@ def test_pending_checks_or_a_working_session_are_a_wait_not_a_stall(team):
     asyncio.run(go())
 
 
+async def in_qa_unjudged(h, a, gh, judge, lose_wake):
+    """The live sequence: the reviewer hands back pass on hub:managed.return, the pass it starts moves the idle owner from
+    review to qa, whose QA entry has a `when` judged on the owner's turn ends, and the reviewer is ended. `lose_wake` stands
+    in for what became of the wake on entering."""
+    name, _engineer = await personas.through_implement(h, a, gh, judge)
+    [reviewer] = children(h, a, name, "reviewer")
+    (a.sessions / name / IDLE_FILE).touch()
+    restore = await lose_wake(h, a, name)
+    assert (await give(h, reviewer, verdict="pass", findings=[]))["ok"]
+    await settle(h)
+    restore()
+    assert state_of(a, name) == "qa" and not h.managed._running(reviewer, await h.managed._live())  # the move ended it
+    assert h.managed._unjudged(name, a.machines.load(name)[1]) == ["qa"]
+    assert not judged_in_qa(a, name)
+    return name
+
+
+def judged_in_qa(a, name) -> list:
+    return [e for e in base.history(a, name)["evaluations"] if e["signal"].startswith("hub:managed.when") and e["state"] == "qa"]
+
+
+async def wake_dropped(h, a, name):
+    """The wake on entering didn't reach it: sent while it read as busy, held for a relaunch that never ran, lost."""
+    real = h.managed._wake
+
+    async def dropped(who, words=""):
+        return None
+    h.managed._wake = dropped
+    return lambda: setattr(h.managed, "_wake", real)
+
+
+async def prompt_never_empty(h, a, name):
+    """Its prompt never reads as empty (a suggested prompt's grey text, a draft): the wake waits in its queue for good."""
+    real = a.shells.prompt_empty
+
+    async def never(who):
+        return False if who == name else await real(who)
+    a.shells.prompt_empty = never
+    return lambda: None
+
+
+def test_an_idle_owner_whose_wake_on_entering_a_when_was_lost_is_woken_once_on_the_tick(team, monkeypatch):
+    h, a, gh, _apps, judge = team
+    monkeypatch.setattr(managed_module, "TURN_GRACE", 0.0)
+
+    async def go():
+        name = await in_qa_unjudged(h, a, gh, judge, wake_dropped)
+        (a.sessions / name / IDLE_FILE).touch()
+        sent = watch_sends(a)
+        await h.managed.watch()
+        await settle(h)
+        assert [w for who, w in sent if who == name] == [managed_module.WHEN_WORDS]
+        (a.sessions / name / IDLE_FILE).touch()  # its turn went by without a judgement (the judge failed, say): once a stay
+        await h.managed.watch()
+        await settle(h)
+        assert [w for who, w in sent if who == name] == [managed_module.WHEN_WORDS]
+        # the turn it was woken for ends: the `when` is judged, not user-facing, and it goes on to merge-ready
+        judge.yes = set()
+        await base.turn_ends(h, a, name)
+        assert state_of(a, name) == "merge-ready"
+        assert judged_in_qa(a, name)
+    asyncio.run(go())
+
+
+def test_a_turn_a_pass_or_a_turn_just_ended_holds_the_ticks_wake_back(team, monkeypatch):
+    h, a, gh, _apps, judge = team
+
+    async def go():
+        name = await in_qa_unjudged(h, a, gh, judge, wake_dropped)
+        sent = watch_sends(a)
+        (a.sessions / name / IDLE_FILE).touch()
+        await h.managed.watch()  # it has just come to its prompt: the pass its turn's end started judges it
+        monkeypatch.setattr(managed_module, "TURN_GRACE", 0.0)
+        (a.sessions / name / IDLE_FILE).unlink()  # at work
+        await h.managed.watch()
+        await settle(h)
+        assert [w for who, w in sent if who == name] == []
+    asyncio.run(go())
+
+
+def test_an_unjudged_when_with_the_owner_idle_and_only_the_hubs_wake_queued_is_a_stall(team, monkeypatch):
+    h, a, gh, _apps, judge = team
+    monkeypatch.setattr(managed_module, "TURN_GRACE", 0.0)
+
+    async def go():
+        name = await in_qa_unjudged(h, a, gh, judge, prompt_never_empty)
+        (a.sessions / name / IDLE_FILE).touch()
+        assert a._sends.get(name)  # the wake, waiting behind a prompt that never empties
+        record_, inst = a.machines.load(name)
+        live = await h.managed._live()
+        why = h.managed.stall_of(name, record_, inst, live)
+        assert why and why[0].startswith("qa's when isn't judged yet"), why
+        assert any("to merge-ready needs not when.qa (when.qa is not judged yet)" in w for w in why), why
+        assert any("managed.qa.verdict is nothing, as it hasn't started" in w for w in why), why
+        # words of a person waiting for its prompt are a wait: its turn comes with them
+        a._sends[name].append("How does it stand?")
+        a._from[name].append(None)
+        assert h.managed.stall_of(name, record_, inst, live) is None
+        a._sends[name].pop()
+        a._from[name].pop()
+        sent = watch_sends(a)
+        now = [1_000_000.0]
+        a.machines.clock = lambda: now[0]
+        await h.managed.watch()
+        now[0] += managed_module.STALL_AFTER + 1
+        await h.managed.watch()
+        await settle(h)
+        [card] = [c for c in h.decisions.open_approvals(name) if c["scope"].get("type") == "stalled"]
+        assert "qa's when isn't judged yet" in card["scope"]["says"]
+        # the tick doesn't wake it again over the hub's words still queued
+        assert not [w for who, w in sent if who == name and w == managed_module.WHEN_WORDS]
+    asyncio.run(go())
+
+
+def test_a_when_judged_this_round_or_a_start_without_one_is_not_put_as_unjudged(team):
+    h, a, gh, _apps, judge = team
+
+    async def go():
+        name = await in_qa_unjudged(h, a, gh, judge, wake_dropped)
+        judge.yes = {"is user-facing: a person"}
+        await base.turn_ends(h, a, name)
+        assert children(h, a, name, "qa") and h.managed._unjudged(name, a.machines.load(name)[1]) == []
+    asyncio.run(go())
+
+
 # --- 4. reports overtaken by events ---------------------------------------------------------------------------------------
 
 async def report(h, a, name, evidence="The engineer is still working; pr.checks has no answer yet."):

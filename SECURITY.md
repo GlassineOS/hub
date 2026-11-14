@@ -511,7 +511,8 @@ the person or session that started work in the hub.
 - **A design spike asks you.** A design session is full access, more than any locked owner holds, so it always waits for your
   approval, and the work waits while it does. Its "Look at the design" card only opens the design view: answering it
   changes nothing.
-- **Waking for a `when`.** Entering a state whose auto entry has a `when` wakes an idle owner with fixed words only.
+- **Waking for a `when`.** Entering a state whose auto entry has a `when` wakes an idle owner with fixed words only, and
+  the tick does so once more, with fixed words only, for an owner still idle with that `when` not judged.
 
 ### Starts and held items
 

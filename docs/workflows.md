@@ -120,7 +120,10 @@ returns = { verdict = ["pass", "fail"], findings = "text-list" }  # what it hand
   its owner idle is stalled. After 10 minutes like that the hub logs it, tells and wakes the session (and
   its own owner), and raises one card in Needs you, "stalled in <path>", with each exit's failing requires and the values
   that fail them. The machine panel shows the same. Any move ends the card. Pending checks, a fact the hub has no value
-  for or a time fact count as a wait, not a stall.
+  for or a time fact count as a wait, not a stall. A `when` not judged yet isn't a wait once the owner sits idle with
+  nothing on its way to it: it is judged only on a turn of its own, so the card names it, and a requirement on
+  `when.<entry>`, or (while such a `when` waits) on what an entry that hasn't started would return, counts as failing. Words a person or a session
+  queued for the owner's prompt are a wait; the hub's own wake, queued and not gone, isn't.
 - Tools that come with the role, not the grant: `start_managed` (a state with on-request entries), `answer_report` and
   `managed_status` (a state that manages), `return_result` and `report_up` (a managed session; `report_up` also for any
   session whose workflow moves).
@@ -160,7 +163,13 @@ returns = { verdict = ["pass", "fail"], findings = "text-list" }  # what it hand
   owner's `pr.*` facts and the sessions it starts next (a reviewer, a QA engineer) see it. A design session's pull request
   isn't: it only feeds the owner's `design.accepted`.
 - **Waking for a `when`.** An auto entry's `when` is judged on the owner's turn ends; on entering a state with one, an owner
-  idle at its prompt is woken with fixed words, so it gets a turn to judge.
+  idle at its prompt is woken with fixed words, so it gets a turn to judge. Whatever moved it there (a hand-back, a feed
+  event, a relaunch), the hub's tick (every 30 seconds) checks again: an owner that has sat at its prompt for at least 30 seconds with that `when` not
+  judged this round, and no turn, pass, relaunch or words on their way to it, is woken once more, once a stay and round.
+  The `when` isn't judged on entry without a turn: the judge answers yes or no only, and a no would be kept as
+  `when.<entry>` false, which an exit like qa's `not when.qa` takes at once, before the owner has said what the state's
+  instructions ask it to say. Hub sessions run without Claude Code's suggested next prompt, whose grey text would read as a
+  draft and hold the hub's words back.
 - **Actions only for managed sessions.** An action with `managed_only = true` (the engineer, on an issue or a pull request, the QA audit, the design check,
   the workflow review) is on no menu and starts only under an owner. One with `per_repo = true` (the repository maintainer)
   runs once per repository at a time.

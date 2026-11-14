@@ -399,6 +399,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/design-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/design-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/design-5/status.json.part.$$ <state>/sessions/design-5/status.json; rm -f <state>/sessions/design-5/status.json.part.$$; true",
     "padding": 0,
@@ -604,6 +605,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/issue-docs-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/issue-docs-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/issue-docs-boot-5/status.json.part.$$ <state>/sessions/issue-docs-boot-5/status.json; rm -f <state>/sessions/issue-docs-boot-5/status.json.part.$$; true",
     "padding": 0,
@@ -809,6 +811,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/issue-implement-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/issue-implement-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/issue-implement-boot-5/status.json.part.$$ <state>/sessions/issue-implement-boot-5/status.json; rm -f <state>/sessions/issue-implement-boot-5/status.json.part.$$; true",
     "padding": 0,
@@ -1014,6 +1017,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/issue-session-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/issue-session-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/issue-session-boot-5/status.json.part.$$ <state>/sessions/issue-session-boot-5/status.json; rm -f <state>/sessions/issue-session-boot-5/status.json.part.$$; true",
     "padding": 0,
@@ -1233,6 +1237,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/issue-triage-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/issue-triage-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/issue-triage-boot-5/status.json.part.$$ <state>/sessions/issue-triage-boot-5/status.json; rm -f <state>/sessions/issue-triage-boot-5/status.json.part.$$; true",
     "padding": 0,
@@ -1475,6 +1480,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/knowledge-research/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/knowledge-research/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/knowledge-research/status.json.part.$$ <state>/sessions/knowledge-research/status.json; rm -f <state>/sessions/knowledge-research/status.json.part.$$; true",
     "padding": 0,
@@ -1723,6 +1729,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/new-architecture-audit-boot/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/new-architecture-audit-boot/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/new-architecture-audit-boot/status.json.part.$$ <state>/sessions/new-architecture-audit-boot/status.json; rm -f <state>/sessions/new-architecture-audit-boot/status.json.part.$$; true",
     "padding": 0,
@@ -1971,6 +1978,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/new-dependency-review-boot/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/new-dependency-review-boot/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/new-dependency-review-boot/status.json.part.$$ <state>/sessions/new-dependency-review-boot/status.json; rm -f <state>/sessions/new-dependency-review-boot/status.json.part.$$; true",
     "padding": 0,
@@ -2219,6 +2227,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/new-docs-sweep-boot/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/new-docs-sweep-boot/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/new-docs-sweep-boot/status.json.part.$$ <state>/sessions/new-docs-sweep-boot/status.json; rm -f <state>/sessions/new-docs-sweep-boot/status.json.part.$$; true",
     "padding": 0,
@@ -2467,6 +2476,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/new-issue-boot/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/new-issue-boot/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/new-issue-boot/status.json.part.$$ <state>/sessions/new-issue-boot/status.json; rm -f <state>/sessions/new-issue-boot/status.json.part.$$; true",
     "padding": 0,
@@ -2719,6 +2729,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/new-roadmap-item-boot/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/new-roadmap-item-boot/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/new-roadmap-item-boot/status.json.part.$$ <state>/sessions/new-roadmap-item-boot/status.json; rm -f <state>/sessions/new-roadmap-item-boot/status.json.part.$$; true",
     "padding": 0,
@@ -2967,6 +2978,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/new-security-audit-boot/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/new-security-audit-boot/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/new-security-audit-boot/status.json.part.$$ <state>/sessions/new-security-audit-boot/status.json; rm -f <state>/sessions/new-security-audit-boot/status.json.part.$$; true",
     "padding": 0,
@@ -3169,6 +3181,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/notes-compact/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/notes-compact/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/notes-compact/status.json.part.$$ <state>/sessions/notes-compact/status.json; rm -f <state>/sessions/notes-compact/status.json.part.$$; true",
     "padding": 0,
@@ -3371,6 +3384,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/notes-sweep/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/notes-sweep/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/notes-sweep/status.json.part.$$ <state>/sessions/notes-sweep/status.json; rm -f <state>/sessions/notes-sweep/status.json.part.$$; true",
     "padding": 0,
@@ -3576,6 +3590,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/pr-address-review-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/pr-address-review-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/pr-address-review-boot-5/status.json.part.$$ <state>/sessions/pr-address-review-boot-5/status.json; rm -f <state>/sessions/pr-address-review-boot-5/status.json.part.$$; true",
     "padding": 0,
@@ -3826,6 +3841,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/pr-explain-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/pr-explain-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/pr-explain-boot-5/status.json.part.$$ <state>/sessions/pr-explain-boot-5/status.json; rm -f <state>/sessions/pr-explain-boot-5/status.json.part.$$; true",
     "padding": 0,
@@ -4031,6 +4047,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/pr-fix-checks-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/pr-fix-checks-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/pr-fix-checks-boot-5/status.json.part.$$ <state>/sessions/pr-fix-checks-boot-5/status.json; rm -f <state>/sessions/pr-fix-checks-boot-5/status.json.part.$$; true",
     "padding": 0,
@@ -4243,6 +4260,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/pr-merge-prep-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/pr-merge-prep-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/pr-merge-prep-boot-5/status.json.part.$$ <state>/sessions/pr-merge-prep-boot-5/status.json; rm -f <state>/sessions/pr-merge-prep-boot-5/status.json.part.$$; true",
     "padding": 0,
@@ -4529,6 +4547,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/pr-review-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/pr-review-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/pr-review-boot-5/status.json.part.$$ <state>/sessions/pr-review-boot-5/status.json; rm -f <state>/sessions/pr-review-boot-5/status.json.part.$$; true",
     "padding": 0,
@@ -4795,6 +4814,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/pr-security-audit-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/pr-security-audit-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/pr-security-audit-boot-5/status.json.part.$$ <state>/sessions/pr-security-audit-boot-5/status.json; rm -f <state>/sessions/pr-security-audit-boot-5/status.json.part.$$; true",
     "padding": 0,
@@ -5000,6 +5020,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/pr-session-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/pr-session-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/pr-session-boot-5/status.json.part.$$ <state>/sessions/pr-session-boot-5/status.json; rm -f <state>/sessions/pr-session-boot-5/status.json.part.$$; true",
     "padding": 0,
@@ -5353,6 +5374,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/steward/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/steward/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/steward/status.json.part.$$ <state>/sessions/steward/status.json; rm -f <state>/sessions/steward/status.json.part.$$; true",
     "padding": 0,
@@ -5568,6 +5590,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/run-diagnose-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/run-diagnose-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/run-diagnose-boot-5/status.json.part.$$ <state>/sessions/run-diagnose-boot-5/status.json; rm -f <state>/sessions/run-diagnose-boot-5/status.json.part.$$; true",
     "padding": 0,
@@ -5776,6 +5799,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/run-explain-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/run-explain-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/run-explain-boot-5/status.json.part.$$ <state>/sessions/run-explain-boot-5/status.json; rm -f <state>/sessions/run-explain-boot-5/status.json.part.$$; true",
     "padding": 0,
@@ -5981,6 +6005,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/run-fix-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/run-fix-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/run-fix-boot-5/status.json.part.$$ <state>/sessions/run-fix-boot-5/status.json; rm -f <state>/sessions/run-fix-boot-5/status.json.part.$$; true",
     "padding": 0,
@@ -6193,6 +6218,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/run-flaky-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/run-flaky-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/run-flaky-boot-5/status.json.part.$$ <state>/sessions/run-flaky-boot-5/status.json; rm -f <state>/sessions/run-flaky-boot-5/status.json.part.$$; true",
     "padding": 0,
@@ -6405,6 +6431,7 @@
      }
     ]
    },
+   "promptSuggestionEnabled": false,
    "statusLine": {
     "command": "head -c 16385 > <state>/sessions/run-slow-boot-5/status.json.part.$$ && [ \"$(wc -c < <state>/sessions/run-slow-boot-5/status.json.part.$$)\" -le 16384 ] && mv -f <state>/sessions/run-slow-boot-5/status.json.part.$$ <state>/sessions/run-slow-boot-5/status.json; rm -f <state>/sessions/run-slow-boot-5/status.json.part.$$; true",
     "padding": 0,
