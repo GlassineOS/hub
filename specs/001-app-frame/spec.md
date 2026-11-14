@@ -84,7 +84,8 @@ that spec's name and number, as in "App frame (001) FR-011".
 - **FR-002**: The header shows a "Needs you N" button; it is yellow only when N > 0 and
   something is blocking, outlined when N > 0 and nothing blocks, and plain when N = 0. Its
   count N is a badge that is yellow and bold whenever N > 0: everything counted waits for
-  the maintainer.
+  the maintainer, workflow decisions (a move's confirm, a start approval, a design to look at,
+  a proposed workflow change, a merge) included.
 - **FR-003**: The "Needs you" button opens the Needs you modal from any view.
 - **FR-004**: The header shows "＋ New work", which opens Launch with an empty brief.
 - **FR-005**: The header shows the signed-in maintainer and which host service the app is
