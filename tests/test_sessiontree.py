@@ -113,8 +113,11 @@ def test_an_implementor_run_keeps_one_engineer_row_and_folds_earlier_reviewers(r
         node = t["nodes"][eng]
         assert entry(t, name, "engineer")["sessions"] == [eng]  # resumed: no second engineer
         assert node["resumed"] and [s for s, _r in node["served"]] == ["implement", "fix"] and node["live"] in ("working", "idle")
+        # its one-state workflow's state is final by construction: the strip says what it waits for, not "a final state"
+        assert "final" not in node["waits_for"]
         # the reviewer ended, and is still the latest return of its entry under a running owner: it stays, with its verdict
         assert t["nodes"][rev1]["live"] == "ended" and t["nodes"][rev1]["kept"] and t["nodes"][rev1]["returned"] == "fail"
+        assert t["nodes"][rev1]["waits_for"] == "nothing: it has ended" and t["nodes"][rev1]["next"] == ""
         assert entry(t, name, "reviewer")["sessions"] == [rev1] and entry(t, name, "reviewer")["earlier"] == []
 
         a.machines.move(name, "review", "hand")
@@ -255,3 +258,12 @@ def dec(id_, kind, asked_by, type_=None, proposed_by=None, state="requested"):
     if kind == "merge":
         scope = {"repo": "epd", "number": 14}
     return {"id": id_, "kind": kind, "scope": scope, "state": state, "asked_by": asked_by, "made": 900.0, "ends": {}, "approved": None}
+
+
+def test_an_entrys_note_names_the_owner_for_the_maintainer():
+    """managed_status tells the owner what an entry waits for; the tree shows it to the maintainer, so "you" is the owner."""
+    assert sessiontree.owner_note("reviewer starts when you call start_managed.", "impl") == "reviewer starts when impl asks for it."
+    assert sessiontree.owner_note("engineer's session for this round has ended. Don't start it or do its work.", "impl") == \
+        "engineer's session for this round has ended."
+    assert sessiontree.owner_note("fixer's start waits for an approval above you; it starts once that is given.", "impl") == \
+        "fixer's start waits for an approval above impl; it starts once that is given."
