@@ -104,16 +104,20 @@ returns = { verdict = ["pass", "fail"], findings = "text-list" }  # what it hand
 - **Reports**: a managed session sends a `blocker` or `decision` up with `report_up` (evidence and a proposal); the owner
   answers with `answer_report` (`approve` or `deny`, a note) or sends it on with `report_up` and `forward`. A report from the
   top of the chain is a decision in Needs you. Every report and answer is in the machine log.
-- **Reports overtaken by events.** An open report is withdrawn when its session's machine moves: the session is told which,
-  and a card it raised ends. A session withdraws one of its own reports with `withdraw_report` (its id and why), and no one
-  else's. A reporter idle at its prompt is woken, with its open reports listed, when a session it manages hands back, when
-  one of its reports is answered, and when a fact a report named (`pr.checks`, say, written in its text) changes.
+- **Reports overtaken by events.** An open report is withdrawn when its session's machine moves, unless the state it moves
+  to waits on `report.answered`: the session is told which, a card it raised ends, and every session the report went
+  through hears it. A session withdraws one of its own reports with `withdraw_report` (its id and why), and no one else's.
+  An answer that reaches a report just withdrawn isn't lost: it goes to the reporter as a note, nothing is carried out, and
+  the card says so. A reporter idle at its prompt is woken, with its open reports listed, when a session it manages hands
+  back, when one of its reports is answered, and when a fact a report named (`pr.checks`, say, written in its text)
+  changes: once a value, at most every 5 minutes, and never for a counter (`time.*`, `tokens.*`, `rounds.*`).
 - **Waking an idle owner.** An owner idle at its prompt gets a hub message, fixed words and facts only, when a session it
   manages hands back, ends by itself or is stuck, and when a report sent to it arrives. One message carries what came
   together; a session that isn't at its prompt gets nothing, as the news comes with its next turn. A move that widens its
   grant relaunches it first, and the message follows the relaunch.
 - **Stalls.** A machine with no exit that can still hold, nothing it manages running or waiting to start, no confirm or
-  approval open and its owner idle is stalled. After 10 minutes like that the hub logs it, tells and wakes the session (and
+  approval open, no report of its own or of a session under it waiting for an answer, no card of theirs in Needs you, and
+  its owner idle is stalled. After 10 minutes like that the hub logs it, tells and wakes the session (and
   its own owner), and raises one card in Needs you, "stalled in <path>", with each exit's failing requires and the values
   that fail them. The machine panel shows the same. Any move ends the card. Pending checks, a fact the hub has no value
   for or a time fact count as a wait, not a stall.
@@ -136,7 +140,9 @@ returns = { verdict = ["pass", "fail"], findings = "text-list" }  # what it hand
   start in its round is tried again soon (after 5, 15 and 45 seconds), on the owner's next signals, and when a managed
   session ends. On a move, the sessions the state left stop before the ones it enters start, so a session about to stop
   doesn't count against the cap; an entry with `reuse = "resume"` in both states (the engineer, from `implement` to `fix`)
-  resumes the session the state left.
+  resumes the session the state left. A move clears its entries' last returns at once, even when their starts wait for
+  its relaunch; a start tried again gives up once the owner has moved since. A session that can't be resumed (its checkout
+  gone, its access changed) gives the round to a fresh one; if that can't start either, it is a start that can't happen.
 - **A start that can't happen.** One that can't start for a reason that won't change by itself (its workflow works on an
   issue and the owner is on none, the workflow is gone, a fork's branch to push to) is one failed line in the machine log,
   one word to the owner and one card in Needs you that says why. It isn't tried again in that round, nor waited on: the
