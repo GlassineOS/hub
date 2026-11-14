@@ -48,7 +48,7 @@ personas = ["engineer"]
 tools = ["Read", "Grep", "Glob", "Skill", "AskUserQuestion", "Bash"]
 hub_tools = ["get_issue", "get_pr", "get_pr_threads", "get_pr_diff", "list_runs", "get_run", "get_run_log", "docs_search",
              "work_search", "request_repository", "code_search", "map_overview", "map_definition", "map_usages", "map_string",
-             "request_move", "list_workflows", "work_status", "docs_index_status", "plan_work", "submit_result", "mark_ready"]
+             "list_workflows", "work_status", "docs_index_status", "plan_work", "submit_result", "mark_ready"]
 checkout = "new-branch"
 github = ["read", "issues.comment", "pr.write"]
 # Held from the start, so merge-ready asks no confirm: a call shows a card, and allowing it is the merge decision.

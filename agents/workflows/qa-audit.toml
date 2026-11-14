@@ -51,8 +51,7 @@ report: on your own when your turn ends, or at once with `request_move` to `repo
 [state.run.grant]
 tools = ["Skill", "Bash"]
 hub_tools = ["get_issue", "get_pr_threads", "list_runs", "get_run", "get_run_log", "work_search", "request_repository",
-             "code_search", "map_overview", "map_definition", "map_usages", "map_string", "work_status", "docs_index_status",
-             "request_move"]
+             "code_search", "map_overview", "map_definition", "map_usages", "map_string", "work_status", "docs_index_status"]
 github = ["read"]
 [[state.run.exit]]
 to = "report"

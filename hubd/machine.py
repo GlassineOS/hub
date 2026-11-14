@@ -46,7 +46,8 @@ APPROVERS = ("none", "owner", "maintainer", "steward", "me")
 STARTS = ("auto", "on-request")
 REUSES = ("resume", "fresh")
 ON_EXIT = ("stop", "keep", "handover")
-WITH = ("issue", "pr", "diff", "diff.since_last_round", "owner.summary", "owner.briefing", "checks", "checks.failing")
+# handover: what the owner said with the move into this state, when it asked for that move (FR-027, FR-041)
+WITH = ("issue", "pr", "diff", "diff.since_last_round", "owner.summary", "owner.briefing", "checks", "checks.failing", "handover")
 WITH_PREFIXES = ("notes:",)
 # A `manages` entry's prompt (FR-046): the names it may fill in, each from a fact the hub holds when the session starts or
 # resumes, and the tools a person-started session hands in with, which a managed session never uses: it hands back.
@@ -88,11 +89,11 @@ SIGNALS = ("turn.end", "session.end", "tool.after", "compact.before",
 # `returns`, whose values are the entry's. started.<entry>: whether a session of that entry started in the entry's current
 # round, or its start waits for an approval, known for every entry in force. when.<entry>: what the judge said of an entry's
 # `when` this round, unknown until it is judged. draft.reviewed: the newest draft went to a reviewer. design.accepted: whether a design session the state manages had its pull request
-# merged. draft.*: the newest workflow draft of a workflow-change session, and its failed drafts in the current round.
+# merged. waived.<state>: the maintainer waived that state for this round (FR-028). draft.*: the newest workflow draft of a workflow-change session, and its failed drafts in the current round.
 FACTS = {"pr.open": "bool", "pr.merged": "bool", "pr.checks": ("pass", "fail", "pending"),
          "pr.review": ("approved", "changes_requested", "none"), "pr.reviewed": "bool", "branch.pushed": "bool", "issue.linked": "bool",
          "design.accepted": "bool", "report.answered": "bool", "draft.ok": "bool", "draft.sensitive": "bool", "drafts.failed": "int",
-         "draft.reviewed": "bool", "started.<entry>": "bool", "when.<entry>": "bool", "rounds.<state>": "int", "time.<state>": "int", "tokens.<state>": "int", "managed.<entry>.<field>": "returns"}
+         "draft.reviewed": "bool", "started.<entry>": "bool", "when.<entry>": "bool", "waived.<state>": "bool", "rounds.<state>": "int", "time.<state>": "int", "tokens.<state>": "int", "managed.<entry>.<field>": "returns"}
 COUNTERS = ("rounds", "time", "tokens")
 # A `returns` field is a list of the values it takes (a fact), or TEXT_LIST: short lines of text handed to the owner as data,
 # never a fact. Bounds on what such a field carries:
@@ -286,7 +287,7 @@ def fact_type(name: str):
         return "int"
     if len(parts) == 3 and parts[0] == "managed" and _ID.fullmatch(parts[1]) and _FIELD.fullmatch(parts[2]):
         return "returns"
-    if len(parts) == 2 and parts[0] in ("started", "when") and _ID.fullmatch(parts[1]):
+    if len(parts) == 2 and parts[0] in ("started", "when", "waived") and _ID.fullmatch(parts[1]):
         return "bool"
     return None
 
@@ -846,6 +847,20 @@ def exits_of(d: Definition, state_id: str) -> list[Exit]:
     return [e for s in ancestors(d, state_id) for e in d.states[s].exits]
 
 
+def requests(d: Definition, state_id: str) -> list[Exit]:
+    """The exits of a state a session may ask to take (`move = "on-request"`, not by hand): where there are any, the session
+    holds request_move (FR-027)."""
+    return [e for e in exits_of(d, state_id) if e.move == "on-request" and e.decided_by != "hand"]
+
+
+def entering_manages(d: Definition, frm: str, to: str) -> list[str]:
+    """The `manages` entries a move from `frm` to `to` brings in: those of `to` and the states it enters down to its first
+    leaf that `frm` isn't in already. A move into any of them needs a hand-over for those sessions when a session asks for it
+    (FR-027)."""
+    staying = set(ancestors(d, frm)) - {to}
+    return list(dict.fromkeys(m.name for sid in ancestors(d, _leaf(d, to)) if sid not in staying for m in d.states[sid].manages))
+
+
 def _owners(d: Definition, state_id: str) -> list[tuple[str, int, Exit]]:
     """Each exit tried in a state, in order, with the state that owns it and its 1-based place there."""
     return [(s, i, e) for s in ancestors(d, state_id) for i, e in enumerate(d.states[s].exits, 1)]
@@ -1048,7 +1063,7 @@ def check(d: Definition, need_prompt: bool = True) -> list[Finding]:
                     continue
                 for t in req.terms:
                     kind = t.name.split(".")
-                    if kind[0] in COUNTERS and len(kind) == 2 and kind[1] not in d.states:
+                    if kind[0] in (*COUNTERS, "waived") and len(kind) == 2 and kind[1] not in d.states:
                         problem(f"{where}.requires", f"{t.name}: {kind[1]!r} isn't a state")
                     if kind[0] in ("started", "when") and len(kind) == 2 and kind[1] not in returns:
                         problem(f"{where}.requires", f"{t.name}: no managed entry here is named {kind[1]}")
@@ -1150,6 +1165,8 @@ def check(d: Definition, need_prompt: bool = True) -> list[Finding]:
         if grant.access == "full":
             continue
         held = {*grant.hub_tools, *grant.asks_first}
+        if requests(d, leaf):  # the hub gives request_move where an exit moves on request (FR-027), on no grant
+            held.add("request_move")
         for sid in ancestors(d, leaf):
             for tool in dict.fromkeys(_NAMED_TOOL.findall(d.states[sid].instructions)):
                 if tool in named and tool not in held:

@@ -19,7 +19,7 @@ KEEP_ROWS = 100000      # per table
 MAX_READ = 1000
 MAX_TEXT = 4000         # a proposal or a piece of evidence, clipped
 MAX_IDS = 64            # conversations one history read covers
-MOVE_KINDS = ("hand", "machine", "rollback", "pause", "resume")
+MOVE_KINDS = ("hand", "machine", "rollback", "pause", "resume", "waive", "unwaive")  # waive: a state waived for a round (to_state)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS evaluations (

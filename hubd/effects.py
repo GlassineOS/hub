@@ -287,10 +287,10 @@ class Effects:
         scope = record["scope"]
         if self.decisions.current_state(record) != "requested":
             if scope.get("type") and self.managed is not None and self.managed.withdrawn_card(record):
-                return self.managed.answer_card(record, accept, who, words)  # the answer still reaches the reporter, as a note
+                return await self.managed.answer_card(record, accept, who, words)  # the answer still reaches the reporter, as a note
             raise DecisionError("that isn't waiting for an answer any more")
         if scope.get("type") and self.managed is not None:  # a report or a managed start: the chain's own
-            return self.managed.answer_card(record, accept, who, words)
+            return await self.managed.answer_card(record, accept, who, words)
         if self.agents.session_id_of(scope["session"]) != scope["session_id"]:
             self.decisions.settle(decision_id, False, "the session it was for has gone")
             raise DecisionError("the session it was for has gone")
