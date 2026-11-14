@@ -23,7 +23,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import auth, decisions, devices, interactions, machinerun, machinestore, newwork, notes, results, usage
+from . import auth, decisions, devices, interactions, machine, machinerun, machinestore, newwork, notes, results, sessiontree, usage
 from . import judge as judgelib
 from .effects import Effects
 from .drafts import OPS as DRAFT_OPS, TOOLS as DRAFT_TOOLS, DraftError, Drafts
@@ -280,7 +280,7 @@ class Hubd:
             return await self.design_tool(op, req)
         if op in REPO_OPS:
             return await self.repo_request(op, req)
-        if op in ("shell.list", "shell.new", "shell.kill") or op.startswith(("agent.", "ask.", "work.", "decision.", "notes.", "interaction.", "usage.", "result.", "machine.", "apps.", "workflow.")):
+        if op in ("shell.list", "shell.tree", "shell.new", "shell.kill") or op.startswith(("agent.", "ask.", "work.", "decision.", "notes.", "interaction.", "usage.", "result.", "machine.", "apps.", "workflow.")):
             if not self.sessions.check(req.get("token")):
                 return {"ok": False, "error": "login required", "denied": True}
             if op.startswith("apps."):
@@ -321,6 +321,8 @@ class Hubd:
                         session["agent"] = self.agents.describe(session["name"])
                     self._note_pr_results(sessions)
                 return {"ok": True, "sessions": sessions}
+            if op == "shell.tree":
+                return {"ok": True, **await self.session_tree()}
             if op == "shell.new":
                 # A stopped session keeps its name, or a plain shell could pass for it.
                 if self.agents and self.agents.is_session(req.get("name")):
@@ -338,6 +340,42 @@ class Hubd:
                 reply["ignored"] = await self.agents.ignored_in(req.get("name"))
             return reply
         return {"ok": False, "error": f"unknown request: {op}"}
+
+    async def session_tree(self) -> dict:
+        """Sessions › Running (004 FR-012 to FR-015, FR-024): the tmux list as shell.list has it, and the tree of every session
+        the hub keeps, under its owner's entries, with each one's Needs-you cards. Reads only."""
+        shells = await self.shells.list()
+        if not self.agents:
+            nodes = {s["name"]: sessiontree.plain_node(s) for s in shells}
+            return {"sessions": shells, "tree": sessiontree.arrange({"nodes": nodes, "events": {}})}
+        await self.agents.refresh_prs([s["name"] for s in shells])
+        for session in shells:
+            session["agent"] = self.agents.describe(session["name"])
+        live = {s["name"] for s in shells}
+        cards = sessiontree.cards_by_session(self._interactions()["items"])
+        collected = sessiontree.collect(self.agents, live, cards)
+        for s in shells:
+            if s["name"] not in collected["nodes"]:
+                collected["nodes"][s["name"]] = sessiontree.plain_node(s)
+        collected["notes"] = await self._entry_notes(collected["nodes"], live)
+        return {"sessions": shells, "tree": sessiontree.arrange(collected)}
+
+    async def _entry_notes(self, nodes: dict, live: set[str]) -> dict:
+        """managed_status's note for each entry in force under a running owner, verbatim (what it waits for, in words)."""
+        out: dict[str, dict] = {}
+        if self.managed is None:
+            return out
+        for name, n in nodes.items():
+            inst = n.get("_inst")
+            if inst is None or not n.get("_entries") or n.get("live") == "ended":
+                continue
+            record = {"session_id": n.get("session_id")}
+            for _sid, m in machine.managed_of(inst.definition(), inst.state):
+                try:
+                    out.setdefault(name, {})[m.name] = (await self.managed._standing(name, record, inst, m, live))["note"]
+                except Exception:  # noqa: BLE001: the entry shows without its note
+                    log.exception("%s: the note of %s couldn't be made", name, m.name)
+        return out
 
     # --- the personas' GitHub Apps (FR-032) -------------------------------------------------
     async def apps_request(self, op: str, req: dict) -> dict:

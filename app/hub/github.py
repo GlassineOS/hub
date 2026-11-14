@@ -85,6 +85,11 @@ def _limit(value, default=30, top=200) -> str:
     return str(max(1, min(int(value or default), top)))
 
 
+# A pull request's checks and review as the sessions tree words them (004 FR-015).
+TREE_CHECKS = {"passing": "pass", "failing": "fail", "pending": "pending"}
+TREE_REVIEWS = {"APPROVED": "pass", "CHANGES_REQUESTED": "fail"}
+
+
 def _rollup(pr: dict) -> str:
     """One word for a pull request's checks."""
     checks = pr.pop("statusCheckRollup", None) or []
@@ -325,6 +330,27 @@ class GitHub:
         blockers = [i for i in self.store.with_bodies("issue", "OPEN") if any(x["name"] == mergequeue.BLOCKER_LABEL for x in i["labels"])]
         return {"ready": True, "synced_at": self.sync.status()["synced_at"],
                 **mergequeue.arrange(self.store.with_bodies("pr", "OPEN"), self.store.with_bodies("pr", "MERGED"), blockers, decisions)}
+
+    def tree_items(self, tree: dict) -> dict:
+        """004 FR-015: each item a session covers or holds, with its state as the work store has it: an issue open or closed; a
+        pull request draft, open, merged or closed, its checks and its review verdict (GitHub's decision, else the verdict a
+        reviewer session returned for it). hubd's own pull request state stands in for one the store hasn't seen."""
+        verdicts = tree.get("verdicts") or {}
+        for node in (tree.get("nodes") or {}).values():
+            for item in node.get("items") or ():
+                kind, repo, number = item.get("kind"), item.get("repo"), item.get("number")
+                if kind not in ("issue", "pr") or not isinstance(number, int):
+                    continue
+                row = self.store.item(kind, repo, number) if self.store else None
+                state = str((row or {}).get("state") or item.get("state") or "").upper()
+                if kind == "issue":
+                    item["state"] = {"OPEN": "open", "CLOSED": "closed"}.get(state)
+                else:
+                    item["state"] = "draft" if state == "OPEN" and (row or {}).get("isDraft") else {"OPEN": "open", "MERGED": "merged", "CLOSED": "closed"}.get(state)
+                    item["checks"] = TREE_CHECKS.get((row or {}).get("checks"))
+                    item["verdict"] = TREE_REVIEWS.get((row or {}).get("reviewDecision")) or verdicts.get(f"{repo}#{number}")
+                item["title"] = (row or {}).get("title")
+        return tree
 
     def _kept(self, key: str, stamp: str):
         return self.store.answer(key, stamp) if self._serving() else None

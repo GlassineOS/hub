@@ -71,6 +71,11 @@ class FakeHubd(Hubd):
             return {"ok": True, "user": "u", "gh": True, "tmux": False, "socket": "/run/user/1000/glassine-hub/hubd.sock"}
         if op == "shell.list":
             return {"ok": True, "sessions": [{"name": "a"}]}
+        if op == "shell.tree":
+            return {"ok": True, "sessions": [{"name": "a"}], "tree": {"nodes": {"a": {"name": "a", "items": [
+                {"kind": "issue", "repo": "boot", "number": 1, "role": "covers"}, {"kind": "pr", "repo": "boot", "number": 2, "role": "holds", "state": "OPEN"},
+                {"kind": "pr", "repo": "boot", "number": 9, "role": "holds", "state": "MERGED"}, {"kind": "repo", "repo": "hub", "number": None, "role": "covers"}]}},
+                "roots": ["a"], "quick": [], "shells": [], "verdicts": {"boot#2": "fail"}}}
         if op.startswith("decision."):
             self.commands.append((op, request))
             if op == "decision.list":
@@ -3310,3 +3315,31 @@ def test_start_managed_and_managed_status_pass_on_how_a_session_under_you_stands
     assert [r["op"] for r in sent] == ["managed.start", "managed.status"] and all(r["agent_token"] == "session" for r in sent)
     listed = listed_for({"session": "s", "tools": ["managed_status"], "persona": "x"})
     assert listed["managed_status"]["annotations"]["readOnlyHint"] is True
+
+
+def test_the_sessions_tree_carries_each_items_state_from_the_work_store(hubd):
+    """004 FR-015: an issue open or closed; a pull request draft, open or merged, its checks and the review verdict. GitHub's
+    review decision wins; without one, the verdict a reviewer session returned; hubd's own state for one the store hasn't seen."""
+    store = _store_with(["boot"], 2)  # boot#1: an open issue; boot#2: an open pull request with passing checks
+    c = TestClient(web.build(hubd, GitHub(hubd, CONFIG, store=store), FakeDocs(), secure_cookie=False, allowed_hosts={"testserver"}))
+    got = signed_in(c).get("/api/sessions/tree").json()
+    items = got["tree"]["nodes"]["a"]["items"]
+    assert got["sessions"] == [{"name": "a"}]
+    assert items[0] == {"kind": "issue", "repo": "boot", "number": 1, "role": "covers", "state": "open", "title": "t"}
+    assert {k: items[1][k] for k in ("state", "checks", "verdict")} == {"state": "open", "checks": "pass", "verdict": "fail"}
+    assert {k: items[2][k] for k in ("state", "checks", "verdict")} == {"state": "merged", "checks": None, "verdict": None}
+    assert items[3] == {"kind": "repo", "repo": "hub", "number": None, "role": "covers"}
+    store.upsert({**_pr_node(2), "isDraft": True, "reviewDecision": "APPROVED"})
+    items = signed_in(c).get("/api/sessions/tree").json()["tree"]["nodes"]["a"]["items"]
+    assert items[1]["state"] == "draft" and items[1]["verdict"] == "pass"
+    out = TestClient(web.build(hubd, GitHub(hubd, CONFIG, store=store), FakeDocs(), secure_cookie=False, allowed_hosts={"testserver"}))
+    assert out.get("/api/sessions/tree").status_code == 401
+
+
+def _pr_node(number):
+    when = "2026-10-01T00:00:00Z"
+    return {"__typename": "PullRequest", "id": f"P{number}", "number": number, "title": "t", "body": "", "state": "OPEN", "isDraft": False, "url": "u",
+            "createdAt": when, "updatedAt": "2026-10-09T00:00:00Z", "headRefName": "x", "baseRefName": "main", "headRefOid": "a" * 40, "reviewDecision": "",
+            "mergeable": "MERGEABLE", "author": {"login": "a"}, "repository": {"name": "boot"}, "labels": {"nodes": []}, "assignees": {"nodes": []},
+            "comments": {"totalCount": 0, "nodes": []}, "additions": 1, "deletions": 0,
+            "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}]}}
