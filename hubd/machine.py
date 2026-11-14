@@ -7,8 +7,8 @@ Pure data and checks, no I/O. `parse` reads the TOML text form, `emit` writes it
 A state's grant holds a session's rights: access, permission_mode, tools, hub_tools, asks_first, checkout and all_repos,
 plus github capabilities. A workflow also says how its sessions begin: its `[[start]]` tables (spec 012, FR-100 to FR-105),
 each a way to start it from one kind of item, and its `[launch]` table, what every session of it is however it begins
-(its personas, its result type and how a person applies it, what a managed session of it starts with). Neither grants
-anything: a session's rights are its starting state's grant.
+(its personas, its result type and how a person applies it). A managed session starts with its `manages` entry's prompt,
+never a start's. Neither grants anything: a session's rights are its starting state's grant.
 """
 from __future__ import annotations
 
@@ -208,7 +208,8 @@ class Start:
 @dataclass(frozen=True)
 class Launch:
     """What a session of the workflow is however it begins. A workflow without starts is started only as a managed session,
-    which takes `on`, `label`, `summary`, `ceiling`, `models`, `efforts` and `prompt` from here."""
+    which takes `on`, `label`, `summary`, `ceiling`, `models` and `efforts` from here; its first prompt is its `manages`
+    entry's (FR-046), so `prompt` here, still required, is never what one receives."""
     personas: tuple[str, ...] = ()
     result: str = ""
     result_tools: tuple[str, ...] = ()
