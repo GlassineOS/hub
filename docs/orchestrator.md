@@ -75,15 +75,33 @@ allowed for one job aren't the Steward's to direct at another. Either way it arr
 the session's next turn, labelled as not from you. Being a hub tool, it isn't tied to one model provider. Sessions can't
 message the Steward: they read untrusted text, and it can read private repositories and ask for writes.
 
-The Steward stays on top of what changes with `changes_since` and the hub's pings. The work sync records every change it sees to
-an issue, a pull request or a run in hubd's feed, as facts (item, what changed, old and new state and head commit, time, who,
-link), never text. Each running Steward has its own cursor in the feed, and `changes_since` returns what came after it, most
-important first (a merge, a moved head, a failing check or run) with nothing left out. A ping to the Steward is only a count,
-"12 changes since 15:02 UTC: 3 merged, 2 reviews", from the hub, at most once per interval (`HUBD_PING_SECONDS`, 300 by default)
-and never when nothing it hasn't read has changed: it is sent only to a Steward at its prompt, never queued behind a turn. It never starts a stopped session. Waking an idle Steward is refused
-while 4 sessions it started are working, as starting one is, but the Steward itself isn't one of the 4 (the person starts it): its pings
-pause while those 4 work, and the next round asks again. What the Steward did itself is in the feed marked as its own and doesn't count toward a ping. Not built yet:
-sessions changing state, decisions and device reports as feed rows.
+The Steward is woken only by events about its own work, never on a timer or with counts (spec 012 FR-056):
+
+- a suggestion it made (`suggest_session`, `plan_work`) started, set aside, cancelled or discarded, or its result applied or set aside;
+- a session it started (`spawn_session`) finishing its turn, handing in a result or ending; a session it manages (a repository
+  maintainer) handing back, reporting or ending, as any owner is woken;
+- your answer to its reports and its cards;
+- for an item it named (in a suggestion's items, a report's `repo#N` or link, or as the item of a session it started): a merge, a
+  close, failing checks, a review (approved or changes requested) or a new comment, leaving out what it did itself.
+
+Each event is one line in the hub's words that names the item and what happened. They wait (in `steward-events.json` in the
+hub's state folder, so a restart keeps them and the items it named) until the Steward is at its prompt with nothing queued and an
+empty prompt, and what came within a few seconds of each other goes as one turn, between two random lines marked as data, from
+`@hub`. They never start a stopped session, and waking an idle Steward is refused while 4 sessions it started are working, as
+starting one is: the events wait, and the next try (every 10 seconds) sends them. An item it named is watched for 14 days after
+it last named it.
+
+The rest of the feed waits until the Steward asks (FR-057). The work sync records every change it sees to an issue, a pull
+request or a run in hubd's feed, as facts (item, what changed, old and new state and head commit, time, who, link), never text.
+Each running Steward has its own cursor in the feed, which starts at the newest change when the hub first sees it running, and
+`changes_since` returns what came after it, most important first (a merge, a moved head, a failing check or run) with nothing left
+out. `repo` or `item` (`repo#N`) narrows the rows and leaves its cursor where it was; `digest` gives one short line per repository
+(how many changes, how many important, how many items, and their kinds) and moves the cursor past them, with `from` to read one
+repository's rows from there. What the Steward did itself is in the feed marked as its own.
+
+Before it tells you something waits for you, the Steward reads its current state (FR-058): `my_suggestions` lists its
+suggestions as the hub has them now, each with `waiting_for_the_person` (what you still have to do, or nothing once it was
+started, set aside or applied).
 
 - The session gets a detached checkout of the default branch that isn't in the workspace, the read tools,
   and `submit_drafts`. It has no shell and no write tool, and it reads across the organization.

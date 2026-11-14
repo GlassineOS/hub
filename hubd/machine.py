@@ -69,7 +69,7 @@ READ_GITHUB = ("read", "issues.read", "pr.read", "runs.read")
 READ_HUB_TOOLS = frozenset({
     "code_search", "docs_index_status", "docs_search", "get_issue", "get_pr", "get_pr_diff", "get_pr_diff_summary", "get_pr_threads",
     "get_run", "get_run_log", "list_issues", "list_prs", "list_repo_files", "list_runs", "list_workflows", "map_definition",
-    "map_overview", "map_string", "map_usages", "notes_find", "overview", "plan_work", "rate_limit", "read_repo_file", "read_report",
+    "map_overview", "map_string", "map_usages", "my_suggestions", "notes_find", "overview", "plan_work", "rate_limit", "read_repo_file", "read_report",
     "request_repository", "roadmap", "run_history", "submit_result", "work_search", "work_status"})
 QUIET_HUB_TOOLS = READ_HUB_TOOLS | {"submit_drafts", "request_move", "draft_workflow", "read_draft", "read_workflow"}
 # FR-104: what lets a grant build on an item, so that an instance of its workflow holds it: pushing to a branch, or opening or
