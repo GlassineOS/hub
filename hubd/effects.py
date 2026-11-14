@@ -481,15 +481,18 @@ class Effects:
                 self.decisions.settle(record["id"], False, why)
 
     def _withdraw_asks(self, name: str, keep, where: str) -> None:
-        """012 FR-054: a tool call's card, or its unused yes, lasts until it is answered or withdrawn. A move to a state that
-        doesn't ask about that tool first withdraws it: the call it was about can't be made there."""
+        """012 FR-054: a tool call's card, or its unused yes, lasts until it is answered or withdrawn. Any move withdraws it:
+        the call was asked about from the state it left (a merge from merge-ready isn't one to make in the middle of a fix
+        round), and where the new state asks about it too, the session asks again once it means to make the call there."""
         if self.decisions is None:
             return
         for record in list(self.decisions._all.values()):
-            if record["kind"] != ASK or record["scope"].get("session") != name or record["scope"].get("tool") in keep:
+            if record["kind"] != ASK or record["scope"].get("session") != name:
                 continue
+            tool = record["scope"].get("tool")
             if self.decisions.current_state(record) == "requested" or self.decisions.allowed_ask(record):
-                self.decisions.withdraw_ask(record, f"withdrawn: {name} moved to {where}, which doesn't ask about {record['scope']['tool']}")
+                self.decisions.withdraw_ask(record, f"withdrawn: {name} moved to {where}, " + (
+                    f"where a call of {tool} asks again if it still holds" if tool in keep else f"which doesn't ask about {tool}"))
 
     def _log_failure(self, name: str, state: str, version: str, why: str) -> None:
         try:
