@@ -65,7 +65,7 @@ repository's override), the whole new text and a note on what changed and why. T
 tells you what it found; fix what it finds and draft again. When the newest draft passes, move on with `request_move` to \
 `propose`, or to `review` if the hub says it grants a sensitive item."""
 [state.draft.grant]
-hub_tools = ["draft_workflow", "request_move"]
+hub_tools = ["draft_workflow"]
 [[state.draft.exit]]
 to = "stopped"
 decided_by = "counter"

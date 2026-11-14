@@ -497,9 +497,9 @@ def test_drafts_are_checked_never_saved_a_sensitive_one_goes_to_a_reviewer_and_t
         facts = await h.machine_run.facts_now(name, *a.machines.load(name))
         assert facts["draft.ok"] is True and facts["draft.sensitive"] is True
         # sensitive: propose isn't open to it, review is; the reviewer reads the author's newest draft
-        got = await h.request({"op": "session.request_move", "agent_token": tok, "to": "propose"})
+        got = await h.request({"op": "session.request_move", "reasons": "Ready.", "handover": "Read it all.", "agent_token": tok, "to": "propose"})
         assert not got["moved"]
-        got = await h.request({"op": "session.request_move", "agent_token": tok, "to": "review"})
+        got = await h.request({"op": "session.request_move", "reasons": "Ready.", "handover": "Read it all.", "agent_token": tok, "to": "review"})
         await settle(h)
         assert got["moved"] and state_of(a, name) == "review"
         [reviewer] = [n for n, _r in h.managed.children(name, a.session_id_of(name), "reviewer")]
@@ -803,7 +803,7 @@ def test_a_re_review_needs_a_new_draft_and_a_stale_draft_goes_back_to_drafting(t
         tok = token_of(a, name)
         good = _implement_text(lambda t: t.replace("Your pull request waits for review.", "It waits for review.", 1))
         assert (await h.request({"op": "wfdraft.make", "agent_token": tok, "name": "implement", "text": good, "note": "Shorter."}))["passes"]
-        assert (await h.request({"op": "session.request_move", "agent_token": tok, "to": "review"}))["moved"]
+        assert (await h.request({"op": "session.request_move", "reasons": "Ready.", "handover": "Read it all.", "agent_token": tok, "to": "review"}))["moved"]
         await settle(h)
         [reviewer] = [n for n, _r in h.managed.children(name, a.session_id_of(name), "reviewer")]
         (a.sessions / name / IDLE_FILE).touch()
@@ -811,10 +811,10 @@ def test_a_re_review_needs_a_new_draft_and_a_stale_draft_goes_back_to_drafting(t
         await base.at_prompt(h, a, name)
         assert state_of(a, name) == "draft"
         # the same draft can't go to review again
-        assert not (await h.request({"op": "session.request_move", "agent_token": tok, "to": "review"}))["moved"]
+        assert not (await h.request({"op": "session.request_move", "reasons": "Ready.", "handover": "Read it all.", "agent_token": tok, "to": "review"}))["moved"]
         again = good.replace("It waits for review.", "It waits for a review.", 1)
         assert (await h.request({"op": "wfdraft.make", "agent_token": tok, "name": "implement", "text": again, "note": "Shorter."}))["passes"]
-        assert (await h.request({"op": "session.request_move", "agent_token": tok, "to": "review"}))["moved"]
+        assert (await h.request({"op": "session.request_move", "reasons": "Ready.", "handover": "Read it all.", "agent_token": tok, "to": "review"}))["moved"]
         await settle(h)
         [_old, reviewer2] = [n for n, _r in h.managed.children(name, a.session_id_of(name), "reviewer")]
         # a version saved meanwhile: the draft is stale, so it isn't proposed and the author drafts again

@@ -3182,17 +3182,41 @@ function grantRows(part, sensitive, never) {
   return rows;
 }
 
+// Waive a state for this round (012 FR-028): a fact exits can require, such as fix going straight to merge-ready with
+// review waived. It lapses once the state is entered, an exit that relied on it is taken, or the work ends.
+function WaiverBox({ name, inst, states, here, waive, setWaive, busy, step }) {
+  const waivers = inst.waivers || {};
+  const final = (states.find((s) => s.id === inst.state) || {}).final;
+  const choices = states.filter((s) => !here.includes(s.id) && !waivers[s.id] && !s.final);
+  return html`<div class="stack tight">
+    <h4 class="eyebrow" id=${`mp-w-${name}`}>Waive for this round</h4>
+    ${Object.keys(waivers).length ? html`<ul class="small" aria-labelledby=${`mp-w-${name}`}>${Object.entries(waivers).map(([s, w]) => html`<li class="row" style="gap: 8px">
+        <span><b>${s}</b> is waived${w.who ? ` by ${w.who}` : ""}, ${ago(w.at * 1000)}.</span>
+        <button type="button" class="il-btn" disabled=${busy} onClick=${() => step("waive", { state: s, waived: false })}>Take back</button></li>`)}</ul>`
+      : html`<p class="small soft">No state is waived this round.</p>`}
+    ${final ? html`<p class="small soft">The work has ended: there is no round to waive a state for.</p>` : html`<div class="row" style="gap: 8px">
+      <select aria-label="State to waive" value=${waive} onChange=${(e) => setWaive(e.target.value)}>
+        <option value="">Choose a state</option>${choices.map((s) => html`<option value=${s.id}>${s.id}</option>`)}</select>
+      <button type="button" class="il-btn" disabled=${busy || !waive} onClick=${() => step("waive", { state: waive, waived: true })}>Waive it</button>
+      ${!waive && html`<span class="il-btn-reason">Choose a state first.</span>`}</div>`}</div>`;
+}
+
 // The machine log, newest first: moves and evaluations together. Evidence and proposals can be an outsider's words, so
 // they stay text.
 function historyRows(h) {
-  const BY = { hand: "moved by hand", machine: "moved", rollback: "rolled back", pause: "paused automatic moves", resume: "resumed automatic moves" };
+  const BY = { hand: "moved by hand", machine: "moved", rollback: "rolled back", pause: "paused automatic moves", resume: "resumed automatic moves",
+    waive: "waived for this round", unwaive: "waiver taken back" };
   const moves = (h && h.moves ? h.moves : []).map((m) => {
     const adds = Object.values(m.change && m.change.adds ? m.change.adds : {}).flat().map(String);
     const removes = Object.values(m.change && m.change.removes ? m.change.removes : {}).flat().map(String);
-    const what = m.by === "pause" || m.by === "resume" ? `in ${m.to}` : `${m.from} → ${m.to}`;
+    const what = m.by === "pause" || m.by === "resume" ? `in ${m.to}` : m.by === "waive" || m.by === "unwaive" ? m.to : `${m.from} → ${m.to}`;
+    const asked = m.change && m.change.asked;
     const result = [m.widening ? `widened${m.confirmed_by ? `: confirmed by ${m.confirmed_by}` : ""}` : "", adds.length ? `adds ${adds.join(", ")}` : "",
       removes.length ? `takes away ${removes.join(", ")}` : ""].filter(Boolean).join(" · ");
-    return { key: `m${m.seq}`, at: m.at, kind: "move", title: `${BY[m.by] || m.by} · ${what}`, by: m.who || (m.by === "machine" ? "the machine" : "the hub"), result, details: [] };
+    // the words a move was asked for with are the requester's: shown as text, marked as theirs (012 FR-027)
+    const whose = asked && asked.by === "maintainer" ? "the maintainer's words" : "the session's words";
+    const details = asked ? [asked.reasons && [`Reasons (${whose})`, asked.reasons], asked.handover && [`Hand-over (${whose})`, asked.handover]].filter(Boolean) : [];
+    return { key: `m${m.seq}`, at: m.at, kind: "move", title: `${BY[m.by] || m.by} · ${what}`, by: m.who || (m.by === "machine" ? "the machine" : "the hub"), result, details };
   });
   const evals = (h && h.evaluations ? h.evaluations : []).map((e) => {
     const checks = Array.isArray(e.checks) ? e.checks.map((c) => (typeof c === "string" ? c : JSON.stringify(c))).join(" · ") : JSON.stringify(e.checks);
@@ -3305,6 +3329,7 @@ function MachinePanel({ name, onMoved }) {
   const [to, setTo] = useState("");
   const [enter, setEnter] = useState("first");
   const [note, setNote] = useState("");
+  const [waive, setWaive] = useState("");
   const act = useAct(async () => { await Promise.all([got.reload(), hist.reload()]); if (onMoved) onMoved(); });
   const v = got.data;
   if (!v) return html`<div class="mpanel"><${Err} text=${got.error} />${!got.error && html`<p class="small soft">Reading the machine…</p>`}</div>`;
@@ -3322,6 +3347,7 @@ function MachinePanel({ name, onMoved }) {
       setAsking(null);
       setNote(r.moved ? `Moved to ${r.to}.` : `Cancelled: it stays in ${r.state}.`);
     } else if (move === "pause") setNote(r.paused ? "Paused: nothing moves on its own until you resume." : "Resumed: the machine moves on its own again.");
+    else if (move === "waive") { setNote(r.waived ? `Waived for this round. Exits that require it can go on.` : "The waiver is taken back."); setWaive(""); }
     else if (r.moved) { setNote(move === "rollback" ? `Rolled back to ${r.to}.` : `Moved to ${r.to}.`); setTo(""); }
     return r;
   });
@@ -3411,6 +3437,7 @@ function MachinePanel({ name, onMoved }) {
           <div class="row" style="gap: 8px">
             <button type="button" class="il-btn" aria-pressed=${inst.paused ? "true" : "false"} disabled=${act.busy} onClick=${() => step("pause", { paused: !inst.paused })}>${inst.paused ? "Resume automatic moves" : "Pause automatic moves"}</button></div>
           <p class="small soft">${inst.paused ? "Paused: nothing moves on its own until you resume. Moves by hand and roll-backs still go." : "While paused, nothing moves on its own; moves by hand and roll-backs still go."}</p>
+          ${!one && html`<${WaiverBox} name=${name} inst=${inst} states=${states} here=${here} waive=${waive} setWaive=${setWaive} busy=${act.busy} step=${step} />`}
           <${Err} text=${confirmOpen ? null : act.error} />
           <p role="status" class="small">${note}</p></section>
       </div>
@@ -4631,6 +4658,7 @@ function DecisionRow({ d, onChanged, where = "Needs you" }) {
     ${d.asked_by && !d.kind.startsWith("machine.") && html`<p class="small soft">Asked for by ${d.asked_by}, in its own words, which aren't yours: <span style="overflow-wrap: anywhere">${d.why}</span></p>`}
     ${d.kind.startsWith("machine.") && html`<p class="small" style="overflow-wrap: anywhere">From the hub: ${d.why}</p>`}
     ${d.scope && d.scope.type === "design" && html`<p class="row"><a class="il-btn" href=${hash("design", { name: d.scope.design })}>Look at the design</a></p>`}
+    ${d.scope && d.scope.does && html`<p class="small"><b>Approving does this:</b> ${d.scope.does}, as your decision, checked as a move by hand. If it no longer holds, this card says why and stays open.</p>`}
     ${!d.asked_by && d.why && html`<p class="small soft" style="overflow-wrap: anywhere">Asked for by a hub shell, in its own words: ${d.why}</p>`}
     ${d.why_ended && html`<p class="small">Ended: ${d.why_ended}</p>`}
     ${(d.state === "current" || d.state === "using") && html`<p class="small">Left: ${leftWords(left)}.</p>`}

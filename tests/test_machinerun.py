@@ -679,18 +679,18 @@ ON_REQUEST = workflow('to = "b"\ndecided_by = "facts"\nrequires = ["pr.open", "p
 def test_a_request_moves_only_by_an_on_request_exit_whose_requires_hold(tmp_path):
     w = World(tmp_path)
     w.session("s", text=ON_REQUEST)
-    got = run(w.runner.request("s", "id-s", "b"))
+    got = run(w.runner.request("s", "id-s", "b", reasons="Ready.", handover="Read it all."))
     assert not got["moved"] and "pr.open, pr.checks" in got["why"] and w.state("s") == "a"
     row = w.evaluations("s")[-1]
     assert row["signal"] == "request" and row["checks"]["exits"][0]["holds"] is False and row["judge"] is None
     w.facts["s"] = {"pr.open": True, "pr.checks": "fail"}
-    assert "pr.checks" in run(w.runner.request("s", "id-s", "b"))["why"]
+    assert "pr.checks" in run(w.runner.request("s", "id-s", "b", reasons="Ready.", handover="Read it all."))["why"]
     for to in ("c", "nowhere", None):  # by hand only, or no such exit
-        got = run(w.runner.request("s", "id-s", to))
+        got = run(w.runner.request("s", "id-s", to, reasons="Ready.", handover="Read it all."))
         assert not got["moved"] and "moves on request" in got["why"] and "b, d" in got["why"]
     w.facts["s"] = {"pr.open": True, "pr.checks": "pass"}
-    assert run(w.runner.request("s", "an earlier conversation", "b"))["why"] == "that isn't this session's conversation"
-    got = run(w.runner.request("s", "id-s", "b"))
+    assert run(w.runner.request("s", "an earlier conversation", "b", reasons="Ready.", handover="Read it all."))["why"] == "that isn't this session's conversation"
+    got = run(w.runner.request("s", "id-s", "b", reasons="Ready.", handover="Read it all."))
     assert got["moved"] and got["to"] == "b" and w.state("s") == "b"
     assert [(m["from"], m["to"], m["by"]) for m in w.moves("s")] == [("a", "b", "machine")]
 
@@ -701,7 +701,7 @@ def test_a_request_or_a_pass_that_needs_approval_asks_and_waits(tmp_path):
     w.runner.on_blocked = lambda name, wait: asked.append((name, wait))
     w.session("s", text=ON_REQUEST)
     w.facts["s"] = {"pr.open": True}
-    got = run(w.runner.request("s", "id-s", "d"))
+    got = run(w.runner.request("s", "id-s", "d", reasons="Ready.", handover="Read it all."))
     assert not got["moved"] and got["waits"] == "approve owner" and w.state("s") == "a"
     (name, wait), = asked
     assert name == "s" and {k: wait[k] for k in ("state", "exit", "to", "approve", "session_id")} == {
@@ -736,8 +736,8 @@ def test_hubd_takes_a_move_request_only_from_the_sessions_own_conversation():
         def __init__(self):
             self.got = []
 
-        async def request(self, name, session_id, to):
-            self.got.append((name, session_id, to))
+        async def request(self, name, session_id, to, reasons=None, handover=None):
+            self.got.append((name, session_id, to, reasons, handover))
             return {"moved": True}
 
     class Scopes(ScopeAgents):
@@ -746,18 +746,22 @@ def test_hubd_takes_a_move_request_only_from_the_sessions_own_conversation():
         def session_id_of(self, _name):
             return self.conversation
 
+        def request_move_refusal(self, _name):
+            return "request_move isn't held in a: none of its exits moves on request"
+
         def scope(self, token):
             return {"session": "s", "instance": "conv", "tools": ["request_move"]} if token == "session-token" else \
                 {"session": "s", "instance": "conv", "tools": []} if token == "no-tool" else super().scope(token)
     r, agents = Runner(), Scopes()
     h = Hubd(None, None, auth.Sessions(), "shared", agents=agents, machine_run=r)
-    ask = lambda token: run(h.request({"op": "session.request_move", "agent_token": token, "to": "b", "name": "other"}))  # noqa: E731
+    ask = lambda token: run(h.request({"op": "session.request_move", "reasons": "Ready.", "handover": "Read it all.", "agent_token": token, "to": "b", "name": "other"}))  # noqa: E731
     assert ask("session-token") == {"ok": True, "moved": True}
     for token in ("shared", "nope", "no-tool"):
         assert ask(token)["refused"]
     agents.conversation = "a later one"
     assert "earlier conversation" in ask("session-token")["error"]
-    assert r.got == [("s", "conv", "b")]  # its own session, never the name it sent
+    assert "none of its exits moves on request" in ask("no-tool")["error"]
+    assert r.got == [("s", "conv", "b", "Ready.", "Read it all.")]  # its own session, never the name it sent
 
 
 def test_a_hand_move_while_an_approval_looks_its_facts_up_wins(tmp_path):
