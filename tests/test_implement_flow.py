@@ -391,6 +391,9 @@ def test_review_starts_a_capped_reviewer_whose_pass_takes_it_to_merge_ready(hub)
         assert f"GlassineOS/boot#{PR}, at head {HEAD}" in prompt and "this is the first round, so the whole diff" in prompt
         assert "verdict: one of pass, fail" in prompt and "findings: a list of up to 20 short lines" in prompt
         assert CANARY not in prompt and "Pushed and opened" not in prompt
+        # its first prompt is the review entry's, slots filled: never pr-review's start, written for a person (FR-046)
+        assert prompt.startswith(f"Review pull request #{PR} of GlassineOS/boot for {name}") and f"head {HEAD}" in prompt
+        assert "don't run again what they ran" in prompt and "submit_result" not in prompt and "posts it" not in prompt
         # its grant: its workflow's, no wider than the owner's (FR-043), and the chain's own tools
         owner_grant = a.machines.load(name)[1].definition()
         owner_tools = set(machine.effective(owner_grant, "review").hub_tools)
@@ -556,7 +559,9 @@ def test_a_fix_round_on_a_pull_request_taken_on_runs_an_engineer_on_its_branch(h
         git = lambda *args: subprocess.run(["git", *args], cwd=where, capture_output=True, text=True, check=True).stdout.strip()  # noqa: E731
         assert git("branch", "--show-current") == "ink-curve" and git("rev-parse", "--abbrev-ref", "@{upstream}") == "origin/ink-curve"
         assert push_allowed(apps.asked[-1]) and "push" in record["config"]["github"]
-        assert "You are on its branch" in (a.sessions / engineer / "prompt.md").read_text()
+        first = (a.sessions / engineer / "prompt.md").read_text()  # the fix entry's prompt, not pr-engineer's own (FR-046)
+        assert first.startswith(f"Fix the pull request of {name}") and "on the pull request's branch" in first
+        assert "You are on its branch" not in first
         # it pushes the fix, the new head's checks pass, and it hands back: back to review, for a fresh reviewer
         new = "b" * 40
         gh.head = new

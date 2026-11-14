@@ -23,6 +23,7 @@ checkout = false
 parent = "work"
 [[state.implement.manages]]
 name = "engineer"
+prompt = "Work as your owner's engineer."
 persona = "triager"
 workflow = "helper"
 reuse = "resume"
@@ -34,6 +35,7 @@ decided_by = "hand"
 parent = "work"
 [[state.review.manages]]
 name = "reviewer"
+prompt = "Work as your owner's reviewer."
 persona = "triager"
 workflow = "helper"
 reuse = "fresh"
@@ -49,6 +51,7 @@ decided_by = "hand"
 parent = "work"
 [[state.fix.manages]]
 name = "engineer"
+prompt = "Work as your owner's engineer."
 persona = "triager"
 workflow = "helper"
 reuse = "resume"
