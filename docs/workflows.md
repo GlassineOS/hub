@@ -90,7 +90,9 @@ returns = { verdict = ["pass", "fail"], findings = "text-list" }  # what it hand
 - **What a managed session starts with** is its action's prompt and a hub-written block that names the references in `with`:
   the owner's issue or pull request, the head the last round reviewed (`diff.since_last_round`), the pull request's
   failing check runs with their links (`checks.failing`, read with `get_run_log`), a brief from the library,
-  and with `owner.summary` the owner's rolling summary between marks, as data. Never the owner's transcript.
+  with `owner.summary` the owner's rolling summary between marks, as data, and with `owner.briefing` what the owner's start
+  carried besides its prompt (the starter's notes and pins, the planner's briefing, docs and steps), as the
+  owner's first prompt has them, between marks; nothing when the start carried none. Never the owner's transcript.
 - **Its grant is capped by what its owner holds**, at all times: when the owner narrows, so do the sessions it manages. Each list is the intersection of the two, each level the lower, and a checkout it
   can't push to fits under any checkout, as does a pull request's own branch under an owner on a new branch when the pull
   request is the owner's own (one it or its engineer opened, or the one it is on), never one a maintainer names. A workflow that needs more than that waits for an approval above the owner

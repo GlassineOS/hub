@@ -313,8 +313,11 @@ number, as in "Launch (005) FR-012".
   the initial context; `returns`, the shape of the result; and `on_exit` (stop, keep, or hand over to the next
   state).
 - **FR-041**: `with` holds only named references the hub fills in from facts: the issue, the pull request, the
-  diff since the last round, the owner's summary, notes topics, a brief template with slots. It never copies
-  free text from a transcript; the owner's summary is passed as data (FR-017).
+  diff since the last round, the owner's summary, the owner's briefing, notes topics, a brief template with slots.
+  It never copies free text from a transcript; the owner's summary is passed as data (FR-017). The owner's briefing
+  is what the owner's start carried besides its prompt: the starter's notes and pins, and the planner's briefing,
+  docs and steps, each marked as whose words it is, as in the owner's own first prompt. A session that starts by
+  itself as its owner starts gets it, so the owner never has to pass it on.
 - **FR-042**: What a managed session returns, in the shape its `returns` names, is a fact for its owner's exits;
   its return and its end are signals to its owner.
 - **FR-043**: A managed session's grant is its workflow's, capped at its owner's effective grant. A workflow that

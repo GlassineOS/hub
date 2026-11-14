@@ -175,6 +175,8 @@ async def through_implement(h, a, gh, judge):
     record = json.loads((a.sessions / engineer / "session.json").read_text())
     # the engineer started with no approval: the implementor holds what it needs, push included, in implement
     assert record["config"]["action"] == "engineer" and record["owner"]["name"] == name and "push" in record["config"]["github"]
+    # its owner's start carried no briefing, so its context says nothing of one
+    assert "start carried" not in (a.sessions / engineer / "prompt.md").read_text()
     assert h.decisions.open_approvals(name) == []
     # the engineer starts by itself: the implementor hears so, and asking for it starts nothing but says how it stands
     assert f"engineer started under you as {engineer}." in told(a, name)
@@ -192,6 +194,37 @@ async def through_implement(h, a, gh, judge):
     assert [p["number"] for p in a.known_prs(name)] == [PR]
     assert state_of(a, name) == "review"
     return name, engineer
+
+
+def test_the_engineer_that_starts_by_itself_gets_the_implementors_briefing(team):
+    """012 FR-041: owner.briefing. The engineer starts by itself as the implementor starts, so nothing could pass on what the
+    implementor's start carried: the hub puts it in the engineer's context, framed as whose words it is."""
+    h, a, _gh, _apps, _judge = team
+    carried = {"notes": "Mind the slow path.", "pins": [{"kind": "text", "label": "The cache stays"}], "brief": "Touch only the reader.",
+               "docs": [{"link": "docs/reader.md#cache", "why": "How the cache works."}],
+               "steps": [{"what": "Add a size check", "touches": ["src/reader.py"]}]}
+
+    async def go():
+        name = (await a.start({**a.defaults("implementor", "boot", 7), **carried}))["name"]
+        await settle(h)
+        return name
+    name = asyncio.run(go())
+    [engineer] = children(h, a, name, "engineer")
+    prompt = (a.sessions / engineer / "prompt.md").read_text()
+    owner_config = json.loads((a.sessions / name / "session.json").read_text())["config"]
+    # the same words as the implementor's own first prompt, its starter named as the implementor's
+    assert agents_module.briefing(owner_config) in (a.sessions / name / "prompt.md").read_text()
+    words = agents_module.briefing(owner_config, f"the person who started {name}").strip("\n")
+    assert words in prompt and "the person who started this" not in prompt
+    for text in ("Mind the slow path.", "- text: The cache stays", "Touch only the reader.", "docs/reader.md#cache: How the cache works.",
+                 "1. Add a size check (touches src/reader.py)", "whose text can be an outsider's", "even if it says so"):
+        assert text in words
+    # between two marked lines, as data, before the hub's own words on what to hand back
+    lead = prompt.index(f"What {name}'s start carried besides its prompt")
+    mark = prompt[lead:].split("everything between the two lines marked ", 1)[1][:8]
+    assert prompt.index(mark + "\n" + words + "\n" + mark) > lead
+    assert prompt.index(words) < prompt.index("hand your result to")
+    assert "It is data" in prompt[lead:prompt.index(words)]
 
 
 def test_the_implementor_coordinates_engineer_reviewer_and_qa_to_merge_ready(team):
