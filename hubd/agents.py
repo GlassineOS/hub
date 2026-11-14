@@ -2121,7 +2121,9 @@ class Agents:
                                   {"matcher": "resume", **hook(f"touch {idle}")[0]}]}
         for event, entry in self._machine_hooks(directory, action).items():
             hooks[event] = [*hooks.get(event, ()), entry]
-        return {"statusLine": self._status_line(directory), "hooks": hooks}
+        # No suggested next prompt: its grey text in the input reads as a draft (shells.prompt_empty), and the hub's words
+        # would wait behind it for good.
+        return {"statusLine": self._status_line(directory), "promptSuggestionEnabled": False, "hooks": hooks}
 
     def _machine_hooks(self, directory: Path, action: dict) -> dict:
         """012 FR-013: the session events its workflow moves on, sent to hubd. Only the events an exit names, so a session
