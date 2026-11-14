@@ -6,6 +6,7 @@ reports that events overtook are withdrawn, by the hub on a move or by their rep
 The hub is real behind hubd's ops, as in test_personas_flow; the terminal, GitHub and the judge are faked."""
 import asyncio
 import json
+import os
 import time
 
 import pytest
@@ -97,7 +98,7 @@ def test_a_done_engineer_whose_checks_fail_is_resumed_in_fix_with_the_failing_ru
         assert {"list_runs", "get_run", "get_run_log"} <= set(record(a, engineer)["config"]["hub_tools"])
         # the idle implementor is woken once, with the return's values and the move together
         mine = [w for who, w in sent if who == name]
-        assert mine == [f"{engineer}, your engineer, handed back: status done, 1 line of summary."], mine
+        assert mine == [f"{engineer}, your engineer, handed back: status done, 1 line of summary. {managed_module.MOVED_WORDS}"], mine
         return name
     name = asyncio.run(go())
     assert [(m["from"], m["to"]) for m in personas.history(a, name)["moves"]] == [("implement", "fix")]
@@ -375,6 +376,98 @@ def test_a_when_judged_this_round_or_a_start_without_one_is_not_put_as_unjudged(
 
 # --- 4. reports overtaken by events ---------------------------------------------------------------------------------------
 
+# --- a move's words reach an idle session -------------------------------------------------------------------------------
+
+async def kept(h, a, name):
+    """The wake on entering qa went as it should."""
+    return lambda: None
+
+
+def old_idle(a, name, ago=3600.0):
+    """At its prompt for a while: its turn ended `ago` seconds back."""
+    idle = a.sessions / name / IDLE_FILE
+    idle.touch()
+    then = time.time() - ago
+    os.utime(idle, (then, then))
+
+
+def test_an_idle_owner_moved_to_merge_ready_on_its_turns_end_is_woken_for_its_instructions_once(team):
+    """The live case: qa's `when` judged no on the owner's turn end moves it to merge-ready, a final state whose
+    instructions ask for the merge. Its prompt gets the hub's fixed words; the instructions wait in its turn."""
+    h, a, gh, _apps, judge = team
+
+    async def go():
+        name = await in_qa_unjudged(h, a, gh, judge, kept)
+        sent = watch_sends(a)
+        judge.yes = set()
+        (a.sessions / name / IDLE_FILE).touch()
+        await base.turn_ends(h, a, name)
+        assert state_of(a, name) == "merge-ready"
+        assert [w for who, w in sent if who == name] == [managed_module.MOVED_WORDS]
+        assert "Workflow: now in merge-ready." in told(a, name) and "`merge_pr`" in told(a, name)
+        old_idle(a, name)  # its turn didn't come (the paste went nowhere): the tick doesn't send it twice
+        await h.managed.watch()
+        await settle(h)
+        assert [w for who, w in sent if who == name] == [managed_module.MOVED_WORDS]
+    asyncio.run(go())
+
+
+def test_a_session_at_work_when_it_moved_is_woken_once_its_turn_ends_and_not_before(team, monkeypatch):
+    h, a, gh, _apps, judge = team
+
+    async def go():
+        name = await in_qa_unjudged(h, a, gh, judge, kept)
+        sent = watch_sends(a)
+        (a.sessions / name / IDLE_FILE).unlink(missing_ok=True)  # at work
+        a.machines.move(name, "merge-ready", "hand", who="you")
+        await settle(h)
+        assert state_of(a, name) == "merge-ready" and "Workflow: now in merge-ready." in told(a, name)
+        await h.managed.watch()
+        await settle(h)
+        assert [w for who, w in sent if who == name] == []  # nothing typed into a turn
+        (a.sessions / name / IDLE_FILE).touch()
+        await h.managed.watch()  # its turn has just ended: the pass that end started may move it again
+        await settle(h)
+        assert [w for who, w in sent if who == name] == []
+        old_idle(a, name)
+        a._sends[name] = ["How does it stand?"]  # a person's words on their way: the turn they begin reads it
+        a._from[name] = [None]
+        await h.managed.watch()
+        assert [w for who, w in sent if who == name] == []
+        a._sends.pop(name)
+        a._from.pop(name)
+        await h.managed.watch()
+        await settle(h)
+        assert [w for who, w in sent if who == name] == [managed_module.MOVED_WORDS]
+        old_idle(a, name)
+        await h.managed.watch()  # once a move
+        await settle(h)
+        assert [w for who, w in sent if who == name] == [managed_module.MOVED_WORDS]
+    asyncio.run(go())
+
+
+def test_words_its_turn_read_or_a_relaunch_under_way_hold_the_ticks_wake_back(team):
+    h, a, gh, _apps, judge = team
+
+    async def go():
+        name = await in_qa_unjudged(h, a, gh, judge, kept)
+        sent = watch_sends(a)
+        (a.sessions / name / IDLE_FILE).unlink(missing_ok=True)
+        a.machines.move(name, "merge-ready", "hand", who="you")
+        await settle(h)
+        old_idle(a, name)
+        h.managed.relaunching = lambda who: who == name  # its move relaunches it: the wake comes after
+        await h.managed.watch()
+        await settle(h)
+        assert [w for who, w in sent if who == name] == []
+        h.managed.relaunching = lambda who: False
+        (a.sessions / name / OUTCOMES_FILE).unlink()  # a turn of its own read them meanwhile
+        await h.managed.watch()
+        await settle(h)
+        assert [w for who, w in sent if who == name] == []
+    asyncio.run(go())
+
+
 async def report(h, a, name, evidence="The engineer is still working; pr.checks has no answer yet."):
     got = await h.request({"op": "managed.report", "agent_token": token_of(a, name), "kind": "blocker",
                            "evidence": evidence, "proposal": "Wait for it."})
@@ -534,6 +627,7 @@ def test_a_widening_move_clears_last_rounds_returns_at_once(team):
         assert state_of(a, name) == "review"
         h.effects.relaunch_wait = 120
         (a.sessions / name / IDLE_FILE).unlink(missing_ok=True)  # in a turn: its relaunch waits for its prompt
+        sent, launches = watch_sends(a), a.shells.made.count(name)
         gh.pr_more = {"statusCheckRollup": FAILING}
         assert (await h.request({"op": "feed.record", "events": [ev("checks", "failing")]}))["kept"] == 1
         for _ in range(4):
@@ -546,9 +640,14 @@ def test_a_widening_move_clears_last_rounds_returns_at_once(team):
             await h.machine_run.idle()
             await asyncio.sleep(0)
         assert state_of(a, name) == "fix"  # no hand-back in this round yet
+        assert [w for who, w in sent if who == name] == []  # nothing typed into its turn, nor before its relaunch
         (a.sessions / name / IDLE_FILE).touch()
         await settle(h)
         assert [(m["from"], m["to"]) for m in personas.history(a, name)["moves"]][-1] != ("fix", "review")
+        # relaunched at its prompt, then woken there once for fix's instructions, which wait in its turn
+        assert a.shells.made.count(name) == launches + 1
+        assert [w for who, w in sent if who == name] == [managed_module.MOVED_WORDS]
+        assert "Workflow: now in work › fix." in told(a, name)
     asyncio.run(go())
 
 

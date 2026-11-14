@@ -215,6 +215,7 @@ TOOL_CAPABILITIES = {
     "edit_issue": ("issues.write",), "tick_item": ("issues.write",), "edit_comment": ("issues.write",),
     "reopen_issue": ("issues.write",), "label_issue": ("issues.label",), "comment_pr": ("pr.comment",),
     "review_pr": ("pr.review",), "merge_pr": ("merge",), "close_pr": ("pr.write",),
+    "mark_ready": ("pr.write",),
     "rerun": ("runs.rerun",), "cancel_run": ("runs.cancel",), "dispatch_workflow": ("runs.trigger",),
 }
 # Writes no capability name covers: the organization's project board is an organization permission.

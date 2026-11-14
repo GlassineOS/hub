@@ -2121,8 +2121,8 @@ class Agents:
                                   {"matcher": "resume", **hook(f"touch {idle}")[0]}]}
         for event, entry in self._machine_hooks(directory, action).items():
             hooks[event] = [*hooks.get(event, ()), entry]
-        # No suggested next prompt: its grey text in the input reads as a draft (shells.prompt_empty), and the hub's words
-        # would wait behind it for good.
+        # No suggested next prompt: the input holds only what was typed. shells.prompt_empty reads its dim text as empty
+        # too, where one shows anyway.
         return {"statusLine": self._status_line(directory), "promptSuggestionEnabled": False, "hooks": hooks}
 
     def _machine_hooks(self, directory: Path, action: dict) -> dict:

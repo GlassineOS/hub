@@ -48,7 +48,7 @@ personas = ["engineer"]
 tools = ["Read", "Grep", "Glob", "Skill", "AskUserQuestion", "Bash"]
 hub_tools = ["get_issue", "get_pr", "get_pr_threads", "get_pr_diff", "list_runs", "get_run", "get_run_log", "docs_search",
              "work_search", "request_repository", "code_search", "map_overview", "map_definition", "map_usages", "map_string",
-             "request_move", "list_workflows", "work_status", "docs_index_status", "plan_work", "submit_result"]
+             "request_move", "list_workflows", "work_status", "docs_index_status", "plan_work", "submit_result", "mark_ready"]
 checkout = "new-branch"
 github = ["read", "issues.comment", "pr.write"]
 # Held from the start, so merge-ready asks no confirm: a call shows a card, and allowing it is the merge decision.
@@ -75,7 +75,7 @@ move = "on-request"
 
 [state.review]
 parent = "work"
-instructions = """Your pull request waits for review. Mark it ready (`gh pr ready`) and ask for a review. Don't change the \
+instructions = """Your pull request waits for review. Mark it ready with `mark_ready` and ask for a review. Don't change the \
 branch now: you can't push in this state. Answer questions on the pull request if you are asked. When a review asks for \
 changes you move to fix; when it approves and the checks pass, to merge-ready. A reviewer session starts under this state and hands its verdict to the hub, which counts like a review, with its findings, which come in your turn: reports it sends you come in your turns, to answer with `answer_report`."""
 [[state.review.manages]]
@@ -125,12 +125,12 @@ move = "on-request"
 
 [state.merge-ready]
 final = true
-instructions = """The pull request is approved and its checks pass. Merging is the maintainer's decision: call `merge_pr` with \
-the pull request's head, which asks them on a card, and merge only if they allow it. If the head moves, ask again. Change \
-nothing else."""
+instructions = """The pull request is approved and its checks pass. If it is still a draft, mark it ready with `mark_ready`: a \
+draft doesn't merge. Merging is the maintainer's decision: call `merge_pr` with the pull request's head, which asks them on \
+a card, and merge only if they allow it. If the head moves, ask again. Change nothing else."""
 [state.merge-ready.grant]
 tools = ["Read", "Grep", "Glob", "AskUserQuestion"]
-hub_tools = ["get_issue", "get_pr", "get_pr_threads", "docs_search", "work_search", "request_repository"]
+hub_tools = ["get_issue", "get_pr", "get_pr_threads", "docs_search", "work_search", "request_repository", "mark_ready"]
 asks_first = ["merge_pr"]
 checkout = "new-branch"
 
