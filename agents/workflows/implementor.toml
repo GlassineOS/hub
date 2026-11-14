@@ -389,7 +389,9 @@ on = ["hub:managed.return"]
 final = true
 instructions = """The pull request is reviewed, and run where it is user-facing; its checks pass. If it is still a draft, mark it \
 ready with `mark_ready`: a draft doesn't merge. Merging is the maintainer's decision: call `merge_pr` with the pull request's \
-head, which asks them on a card, and merge only if they allow it. If the head moves, ask again. Change nothing else."""
+head. The call comes back at once saying it waits on their card: end your turn then, and the hub wakes you with the answer. \
+On a yes, call `merge_pr` again with exactly the same arguments, once; on a no, their words say why. If the head moves, \
+call it with the new head, which asks again. Change nothing else."""
 [state.merge-ready.grant]
 tools = ["Read", "Grep", "Glob", "AskUserQuestion"]
 hub_tools = ["get_issue", "get_pr", "get_pr_threads", "docs_search", "work_search", "request_repository", "mark_ready"]

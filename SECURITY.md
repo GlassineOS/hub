@@ -665,7 +665,11 @@ The limits:
 ## Editing issues and comments
 
 `edit_issue`, `tick_item` and `edit_comment` are on the Steward's `asks_first` list and on no other action's, and none is on any allowed
-list: each call asks you on a card, and the tool server checks your yes (`ask.grant_use`) before the app runs it. A planner, a locked session that
+list: each call asks you on a card, and the tool server checks your yes (`ask.grant_use`) before the app runs it. For a locked
+session the card is a `machine.ask` decision, made by hubd alone and lasting until you answer it: the call itself is refused at
+once with the card's id, and a yes lets the same call, with the same arguments, through once when the session makes it again
+(the hook allows it and the one-call yes is made then). A move to a state that doesn't ask about the tool withdraws the card
+and an unused yes. Allowing a merge records your merge decision for that head only. A planner, a locked session that
 can post, and a read-only one never see them. Full sessions list every tool, as they do any other. A test reads every action's grant for this.
 They are marked as hard to undo. What they refuse is checked in the app, on the text GitHub has at that moment and not on the work store's:
 
