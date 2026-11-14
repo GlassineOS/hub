@@ -20,7 +20,11 @@ a signal that arrives during a pass gets one more pass after it. A pass tries th
   comes back through `approved`); otherwise the instance moves by the machine.
 
 An exit with `move = "on-request"` is tried only when the session asks for it (`request`, the `request_move` tool): the
-request stands in for the judge, and the exit's `requires` and `approve` are checked as above.
+request stands in for the judge, and the exit's `requires` and `approve` are checked as above. A session asks with its
+reasons and, where the state it goes to manages sessions, a hand-over for them (FR-027): both are kept with the move, in the
+log and on the instance, from where the new state's sessions get the hand-over as data (`with = ["handover"]`, FR-041).
+
+An exit that requires `waived.<state>` uses the waiver up when it is taken (FR-028).
 
 A fact the hub can't tell is missing from the facts, so a requirement on it doesn't hold either way. Every pass that tried
 an exit is logged, with each check and the value it saw. This module only decides: what a move does to the running
@@ -375,19 +379,21 @@ class Runner:
                 log.exception("%s: its pull requests couldn't be looked up", name)
         return {**inst.facts(self.machines.clock()), **self._facts_of(name, record)}
 
-    def _ask(self, name, record, state, version, index, exit_, checks) -> None:
+    def _ask(self, name, record, state, version, index, exit_, checks, asked=None) -> None:
         if self.on_blocked is None:
             return
         try:
             self.on_blocked(name, {"session_id": record.get("session_id"), "state": state, "version": version, "exit": index,
-                                   "to": exit_.to, "approve": exit_.approve, "checks": checks})
+                                   "to": exit_.to, "approve": exit_.approve, "checks": checks, **({"asked": asked} if asked else {})})
         except Exception:  # noqa: BLE001 — the evaluation stands and is logged; the card is tried again on the next signal
             log.exception("%s: its approval couldn't be asked for", name)
 
     # --- moves the session or the maintainer asks for -----------------------------------
-    async def request(self, name: str, session_id, to, signal: str = "request") -> dict:
+    async def request(self, name: str, session_id, to, signal: str = "request", reasons=None, handover=None, by: str = "session") -> dict:
         """The session asks to take one of its state's `move = "on-request"` exits to `to`. Only its own conversation's
-        token gets here (the caller checks it); the request is the proposal, and `requires` and `approve` decide."""
+        token gets here (the caller checks it); the request is the proposal, and `requires` and `approve` decide. `reasons`
+        say why; `handover` is what the sessions the new state manages are to do this round and leave alone, needed where it
+        manages any (FR-027). `by`: whose words they are ("session", or "maintainer" for a start a person sent)."""
         lock = self._locks.setdefault(name, asyncio.Lock())
         async with lock:
             try:
@@ -407,6 +413,17 @@ class Runner:
                 can = sorted({e.to for _i, e in offered})
                 return {"moved": False, "why": f"no exit of {here} to {str(to)[:64]!r} moves on request"
                         + (f"; those that do go to {', '.join(can)}" if can else "; none of its exits does")}
+            words = {k: v.strip() if isinstance(v, str) else v for k, v in (("reasons", reasons), ("handover", handover))}
+            for key, value in words.items():
+                if value is not None and not isinstance(value, str):
+                    return {"moved": False, "why": f"{key} is text"}
+            if by == "session" and not words["reasons"]:
+                return {"moved": False, "why": "say why: a move on request needs its reasons"}
+            managing = machine.entering_manages(d, state, to)
+            if by == "session" and managing and not words["handover"]:
+                return {"moved": False, "why": f"{to} manages {', '.join(managing)}: give a hand-over saying what they are "
+                                               "to do this round and what to leave alone"}
+            asked = {"reasons": words["reasons"] or None, "handover": words["handover"] or None, "by": by}
             facts = await self._facts_now(name, record, inst)
             rows, chosen = [], None
             for i, e in offered:
@@ -421,10 +438,10 @@ class Runner:
             blocked, result = None, None
             if chosen and chosen[1].approve != "none":
                 blocked = f"approve {chosen[1].approve}"
-                self._ask(name, record, state, version, chosen[0], chosen[1], rows[-1]["checks"])
+                self._ask(name, record, state, version, chosen[0], chosen[1], rows[-1]["checks"], asked)
             elif chosen:
-                result = self._move(name, state, version, chosen[1])
-            self._log(record, name, [signal], state, version, d, None, None, None, chosen, rows, blocked, result)
+                result = self._move(name, state, version, chosen[1], asked=asked)
+            self._log(record, name, [signal], state, version, d, None, None, None, chosen, rows, blocked, result, asked=asked)
         if result is not None:
             if result.get("needs_confirm"):
                 return {**result, "why": "the move waits for the maintainer's confirm: the new state gives what you haven't held"}
@@ -453,8 +470,9 @@ class Runner:
             facts = await self._facts_now(name, record, inst)
             reqs = [check(expr, facts) for expr in exit_.requires]
             row = {"exit": index, "to": exit_.to, "decided_by": exit_.decided_by, "checks": reqs, "holds": all(r["holds"] for r in reqs)}
-            result = self._move(name, inst.state, inst.version, exit_, who) if row["holds"] else None
-            self._log(record, name, ["hub:approved"], inst.state, inst.version, d, None, None, None, (index, exit_), [row], None, result)
+            asked = wait.get("asked") if isinstance(wait.get("asked"), dict) else None
+            result = self._move(name, inst.state, inst.version, exit_, who, asked) if row["holds"] else None
+            self._log(record, name, ["hub:approved"], inst.state, inst.version, d, None, None, None, (index, exit_), [row], None, result, asked=asked)
         if result is None:
             failed = [t["fact"] for c in reqs if not c["holds"] for t in c["terms"]]
             raise MachineError(f"its requirements don't hold any more: {', '.join(dict.fromkeys(failed))}")
@@ -510,18 +528,19 @@ class Runner:
             return ""
         return turn if isinstance(turn, str) else ""
 
-    def _move(self, name: str, state: str, version: str, exit_: machine.Exit, who: str | None = None) -> dict:
+    def _move(self, name: str, state: str, version: str, exit_: machine.Exit, who: str | None = None, asked: dict | None = None) -> dict:
         """Only if nothing moved the instance while the judge thought or the facts were looked up. No await between the
-        look and the move. `who` agreed to it, for an approved exit."""
+        look and the move. `who` agreed to it, for an approved exit; `asked`: the words it was requested with."""
         try:
             _record, inst = self.machines.load(name)
             if (inst.state, inst.version) != (state, version) or inst.paused or inst.pending:
                 return {"moved": False, "stale": "the machine changed during the evaluation"}
-            return self.machines.move(name, exit_.to, by="machine", enter=exit_.enter, who=who, why=reason_of(exit_))
+            return self.machines.move(name, exit_.to, by="machine", enter=exit_.enter, who=who, why=reason_of(exit_),
+                                      asked=asked, spend=waivers_of(exit_))
         except (MachineError, OSError) as e:
             return {"moved": False, "error": str(e)}
 
-    def _log(self, record, name, signals, state, version, d, verdict, fold, failed, chosen, rows, blocked, result, latency=None) -> None:
+    def _log(self, record, name, signals, state, version, d, verdict, fold, failed, chosen, rows, blocked, result, latency=None, asked=None) -> None:
         proposal = None
         exits = machine.exits_of(d, state)
         if verdict is not None and verdict.exit is not None and 0 <= verdict.exit < len(exits):
@@ -531,6 +550,8 @@ class Runner:
         checks = {"exits": rows}
         if blocked:
             checks["blocked"] = blocked
+        if asked:  # the requester's words, kept as data (FR-027)
+            checks["asked"] = asked
         if result is not None:
             checks["move"] = {k: result[k] for k in ("moved", "to", "needs_confirm", "stale", "error") if k in result}
             if result.get("paused") and not result.get("moved"):
@@ -558,6 +579,18 @@ def reason_of(exit_: machine.Exit) -> str:
     if exit_.decided_by == "judge" and exit_.when.strip():
         return " ".join(exit_.when.split())
     return ", ".join(exit_.requires) or {"counter": "a counter", "facts": "its facts"}.get(exit_.decided_by, exit_.decided_by)
+
+
+def waivers_of(exit_: machine.Exit) -> list[str]:
+    """The states whose waiver an exit relies on (`waived.<state>` in its requires): taking it uses them up (FR-028)."""
+    out = []
+    for expr in exit_.requires:
+        try:
+            out += [t.name.split(".", 1)[1] for t in machine.parse_requires(expr).terms
+                    if t.name.startswith("waived.") and (t.op, t.value) in (("==", True), ("!=", False))]
+        except machine.DefinitionError:
+            continue
+    return list(dict.fromkeys(out))
 
 
 def _item(payload) -> tuple[str, int] | None:

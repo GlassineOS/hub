@@ -258,7 +258,7 @@ def test_implement_runs_from_a_branch_through_review_rounds_to_its_bound(hub):
             assert push_allowed(apps.asked[-1]) and a.shells.killed.count(name) == round_
             assert "push" in json.loads((a.sessions / name / "session.json").read_text())["config"]["github"]
             # the reviewed head's checks still pass, but nothing was pushed since the review: it can't go back yet
-            got = await h.request({"op": "session.request_move", "agent_token": token_of(a, name), "to": "review"})
+            got = await h.request({"op": "session.request_move", "reasons": "Ready.", "handover": "Read it all.", "agent_token": token_of(a, name), "to": "review"})
             assert not got["moved"] and "pr.reviewed" in got["why"]
             await turn_ends(h, a, name)
             assert state_of(a, name) == "fix"
@@ -268,7 +268,7 @@ def test_implement_runs_from_a_branch_through_review_rounds_to_its_bound(hub):
             await feed(h, ev("head", old_head=HEAD, new_head=f"{round_}" * 40), ev("checks", "passing"))
             if round_ == 2:
                 assert state_of(a, name) == "fix"
-                got = await h.request({"op": "session.request_move", "agent_token": token_of(a, name), "to": "review"})
+                got = await h.request({"op": "session.request_move", "reasons": "Ready.", "handover": "Read it all.", "agent_token": token_of(a, name), "to": "review"})
                 await settle(h)
                 assert got["ok"] and got["moved"]
             assert state_of(a, name) == "review", round_
@@ -295,7 +295,7 @@ def test_a_session_moves_on_its_own_request_when_the_facts_hold(hub):
 
     async def go():
         name = (await a.start(a.defaults("implement", "boot", 7)))["name"]
-        ask = lambda to: h.request({"op": "session.request_move", "agent_token": token_of(a, name), "to": to})  # noqa: E731
+        ask = lambda to: h.request({"op": "session.request_move", "reasons": "Ready.", "handover": "Read it all.", "agent_token": token_of(a, name), "to": to})  # noqa: E731
         got = await ask("review")
         assert got["ok"] and not got["moved"] and "pr.open" in got["why"]
         got = await ask("merge-ready")
@@ -305,8 +305,8 @@ def test_a_session_moves_on_its_own_request_when_the_facts_hold(hub):
         got = await ask("review")
         await settle(h)
         assert got["moved"] and state_of(a, name) == "review" and judge.calls == 0
-        got = await ask("fix")
-        assert not got["moved"] and "none of its exits does" in got["why"]
+        got = await ask("fix")  # review has no exit moved on request here, so it doesn't hold the tool (FR-027)
+        assert got["refused"] and "request_move isn't held in work › review: none of its exits moves on request" in got["error"]
         return name
     name = asyncio.run(go())
     assert [e["signal"] for e in history(a, name)["evaluations"] if not e["signal"].startswith("hub:managed")][-1] == "request"

@@ -584,7 +584,7 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
     # 012 FR-026: a session's workflow machine, for the maintainer only. Not in the tool server: an agent doesn't move its
     # own machine by hand. Moves here are by hand and logged as the login's user, which hubd takes from the token, not from
     # the request.
-    machine_moves = {"move": ("to", "enter"), "confirm": ("pending", "accept"), "rollback": (), "pause": ("paused",)}
+    machine_moves = {"move": ("to", "enter"), "confirm": ("pending", "accept"), "rollback": (), "pause": ("paused",), "waive": ("state", "waived")}
 
     async def machine_get(r, _b, token):
         reply = await hubd.call(op="machine.get", token=token, name=p(r, "name"))

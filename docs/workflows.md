@@ -60,7 +60,11 @@ The exits of a state are tried in order, its own before its parents', and the fi
   A fact the hub can't tell holds neither way. A judge never decides a fact.
 - `on`: the signals on which the exit is tried. Nothing else wakes it, so a session with no matching signal costs nothing.
 - `move`: `auto`, or `on-request`: tried only when the session asks with the `request_move` tool. The request stands in for
-  the judge; `requires` and `approve` still decide. Such an exit needs no `on`.
+  the judge; `requires` and `approve` still decide. Such an exit needs no `on`. The session names the target, its reasons,
+  and, where the target brings in managed sessions, a hand-over: what they are to do this round and what to leave alone.
+  Both are kept with the move (the machine log, the instance) as the session's words; the new state's sessions get the
+  hand-over with `with = ["handover"]`. The tool comes with the state: a session holds `request_move` exactly in the states
+  with such an exit, whatever a grant lists.
 - `approve`: `none`, or a level that must agree first: `me` (the maintainer), `owner`, `maintainer`, `steward`. An exit
   that holds and needs one doesn't move; it becomes a "Workflow approval" card in Needs you, and approving it makes the
   move if the session is still there and `requires` still holds. `owner` asks the session that manages it, as an approval
@@ -111,7 +115,8 @@ Review pull request #{number} of GlassineOS/{repo} for {owner}. The pull request
   its failing check runs with their links (`checks.failing`, read with `get_run_log`), notes topics (`notes:<topic>`),
   with `owner.summary` the owner's rolling summary between marks, as data, and with `owner.briefing` what the owner's start
   carried besides its prompt (the starter's notes and pins, the planner's briefing, docs and steps), as the
-  owner's first prompt has them, between marks; nothing when the start carried none. Never the owner's transcript.
+  owner's first prompt has them, between marks; nothing when the start carried none; with `handover` the hand-over its owner
+  gave with the request that moved it into this state, marked as its words. Never the owner's transcript.
 - **Its grant is capped by what its owner holds**, at all times: when the owner narrows, so do the sessions it manages. Each list is the intersection of the two, each level the lower, and a checkout it
   can't push to fits under any checkout, as does a pull request's own branch under an owner on a new branch when the pull
   request is the owner's own (one it or its engineer opened, or the one it is on), never one a maintainer names. A workflow that needs more than that waits for an approval above the owner
@@ -124,7 +129,11 @@ Review pull request #{number} of GlassineOS/{repo} for {owner}. The pull request
 - **When the owner ends**, crashes or is lost, its managed sessions end with it; hubd checks on start and every 30 seconds.
 - **Reports**: a managed session sends a `blocker` or `decision` up with `report_up` (evidence and a proposal); the owner
   answers with `answer_report` (`approve` or `deny`, a note) or sends it on with `report_up` and `forward`. A report from the
-  top of the chain is a decision in Needs you. Every report and answer is in the machine log.
+  top of the chain is a decision in Needs you. Every report and answer is in the machine log. A report may propose an
+  action (`action`): a move of its own instance or its owner's (`"for": "owner"`) with a hand-over, a start of one of that
+  instance's managed entries, or a waiver. It is checked when sent; a session above that approves it sends it on, and the
+  maintainer's yes carries it out as a move by hand. If it no longer holds then, the card says why and the report stays open.
+  A report with no action only answers.
 - **Reports overtaken by events.** An open report is withdrawn when its session's machine moves, unless the state it moves
   to waits on `report.answered`: the session is told which, a card it raised ends, and every session the report went
   through hears it. A session withdraws one of its own reports with `withdraw_report` (its id and why), and no one else's.
@@ -224,7 +233,9 @@ Facts: `pr.open`, `pr.merged`, `pr.checks` (`pass`, `fail`, `pending`), `pr.revi
 there, started this round, or its start waits for an approval: so an exit can wait for it), `when.<entry>` (what the judge
 said of the entry's `when` this round; unknown until it is judged, so `not when.qa` holds only when it was judged not to
 hold, never because the session couldn't start), `report.answered` (the session's last report up has its answer),
-`design.accepted` (a design session it manages has its pull request merged; unknown before one is open), and for a
+`design.accepted` (a design session it manages has its pull request merged; unknown before one is open), `waived.<state>`
+(the maintainer waived that state for this round, from the session's machine panel or by approving a report's proposal; it
+lapses when the state is entered, when an exit that requires it is taken, and when the work ends), and for a
 Workflow author's drafts `draft.ok`, `draft.sensitive`, `draft.reviewed` (the newest draft went to a reviewer) and
 `drafts.failed` (failed drafts and refused calls in a row in the current round of its state). An owner that carries its
 managed session's pull request has that one's facts first, before any it opened itself. A pull request's checks and review count only since its newest

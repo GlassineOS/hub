@@ -258,7 +258,8 @@ class Effects:
         to = path_of(d, wait["to"]) if wait["to"] in d.states else wait["to"]
         scope = {"session": name, "session_id": wait["session_id"], "state": wait["state"], "version": wait["version"],
                  "exit": wait["exit"], "to_state": wait["to"], "from": path_of(d, wait["state"]), "to": to,
-                 "level": LEVELS.get(level, level), "approve": level, "checks": wait["checks"]}
+                 "level": LEVELS.get(level, level), "approve": level, "checks": wait["checks"],
+                 **({"asked": wait["asked"]} if wait.get("asked") else {})}  # the requester's words, for the move (FR-027)
         why = f"{name}'s workflow can move it from {scope['from']} to {to}: every requirement holds, and its workflow leaves this move to {scope['level']}."
         if level != "me":
             why += f" There is no {scope['level']} session that can answer, so it asks you."
@@ -287,10 +288,10 @@ class Effects:
         scope = record["scope"]
         if self.decisions.current_state(record) != "requested":
             if scope.get("type") and self.managed is not None and self.managed.withdrawn_card(record):
-                return self.managed.answer_card(record, accept, who, words)  # the answer still reaches the reporter, as a note
+                return await self.managed.answer_card(record, accept, who, words)  # the answer still reaches the reporter, as a note
             raise DecisionError("that isn't waiting for an answer any more")
         if scope.get("type") and self.managed is not None:  # a report or a managed start: the chain's own
-            return self.managed.answer_card(record, accept, who, words)
+            return await self.managed.answer_card(record, accept, who, words)
         if self.agents.session_id_of(scope["session"]) != scope["session_id"]:
             self.decisions.settle(decision_id, False, "the session it was for has gone")
             raise DecisionError("the session it was for has gone")
@@ -301,7 +302,7 @@ class Effects:
         self._answering = decision_id
         try:
             result = await self.approve_move(scope["session"], {k: scope[k] for k in ("session_id", "state", "version", "exit")}
-                                             | {"to": scope["to_state"]}, who)
+                                             | {"to": scope["to_state"]} | ({"asked": scope["asked"]} if scope.get("asked") else {}), who)
         except MachineError as e:
             self.decisions.settle(decision_id, False, f"not applied: {e}")
             raise DecisionError(str(e)) from None

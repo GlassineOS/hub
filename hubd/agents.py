@@ -298,12 +298,18 @@ def _may_search_notes(action: dict) -> bool:
             and not set(grant.hub_tools) - (READS_ONLY - {"plan_work"}) - {"submit_drafts"})
 
 
+def _granted(config: dict) -> list[str]:
+    """A config's hub tools as a grant gives them: request_move only ever comes with the state (Agents.chain_tools), so a
+    grant that names it, as definitions did before, doesn't hold it where no exit moves on request (012 FR-027)."""
+    return [t for t in config["hub_tools"] if t != "request_move"]
+
+
 def _session_scope(name: str, config: dict, full: bool, all_repos: bool = False, asks_first=(), instance=None, chain=()) -> dict:
     # A full session has your rights, so a tool list wouldn't hold it to anything.
     # instance: this session and no other that gets its name later (the Steward's is always steward). The Claude session id.
     # reports: the kept reports the person pinned when starting it, the only ones read_report gives it (008 FR-008).
     # chain: the chain tools its place among owners gives it (Agents.chain_tools), on no grant.
-    return {"session": name, "instance": instance, "tools": None if full else [*config["hub_tools"], *asks_first, *chain],
+    return {"session": name, "instance": instance, "tools": None if full else [*_granted(config), *asks_first, *chain],
             "persona": config["persona"], "all_repos": all_repos, "asks_first": list(asks_first),
             "reports": [p["label"] for p in config.get("pins", ()) if p["kind"] == "report"],
             "design": config.get("action") == "design"}  # the design view's tools are its alone (011 FR-014, FR-015)
@@ -1465,9 +1471,10 @@ class Agents:
             return
         full = _full(action)
         asks = list(self._asks_first(config, action) if asks_first is None else asks_first)
-        chain = [t for t in self.chain_tools(directory.name, action) if t not in config["hub_tools"] and t not in asks]
+        granted = _granted(config)
+        chain = [t for t in self.chain_tools(directory.name, action, here=True) if t not in granted and t not in asks]
         _write_private(directory / GRANT_FILE, {"tools": None if full else list(config["tools"]),
-                                                "hub_tools": None if full else [*config["hub_tools"], *(t for t in asks if t not in config["hub_tools"]), *chain],
+                                                "hub_tools": None if full else [*granted, *(t for t in asks if t not in granted), *chain],
                                                 "server": HUB_SERVER})
 
     # --- the chain of owners (012 FR-040 to FR-053) -------------------------------------------
@@ -1514,9 +1521,12 @@ class Agents:
             return None
         return by if isinstance(by, str) and _NAME_RE.fullmatch(by) else None
 
-    def chain_tools(self, name, action: dict | None, owned: bool | None = None) -> list[str]:
+    def chain_tools(self, name, action: dict | None, owned: bool | None = None, here: bool = False) -> list[str]:
         """The chain tools a session has by where it stands (CHAIN_TOOLS). `owned`: whether it has an owner, if its record
-        isn't written yet."""
+        isn't written yet. request_move is among them where its workflow has an exit moved on request: on its launch's list
+        and in its token's scope wherever that is, so a later state can call it without a new launch (Claude Code lists a
+        server's tools once); `here`: only if its current state has one, which is where it holds it (012 FR-027): the
+        grant.json its hook checks on every call, and hubd's own check of the request."""
         if action is None:
             return []
         if owned is None:
@@ -1544,7 +1554,40 @@ class Agents:
                 tools.append("managed_status")
             if any(m.start == "on-request" for m in entries):
                 tools.append("start_managed")
+            leaf = self._leaf_now(inst, d, action) if here else None
+            if any(machine.requests(d, sid) for sid in d.states) and (not here or (leaf is not None and machine.requests(d, leaf))):
+                tools.append("request_move")
         return list(dict.fromkeys(tools))
+
+    @staticmethod
+    def _leaf_now(inst, d, action: dict) -> str | None:
+        """The state a session is in: its instance's, or for one whose instance isn't started yet, the one it starts in."""
+        if inst is not None:
+            return inst.state
+        try:
+            return machine._leaf(d, action.get("state") or d.initial)
+        except (KeyError, TypeError):
+            return None
+
+    def holds_request_move(self, name) -> bool:
+        """Whether the session's current state has an exit it may ask to take: where it holds request_move (FR-027)."""
+        try:
+            inst = self.machines.peek(name) if isinstance(name, str) and _NAME_RE.fullmatch(name) else None
+        except MachineError:
+            return False
+        return inst is not None and bool(machine.requests(inst.definition(), inst.state))
+
+    def request_move_refusal(self, name) -> str:
+        """Why a session doesn't hold request_move: the real reason (FR-054), with where it stands."""
+        try:
+            inst = self.machines.peek(name) if isinstance(name, str) and _NAME_RE.fullmatch(name) else None
+        except MachineError:
+            inst = None
+        if inst is None:
+            return "request_move isn't granted: this session runs no workflow that moves on request"
+        d = inst.definition()
+        here = " › ".join(reversed(machine.ancestors(d, inst.state)))
+        return f"request_move isn't held in {here}: none of its exits moves on request"
 
     async def end_managed(self, name) -> bool:
         """A managed session ends: its terminal goes and its token with it, so it can't return or report any more. Its folder
@@ -2364,7 +2407,8 @@ class Agents:
         # Named here, Read, Grep and Glob would reach every file of this user. Left out, dontAsk
         # gives them the working directory and the checkout, and refuses the rest.
         # Bash stays off this list too: only shell_hook.py's allow, which puts the command in the sandbox, lets one run.
-        allowed = [*(t for t in config["tools"] if t not in FILE_READERS and t != "Bash"), *(_qualified(t) for t in [*config["hub_tools"], *chain])]
+        allowed = [*(t for t in config["tools"] if t not in FILE_READERS and t != "Bash"),
+                   *(_qualified(t) for t in dict.fromkeys([*_granted(config), *chain]))]
         argv += ["--permission-mode", "dontAsk", "--setting-sources", "user", "--strict-mcp-config",
                  "--tools", ",".join(config["tools"]), "--allowedTools", ",".join(allowed)]
         # A session's list of folders can't grow once it runs, so its later snapshots go in one that's there from the start.
