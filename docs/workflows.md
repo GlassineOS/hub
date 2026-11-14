@@ -116,7 +116,9 @@ Review pull request #{number} of GlassineOS/{repo} for {owner}. The pull request
   with `owner.summary` the owner's rolling summary between marks, as data, and with `owner.briefing` what the owner's start
   carried besides its prompt (the starter's notes and pins, the planner's briefing, docs and steps), as the
   owner's first prompt has them, between marks; nothing when the start carried none; with `handover` the hand-over its owner
-  gave with the request that moved it into this state, marked as its words. Never the owner's transcript.
+  gave with the request that moved it into this state, marked as its words; with `returns.<entry>` what that entry's latest
+  session handed back, fields and text lines, from whichever state and round it ran in (a fix engineer reads the review's).
+  Never the owner's transcript.
 - **Its grant is capped by what its owner holds**, at all times: when the owner narrows, so do the sessions it manages. Each list is the intersection of the two, each level the lower, and a checkout it
   can't push to fits under any checkout, as does a pull request's own branch under an owner on a new branch when the pull
   request is the owner's own (one it or its engineer opened, or the one it is on), never one a maintainer names. A workflow that needs more than that waits for an approval above the owner
@@ -266,7 +268,9 @@ this instance waits for the maintainer's confirm, a "Workflow move" card that sh
 later move back into what it held already doesn't ask again. In `implement`, review drops `push` and fix gets it back without
 a confirm, as implement held it. `merge_pr` asks first in every state, so merge-ready needs no confirm: a call shows a card, and allowing it is the merge decision.
 A tool on `asks_first` is held: listed for the session like one on `hub_tools`, but each call asks first. A draft pull request
-doesn't merge, so `mark_ready` (`pr.write`) is on `hub_tools` from `work` to merge-ready, which has no shell. A state's
+doesn't merge, so `mark_ready` (`pr.write`) is on `hub_tools` from `work` to merge-ready. In `implementor`, merge-ready keeps
+the shell and GitHub access of `work`, as its engineer resumes from there in a fix round and is capped at its grant
+meanwhile; in `implement`, merge-ready has no shell. A state's
 instructions that name a tool in backticks the state doesn't hold (its own or its parents' `hub_tools` or `asks_first`) are
 a problem, and the workflow doesn't save or load.
 
@@ -410,7 +414,12 @@ Steps after the first difference are less certain.
   only when the judge found it isn't user-facing; a fail goes to `fix`, which resumes the same engineer, and three fix rounds
   end in `escalated`. Failing checks go to `fix` too, with no confirm: from `implement` once the engineer is done with its
   pull request open, and from `review` and `qa`; the engineer is handed the failing runs. `fix` goes on to `review` only
-  with checks passing; pending checks are a wait. `merge-ready` marks a draft ready with `mark_ready` and asks first with `merge_pr`. The implementor holds a shell, a new branch and `push` in
+  with checks passing; pending checks are a wait. Findings decide a fix round, not the verdict alone: `review`, `qa` and
+  `merge-ready` each have an exit to `fix` the implementor asks for with `request_move` (fewer than three fix rounds), its
+  hand-over naming the findings to take up. With review waived for the round, `fix` goes straight to `merge-ready` once its
+  checks pass. The fix engineer gets the reviewer's, QA's and the designer's last returns and the hand-over. `merge-ready`
+  marks a draft ready with `mark_ready` and asks first with `merge_pr`. It isn't final: failing checks send it to `fix`, and
+  the pull request's merge or close ends the work in `merged` or `closed`. The implementor holds a shell, a new branch and `push` in
   `implement` and `fix` so its engineer starts within its grant; it doesn't edit. When the work meets a design question no
   accepted board answers, a design spike (a full design session on GlassineOS/ui, in force in `implement` only) starts
   after your approval, raises a "Look at the design" card that opens its design view, and the work waits for its pull

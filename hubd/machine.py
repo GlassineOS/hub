@@ -48,7 +48,8 @@ REUSES = ("resume", "fresh")
 ON_EXIT = ("stop", "keep", "handover")
 # handover: what the owner said with the move into this state, when it asked for that move (FR-027, FR-041)
 WITH = ("issue", "pr", "diff", "diff.since_last_round", "owner.summary", "owner.briefing", "checks", "checks.failing", "handover")
-WITH_PREFIXES = ("notes:",)
+# returns.<entry>: what that entry's latest session handed back, fields and text, from whichever state it ran in (FR-041)
+WITH_PREFIXES = ("notes:", "returns.")
 # A `manages` entry's prompt (FR-046): the names it may fill in, each from a fact the hub holds when the session starts or
 # resumes, and the tools a person-started session hands in with, which a managed session never uses: it hands back.
 ENTRY_SLOTS = ("repo", "number", "owner", "head", "checks", "checkout")
@@ -1026,8 +1027,13 @@ def check_entries(d: Definition, need_prompt: bool = True) -> list[Finding]:
     in by a person-started session's tools. need_prompt: an entry without a prompt is a problem too. A version saved before
     entries had prompts still loads and runs (`need_prompt` False there); saving it again needs them."""
     found: list[Finding] = []
+    entries = {m.name for st in d.states.values() for m in st.manages}
     for s in d.states.values():
         for i, m in enumerate(s.manages, 1):
+            for ref in m.with_:
+                if ref.startswith("returns.") and ref[len("returns."):] not in entries:
+                    found.append(Finding("problem", f"state.{s.id}.manages.{i}.with", f"{ref}: no entry of this workflow is named "
+                                                                                       f"{ref[len('returns.'):]}"))
             where = f"state.{s.id}.manages.{i}.prompt"
             if not m.prompt.strip():
                 if need_prompt:
