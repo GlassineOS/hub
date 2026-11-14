@@ -88,7 +88,8 @@ returns = { verdict = ["pass", "fail"], findings = "text-list" }  # what it hand
 ```
 
 - **What a managed session starts with** is its action's prompt and a hub-written block that names the references in `with`:
-  the owner's issue or pull request, the head the last round reviewed (`diff.since_last_round`), a brief from the library,
+  the owner's issue or pull request, the head the last round reviewed (`diff.since_last_round`), the pull request's
+  failing check runs with their links (`checks.failing`, read with `get_run_log`), a brief from the library,
   and with `owner.summary` the owner's rolling summary between marks, as data. Never the owner's transcript.
 - **Its grant is capped by what its owner holds**, at all times: when the owner narrows, so do the sessions it manages. Each list is the intersection of the two, each level the lower, and a checkout it
   can't push to fits under any checkout, as does a pull request's own branch under an owner on a new branch when the pull
@@ -103,6 +104,19 @@ returns = { verdict = ["pass", "fail"], findings = "text-list" }  # what it hand
 - **Reports**: a managed session sends a `blocker` or `decision` up with `report_up` (evidence and a proposal); the owner
   answers with `answer_report` (`approve` or `deny`, a note) or sends it on with `report_up` and `forward`. A report from the
   top of the chain is a decision in Needs you. Every report and answer is in the machine log.
+- **Reports overtaken by events.** An open report is withdrawn when its session's machine moves: the session is told which,
+  and a card it raised ends. A session withdraws one of its own reports with `withdraw_report` (its id and why), and no one
+  else's. A reporter idle at its prompt is woken, with its open reports listed, when a session it manages hands back, when
+  one of its reports is answered, and when a fact a report named (`pr.checks`, say, written in its text) changes.
+- **Waking an idle owner.** An owner idle at its prompt gets a hub message, fixed words and facts only, when a session it
+  manages hands back, ends by itself or is stuck, and when a report sent to it arrives. One message carries what came
+  together; a session that isn't at its prompt gets nothing, as the news comes with its next turn. A move that widens its
+  grant relaunches it first, and the message follows the relaunch.
+- **Stalls.** A machine with no exit that can still hold, nothing it manages running or waiting to start, no confirm or
+  approval open and its owner idle is stalled. After 10 minutes like that the hub logs it, tells and wakes the session (and
+  its own owner), and raises one card in Needs you, "stalled in <path>", with each exit's failing requires and the values
+  that fail them. The machine panel shows the same. Any move ends the card. Pending checks, a fact the hub has no value
+  for or a time fact count as a wait, not a stall.
 - Tools that come with the role, not the grant: `start_managed` (a state with on-request entries), `answer_report` and
   `managed_status` (a state that manages), `return_result` and `report_up` (a managed session; `report_up` also for any
   session whose workflow moves).
@@ -119,7 +133,10 @@ returns = { verdict = ["pass", "fail"], findings = "text-list" }  # what it hand
   each starts.
   At most 20 managed sessions run at once in all, not counting one of a staged workflow that is idle in a final state (an
   implementor that is merge-ready). A start that this holds back tells the owner once, and an automatic entry that didn't
-  start in its round is tried again on the owner's next signals, and when a managed session ends.
+  start in its round is tried again soon (after 5, 15 and 45 seconds), on the owner's next signals, and when a managed
+  session ends. On a move, the sessions the state left stop before the ones it enters start, so a session about to stop
+  doesn't count against the cap; an entry with `reuse = "resume"` in both states (the engineer, from `implement` to `fix`)
+  resumes the session the state left.
 - **A start that can't happen.** One that can't start for a reason that won't change by itself (its workflow works on an
   issue and the owner is on none, the workflow is gone, a fork's branch to push to) is one failed line in the machine log,
   one word to the owner and one card in Needs you that says why. It isn't tried again in that round, nor waited on: the
@@ -323,7 +340,9 @@ Steps after the first difference are less certain.
   passing and no design spike waiting (or waiting for your approval), `review` starts a code reviewer, `qa` a QA engineer
   (`qa-audit`) when the judge finds the change user-facing and, on request, a design check, waiting for both; it skips QA
   only when the judge found it isn't user-facing; a fail goes to `fix`, which resumes the same engineer, and three fix rounds
-  end in `escalated`. `merge-ready` asks first with `merge_pr`. The implementor holds a shell, a new branch and `push` in
+  end in `escalated`. Failing checks go to `fix` too, with no confirm: from `implement` once the engineer is done with its
+  pull request open, and from `review` and `qa`; the engineer is handed the failing runs. `fix` goes on to `review` only
+  with checks passing; pending checks are a wait. `merge-ready` asks first with `merge_pr`. The implementor holds a shell, a new branch and `push` in
   `implement` and `fix` so its engineer starts within its grant; it doesn't edit. When the work meets a design question no
   accepted board answers, a design spike (a full design session on GlassineOS/ui, in force in `implement` only) starts
   after your approval, raises a "Look at the design" card that opens its design view, and the work waits for its pull

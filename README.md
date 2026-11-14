@@ -147,6 +147,13 @@ the hook. Locked sessions don't prompt, but every session can ask a question. A 
 unanswered after 10 minutes, when it carries on without you. The Steward's waits until you answer. The full actions run in auto mode, where
 Claude Code decides most commands itself, so from those you'll mostly see questions.
 
+Needs you opens by itself when a new card arrives, or on load when cards wait that you haven't put off. "Later" puts the
+cards shown off until a new one comes (remembered in this browser), and the count in the top bar stays yellow while any
+wait. It never takes the keys from a terminal you are typing in: it waits until you leave it or stop typing for 10
+seconds. A pull request a session opened is on GitHub already, so its card is settled and only links it; a session
+started under a workflow hands its result to its owner, not to you. A workflow stalled for 10 minutes, with no exit that
+can still hold and nothing it manages running, raises one card there that names what each exit needs.
+
 Sessions use the workspace this checkout sits in (`HUBD_WORKSPACE`, by default `~/GlassineOS`):
 worktrees come from its main checkouts, which are cloned if missing and otherwise only fetched
 into. The exception is the `workspace` repository, whose checkout is that folder itself: a session on it

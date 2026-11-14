@@ -31,6 +31,13 @@ APPLY_TOOLS = {"comment": ("review_pr",), "labels": ("label_issue", "edit_issue"
 # stopped, or the tool gave no answer in time), which doesn't run again until a login has looked and said which.
 OP_STATES = ("pending", "running", "applied", "failed", "unknown")
 STATES = ("pending", "applying", "applied", "dismissed")
+PR_SETTLED = "The pull request is on GitHub: there is nothing to apply."
+
+
+def _pr_settled() -> dict:
+    now = time.time()
+    return {"state": "applied", "applied_at": now, "applied_by": "the hub", "note": PR_SETTLED,
+            "handled": {"by": "the hub", "where": None, "at": now}}
 KEEP = 200  # results kept; settled ones go first, oldest first
 PAGE = 20
 INTERRUPTED = "hubd restarted while this was being applied: check GitHub before applying it again."
@@ -185,6 +192,9 @@ class Results:
             if not isinstance(record, dict) or not _ID_RE.fullmatch(str(record.get("id"))) or record.get("state") not in STATES:
                 continue
             self.records[record["id"]] = record
+            if record.get("type") == "pr" and record["state"] == "pending":  # one made before pr results were settled as made
+                record.update(**_pr_settled())
+                self._save(record)
             if record["state"] == "applying":  # it may or may not have gone out
                 ops = record["payload"].get("ops") if record.get("type") == "notes" and isinstance(record.get("payload"), dict) else None
                 for op in ops if isinstance(ops, list) else ():
@@ -239,13 +249,14 @@ class Results:
                          action=action, persona=persona)
 
     def note_pr(self, *, session: str, session_id, launch, items: list[dict], action: str, persona, repo: str, number: int) -> dict | None:
-        """The pull request a session opened (or worked on), once per run. Nothing to apply: the card links it."""
+        """The pull request a session opened (or worked on), once per run. It is on GitHub already, so there is nothing to
+        apply and nothing to ask: it is settled as it is made, and its card only links it."""
         payload = clean_payload("pr", {"repo": repo, "number": number}, items)
         if any(r["type"] == "pr" and r["session"] == session and r.get("session_id") == session_id and r["payload"] == payload
                for r in self.records.values()):
             return None
         return self._new(type="pr", payload=payload, session=session, session_id=session_id, launch=launch, items=items,
-                         action=action, persona=persona)
+                         action=action, persona=persona, **_pr_settled())
 
     def list(self, kind=None, kept=None, session=None, after=None) -> list[dict]:
         rows = sorted(self.records.values(), key=lambda r: r["made"], reverse=True)

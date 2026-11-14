@@ -307,7 +307,11 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
 
 /* --- what sessions ask ------------------------------------------------------------------------- */
 .ask-tally { margin-left: 8px; padding: 1px 7px; border: 1.5px solid var(--ink); border-radius: 999px; font: 400 13px var(--font-mono); }
-.ask-tally.on { background: var(--highlight); }
+.ask-tally.on { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; height: 28px; padding: 0 7px;
+  box-sizing: border-box; background: var(--highlight); color: var(--ink); font-weight: 600; }
+dialog.needs h2 .ask-tally { margin-left: 6px; vertical-align: middle; }
+.needs-why { margin: 0; padding: 10px 20px; border-bottom: 1px solid var(--rule); }
+.waitbar.stalled ul { flex: 1 1 100%; margin: 0; padding-left: 20px; }
 .ask { display: flex; flex-direction: column; border: 1.5px solid var(--ink); border-radius: 16px; overflow: hidden; box-shadow: 0 3px 0 var(--shade); background: var(--paper); }
 .ask.done { border-style: dashed; box-shadow: none; }
 .ask-head { display: flex; align-items: center; gap: 12px; padding: 12px 18px; background: var(--highlight); border-bottom: 1.5px solid var(--ink); }

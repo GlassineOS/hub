@@ -173,8 +173,17 @@ def build(github: GitHub, docs: DocSearch) -> MCPServer:
     async def report_up(kind: str, evidence: str, proposal: str, forward: str | None = None) -> dict:
         """Report to your owner something you may not do or a decision that isn't yours: kind is blocker or decision, evidence
         what you found, proposal what you suggest. To send a report you were given further up, name its id as forward. With no
-        session above you it goes to the person. The answer comes in a later turn."""
+        session above you it goes to the person. The answer comes in a later turn. Name the facts it rests on (pr.checks,
+        managed.engineer.status): if one changes you are told, and withdraw_report takes it back. It is withdrawn by itself
+        when your workflow moves."""
         return await github.report_up(kind, evidence, proposal, forward)
+
+    @mcp.tool(annotations=WRITE)
+    @_says_why
+    async def withdraw_report(id: str, why: str) -> dict:
+        """Take back one of your own reports that still waits for an answer, by its id, when what happened since settles it
+        (a session under you handed back, a fact it named changed): why says what settled it. Its card or its holder is told."""
+        return await github.withdraw_report(id, why)
 
     @mcp.tool(annotations=WRITE)
     @_says_why

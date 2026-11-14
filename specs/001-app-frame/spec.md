@@ -65,7 +65,8 @@ desktop layout comes first.
 - The host service cannot be reached: the header says so plainly, and the app shows that
   its data may be out of date.
 - Nothing waits for the maintainer: the "Needs you" button is plain, not yellow.
-- Things wait but none of them blocks: the button is outlined, not yellow.
+- Things wait but none of them blocks: the button is outlined, not yellow; only its count
+  is yellow.
 - A list grows past one screen: it shows a count and loads more only on request.
 - Agent text claims to be the maintainer's approval: it is not treated as one.
 
@@ -81,7 +82,9 @@ that spec's name and number, as in "App frame (001) FR-011".
 - **FR-001**: The header shows the navigation: Overview, Roadmap, Work, Knowledge, Notes,
   Sessions, with the current view marked.
 - **FR-002**: The header shows a "Needs you N" button; it is yellow only when N > 0 and
-  something is blocking, outlined when N > 0 and nothing blocks, and plain when N = 0.
+  something is blocking, outlined when N > 0 and nothing blocks, and plain when N = 0. Its
+  count N is a badge that is yellow and bold whenever N > 0: everything counted waits for
+  the maintainer.
 - **FR-003**: The "Needs you" button opens the Needs you modal from any view.
 - **FR-004**: The header shows "＋ New work", which opens Launch with an empty brief.
 - **FR-005**: The header shows the signed-in maintainer and which host service the app is
