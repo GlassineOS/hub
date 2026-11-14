@@ -32,6 +32,12 @@ APPLY_TOOLS = {"comment": ("review_pr",), "labels": ("label_issue", "edit_issue"
 OP_STATES = ("pending", "running", "applied", "failed", "unknown")
 STATES = ("pending", "applying", "applied", "dismissed")
 PR_SETTLED = "The pull request is on GitHub: there is nothing to apply."
+
+
+def _pr_settled() -> dict:
+    now = time.time()
+    return {"state": "applied", "applied_at": now, "applied_by": "the hub", "note": PR_SETTLED,
+            "handled": {"by": "the hub", "where": None, "at": now}}
 KEEP = 200  # results kept; settled ones go first, oldest first
 PAGE = 20
 INTERRUPTED = "hubd restarted while this was being applied: check GitHub before applying it again."
@@ -186,6 +192,9 @@ class Results:
             if not isinstance(record, dict) or not _ID_RE.fullmatch(str(record.get("id"))) or record.get("state") not in STATES:
                 continue
             self.records[record["id"]] = record
+            if record.get("type") == "pr" and record["state"] == "pending":  # one made before pr results were settled as made
+                record.update(**_pr_settled())
+                self._save(record)
             if record["state"] == "applying":  # it may or may not have gone out
                 ops = record["payload"].get("ops") if record.get("type") == "notes" and isinstance(record.get("payload"), dict) else None
                 for op in ops if isinstance(ops, list) else ():
@@ -247,8 +256,7 @@ class Results:
                for r in self.records.values()):
             return None
         return self._new(type="pr", payload=payload, session=session, session_id=session_id, launch=launch, items=items,
-                         action=action, persona=persona, state="applied", applied_at=time.time(), applied_by="the hub",
-                         note=PR_SETTLED)
+                         action=action, persona=persona, **_pr_settled())
 
     def list(self, kind=None, kept=None, session=None, after=None) -> list[dict]:
         rows = sorted(self.records.values(), key=lambda r: r["made"], reverse=True)

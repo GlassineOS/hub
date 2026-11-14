@@ -1367,6 +1367,15 @@ def test_a_session_that_opened_a_pull_request_has_it_as_its_result(result_hub):
     assert len(result_hub.results.all()) == 2
 
 
+def test_a_pull_request_result_left_waiting_from_before_is_settled_on_load(tmp_path):
+    store = Results(tmp_path / "results")
+    old = store._new(type="pr", payload={"repo": "boot", "number": 8}, session="engineer-boot-8", session_id="conv-1", launch=None,
+                     items=[], action="issue-docs", persona="engineer")
+    assert old["state"] == "pending"
+    again = Results(tmp_path / "results").get(old["id"])
+    assert (again["state"], again["applied_by"], again["handled"]["by"]) == ("applied", "the hub", "the hub")
+
+
 def test_a_managed_session_s_pull_request_is_no_result_of_its_own(result_hub):
     """What a session under a workflow made is its owner's, which had the hand-back: no card for the person."""
     result_hub.agents.sessions["engineer-boot-8"] = ("issue-docs", "issue", 8, "engineer")
