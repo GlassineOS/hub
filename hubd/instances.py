@@ -488,8 +488,9 @@ def waive(inst: Instance, state, waived, who: str | None = None, now: float | No
     else:
         inst.waivers.pop(state)
     return {"waived": waived, "changed": True, "waivers": dict(inst.waivers),
-            "log": {"from_state": inst.state, "to_state": state, "from_version": inst.version, "to_version": inst.version,
-                    "by": "waive" if waived else "unwaive", "who": who}}
+            # no move: from and to are where it is, as for a pause; the state waived is in the change
+            "log": {"from_state": inst.state, "to_state": inst.state, "from_version": inst.version, "to_version": inst.version,
+                    "by": "waive" if waived else "unwaive", "who": who, "change": {"waived": state}}}
 
 
 def rollback(inst: Instance, who: str | None = None, now: float | None = None, grant_of=None) -> dict:

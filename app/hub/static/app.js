@@ -3209,7 +3209,7 @@ function historyRows(h) {
   const moves = (h && h.moves ? h.moves : []).map((m) => {
     const adds = Object.values(m.change && m.change.adds ? m.change.adds : {}).flat().map(String);
     const removes = Object.values(m.change && m.change.removes ? m.change.removes : {}).flat().map(String);
-    const what = m.by === "pause" || m.by === "resume" ? `in ${m.to}` : m.by === "waive" || m.by === "unwaive" ? m.to : `${m.from} → ${m.to}`;
+    const what = m.by === "pause" || m.by === "resume" ? `in ${m.to}` : m.by === "waive" || m.by === "unwaive" ? `${(m.change && m.change.waived) || "a state"}, in ${m.to}` : `${m.from} → ${m.to}`;
     const asked = m.change && m.change.asked;
     const result = [m.widening ? `widened${m.confirmed_by ? `: confirmed by ${m.confirmed_by}` : ""}` : "", adds.length ? `adds ${adds.join(", ")}` : "",
       removes.length ? `takes away ${removes.join(", ")}` : ""].filter(Boolean).join(" · ");

@@ -51,7 +51,7 @@ def overrides(moves: list[dict], window: float = OVERRIDE_WINDOW) -> tuple[int, 
     """(overrides, the machine's moves) in a session's moves, oldest first."""
     count, machine_moves, last = 0, 0, None
     for m in moves:
-        if m["by"] in ("pause", "resume"):
+        if m["by"] in ("pause", "resume", "waive", "unwaive"):  # no move
             continue
         if m["by"] == "machine":
             machine_moves += 1

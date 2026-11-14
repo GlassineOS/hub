@@ -1355,7 +1355,7 @@ class Agents:
                 continue
             self._scopes[token] = _session_scope(directory.name, record["config"], record.get("full", False),
                                                  self._all_repos(record["config"], state), self._asks_first(record["config"], state),
-                                                 record.get("session_id"), self.chain_tools(directory.name, action, here=True))
+                                                 record.get("session_id"), self.chain_tools(directory.name, action))
             if (directory / LOCKED_FILE).exists():
                 self._scopes[token] = _locked(self._scopes[token])
 
@@ -1524,8 +1524,9 @@ class Agents:
     def chain_tools(self, name, action: dict | None, owned: bool | None = None, here: bool = False) -> list[str]:
         """The chain tools a session has by where it stands (CHAIN_TOOLS). `owned`: whether it has an owner, if its record
         isn't written yet. request_move is among them where its workflow has an exit moved on request: on its launch's list
-        wherever that is, so a later state can use it without a new launch; `here`: only if its current state has one,
-        which is where it holds it (012 FR-027): its scope and grant.json."""
+        and in its token's scope wherever that is, so a later state can call it without a new launch (Claude Code lists a
+        server's tools once); `here`: only if its current state has one, which is where it holds it (012 FR-027): the
+        grant.json its hook checks on every call, and hubd's own check of the request."""
         if action is None:
             return []
         if owned is None:
@@ -1567,6 +1568,14 @@ class Agents:
             return machine._leaf(d, action.get("state") or d.initial)
         except (KeyError, TypeError):
             return None
+
+    def holds_request_move(self, name) -> bool:
+        """Whether the session's current state has an exit it may ask to take: where it holds request_move (FR-027)."""
+        try:
+            inst = self.machines.peek(name) if isinstance(name, str) and _NAME_RE.fullmatch(name) else None
+        except MachineError:
+            return False
+        return inst is not None and bool(machine.requests(inst.definition(), inst.state))
 
     def request_move_refusal(self, name) -> str:
         """Why a session doesn't hold request_move: the real reason (FR-054), with where it stands."""
@@ -1637,7 +1646,7 @@ class Agents:
                                                         "checkout": record.get("checkout", _grant(action).checkout)})
         for token, scope in self._scopes_of(name, tokens=True):
             self._scopes[token] = _session_scope(name, narrowed, _full(state), self._all_repos(in_force, state) and scope["all_repos"], asks,
-                                                 scope["instance"], self.chain_tools(name, action, here=True))
+                                                 scope["instance"], self.chain_tools(name, action))
         self.write_grant(directory, narrowed, state, asks)
         if (directory / LOCKED_FILE).exists():  # locked stays locked until a resume
             self.lock_down(name)
@@ -2604,7 +2613,7 @@ class Agents:
                                   entry_prompt)
             await self._github_token(directory, config, action)
             await self._probe_sandbox(directory, config, action)
-            self._session_token(directory, config, _full(action), session_id, self.chain_tools(name, action, owned=owner is not None, here=True))
+            self._session_token(directory, config, _full(action), session_id, chain)
             # A full session starts where you would: the workspace's rules and memory are there.
             cwd = self.workspace if _full(action) else self.home
             # Before the terminal: from when it's open, this is a session, not a shell in the way.
@@ -2820,12 +2829,12 @@ class Agents:
                 self._load_scopes()
                 for token in [t for t, s in self._scopes.items() if s["session"] == name]:
                     self._scopes[token] = _session_scope(name, config, _full(action), self._all_repos(config, action), self._asks_first(config, action),
-                                                         record.get("session_id"), self.chain_tools(name, first, here=True))
+                                                         record.get("session_id"), self.chain_tools(name, first))
             self.write_grant(directory, config, action)
             if action.get("singleton") or staged:  # what it's told has to match what it can do
                 self._write_persona(config, action, directory)
             if not (directory / TOKEN_FILE).exists():
-                self._session_token(directory, config, _full(action), record.get("session_id"), self.chain_tools(name, first, here=True))
+                self._session_token(directory, config, _full(action), record.get("session_id"), self.chain_tools(name, first))
             (directory / REPOS_FOLDER).mkdir(exist_ok=True)  # one from before there were snapshots
             self._prepare_shell(directory, config, action)
             await self._github_token(directory, config, action)
@@ -2842,7 +2851,7 @@ class Agents:
             fresh["switched"] = True
             record = json.loads((directory / "session.json").read_text())
             handoff.log_switch(self, name, record["session_id"], switched["from"], fresh["persona"], "now")
-            self._session_token(directory, config, _full(action), record["session_id"], self.chain_tools(name, first, here=True))
+            self._session_token(directory, config, _full(action), record["session_id"], self.chain_tools(name, first))
         new_conversation = handoff.owed(self, directory, record["session_id"])
         argv = self._argv(config, action, directory, present[0] if present else None, record["session_id"],
                           self._prepare_home(), resume=not new_conversation, chain=self.chain_tools(name, first))

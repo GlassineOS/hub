@@ -746,6 +746,9 @@ def test_hubd_takes_a_move_request_only_from_the_sessions_own_conversation():
         def session_id_of(self, _name):
             return self.conversation
 
+        def holds_request_move(self, _name):
+            return True
+
         def request_move_refusal(self, _name):
             return "request_move isn't held in a: none of its exits moves on request"
 
