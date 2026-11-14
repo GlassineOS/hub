@@ -282,6 +282,14 @@ number, as in "Launch (005) FR-012".
   pull request or issue, and raises a decision when `approve` asks for one.
 - **FR-026**: The maintainer can move a session to any state by hand, roll back the last move, and pause and
   resume its machine. Each is logged as the maintainer's.
+- **FR-027**: An agent asks for a move on request by naming the exit's target, its reasons, and, where the
+  target state manages sessions, a hand-over for them: what to do in this round and what to leave alone. The
+  hub tries that exit (its `requires`, `approve` and FR-024) and answers with the outcome or the reason it
+  doesn't hold. The tool for it is held in every state with an exit moved on request, and only there. The
+  reasons and the hand-over are kept with the move and are the owner's words, passed on as data (FR-041).
+- **FR-028**: The maintainer can waive a state for one round of an instance (for example "no review this
+  round"), from the session view, a decision card or by approving a report that proposes it (FR-055). A waiver
+  is a fact exits can require, recorded with who gave it, and it lapses once the instance has left the round.
 
 #### Grants
 
@@ -314,7 +322,8 @@ number, as in "Launch (005) FR-012".
   `on_exit` (stop, keep, or hand over to the next state).
 - **FR-041**: `with` holds only named references the hub fills in from facts: the issue, the pull request, the
   pull request's checks as they stand, the failing check runs, the diff since the last round, the owner's
-  summary, the owner's briefing, notes topics.
+  summary, the owner's briefing, what another entry's latest session returned (its fields, such as a reviewer's
+  verdict and findings), the hand-over the owner gave with the move into this state (FR-027), notes topics.
   It never copies free text from a transcript; the owner's summary is passed as data (FR-017). The owner's briefing
   is what the owner's start carried besides its prompt: the starter's notes and pins, and the planner's briefing,
   docs and steps, each marked as whose words it is, as in the owner's own first prompt. A session that starts by
@@ -352,6 +361,16 @@ number, as in "Launch (005) FR-012".
   decision for the pull request's head. Moving a level lower is a definition change (FR-060).
 - **FR-053**: Every report and answer is in the log, so the maintainer can see how a decision was made and by
   whom.
+- **FR-054**: A tool on a state's `asks_first` asks on a decision card that lasts until it is answered or
+  withdrawn. The call returns at once saying it waits on the card; the session ends its turn and is woken by the
+  answer. A yes allows that call with the same arguments once (a merge: that head only); a no comes back with
+  the maintainer's words. A tool that is refused tells the session the real reason (not granted in this state,
+  waits for a decision, declined), so it never reports a different one.
+- **FR-055**: A report may propose an action as well as words: a move of the reporter's instance (or of the
+  instance it reports for) to a named state, with a hand-over (FR-027); starting a managed entry; or a waiver
+  (FR-028). The card says what approving will do. Approving carries it out as that level's decision, checked like
+  a move by hand (FR-026); if it no longer holds, the card says why and the report stays open. Declining sends
+  the words back.
 
 #### Changing workflows
 
@@ -388,6 +407,13 @@ number, as in "Launch (005) FR-012".
   each repository's share for its maintainer, and brings the maintainer the decisions that are theirs.
 - **FR-072**: The default workflows include implement (work holding implement, review and fix, then
   merge-ready), a QA audit, a design spike and `workflow-change`, besides the one-state workflows of FR-010.
+  In implement, findings decide a fix round, not the verdict alone: review and QA have an exit to fix on the
+  implementor's request when it takes up findings of a passing review or run, with its hand-over naming which.
+  Merge-ready is not final: it moves to fix on the implementor's request (findings taken up, or the maintainer
+  asking for changes) or when checks fail, and to the final states merged and closed on the pull request's
+  merge or close. Fix moves straight to merge-ready, past review, when the maintainer waived review for the
+  round (FR-028) and the checks pass. The engineer of a fix round gets the reviewer's and QA's returns and the
+  implementor's hand-over (FR-041).
 - **FR-073**: A design spike is a managed session, the design action of Design sessions (011), started by a
   state when work meets a design question no accepted board answers (at triage, while implementing or for an
   epic). Its merged pull request is a fact its owner's exits can require; merging it stays the maintainer's. It
