@@ -25,18 +25,18 @@ from pathlib import Path
 
 from . import auth, decisions, devices, interactions, machine, machinerun, machinestore, newwork, notes, results, sessiontree, usage
 from . import judge as judgelib
-from .effects import Effects
+from .effects import LABEL, Effects
 from .drafts import OPS as DRAFT_OPS, TOOLS as DRAFT_TOOLS, DraftError, Drafts
 from .machinecost import Costs
 from .statusline import StatusLines
-from .managed import Managed, ManagedError
+from .managed import Managed, ManagedError, _marked
 from . import feed as feedlib
 from .designs import TICK as DESIGN_TICK, DesignError, Designs, Tools as DesignTools
 from .agents import _REPO_RE as _AGENT_REPO_RE, MAX_REPO_NAME, NO_REPO_OBJECTS
 from .machine import START_ON
 from .agents import MAX_ALSO, MAX_NOTES, NOTES_TOOL, PLANNER_MODELS, RESULTS as RESULTS_WORDS, SCREENS, AgentError, Agents, Library, _full, load_environment, screen_of, validate, with_also
 from .apps import AppError, Apps, Creation, is_write
-from .asks import GRANT_LIFE, MAX_INPUT, TOOL_PREFIX, AskError, Asks
+from .asks import GRANT_LIFE, MAX_INPUT, QUESTION_TOOL, TOOL_PREFIX, AskError, Asks
 from .ghpolicy import ORG, Refused, check, is_merge, merge_request
 from .ghrun import Gh
 from .shells import ShellError, Shells
@@ -45,6 +45,17 @@ log = logging.getLogger("hubd")
 MAX_REQUEST = 1024 * 1024 * 8
 REQUEST_TIMEOUT = 30
 PAM_SERVICE = "glassine-hubd"
+
+
+ASK_MERGE_HOURS = 8  # a merge allowed on a tool call's card stands this long for the call to be made (decisions.MAX_GO_HOURS)
+
+
+def _pre_tool(behavior: str, reason: str | None = None) -> dict:
+    """What a PreToolUse hook prints: allow, or deny with the reason the session reads."""
+    out = {"hookEventName": "PreToolUse", "permissionDecision": behavior}
+    if reason:
+        out["permissionDecisionReason"] = reason
+    return {"hookSpecificOutput": out}
 
 
 def runtime_dir() -> Path:
@@ -565,8 +576,21 @@ class Hubd:
         if not scope or req.get("tool") not in (scope.get("asks_first") or ()):
             return {"ok": False, "refused": True, "error": f"this session can't use {req.get('tool')}"}
         if not self.asks.use_grant(scope["session"], req["tool"], req.get("arguments")):
-            return {"ok": False, "refused": True, "error": f"you weren't allowed to run {req['tool']} with these arguments"}
+            return {"ok": False, "refused": True, "error": self._why_not_allowed(scope, req["tool"], req.get("arguments"))}
         return {"ok": True}
+
+    def _why_not_allowed(self, scope: dict, tool: str, arguments) -> str:
+        """The real reason a call of a tool asked about first didn't go through (012 FR-054): its card waits, it was said no to,
+        or no card covers these arguments."""
+        found = self.decisions.asks_for(scope["session"], scope.get("instance"), tool, arguments or {}) if self.decisions else []
+        for record in found:
+            if record["state"] == "requested":
+                return f"{tool} waits for decision card {record['id']}: end your turn, and the hub wakes you with the answer"
+            if not record.get("approved"):
+                return f"{tool} with these arguments was declined on card {record['id']} ({record.get('why_ended') or 'you said no'})"
+            if record.get("withdrawn"):
+                return f"the yes on card {record['id']} no longer holds ({record['withdrawn']}): calling {tool} again asks again"
+        return f"{tool} with these arguments wasn't allowed on a card: calling it asks the maintainer on a card first"
 
     async def _before_asking(self, scope: dict, tool, tool_input) -> str | None:
         """Why this isn't worth your time: said at once, and nothing comes up."""
@@ -743,6 +767,12 @@ class Hubd:
                 said = decisions.text(said, decisions.MAX_WORDS, "what you said") if said else None
                 answered = self.workflows.answer(req.get("id"), op == "decision.approve", self.sessions.own_user(), said, req.get("changes") is True)
                 return {"ok": True, "decision": self.decisions.view(answered)}
+            if op in ("decision.approve", "decision.deny", "decision.end") and self.decisions._get(req.get("id"))["kind"] == decisions.ASK:
+                if op == "decision.end":
+                    raise decisions.DecisionError("a tool call's card is allowed or said no to")
+                said = req.get("words") if op == "decision.approve" else req.get("why")
+                said = decisions.text(said, decisions.MAX_WORDS, "what you said") if said else None
+                return {"ok": True, "decision": self.decisions.view(await self._answer_ask(req.get("id"), op == "decision.approve", said))}
             if op in ("decision.approve", "decision.deny", "decision.end") and self.decisions._get(req.get("id"))["kind"] in decisions.HUB_KINDS:
                 if op == "decision.end" or self.effects is None:
                     raise decisions.DecisionError("a workflow move's confirm is approved or denied")
@@ -1674,7 +1704,10 @@ class Hubd:
             return
         refused = await self._before_asking(scope, req.get("tool"), req.get("input"))
         if refused:
-            await _reply(writer, {"ok": True, "output": {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": refused}}})
+            await _reply(writer, {"ok": True, "output": _pre_tool("deny", refused)})
+            return
+        if self._lasting(scope, req.get("how"), req.get("tool")):
+            await _reply(writer, {"ok": True, "output": await self._lasting_ask(scope, req["tool"].removeprefix(TOOL_PREFIX), req.get("input"))})
             return
         agent, wait = self.agents.asker(name, req.get("tool"))
         ask = self.asks.add(name, req.get("how"), req.get("tool"), req.get("input"), req.get("suggestions"), agent, wait)
@@ -1698,6 +1731,114 @@ class Hubd:
             self.asks.close(ask, "stopped")
             if not self.asks.has_open(name):
                 self.agents.mark_asking(name, False, prompt_up)
+
+    # --- a locked session's call of a tool its state asks about first (012 FR-054) -------------------------------------
+    def _lasting(self, scope: dict, how, tool) -> bool:
+        """A locked session's call of a tool on its state's asks_first: a lasting card, answered at once. A full session's
+        terminal prompt, and a question, are held as before."""
+        name = tool.removeprefix(TOOL_PREFIX) if isinstance(tool, str) else None
+        return how == "PreToolUse" and scope.get("tools") is not None and name in (scope.get("asks_first") or ()) \
+            and self.decisions is not None and name != QUESTION_TOOL
+
+    async def _lasting_ask(self, scope: dict, tool: str, tool_input) -> dict:
+        """The hook's answer, at once: allowed when a yes on a card for exactly this call is still unused (the yes is spent
+        now, and the tool server lets this one call through), else the card it waits on, made now if there is none. Never
+        held: a locked session's runtime would deny a call held past its own limit, and the session would not know why."""
+        name, sid = scope["session"], scope.get("instance")
+        arguments = tool_input if isinstance(tool_input, dict) else {}
+        if sid != self.agents.session_id_of(name):
+            return _pre_tool("deny", "That token is from an earlier conversation of this session.")
+        found = self.decisions.asks_for(name, sid, tool, arguments)
+        for record in found:
+            if self.decisions.allowed_ask(record):
+                self.decisions.use_ask(record)
+                self.asks.grant(name, tool, arguments)
+                return _pre_tool("allow")
+        waiting = next((r for r in found if r["state"] == "requested"), None)
+        if waiting is None:
+            if tool == "merge_pr":
+                try:
+                    await self._with_base({k: arguments.get(k) for k in ("repo", "number", "head")})
+                except decisions.DecisionError as e:  # a head that isn't the head now, a closed pull request: no card to answer
+                    return _pre_tool("deny", f"{e}. Nothing was asked: check the pull request and call merge_pr again with its head.")
+            why = (f"{name}'s workflow state asks you before it calls {tool}. Allow lets this one call, with exactly these "
+                   "arguments, through once; say no, and your words go back to it.")
+            if tool == "merge_pr":
+                why += " Allowing a merge is your merge decision for this head only: if the head moves, it asks again."
+            try:
+                waiting = self.decisions.ask_request({"session": name, "session_id": sid, "tool": tool, "arguments": arguments,
+                                                      "state": self._state_of(name)}, why)
+            except decisions.DecisionError as e:
+                return _pre_tool("deny", f"Not asked: {e}.")
+            log.info("%s: %s waits on card %s", name, tool, waiting["id"])
+        return _pre_tool("deny", f"This call waits on decision card {waiting['id']} in the maintainer's Needs you; nothing ran. End "
+                                 "your turn now: the hub wakes you with the answer. A yes lets this call, with exactly the same "
+                                 "arguments, through once; a no comes back with the maintainer's words. Calling it again before "
+                                 "then changes nothing.")
+
+    def _state_of(self, name: str) -> str | None:
+        try:
+            return self.agents.machines.load(name)[1].state if getattr(self.agents, "machines", None) is not None else None
+        except Exception:  # noqa: BLE001: the card shows without it
+            return None
+
+    async def _answer_ask(self, decision_id, accept: bool, words: str | None) -> dict:
+        """Your answer on a tool call's card. A yes lets that call through once, as the session makes it again (a merge: your
+        merge decision for that head); a no ends it with your words. Either way the session hears it and is woken."""
+        record = self.decisions._get(decision_id)
+        if self.decisions.current_state(record) != "requested":
+            raise decisions.DecisionError("that isn't waiting for an answer any more")
+        scope = record["scope"]
+        name, tool = scope["session"], scope["tool"]
+        if self.agents.session_id_of(name) != scope.get("session_id"):
+            self.decisions.withdraw_ask(record, "withdrawn: the conversation it was for has ended")
+            raise decisions.DecisionError("the conversation it was for has ended, so nothing would make the call")
+        if tool not in self._asks_first_now(name, scope["session_id"]):
+            self.decisions.withdraw_ask(record, "withdrawn: the session moved where its state doesn't ask for it")
+            raise decisions.DecisionError(f"{name} has moved where its state doesn't ask about {tool}: there's nothing to allow")
+        if not accept:
+            said = f"you said no: {words}" if words else "you said no"
+            answered = self.decisions.settle(decision_id, False, said, words)
+            text = f"{LABEL} Card {decision_id} is answered: the maintainer said no to your call of {tool}. It didn't run."
+            if words:
+                text += "\n\n" + _marked("The maintainer's words, which are theirs:", words)
+            self._tell_and_wake(name, text, f"Card {decision_id} is answered: no.")
+            return answered
+        if tool == "merge_pr":
+            arguments = scope["arguments"]
+            wanted = {k: arguments.get(k) for k in ("repo", "number", "head")}
+            now = await self._pr_now(wanted["repo"], wanted["number"]) if isinstance(wanted["repo"], str) and isinstance(wanted["number"], int) else None
+            if now is not None and (now.get("headRefOid") != wanted["head"] or now.get("state") != "OPEN"):
+                why = "the pull request isn't open any more" if now.get("state") != "OPEN" else \
+                    f"its head moved to {str(now.get('headRefOid'))[:12]}"
+                self.decisions.withdraw_ask(record, f"withdrawn: {why}")
+                self._tell_and_wake(name, f"{LABEL} Card {decision_id} is withdrawn before it was answered: {why}. Nothing ran. "
+                                          "Check the pull request and call merge_pr again with its head: that asks again.",
+                                    f"Card {decision_id} is withdrawn: {why}.")
+                raise decisions.DecisionError(f"{why}, so this card no longer says what would merge: {name} is told to ask again")
+            merge = self.decisions.check_new("merge", {**await self._with_base(wanted), "session": name})
+            self.decisions.add("merge", words or f"Allowed on {name}'s card {decision_id}.", merge, {"hours": ASK_MERGE_HOURS})
+        answered = self.decisions.settle(decision_id, True, "allowed: the session may make this call once", words)
+        text = (f"{LABEL} Card {decision_id} is answered: the maintainer allowed your call of {tool} "
+                f"{decisions.call_words(tool, scope['arguments'])}. Make that call again now, with exactly the same arguments: it "
+                "goes through once.")
+        if tool == "merge_pr":
+            text += " It merges that head only: if the head has moved, it fails, and calling it with the new head asks again."
+        if words:
+            text += "\n\n" + _marked("The maintainer's words, which are theirs:", words)
+        self._tell_and_wake(name, text, f"Card {decision_id} is answered: allowed.")
+        return answered
+
+    def _asks_first_now(self, name: str, session_id) -> list[str]:
+        """The tools the session's current scope asks about first, for its current conversation."""
+        return [t for scope in self.agents._scopes_of(name) if scope.get("instance") == session_id for t in scope.get("asks_first") or ()]
+
+    def _tell_and_wake(self, name: str, text: str, wake: str) -> None:
+        self.agents.tell(name, text)
+        if self.managed is not None:
+            self.managed.wake_owner(name, wake)
+        if self.machine_run:
+            self.machine_run.signal("hub:decision", name)
 
     # --- the design view (011 FR-014, FR-015) ------------------------------------------------------
     async def design_tool(self, op: str, req: dict) -> dict:

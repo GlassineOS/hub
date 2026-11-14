@@ -4622,6 +4622,9 @@ function DecisionRow({ d, onChanged, where = "Needs you" }) {
     <div class="row" style="gap: 8px"><span class="badge ${asked ? "" : d.state === "ended" ? "dim" : ""}">${DECISION_STATE[d.state]}</span><span class="mono small">${d.id}</span>
       <span class="small soft">made ${ago(d.made * 1000)}${d.ended ? `, ended ${ago(d.ended * 1000)}` : ""}</span></div>
     <p style="overflow-wrap: anywhere">${d.says}.</p>
+    ${d.kind === "machine.ask" && html`<div class="stack tight"><p class="small">${d.scope.session} calls <span class="mono">${d.scope.tool}</span>${d.scope.state ? html` in ${d.scope.state}` : ""}, with these arguments, as it sent them:</p>
+      <div class="il-code"><pre>${JSON.stringify(d.scope.arguments, null, 2)}</pre></div>
+      <p class="small">${d.scope.tool === "merge_pr" ? "Allowing is your merge decision for this head only. " : ""}Allow lets this one call through once, when the session makes it again; Say no sends your words back to it.${d.used ? " The call has been made." : ""}${d.withdrawn ? ` ${d.withdrawn}.` : ""}</p></div>`}
     ${d.kind === "merge" && html`<p class="small">Applies to head <span class="mono">${d.scope.head.slice(0, 12)}</span> only. If the pull request's head moves, it ends (003 FR-008).</p>`}
     ${eye && html`<p class="small"><b>Eye test:</b> you look at the device yourself. It ends with its runs or hours, and is never granted for good.</p>`}
     ${d.words && html`<p class="small" style="overflow-wrap: anywhere"><span class="soft">Your words: </span>${d.words}</p>`}
@@ -4638,7 +4641,7 @@ function DecisionRow({ d, onChanged, where = "Needs you" }) {
         <label class="row small" style="gap: 6px">Ends after <input type="number" min="1" style="width: 5em" value=${amount} onInput=${(e) => setAmount(e.target.value)} />
           <select aria-label="Runs or hours" value=${unit} onChange=${(e) => setUnit(e.target.value)}><option value="runs">runs</option><option value="hours">hours</option></select></label></div>`}
       <label class="stack small" style="gap: 4px">Your words, if you want them on the record<input value=${words} onInput=${(e) => setWords(e.target.value)} /></label>
-      <div class="row" style="gap: 8px"><button class="primary" disabled=${act.busy || (go && !actions.length) || Number(amount) <= 0} onClick=${approve}>Approve</button>
+      <div class="row" style="gap: 8px"><button class="primary" disabled=${act.busy || (go && !actions.length) || Number(amount) <= 0} onClick=${approve}>${d.kind === "machine.ask" ? "Allow" : "Approve"}</button>
         <input aria-label="Why not" value=${reason} placeholder="Why not, if you like" onInput=${(e) => setReason(e.target.value)} />
         <button disabled=${act.busy} onClick=${() => send("deny", { why: reason || null })}>Say no</button></div></div>`}
     ${d.state === "current" && html`<div class="row"><button disabled=${act.busy} onClick=${() => send("end")}>End now</button></div>`}
@@ -4658,7 +4661,7 @@ function InteractionCard({ item, dense, where, reload }) {
   const body = () => {
     if (item.kind === "permission" || item.kind === "question") return html`<${Ask} ask=${d} compact=${settled} onDone=${reload} where=${where} />`;
     if (item.kind === "result" && d.type) return html`<${ResultView} r=${d} reload=${reload} where=${where} />`;
-    if (item.kind === "decision") return html`<div class="ask calm ${settled ? "done" : ""}"><div class="ask-head"><span class="ask-kind">${d.kind === "go" ? (d.scope.actions.includes("eye-test") ? "GO · EYE TEST" : "GO") : d.kind === "machine.widen" ? "WORKFLOW MOVE" : d.kind === "machine.approve" ? ((d.scope || {}).type === "stalled" ? "WORKFLOW STALLED" : "WORKFLOW APPROVAL") : d.kind === "workflow.change" ? "WORKFLOW CHANGE" : "MERGE"}</span>
+    if (item.kind === "decision") return html`<div class="ask calm ${settled ? "done" : ""}"><div class="ask-head"><span class="ask-kind">${d.kind === "go" ? (d.scope.actions.includes("eye-test") ? "GO · EYE TEST" : "GO") : d.kind === "machine.widen" ? "WORKFLOW MOVE" : d.kind === "machine.ask" ? "TOOL CALL" : d.kind === "machine.approve" ? ((d.scope || {}).type === "stalled" ? "WORKFLOW STALLED" : "WORKFLOW APPROVAL") : d.kind === "workflow.change" ? "WORKFLOW CHANGE" : "MERGE"}</span>
       <span class="small mono">${d.asked_by || (d.scope && d.scope.proposed_by) || "you"}</span></div><div class="ask-body">${d.kind === "workflow.change"
         ? html`<${WorkflowChangeCard} key=${`${d.id}-${d.state}`} d=${d} onChanged=${reload} where=${where} />`
         : html`<${DecisionRow} key=${`${d.id}-${d.state}`} d=${d} onChanged=${reload} where=${where} />`}</div></div>`;

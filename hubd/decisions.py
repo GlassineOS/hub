@@ -8,10 +8,11 @@ and end a go, as that only narrows. Nothing a token can do makes one current.
 
 Each move is on disk before anything acts on it. Answers come in words, with a plain yes or no for a script to act on.
 
-A widening confirm (`machine.widen`), a workflow approval (`machine.approve`) and a workflow change (`workflow.change`, a
-proposed version, hubd/machinestore.py) are made by hubd alone, never by a request or a token: approving one confirms or
-makes the move it names, or saves the version it carries, and nothing else, so it never becomes current. It goes from
-requested straight to ended.
+A widening confirm (`machine.widen`), a workflow approval (`machine.approve`), a workflow change (`workflow.change`, a
+proposed version, hubd/machinestore.py) and a tool call a state asks about first (`machine.ask`, 012 FR-054) are made by
+hubd alone, never by a request or a token: approving one confirms or makes the move it names, saves the version it carries,
+or lets that one call through once, and nothing else, so it never becomes current. It goes from requested straight to
+ended. A tool call's card lasts until it is answered or withdrawn: it has no REQUEST_LIFE.
 
 This stops mistakes, relayed quotes and misled locked agents. A full session runs as the same user, and could write these
 files: see SECURITY.md.
@@ -35,7 +36,8 @@ KINDS = ("go", "merge")
 WIDEN = "machine.widen"
 APPROVE = "machine.approve"  # a workflow exit that holds and whose `approve` asks you first (012 FR-025, FR-052)
 CHANGE = "workflow.change"  # a proposed new version of a workflow: approving it saves it (012 FR-060, FR-063)
-HUB_KINDS = (WIDEN, APPROVE, CHANGE)  # made by hubd itself: `add` and `request` refuse them
+ASK = "machine.ask"  # a call of a tool on a state's asks_first, from a locked session: a yes lets that call through once (012 FR-054)
+HUB_KINDS = (WIDEN, APPROVE, CHANGE, ASK)  # made by hubd itself: `add` and `request` refuse them
 STATES = ("requested", "current", "using", "ended")  # using: its merge is running
 EYE_TEST = "eye-test"  # you hold the device while a session holds the lock: "I've got the device" leaves it alone
 ANY = "any"
@@ -159,6 +161,8 @@ def describe(record: dict) -> str:
         return f"Workflow move for {scope['session']}: {scope['from']} to {scope['to']}, which adds {adds}"
     if record["kind"] == APPROVE and scope.get("type"):  # a report sent up, or a managed session's start: the hub's own words
         return scope["says"]
+    if record["kind"] == ASK:
+        return f"Tool call for {scope['session']}: {scope['tool']} {call_words(scope['tool'], scope['arguments'])}"
     if record["kind"] == CHANGE:
         where = "the organisation" if scope["scope"] == "org" else scope["repo"]
         return f"Workflow change: a new version of {scope['workflow']} for {where}, from v{scope['base_version']}"
@@ -179,6 +183,20 @@ def describe(record: dict) -> str:
     if record["state"] == "requested" and record.get("for_hours"):
         line += f", for {record['for_hours']:g} hour{'' if record['for_hours'] == 1 else 's'} from when it's approved"
     return line
+
+
+def call_words(tool: str, arguments) -> str:
+    """A tool call's arguments in a line: a merge by its pull request and head, anything else as its JSON, clipped."""
+    a = arguments if isinstance(arguments, dict) else {}
+    if tool == "merge_pr" and isinstance(a.get("head"), str):
+        return f"{a.get('repo')}#{a.get('number')} at {a['head'][:12]}"
+    said = json.dumps(a, sort_keys=True, ensure_ascii=False)
+    return said if len(said) <= 300 else said[:299] + "…"
+
+
+def same_call(arguments) -> str:
+    """A tool call's arguments as one string, so two calls compare by what they say, not by the order of their keys."""
+    return json.dumps(arguments, sort_keys=True)
 
 
 def _kept_whole(record: dict) -> bool:
@@ -287,6 +305,44 @@ class Decisions:
         conversation, the state and version it was asked from, the exit's place and target, and the level."""
         return self._new(APPROVE, scope, {}, "requested", None, asked_by=scope["session"], why=why)
 
+    def ask_request(self, scope: dict, why: str) -> dict:
+        """hubd's card for a call of a tool a session's state asks about first. The scope is the hub's own: the session, the
+        conversation, the tool and its arguments as sent. `why` is the hub's words, never the session's. At most MAX_REQUESTS
+        wait from one conversation, as for the decisions a session asks for."""
+        waiting = [r for r in self.open_asks(scope["session"]) if r["scope"].get("session_id") == scope.get("session_id")]
+        if len(waiting) >= MAX_REQUESTS:
+            raise DecisionError(f"{len(waiting)} calls wait on their cards already: wait for an answer")
+        return self._new(ASK, scope, {}, "requested", None, asked_by=scope["session"], why=why, used=None)
+
+    def open_asks(self, session: str) -> list[dict]:
+        return self.open_widenings(session, ASK)
+
+    def asks_for(self, session: str, session_id, tool: str, arguments) -> list[dict]:
+        """The cards of this conversation for exactly this call, newest first."""
+        same = same_call(arguments)
+        found = [r for r in list(self._all.values()) if r["kind"] == ASK and r["scope"].get("session") == session
+                 and r["scope"].get("session_id") == session_id and r["scope"].get("tool") == tool
+                 and same_call(r["scope"].get("arguments")) == same]
+        return sorted(found, key=lambda r: r["made"], reverse=True)
+
+    def allowed_ask(self, record: dict) -> bool:
+        """A tool call's card answered yes whose call hasn't been made yet."""
+        return record["kind"] == ASK and record["state"] == "ended" and bool(record.get("approved")) and not record.get("used") \
+            and not record.get("withdrawn")
+
+    def use_ask(self, record: dict) -> dict:
+        """The call it allowed is being made: once, so a second call is a new question."""
+        if not self.allowed_ask(record):
+            raise DecisionError("that card doesn't let a call through")
+        return self._save({**record, "used": self.clock()})
+
+    def withdraw_ask(self, record: dict, why: str) -> dict:
+        """A card, or the yes it got, that can't be used any more: the session moved where the tool isn't asked about, or its
+        conversation ended."""
+        if record["state"] == "requested":
+            return self._end(record, why)
+        return self._save({**record, "withdrawn": why})
+
     def change_request(self, scope: dict, why: str) -> dict:
         """hubd's card for a proposed workflow version. The scope is the hub's own: the workflow, its scope, the version it
         starts from, the text, and what the hub found of it. Approving it saves the text, after checking it again."""
@@ -390,7 +446,7 @@ class Decisions:
 
     def current_state(self, record: dict) -> str:
         """Its state as of now: time runs out with nobody watching, and that goes on disk when someone looks."""
-        if record["state"] == "requested" and record["made"] + REQUEST_LIFE < self.clock():
+        if record["state"] == "requested" and record["kind"] != ASK and record["made"] + REQUEST_LIFE < self.clock():
             record = self._end(record, "nobody answered in time")
         elif record["state"] == "current" and "until" in record["ends"] and record["ends"]["until"] <= self.clock():
             record = self._end(record, f"its time ran out at {_clock(record['ends']['until'])}")
