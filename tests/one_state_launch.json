@@ -5043,6 +5043,7 @@
     "plan_work",
     "message_started_session",
     "suggest_session",
+    "my_suggestions",
     "new_work_drafts",
     "list_sessions",
     "list_running_sessions",
@@ -5090,6 +5091,7 @@
     "plan_work",
     "message_started_session",
     "suggest_session",
+    "my_suggestions",
     "new_work_drafts",
     "list_sessions",
     "list_running_sessions",
@@ -5141,6 +5143,7 @@
     "plan_work",
     "message_started_session",
     "suggest_session",
+    "my_suggestions",
     "new_work_drafts",
     "list_sessions",
     "list_running_sessions",
@@ -5178,7 +5181,7 @@
   "notes_search": false,
   "preview": {
    "checkouts": [],
-   "command": "claude --session-id '<session id>' --name steward --model sonnet --effort high --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/steward/settings.json --append-system-prompt-file <state>/sessions/steward/persona.md --permission-mode dontAsk --setting-sources user --strict-mcp-config --tools AskUserQuestion --allowedTools AskUserQuestion,mcp__glassine-hub__list_repo_files,mcp__glassine-hub__read_repo_file,mcp__glassine-hub__map_overview,mcp__glassine-hub__map_definition,mcp__glassine-hub__map_usages,mcp__glassine-hub__map_string,mcp__glassine-hub__code_search,mcp__glassine-hub__plan_work,mcp__glassine-hub__message_started_session,mcp__glassine-hub__suggest_session,mcp__glassine-hub__new_work_drafts,mcp__glassine-hub__list_sessions,mcp__glassine-hub__list_running_sessions,mcp__glassine-hub__session_summary,mcp__glassine-hub__overview,mcp__glassine-hub__rate_limit,mcp__glassine-hub__run_history,mcp__glassine-hub__roadmap,mcp__glassine-hub__list_issues,mcp__glassine-hub__get_issue,mcp__glassine-hub__list_prs,mcp__glassine-hub__get_pr,mcp__glassine-hub__get_pr_diff,mcp__glassine-hub__list_runs,mcp__glassine-hub__get_run,mcp__glassine-hub__get_run_log,mcp__glassine-hub__list_workflows,mcp__glassine-hub__work_search,mcp__glassine-hub__work_status,mcp__glassine-hub__changes_since,mcp__glassine-hub__docs_search,mcp__glassine-hub__docs_index_status",
+   "command": "claude --session-id '<session id>' --name steward --model sonnet --effort high --mcp-config <state>/home/hub-mcp.json --plugin-dir <repo>/agents/plugin --settings <state>/sessions/steward/settings.json --append-system-prompt-file <state>/sessions/steward/persona.md --permission-mode dontAsk --setting-sources user --strict-mcp-config --tools AskUserQuestion --allowedTools AskUserQuestion,mcp__glassine-hub__list_repo_files,mcp__glassine-hub__read_repo_file,mcp__glassine-hub__map_overview,mcp__glassine-hub__map_definition,mcp__glassine-hub__map_usages,mcp__glassine-hub__map_string,mcp__glassine-hub__code_search,mcp__glassine-hub__plan_work,mcp__glassine-hub__message_started_session,mcp__glassine-hub__suggest_session,mcp__glassine-hub__my_suggestions,mcp__glassine-hub__new_work_drafts,mcp__glassine-hub__list_sessions,mcp__glassine-hub__list_running_sessions,mcp__glassine-hub__session_summary,mcp__glassine-hub__overview,mcp__glassine-hub__rate_limit,mcp__glassine-hub__run_history,mcp__glassine-hub__roadmap,mcp__glassine-hub__list_issues,mcp__glassine-hub__get_issue,mcp__glassine-hub__list_prs,mcp__glassine-hub__get_pr,mcp__glassine-hub__get_pr_diff,mcp__glassine-hub__list_runs,mcp__glassine-hub__get_run,mcp__glassine-hub__get_run_log,mcp__glassine-hub__list_workflows,mcp__glassine-hub__work_search,mcp__glassine-hub__work_status,mcp__glassine-hub__changes_since,mcp__glassine-hub__docs_search,mcp__glassine-hub__docs_index_status",
    "cwd": "<state>/home",
    "name": "steward",
    "worktree": "none"
@@ -5209,7 +5212,7 @@
    "--tools",
    "AskUserQuestion",
    "--allowedTools",
-   "AskUserQuestion,mcp__glassine-hub__list_repo_files,mcp__glassine-hub__read_repo_file,mcp__glassine-hub__map_overview,mcp__glassine-hub__map_definition,mcp__glassine-hub__map_usages,mcp__glassine-hub__map_string,mcp__glassine-hub__code_search,mcp__glassine-hub__plan_work,mcp__glassine-hub__message_started_session,mcp__glassine-hub__suggest_session,mcp__glassine-hub__new_work_drafts,mcp__glassine-hub__list_sessions,mcp__glassine-hub__list_running_sessions,mcp__glassine-hub__session_summary,mcp__glassine-hub__overview,mcp__glassine-hub__rate_limit,mcp__glassine-hub__run_history,mcp__glassine-hub__roadmap,mcp__glassine-hub__list_issues,mcp__glassine-hub__get_issue,mcp__glassine-hub__list_prs,mcp__glassine-hub__get_pr,mcp__glassine-hub__get_pr_diff,mcp__glassine-hub__list_runs,mcp__glassine-hub__get_run,mcp__glassine-hub__get_run_log,mcp__glassine-hub__list_workflows,mcp__glassine-hub__work_search,mcp__glassine-hub__work_status,mcp__glassine-hub__changes_since,mcp__glassine-hub__docs_search,mcp__glassine-hub__docs_index_status"
+   "AskUserQuestion,mcp__glassine-hub__list_repo_files,mcp__glassine-hub__read_repo_file,mcp__glassine-hub__map_overview,mcp__glassine-hub__map_definition,mcp__glassine-hub__map_usages,mcp__glassine-hub__map_string,mcp__glassine-hub__code_search,mcp__glassine-hub__plan_work,mcp__glassine-hub__message_started_session,mcp__glassine-hub__suggest_session,mcp__glassine-hub__my_suggestions,mcp__glassine-hub__new_work_drafts,mcp__glassine-hub__list_sessions,mcp__glassine-hub__list_running_sessions,mcp__glassine-hub__session_summary,mcp__glassine-hub__overview,mcp__glassine-hub__rate_limit,mcp__glassine-hub__run_history,mcp__glassine-hub__roadmap,mcp__glassine-hub__list_issues,mcp__glassine-hub__get_issue,mcp__glassine-hub__list_prs,mcp__glassine-hub__get_pr,mcp__glassine-hub__get_pr_diff,mcp__glassine-hub__list_runs,mcp__glassine-hub__get_run,mcp__glassine-hub__get_run_log,mcp__glassine-hub__list_workflows,mcp__glassine-hub__work_search,mcp__glassine-hub__work_status,mcp__glassine-hub__changes_since,mcp__glassine-hub__docs_search,mcp__glassine-hub__docs_index_status"
   ],
   "scope": {
    "all_repos": true,
@@ -5249,6 +5252,7 @@
     "plan_work",
     "message_started_session",
     "suggest_session",
+    "my_suggestions",
     "new_work_drafts",
     "list_sessions",
     "list_running_sessions",

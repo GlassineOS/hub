@@ -239,7 +239,9 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
 
     async def changes(r, _b, token):
         """The same feed, for you: all repositories, and no Steward's cursor moves."""
-        return await github.changes_since(r.query_params.get("cursor"), int(r.query_params.get("limit") or 100), login=token)
+        q = r.query_params
+        return await github.changes_since(q.get("cursor"), int(q.get("limit") or 100), login=token, repo=q.get("repo"), item=q.get("item"),
+                                          digest=q.get("digest") in ("1", "true"))
 
     # --- the work store ---------------------------------------------------------
     async def work_status(_r, _b, _t):
