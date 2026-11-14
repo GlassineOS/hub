@@ -31,6 +31,7 @@ from .machinecost import Costs
 from .statusline import StatusLines
 from .managed import Managed, ManagedError, _marked
 from . import feed as feedlib
+from . import stewardwake
 from .designs import TICK as DESIGN_TICK, DesignError, Designs, Tools as DesignTools
 from .agents import _REPO_RE as _AGENT_REPO_RE, MAX_REPO_NAME, NO_REPO_OBJECTS, _draws_nothing
 from .instances import MAX_ASKED
@@ -85,10 +86,11 @@ SWEEP_EVERY = 30  # seconds between looks for managed sessions whose owner has e
 # The chain of owners' tools (012 FR-040 to FR-053), by a session's own token and conversation, each on its tool list
 CHAIN_OPS = {"managed.start": "start_managed", "managed.return": "return_result", "managed.report": "report_up", "managed.answer": "answer_report",
              "managed.status": "managed_status", "managed.withdraw": "withdraw_report"}
-PING_FIRST, PING_EVERY = 60, 30  # seconds: how often to look; the interval of a ping is its own setting
+STEWARD_FIRST = 10  # seconds after start before the Steward's sessions are first looked at (stewardwake.TICK after that)
 PUBLIC_KNOWN, PUBLIC_UNSURE = 600, 60  # seconds a repository's visibility is kept, when GitHub said and when it didn't
 COPIES_EVERY = 1800  # seconds between refreshes of the repository copies
-WORK_TOOL_OPS = {"work.offer": "plan_work", "work.suggest": "suggest_session", "work.submit": "submit_drafts", "work.handed": "new_work_drafts"}
+WORK_TOOL_OPS = {"work.offer": "plan_work", "work.suggest": "suggest_session", "work.submit": "submit_drafts", "work.handed": "new_work_drafts",
+                 "work.mine": "my_suggestions"}
 STEWARD = "steward"
 DIRECT_ORIGIN = {"launch": None, "from": None, "by": "you"}  # a session you started with the one click or the advanced form: no Launch record behind it
 RESULT_TOOL_OPS = {"result.submit": "submit_result", "result.report": "read_report"}  # By a session's own token, checked like WORK_TOOL_OPS
@@ -164,7 +166,7 @@ class Hubd:
                  authenticate=auth.pam_authenticate, pam_service: str = PAM_SERVICE, agents: Agents | None = None,
                  apps: Apps | None = None, work: newwork.NewWork | None = None, device_reports: devices.Devices | None = None,
                  decision_store: decisions.Decisions | None = None, notes_search: notes.Notes | None = None,
-                 change_feed: feedlib.Feed | None = None, ping_seconds: float = feedlib.DEFAULT_PING,
+                 change_feed: feedlib.Feed | None = None, steward_file: Path | None = None,
                  usage_allowance: float | None = None, result_store: results.Results | None = None, designs: Designs | None = None,
                  machine_run: machinerun.Runner | None = None, app_creation: Creation | None = None):
         self.app_creation = app_creation  # FR-032: a persona's App made through GitHub's manifest flow, by a login only
@@ -175,7 +177,8 @@ class Hubd:
         self.socket_path: Path | None = None  # set by serve, for the header's "connected to" (001 FR-005)
         self.usage_allowance = usage_allowance  # HUBD_DAILY_USAGE_USD, for the usage meter when no rate limit is known
         self._visible: dict[str, tuple[bool, float]] = {}
-        self.pings = feedlib.Pings(change_feed, agents, self.public_among, ping_seconds) if change_feed and agents else None
+        # 012 FR-056: what wakes the Steward, kept in steward_file (in memory without one)
+        self.steward_events = stewardwake.StewardEvents(steward_file, agents, change_feed, self.public_among, STEWARD) if agents else None
         self.asks = Asks()
         self.notes = notes_search
         self.devices = device_reports
@@ -194,6 +197,7 @@ class Hubd:
         if self.effects is not None:
             self.effects.managed = self.managed
             self.managed.relaunching = self.effects.relaunching
+            self.managed.steward_events = self.steward_events
         # 012 FR-025: a workflow with `status = true` posts each move to its session's pull request or issue
         self.status_lines = StatusLines(agents, gh, apps) if self.effects is not None else None
         # 012 FR-060: the saved versions of the workflows, the editor and the workflow.change card. A login only.
@@ -427,6 +431,11 @@ class Hubd:
                 self.machine_run.feed(self.feed.changes(None, before, feedlib.MAX_READ, None)["changes"])
             except (sqlite3.Error, feedlib.FeedError):
                 log.exception("the change feed's new rows can't be read for the workflows")
+        if kept and self.steward_events:  # 012 FR-056: a change to an item the Steward named wakes it
+            try:
+                self.steward_events.from_feed(self.feed.rows_after(before, self.steward_events.name))
+            except sqlite3.Error:
+                log.exception("the change feed's new rows can't be read for the Steward")
         return {"ok": True, "kept": kept, "refused": refused}
 
     def session_signal(self, req: dict) -> dict:
@@ -534,13 +543,36 @@ class Hubd:
         limit = req.get("limit")
         try:
             cursor = feedlib.parse_cursor(req.get("cursor"))
+            repo, number = self._feed_narrowing(req.get("repo"), req.get("item"))
+            if req.get("digest") is True and repo is not None:
+                raise feedlib.FeedError("a digest covers every repository: leave repo and item out, or ask for the rows")
             public = None if all_repos else await self.public_among(self.feed.repos())
-            return {"ok": True, **self.feed.changes(session, cursor, limit if isinstance(limit, int) and not isinstance(limit, bool) else feedlib.DEFAULT_READ, public)}
+            if req.get("digest") is True:
+                return {"ok": True, **self.feed.digest(session, cursor, public)}
+            return {"ok": True, **self.feed.changes(session, cursor, limit if isinstance(limit, int) and not isinstance(limit, bool) else feedlib.DEFAULT_READ,
+                                                    public, repo, number)}
         except feedlib.FeedError as e:
             return {"ok": False, "error": str(e)}
         except sqlite3.Error as e:
             log.exception("the change feed failed")
             return {"ok": False, "error": f"the change feed failed: {e}"}
+
+    @staticmethod
+    def _feed_narrowing(repo, item) -> tuple[str | None, int | None]:
+        """changes_since's repo or item (repo#N): the item wins, and must agree with a repo named beside it."""
+        if repo in (None, "") and item in (None, ""):
+            return None, None
+        if repo not in (None, "") and (not isinstance(repo, str) or not _AGENT_REPO_RE.fullmatch(repo.removeprefix(f"{ORG}/"))):
+            raise feedlib.FeedError("repo is the name of one of the organization's repositories")
+        repo = repo.removeprefix(f"{ORG}/") if isinstance(repo, str) and repo else None
+        if item in (None, ""):
+            return repo, None
+        if not isinstance(item, str) or not _ITEM_REF_RE.fullmatch(item):
+            raise feedlib.FeedError("item is written as repo#N")
+        name, number = item.rsplit("#", 1)
+        if repo is not None and repo.lower() != name.lower():
+            raise feedlib.FeedError("item names another repository than repo")
+        return name, int(number)
 
     async def public_among(self, repos) -> set[str]:
         """The repositories GitHub says are public. One it can't say anything about is treated as private."""
@@ -645,7 +677,11 @@ class Hubd:
             return {"ok": True, "sessions": await self.agents.running_sessions(scope["session"])}
         try:
             if op == "started.spawn":  # you allowed this call: the tool server checked before it got here
-                return {"ok": True, **await self.agents.spawn(req.get("action"), req.get("repo"), req.get("number"), scope["session"])}
+                spawned = await self.agents.spawn(req.get("action"), req.get("repo"), req.get("number"), scope["session"])
+                if self.steward_events and self.steward_events.is_steward(scope["session"]) and spawned.get("name"):
+                    self.steward_events.started(spawned["name"])  # its turn ending, or its end, wakes the Steward (FR-056)
+                    self.steward_events.watch(req.get("repo"), req.get("number"), f"session {spawned['name']}")
+                return {"ok": True, **spawned}
             if op == "started.message":  # no card: a session it started that only reads
                 return {"ok": True, **await self.agents.message_from(scope["session"], req.get("name"), req.get("text"), True)}
             if op == "started.message_any":  # you allowed this call: the tool server checked before it got here
@@ -1191,9 +1227,59 @@ class Hubd:
             config["covers"] = [{"repo": c["repo"], "number": c["number"]} for c in covers]
         return validate(self.agents.library, config)
 
-    def _tell_steward(self, record: dict, text: str) -> None:
-        if record["by"] == STEWARD or record["driver"] == "steward":
+    def _tell_steward(self, record: dict, text: str, wake: bool = False) -> None:
+        """What happened to new work the Steward suggested or drives. That a suggestion of its own was started, set aside or
+        its result applied wakes it (012 FR-056), as an event; the rest it reads in its next turn."""
+        if wake and record.get("by") == STEWARD and self.steward_events:
+            what = f"{record['repo']}#{record['number']}" if record.get("number") else (record.get("repo") or "no repository")
+            self.steward_events.add(f"Your suggestion {record['id']} ({record['title']}, {what}): {text}", key=f"work:{record['id']}")
+        elif record.get("by") == STEWARD or record.get("driver") == "steward":
             self.agents.tell(STEWARD, f"New work {record['id']} ({record['title']}, {record['repo'] or 'no repository'}): {text}")
+
+    def _watch_suggestion(self, record: dict) -> None:
+        """The items a suggestion of the Steward's names: what happens to them wakes it."""
+        if not self.steward_events or record.get("by") != STEWARD:
+            return
+        items = [(c.get("repo"), c.get("number"), c.get("kind")) for c in record.get("covers") or () if isinstance(c, dict)]
+        if record.get("number"):
+            items.insert(0, (record["repo"], record["number"], None))
+        for repo, number, kind in items:
+            self.steward_events.watch(repo, number, f"suggestion {record['id']}", kind)
+
+    def _my_suggestions(self, session: str) -> list[dict]:
+        """my_suggestions (012 FR-058): what the session suggested, as the hub has it now, and what, if anything, waits for the
+        person. Started, set aside or applied is never waiting."""
+        rows = []
+        for record in self.work.list():
+            if record.get("by") != session:
+                continue
+            result = None
+            if record.get("result") and self.results:
+                try:
+                    result = self.results.get(record["result"])
+                except results.ResultError:
+                    result = None
+            rows.append({"id": record["id"], "title": record["title"], "action": record.get("action"), "repo": record.get("repo"),
+                         "number": record.get("number"), "covers": [f"{c['repo']}#{c['number']}" for c in record.get("covers") or ()],
+                         "state": record["state"], "stage": record.get("stage"), "session": record.get("session"),
+                         "result": {"id": result["id"], "state": result["state"]} if result else None,
+                         "waiting_for_the_person": self._waits_for(record, result), "made": record.get("made"), "moved": record.get("moved")})
+        return rows
+
+    @staticmethod
+    def _waits_for(record: dict, result: dict | None) -> str | None:
+        state = record["state"]
+        if state == "offered":
+            return "to start it, or set it aside"
+        if state == "planned":
+            return "to read its plan and press Start"
+        if state == "failed":
+            return "to start it again or set it aside: it didn't run through"
+        if state == "done" and result is not None:
+            return "to apply its result, or set it aside" if result["state"] == "pending" else None
+        if state == "done" and any(d.get("state") == "draft" for d in record.get("drafts") or ()):
+            return "to file its drafts, hand them to you, or set them aside"
+        return None
 
     async def work_tool(self, op: str, req: dict) -> dict:
         """By a session's own token. A full session may suggest work; it doesn't plan or read drafts."""
@@ -1208,12 +1294,16 @@ class Hubd:
                 if not (req.get("why") or "").strip():
                     raise AgentError("say why, in a sentence: it's the first thing the person reads")
                 record = self.work.offer(scope["session"], self._work_fields({**req, "driver": "steward" if scope["session"] == STEWARD else "you"}))
+                self._watch_suggestion(record)
                 return {"ok": True, "id": record["id"]}
             if op == "work.suggest":
                 record = self.work.offer(scope["session"], self._suggestion(req))
+                self._watch_suggestion(record)
                 return {"ok": True, "id": record["id"]}
             if op == "work.handed":
                 return {"ok": True, "work": self.work.handed()}
+            if op == "work.mine":
+                return {"ok": True, "suggestions": self._my_suggestions(scope["session"])}
             record = self.work.by_session(scope["session"], self.agents.session_id_of(scope["session"]))
             if record is None:
                 return {"ok": False, "refused": True, "error": "this session isn't planning anything, or has handed in already"}
@@ -1276,10 +1366,10 @@ class Hubd:
         hands_in = self.agents.library.actions.get(record.get("action"), {}).get("result") in results.HANDED_IN
         if record.get("number") and not hands_in:  # a session on an item that opens a pull request and hands in nothing
             self.work.move(record, "started", session=started["name"])
-            self._tell_steward(record, f"the person started it as {started['name']}.")
+            self._tell_steward(record, f"the person started it as {started['name']}.", wake=True)
             return
         self.work.move(record, "running", session=started["name"], session_id=self.agents.session_id_of(started["name"]))
-        self._tell_steward(record, "the session started.")
+        self._tell_steward(record, f"the person started it as {started['name']}.", wake=True)
 
     async def _work_rows(self) -> list[dict]:
         names = {s["name"] for s in await self.shells.list()}
@@ -1362,13 +1452,14 @@ class Hubd:
                 if with_it:  # whoever drove this, those are the Steward's to hear about
                     self.agents.tell(STEWARD, f"New work {record['id']} ({record['title']}, {record['repo'] or 'no repository'}): the person set this aside. The {with_it} draft(s) they handed you are still yours.")
                 else:
-                    self._tell_steward(record, "the person set this aside.")
+                    self._tell_steward(record, "the person set it aside.", wake=True)
                 return {"ok": True, "work": self.work.move(record, "dismissed")}
             if op == "work.cancel":
                 if record["state"] not in ("planning", "starting", "running"):
                     raise newwork.WorkError("it isn't running")
                 name = record["session"]
                 self.work.move(record, "dismissed")
+                self._tell_steward(record, "the person cancelled it while it ran.", wake=True)
                 if name:
                     self._keep(self._end_session(name, 0))
                 return {"ok": True, "work": record}
@@ -1379,7 +1470,7 @@ class Hubd:
             if op == "work.filed":
                 self.work.filed(req.get("id"), req.get("index"), req.get("url"), req.get("note"))
                 if req.get("url"):
-                    self._tell_steward(record, f"the person filed {req['url']}.")
+                    self._tell_steward(record, f"the person filed {req['url']}.", wake=True)
                 return {"ok": True, "work": record}
             if op == "work.hand":
                 if (await self.agents.session_state(STEWARD))["state"] in ("Stopped", "Not started"):
@@ -1397,7 +1488,7 @@ class Hubd:
             if op == "work.discard":
                 self.work.discard(req.get("id"))
                 with_it = sum(d["state"] == "handed" for d in record["drafts"])
-                self._tell_steward(record, f"the person discarded this.{f' The {with_it} draft(s) they handed you are still yours.' if with_it else ''}")
+                self._tell_steward(record, f"the person discarded it.{f' The {with_it} draft(s) they handed you are still yours.' if with_it else ''}", wake=True)
                 return {"ok": True, "work": record}
             if op == "work.bring_back":
                 self.work.bring_back(req.get("id"))
@@ -1456,6 +1547,11 @@ class Hubd:
         if launch:
             self.work.move(launch, "done" if launch["state"] in ("running", "started", "failed") else launch["state"], result=record["id"], error=None)
             self._tell_steward(launch, f"the session handed in its {record['type']} result. It waits for the person.")
+        started_by = getattr(self.agents, "started_by", None)
+        if self.steward_events and started_by and self.steward_events.is_steward(started_by(name)):
+            on = f"{agent['repo']}#{agent['number']}" if agent.get("number") else (agent.get("repo") or "the project")
+            self.steward_events.add(f"{name}, a session you started on {on}, handed in its {record['type']} result ({record['id']}): "
+                                    "it waits for the person.", key=f"result:{name}")
         return {"ok": True, "id": record["id"]}
 
     def _read_report(self, scope: dict, result_id) -> dict:
@@ -1527,6 +1623,9 @@ class Hubd:
         launch = self.work.records.get(record.get("launch")) if self.work and record.get("launch") else None
         if launch and launch["state"] == "done" and launch.get("result") == record["id"]:
             self.work.move(launch, state)
+        if launch:
+            said = "the person applied its result" if state == "filed" else "the person set its result aside"
+            self._tell_steward(launch, f"{said} ({record['id']}).", wake=True)
 
     async def apply_result(self, record: dict, indexes=None) -> dict:
         """A login's press. It writes only through the tools the producing action names for its result, as it is now, and as
@@ -1848,7 +1947,9 @@ class Hubd:
 
     def _tell_and_wake(self, name: str, text: str, wake: str) -> None:
         self.agents.tell(name, text)
-        if self.managed is not None:
+        if self.steward_events is not None and self.steward_events.is_steward(name):  # 012 FR-056: one batch, at its prompt
+            self.steward_events.add(wake)
+        elif self.managed is not None:
             self.managed.wake_owner(name, wake)
         if self.machine_run:
             self.machine_run.signal("hub:decision", name)
@@ -2114,15 +2215,16 @@ async def _sweep(hubd: Hubd) -> None:
         await asyncio.sleep(SWEEP_EVERY)
 
 
-async def _ping(hubd: Hubd) -> None:
-    """The Stewards' pings: a count, when something they haven't read has changed, at most once an interval each."""
-    await asyncio.sleep(PING_FIRST)
-    while hubd.pings:
+async def _steward(hubd: Hubd) -> None:
+    """The Steward's cursor, the sessions it started and what waits for it (stewardwake.py). No timer wakes it: a tick only
+    sends events that couldn't go when they came."""
+    await asyncio.sleep(STEWARD_FIRST)
+    while hubd.steward_events:
         try:
-            await hubd.pings.round()
-        except Exception:  # a fault in the feed mustn't stop the hub; the next round may go better
-            log.exception("pings didn't run")
-        await asyncio.sleep(PING_EVERY)
+            await hubd.steward_events.look()
+        except Exception:  # the next tick may go better
+            log.exception("the Steward's events weren't looked at")
+        await asyncio.sleep(stewardwake.TICK)
 
 
 async def _keep_copies(hubd: Hubd) -> None:
@@ -2167,7 +2269,7 @@ async def serve(hubd: Hubd, path: Path) -> None:
     log.info("listening on %s", path)
     tidying = asyncio.ensure_future(_tidy(hubd))
     copying = asyncio.ensure_future(_keep_copies(hubd))
-    pinging = asyncio.ensure_future(_ping(hubd))
+    stewarding = asyncio.ensure_future(_steward(hubd))
     designing = asyncio.ensure_future(_watch_designs(hubd))
     renewing = asyncio.ensure_future(_renew_tokens(hubd))
     sweeping = asyncio.ensure_future(_sweep(hubd))
@@ -2191,7 +2293,7 @@ async def serve(hubd: Hubd, path: Path) -> None:
         renewing.cancel()
         sweeping.cancel()
         copying.cancel()
-        pinging.cancel()
+        stewarding.cancel()
 
 
 def main(argv=None) -> int:
@@ -2218,7 +2320,7 @@ def main(argv=None) -> int:
         keep = load_environment(config_dir() / "agents.env")
         claude = keep.pop("HUBD_CLAUDE", os.environ.get("HUBD_CLAUDE", "claude"))
         workspace = keep.pop("HUBD_WORKSPACE", os.environ.get("HUBD_WORKSPACE"))
-        ping_setting = keep.pop("HUBD_PING_SECONDS", os.environ.get("HUBD_PING_SECONDS"))
+        keep.pop("HUBD_PING_SECONDS", None)  # an older setting: the Steward isn't pinged any more, and sessions don't need it
         allowance = usage.allowance_of(keep.pop("HUBD_DAILY_USAGE_USD", os.environ.get("HUBD_DAILY_USAGE_USD")))
         # From before agents.env, until install.sh has moved it there.
         if "CLAUDE_CONFIG_DIR" in os.environ:
@@ -2233,11 +2335,11 @@ def main(argv=None) -> int:
                         workspace=Path(workspace or Path.home() / "GlassineOS").expanduser().resolve())
         try:
             change_feed = feedlib.Feed(state_dir() / "feed.sqlite")
-        except (sqlite3.Error, OSError):  # the hub works without it: no pings, and the tool says so
+        except (sqlite3.Error, OSError):  # the hub works without it: no feed events, and the tool says so
             log.exception("no change feed")
             change_feed = None
         hubd = Hubd(gh, shells, auth.Sessions(), agent_token, pam_service=a.pam_service, agents=agents, apps=apps,
-                    change_feed=change_feed, ping_seconds=feedlib.ping_interval(ping_setting), usage_allowance=allowance,
+                    change_feed=change_feed, steward_file=state_dir() / "steward-events.json", usage_allowance=allowance,
                     work=newwork.NewWork(state_dir() / "newwork"), result_store=results.Results(state_dir() / "results"), device_reports=devices.Devices(state_dir() / "devices"),
                     decision_store=decisions.Decisions(state_dir() / "decisions"), notes_search=notes.Notes(agents.workspace),
                     designs=Designs(agents, DesignTools(cache_dir(), Path(__file__).resolve().parents[1] / "app" / "ui.ref")),

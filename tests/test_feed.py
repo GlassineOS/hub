@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""The change feed: facts of what changed, a cursor for each Steward, and a ping that is only a count."""
+"""The change feed: facts of what changed, a cursor for each Steward, reads narrowed or as a digest, and the Steward's events sent
+only at its prompt."""
 import asyncio
 import calendar
 import itertools
@@ -20,7 +21,8 @@ from hub.workstore import WorkStore, item_events, run_events  # noqa: E402
 from hub.worksync import WorkSync  # noqa: E402
 from hubd import agents as agents_module, auth  # noqa: E402
 from hubd.agents import HUB_SENDER, IDLE_FILE, AgentError  # noqa: E402
-from hubd.feed import DEFAULT_PING, MAX_PING, MIN_PING, Feed, FeedError, Pings, clean, importance, parse_cursor, ping_interval, ping_text, target_of  # noqa: E402
+from hubd.feed import Feed, FeedError, clean, importance, parse_cursor, target_of  # noqa: E402
+from hubd.stewardwake import StewardEvents  # noqa: E402
 from hubd import feed as feedlib  # noqa: E402
 from hubd.ghpolicy import Refused  # noqa: E402
 from hubd.server import Hubd  # noqa: E402
@@ -60,28 +62,6 @@ class Clock:
         return self.now
 
 
-class FakeStewards:
-    """What Pings asks of the sessions: who is running, and a way to send."""
-    def __init__(self, *names, all_repos=True):
-        self.rows = [{"name": n, "all_repos": all_repos} for n in names]
-        self.sent, self.refuse = [], None
-
-    async def stewards(self):
-        return self.rows
-
-    async def hub_ping(self, name, text):
-        if self.refuse:
-            raise AgentError(self.refuse)
-        self.sent.append((name, text))
-
-
-def pings(feed, who, clock, public=(), interval=300.0):
-    async def public_of(repos):
-        return {r for r in repos if r in public}
-    feed._clock = clock  # one clock for the interval and for when a ping was sent
-    return Pings(feed, who, public_of, interval, clock=clock)
-
-
 def run(coro):
     return asyncio.run(coro)
 
@@ -119,8 +99,6 @@ def test_a_time_is_ascii_digits_and_so_is_every_other_number():
     arabic = "٢٠٢٦-١١-٠٥T١٨:٤٩:٣٧Z"
     assert feed.record([ev(at=arabic), ev(what="labels", kind="issue", old="٢", new="3", old_head="", new_head="")]) == (0, 2)
     assert feed.record([ev(at="2026-11-05T18:49:37Z")]) == (1, 0)
-    # The ping reads its time from a stored one, and says nothing of one that isn't of the shape.
-    assert ping_text({"total": 1, "since": arabic, "phrases": {"merged": 1}}) == "1 change: 1 merged. changes_since returns them from your cursor."
     # The longest login the pattern takes is the one the security notes name.
     assert clean(ev(actor="a" * 39 + "[bot]")) and not clean(ev(actor="a" * 40 + "[bot]")) and not clean(ev(actor="a" * 40))
 
@@ -229,96 +207,19 @@ def test_a_gap_is_said_when_old_changes_were_dropped():
     assert got["gap"] is True and [c["id"] for c in got["changes"]] == [3]
 
 
-# --- the ping ------------------------------------------------------------------------------------------
-def test_no_ping_when_nothing_changed():
-    feed, clock, who = Feed(":memory:"), Clock(), FakeStewards("steward")
-    p = pings(feed, who, clock)
-    many(feed, 2)
-    assert run(p.round()) == 0  # first seen: it starts from now
-    for _ in range(3):
-        clock.now += 1000
-        assert run(p.round()) == 0
-    assert who.sent == []
-
-
-def test_a_ping_is_a_count_and_nothing_of_the_item():
-    feed, clock, who = Feed(":memory:"), Clock(), FakeStewards("steward")
-    p = pings(feed, who, clock)
-    run(p.round())
-    feed.record([ev(number=7, new="MERGED"), ev(number=8, what="comments", old="", new="", old_head="", new_head=""),
-                 ev(number=9, what="run", kind="run", old="in_progress", new="failure", old_head="", new_head="")])
-    clock.now += 1
-    assert run(p.round()) == 1
-    (name, text), = who.sent
-    assert name == "steward"
-    assert text == "3 changes since 15:02 UTC: 1 commented items, 1 merged, 1 runs failed. changes_since returns them from your cursor."
-    for leaked in ("boot", "alice", "7", "http", OLD):
-        assert leaked not in text.replace("3 changes", "")
-    assert ping_text({"total": 1, "since": None, "phrases": {"opened": 1}}) == "1 change: 1 opened. changes_since returns them from your cursor."
-
-
-def test_one_ping_per_steward_per_interval_and_each_has_its_own():
-    feed, clock, who = Feed(":memory:"), Clock(), FakeStewards("steward", "second")
-    p = pings(feed, who, clock, interval=300)
-    run(p.round())
-    many(feed, 12)
-    assert run(p.round()) == 2
-    # A noisy minute: more changes, many rounds, still one each.
-    for _ in range(5):
-        clock.now += 30
-        many(feed, 3, what="labels", old="1", new="2", old_head="", new_head="")
-        run(p.round())
-    assert len(who.sent) == 2
-    clock.now += 300
-    assert run(p.round()) == 2 and len(who.sent) == 4
-    # What it hasn't read is counted again, and what it has isn't.
-    assert who.sent[2][1].startswith("27 changes")
-    feed.changes("steward", None, 500, None)
-    feed.record([ev(number=99)])
-    clock.now += 300
-    run(p.round())
-    texts = dict(who.sent[4:])
-    assert texts["steward"].startswith("1 change ") and texts["second"].startswith("28 changes")
-
-
-def test_pings_wait_across_a_restart():
-    feed, clock, who = Feed(":memory:"), Clock(), FakeStewards("steward")
-    run(pings(feed, who, clock).round())
-    many(feed, 1)
-    assert run(pings(feed, who, clock).round()) == 1
-    many(feed, 1, what="head", old="", new="")
-    assert run(pings(feed, who, clock).round()) == 0  # a new Pings, the same feed: the interval is kept with the cursor
-
-
-def test_a_ping_that_couldnt_go_is_tried_again_and_the_feed_still_has_it():
-    feed, clock, who = Feed(":memory:"), Clock(), FakeStewards("steward")
-    p = pings(feed, who, clock)
-    run(p.round())
-    many(feed, 2)
-    who.refuse = "4 started sessions are still working"
-    assert run(p.round()) == 0
-    who.refuse = None
-    assert run(p.round()) == 1
-    assert len(feed.changes("steward", None, 10, None)["changes"]) == 2
-
-
 # --- what may be read ---------------------------------------------------------------------------------
-def test_a_private_repository_is_in_neither_the_feed_nor_the_counts_of_a_steward_that_cant_read_it():
-    feed, clock = Feed(":memory:"), Clock()
-    reader, blind = FakeStewards("reader", all_repos=True), FakeStewards("blind", all_repos=False)
-    p_reader, p_blind = pings(feed, reader, clock, public={"boot"}), pings(feed, blind, clock, public={"boot"})
-    run(p_reader.round()), run(p_blind.round())
+def test_a_private_repository_is_in_neither_the_feed_nor_the_digest_of_a_steward_that_cant_read_it():
+    feed = Feed(":memory:")
+    feed.begin("reader"), feed.begin("blind")
     feed.record([ev(repo="secret-repo", number=1), ev(repo="secret-repo", number=2, what="head", old="", new=""), ev(repo="boot", number=3)])
-    clock.now += 1
-    run(p_reader.round()), run(p_blind.round())
-    assert reader.sent[0][1].startswith("3 changes") and blind.sent[0][1].startswith("1 change ")
-    assert "secret" not in blind.sent[0][1]
-    seen = feed.changes("blind", None, 10, {"boot"})
+    blind = feed.digest("blind", 0, {"boot"})
+    assert [d["repo"] for d in blind["digest"]] == ["boot"] and "secret" not in json.dumps(blind)
+    seen = feed.changes("blind", int(blind["from"]), 10, {"boot"})
     assert [c["repo"] for c in seen["changes"]] == ["boot"] and seen["counts"] == {"state": 1}
     assert "secret" not in json.dumps(seen)
     assert len(feed.changes("reader", None, 10, None)["changes"]) == 3
-    # A session that sees no repository at all gets nothing, and a ping to it counts nothing.
-    assert feed.changes("none", None, 10, set())["changes"] == [] and feed.unread("none", set())["total"] == 0
+    # A session that sees no repository at all gets nothing, and its digest says nothing.
+    assert feed.changes("none", None, 10, set())["changes"] == [] and feed.digest("none", 0, set())["digest"] == []
 
 
 def test_a_repository_that_cant_be_told_is_private(tmp_path):
@@ -378,24 +279,23 @@ def test_a_feed_that_is_not_set_up_says_so_and_the_hub_goes_on(tmp_path):
 # --- its own doing -------------------------------------------------------------------------------------
 def test_what_a_session_wrote_is_marked_its_own_and_doesnt_wake_it():
     clock = Clock()
-    feed, who = Feed(":memory:", clock=clock), FakeStewards("steward", "second")
-    p = pings(feed, who, clock)
-    run(p.round())
+    feed = Feed(":memory:", clock=clock)
+    events = StewardEvents(None, clock=clock)
+    events.watch("boot", 2, "suggestion abc")
+    events.watch("boot", 3, "suggestion abc")
+    before = feed.issued()
     feed.mark("steward", "boot", 2)
     feed.record([ev(number=2, what="comments", old="", new="", old_head="", new_head=""), ev(number=3)])
-    clock.now += 1
-    run(p.round())
-    texts = dict(who.sent)
-    assert texts["steward"].startswith("1 change ") and texts["second"].startswith("2 changes")
+    assert events.from_feed(feed.rows_after(before, "steward")) == 1
+    assert [e["text"].split(" ")[0] for e in events.pending] == ["boot#3"]
     got = {c["number"]: c["own"] for c in feed.changes("steward", 0, 10, None)["changes"]}
     assert got == {2: True, 3: False}
     assert {c["number"]: c["own"] for c in feed.changes("second", 0, 10, None)["changes"]} == {2: False, 3: False}
-    # Alone, its own doing wakes nobody, and the feed still has it.
-    feed.mark("steward", "boot", 9)
-    feed.record([ev(number=9)])
-    clock.now += 1000
-    run(p.round())
-    assert [n for n, _ in who.sent] == ["steward", "second", "second"] and any(c["own"] for c in feed.changes("steward", 0, 10, None)["changes"] if c["number"] == 9)
+    # Reading what was just recorded for the Steward moves no cursor.
+    feed.begin("third")
+    feed.record([ev(number=4)])
+    feed.rows_after(0, "third")
+    assert [c["number"] for c in feed.changes("third", None, 10, None)["changes"]] == [4]
 
 
 def test_a_mark_is_for_a_while_only():
@@ -482,7 +382,7 @@ def test_noting_a_write_cannot_fail_it(fault):
     assert reply["ok"] and reply["code"] == 0
 
 
-# --- a ping never starts a session ------------------------------------------------------------------------
+# --- the Steward's events never start a session, and go only at its prompt ----------------------------------
 @pytest.fixture
 def live(tmp_path, monkeypatch):
     monkeypatch.setattr(agents_module, "SANDBOX_TOOLS", ())
@@ -495,46 +395,44 @@ def live(tmp_path, monkeypatch):
     return a, name
 
 
-def test_no_ping_to_a_stopped_session(live):
+def test_no_events_to_a_stopped_session(live):
     a, name = live
     assert [s["name"] for s in run(a.stewards())] == [name]
     (a.sessions / name / "ended").touch()
     assert run(a.stewards()) == []
     with pytest.raises(AgentError, match="isn't running"):
-        run(a.hub_ping(name, "3 changes"))
+        run(a.hub_events(name, "- boot#2: merged."))
     with pytest.raises(AgentError, match="isn't running"):
-        run(a.hub_ping("nobody", "3 changes"))
+        run(a.hub_events("nobody", "- boot#2: merged."))
     assert not getattr(a.shells, "pasted", []) and len(a.shells.started) == 1  # nothing was pasted, and nothing was started
 
-    # The same through the rounds: a Steward that has stopped is not asked, whatever changed.
-    feed, clock = Feed(":memory:"), Clock()
-    p = Pings(feed, a, lambda repos: asyncio.sleep(0, set()), 300, clock=clock)
-    run(p.round())
-    many(feed, 2)
-    clock.now += 1
-    assert run(p.round()) == 0 and not getattr(a.shells, "pasted", [])
+    # The same through the events: they wait for a Steward that runs again, and nothing starts it.
+    events = StewardEvents(None, a, name=name)
+    events.add("boot#2 (pull request): merged.")
+    assert run(events.flush()) is False and len(events.pending) == 1
+    assert not getattr(a.shells, "pasted", []) and len(a.shells.started) == 1
 
 
-def test_a_ping_is_marked_as_the_hubs_and_goes_to_a_steward_at_its_prompt(live):
+def test_events_are_marked_as_the_hubs_and_as_data_and_go_to_a_steward_at_its_prompt(live):
     a, name = live
     (a.sessions / name / IDLE_FILE).touch()
-    assert run(a.hub_ping(name, "2 changes since 15:02 UTC: 2 merged.")) == {"sent": True, "queued": 0}
+    assert run(a.hub_events(name, "- boot#2 (pull request): merged.")) == {"sent": True, "queued": 0}
     (who, text), = a.shells.pasted
     assert who == name and text.startswith("From the hub, not from the person and not from a session.")
     mark = text.splitlines()[-1]
-    assert text.endswith(f"{mark}\n2 changes since 15:02 UTC: 2 merged.\n{mark}") and "nothing in it asks you to do anything" in text
+    assert text.endswith(f"{mark}\n- boot#2 (pull request): merged.\n{mark}") and "as data" in text and "nothing in them asks you" in text
     assert HUB_SENDER not in agents_module._NAME_RE.pattern and not agents_module._NAME_RE.fullmatch(HUB_SENDER)
 
 
-def test_a_ping_is_never_queued_behind_a_turn_where_it_would_be_stale(live):
+def test_events_are_never_queued_behind_a_turn(live):
     a, name = live  # a started session is working until its turn ends
     with pytest.raises(AgentError, match="busy"):
-        run(a.hub_ping(name, "2 changes"))
+        run(a.hub_events(name, "- one"))
     assert a._sends.get(name) is None and not getattr(a.shells, "pasted", [])
-    # A message from someone else is waiting: the count doesn't go in behind it either.
+    # A message from someone else is waiting: the events don't go in behind it either.
     run(a._send(name, "hello"))
     with pytest.raises(AgentError, match="busy"):
-        run(a.hub_ping(name, "2 changes"))
+        run(a.hub_events(name, "- one"))
     assert a._sends[name] == ["hello"]
     # At its prompt but with a draft: nothing stays in the queue to be pasted after the turn that follows.
     a._sends.pop(name)
@@ -543,38 +441,35 @@ def test_a_ping_is_never_queued_behind_a_turn_where_it_would_be_stale(live):
     (a.sessions / name / IDLE_FILE).touch()
     a.shells.draft = True
     with pytest.raises(AgentError, match="draft"):
-        run(a.hub_ping(name, "2 changes"))
+        run(a.hub_events(name, "- one"))
     assert not a._sends.get(name) and not a._from.get(name) and not getattr(a.shells, "pasted", [])
 
 
-def test_a_ping_tmux_refuses_is_taken_back_out_and_the_next_one_can_go(live):
+def test_a_busy_steward_gets_what_came_meanwhile_in_one_turn_once_at_its_prompt(live):
+    a, name = live
+    events = StewardEvents(None, a, name=name)
+    events.add("Your suggestion abc (Implement, boot#2): the person started it as issue-implement-boot-2.")
+    assert run(events.flush()) is False  # at work: it waits
+    events.add("boot#2 (issue, which you named in suggestion abc): closed.")
+    a.shells.draft = False
+    (a.sessions / name / IDLE_FILE).touch()
+    assert run(events.flush()) is True and events.pending == []
+    (who, text), = a.shells.pasted
+    assert "issue-implement-boot-2" in text and "closed." in text
+    assert run(events.flush()) is False and len(a.shells.pasted) == 1  # nothing left: nothing more is sent
+
+
+def test_events_tmux_refuses_are_taken_back_out_and_go_with_the_next_try(live):
     a, name = live
     (a.sessions / name / IDLE_FILE).touch()
     a.shells.refuse_paste = True
     with pytest.raises(agents_module.ShellError):
-        run(a.hub_ping(name, "2 changes"))
+        run(a.hub_events(name, "- one"))
     assert not a._sends.get(name) and not a._from.get(name) and not getattr(a.shells, "pasted", [])
-    # Not "busy" afterwards, and nothing stale is pasted ahead of the next message.
     a.shells.refuse_paste = False
-    assert run(a.hub_ping(name, "3 changes")) == {"sent": True, "queued": 0}
+    assert run(a.hub_events(name, "- two")) == {"sent": True, "queued": 0}
     (_, text), = a.shells.pasted
-    assert "3 changes" in text and "2 changes" not in text
-
-
-def test_a_busy_steward_that_reads_meanwhile_gets_no_ping_afterwards():
-    feed, clock, who = Feed(":memory:"), Clock(), FakeStewards("steward")
-    p = pings(feed, who, clock)
-    run(p.round())
-    many(feed, 3)
-    who.refuse = "steward is busy"      # mid-turn: the ping isn't queued
-    clock.now += 1
-    assert run(p.round()) == 0
-    feed.changes("steward", None, 100, None)  # it reads what changed during that turn
-    who.refuse = None
-    clock.now += 31
-    assert run(p.round()) == 0 and who.sent == []  # at its prompt now, and nothing it hasn't read
-    many(feed, 1)
-    assert run(p.round()) == 1 and who.sent[0][1].startswith("1 change ")
+    assert "- two" in text and "- one" not in text
 
 
 def test_waking_an_idle_steward_needs_room(live, monkeypatch):
@@ -585,16 +480,11 @@ def test_waking_an_idle_steward_needs_room(live, monkeypatch):
         raise AgentError("4 started sessions are still working")
     monkeypatch.setattr(a, "room_to_start", full_up)
     with pytest.raises(AgentError, match="still working"):
-        run(a.hub_ping(name, "x changes"))
+        run(a.hub_events(name, "- one"))
     assert not getattr(a.shells, "pasted", []) and not a._sends.get(name)
-
-
-# --- the setting ----------------------------------------------------------------------------------------
-@pytest.mark.parametrize("value,seconds", [
-    (None, DEFAULT_PING), ("", DEFAULT_PING), ("abc", DEFAULT_PING), ("nan", DEFAULT_PING), ("inf", DEFAULT_PING), ("-inf", DEFAULT_PING),
-    ("0", MIN_PING), ("-5", MIN_PING), ("5", MIN_PING), ("120", 120.0), ("1e9", MAX_PING), ("86400", MAX_PING)])
-def test_a_bad_interval_is_not_taken_and_a_small_one_isnt_either(value, seconds):
-    assert ping_interval(value) == seconds
+    events = StewardEvents(None, a, name=name)
+    events.add("boot#2: merged.")
+    assert run(events.flush()) is False and len(events.pending) == 1
 
 
 # --- what the sync sends -------------------------------------------------------------------------------------

@@ -158,6 +158,7 @@ class Managed:
         self._turn_asked: dict[str, tuple] = {}  # owner -> (conversation, state, entered, rounds) woken on the tick for an unjudged `when`
         self._woken: dict[str, tuple] = {}  # session -> (conversation, state, entered): the stay the hub last woke it in
         self.relaunching = None  # (name) -> whether a move relaunches it now (effects.py)
+        self.steward_events = None  # stewardwake.StewardEvents: the Steward's wakes go there, batched until it is at its prompt
         self._sleep = asyncio.sleep  # injectable, so tests don't wait for a retry
         # owner -> {move (state, entered): (conversation, entries)}: the starts a move that relaunches it waits to make
         self._deferred: dict[str, dict[tuple, tuple]] = {}
@@ -1103,6 +1104,8 @@ class Managed:
         action = original.get("action") if forward is not None else proposed
         report = self.log.report(kind, name, sid, to_name, to_sid, evidence, proposal, chain, parent=parent, action=action)
         self._name_facts(report, name, f"{evidence}\n{proposal}")
+        if self.steward_events is not None and self.steward_events.is_steward(name):  # what it reports on wakes it (FR-056)
+            self.steward_events.named_in(f"{evidence}\n{proposal}", f"report {report['id']}")
         if parent:
             self.log.settle_report(parent, "forwarded", answered_by=name)
         if above:
@@ -1315,7 +1318,8 @@ class Managed:
         body += (f"\n\nAnswer with answer_report (id {report['id']}, decision approve or deny, and a note if you like), within your "
                  "own grant; or send it up with report_up, naming it as forward.")
         self.agents.tell(to, body)
-        self.wake_owner(to, REPORT_WORDS)
+        steward = self.steward_events is not None and self.steward_events.is_steward(to)
+        self.wake_owner(to, f"Report {report['id']} from {report['from_name']} waits for you: it is in this turn." if steward else REPORT_WORDS)
 
     # --- waking a session at its prompt: fixed words and facts, never another session's text ------------------------------
     def wake_owner(self, name, sentence: str) -> None:
@@ -1323,6 +1327,10 @@ class Managed:
         owner, a report and an answer) makes one wake, sent once the evaluation its signal started has run, so a move it makes
         comes first. A busy session isn't woken: it reads what it was told in its next turn anyway."""
         if not isinstance(name, str) or not name:
+            return
+        if self.steward_events is not None and self.steward_events.is_steward(name):
+            # 012 FR-056: kept until the Steward is at its prompt, and sent with whatever else came meanwhile
+            self.steward_events.add(sentence)
             return
         try:
             asyncio.get_running_loop()

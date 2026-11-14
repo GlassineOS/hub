@@ -987,6 +987,9 @@ class GitHub:
         reply = await self.hubd.call(op="notes_tool.find", agent_token=CALLER.get(), words=words, limit=limit)
         return {k: reply[k] for k in ("says", "rows", "total", "warnings") if k in reply}
 
+    async def my_suggestions(self) -> list[dict]:
+        return (await self.hubd.call(op="work.mine", agent_token=CALLER.get()))["suggestions"]
+
     async def new_work_drafts(self) -> list[dict]:
         return (await self.hubd.call(op="work.handed", agent_token=CALLER.get()))["work"]
 
@@ -1064,14 +1067,17 @@ class GitHub:
             raise
         return {"work": record, "errors": errors, "warnings": warnings}
 
-    async def changes_since(self, cursor=None, limit=100, login=None) -> dict:
+    async def changes_since(self, cursor=None, limit=100, login=None, repo=None, item=None, digest=False) -> dict:
         """What changed in the project after a cursor, as facts from hubd's feed: item, what, old and new state and head commit,
         when, who, a link. A session's own cursor is kept by hubd, so it moves forward when this is read. Under a login it
         moves nobody's. What the caller may read is hubd's to decide, for the rows and the counts alike."""
         if cursor is not None and not isinstance(cursor, (str, int)):
             raise BadRequest("a cursor is the one a previous answer gave")
+        if not all(v is None or isinstance(v, str) for v in (repo, item)) or not isinstance(digest, bool):
+            raise BadRequest("repo is a repository, item is repo#N, and digest is true or false")
         reply = await self.hubd.call(op="feed.changes", agent_token=CALLER.get(), token=login,
-                                     cursor=None if cursor in (None, "") else str(cursor), limit=int(_limit(limit, 100, 500)))
+                                     cursor=None if cursor in (None, "") else str(cursor), limit=int(_limit(limit, 100, 500)),
+                                     repo=repo or None, item=item or None, digest=digest)
         reply.pop("ok", None)
         return reply
 
