@@ -19,9 +19,8 @@ from test_managed import HELPER, FakeGh, FakeShells, Judge, kids, settle
 
 REPO = Path(__file__).resolve().parents[1]
 
-# An owner on a pull request: it holds the pull request it is on, manages a fixer that writes more than it holds, and moves
-# to fix on request.
-PR_OWNER = '''schema = 1
+# An owner on a pull request that only reads: it manages a fixer that writes more than it holds, and moves to fix on request.
+PR_READER_OWNER = '''schema = 1
 name = "pr-owner"
 initial = "look"
 
@@ -50,6 +49,9 @@ hub_tools = ["get_issue", "notes_find"]
 checkout = false
 '''
 
+# The same owner able to build on its pull request (mark_ready updates it): it holds the pull request it is on (FR-104).
+PR_OWNER = PR_READER_OWNER.replace('"notes_find"]', '"mark_ready"]')
+
 STUCK_OWNER = '''schema = 1
 name = "pr-stuck"
 initial = "look"
@@ -58,7 +60,7 @@ initial = "look"
 final = true
 [state.look.grant]
 tools = ["AskUserQuestion"]
-hub_tools = ["get_issue", "notes_find"]
+hub_tools = ["get_issue", "mark_ready"]
 checkout = false
 [[state.look.manages]]
 name = "helper"
@@ -103,15 +105,18 @@ def hub(tmp_path, monkeypatch):
                                       + launch("pr-mover", on="pr", label="Ask for the fix", when_held="ask") + 'ask_move = "fix"\n')
     (wf / "pr-reader.toml").write_text(HELPER.format(name="pr-reader", tools='["get_issue", "notes_find"]')
                                        + launch("pr-reader", on="pr", label="Read it beside", when_held="beside"))
-    (wf / "pr-own.toml").write_text(HELPER.format(name="pr-own", tools='["get_issue", "notes_find"]')
+    (wf / "pr-own.toml").write_text(HELPER.format(name="pr-own", tools='["get_issue", "mark_ready"]')
                                     + launch("pr-own", on="pr", label="A session of its own", when_held="hide"))
+    # builds on the pull request, asks the owner, and the owner has no way to take it on
+    (wf / "pr-stray.toml").write_text(HELPER.format(name="pr-stray", tools='["get_issue", "mark_ready"]')
+                                      + launch("pr-stray", on="pr", label="Stray", when_held="ask"))
     # an owner on a pull request whose state starts a workflow on an issue: there is none, so that start can never happen
     (wf / "issue-helper.toml").write_text(HELPER.format(name="issue-helper", tools='["get_issue", "notes_find"]') + launch("issue-helper", start=False))
     (wf / "pr-stuck.toml").write_text(STUCK_OWNER + launch("pr-stuck", on="pr", label="Stuck on it", when_held="hide"))
     # an owner on a repository with a new branch of its own, which names the pull request its fixer works on
     (wf / "repo-boss.toml").write_text(REPO_BOSS + launch("repo-boss", on="repo", label="Boss it", start=False))
     # an owner that runs beside the holder: what it manages doesn't share the holder's hold
-    (wf / "pr-beside.toml").write_text(PR_OWNER.replace('name = "pr-owner"', 'name = "pr-beside"')
+    (wf / "pr-beside.toml").write_text(PR_READER_OWNER.replace('name = "pr-owner"', 'name = "pr-beside"')
                                        + launch("pr-beside", on="pr", label="Look beside", when_held="beside"))
     claude = tmp_path / "claude"
     claude.write_text("#!/bin/sh\n")
@@ -168,8 +173,10 @@ def test_a_held_pull_request_leads_with_its_instance_and_each_start_says_what_it
         assert got["pr-review"]["availability"] == "runs"  # the default review only reads: it runs beside
         # the default address-review asks for the owner's move to fix, which this owner's state has
         assert got["pr-address-review"]["availability"] == "asks" and got["pr-address-review"]["ask"]["to"] == "fix"
-        # a writing start with no way through the owner is hidden, and says why
-        assert got["pr-security-audit"]["availability"] == "hidden" and "no way" in got["pr-security-audit"]["why"]
+        # a building start with no way through the owner is hidden, and says why
+        assert got["pr-stray"]["availability"] == "hidden" and "no way" in got["pr-stray"]["why"]
+        # an audit that only reads and comments builds nothing: it runs beside (FR-104)
+        assert got["pr-security-audit"]["availability"] == "runs"
         assert [m["to"] for m in view["moves"]] == ["fix"]
         # the same through the op, for a login only
         login = h.sessions.create()
@@ -561,3 +568,98 @@ def test_a_fork_answer_is_kept_as_an_own_one_is(hub):
         assert await a._from_fork("boot", 7) and await a.pr_fork_state("boot", 7) is True
         assert asked == ["7", "8", "9", "7", "7"]
     asyncio.run(go())
+
+
+# --- FR-104: only a workflow that can build on its item holds it -----------------------------------------------------------
+
+def _record(a, name: str, action: str, kind: str, number: int, **extra) -> dict:
+    """A session's record and its instance as a start leaves them, written by hand: `extra` as an older hub may have kept."""
+    (a.sessions / name).mkdir(parents=True)
+    record = {"name": name, "session_id": f"sid-{name}", "object": kind, "created": 1.0, "title": action,
+              "config": a.defaults(action, "boot", number), **extra}
+    (a.sessions / name / "session.json").write_text(json.dumps(record))
+    a.machines.start(a.sessions / name, a.library.actions[action])
+    return record
+
+
+def test_the_shipped_workflows_that_build_are_those_that_push_or_write_a_pull_request_or_manage_one_that_does(hub):
+    _h, a = hub
+    builds = {a.library.actions[aid]["workflow"]: bool(a.library.actions[aid]["builds"]) for aid in a.library.actions}
+    reads = {"issue-triage", "pr-review", "pr-security-audit", "pr-explain", "pr-merge-prep", "design-check", "qa-audit",
+             "knowledge-research", "new-architecture-audit", "new-dependency-review", "new-docs-sweep", "new-issue",
+             "new-roadmap-item", "new-security-audit", "notes-compact", "notes-sweep", "run-diagnose", "run-explain", "run-flaky",
+             "run-slow", "workflow-change", "workflow-review"}
+    shipped = {p.stem for p in (REPO / "agents" / "workflows").glob("*.toml")}
+    assert {w for w in shipped if not builds[w]} == reads
+    # the Steward and a repository's maintainer push nothing themselves: they build through the implementor they manage
+    assert "implementor" in a.library.actions["repo-maintainer"]["builds"][0]
+    assert "repo-maintainer" in a.library.actions["project-steward"]["builds"][0]
+    # what builds never runs beside a holder; of what doesn't, these ask nothing of it now
+    assert all(a.library.actions[aid]["when_held"] != "beside" for aid in a.library.actions
+               if a.library.actions[aid]["builds"] and not a.library.actions[aid].get("managed_only"))
+    assert a.library.actions["issue-triage"]["when_held"] == a.library.actions["pr-security-audit"]["when_held"] == "beside"
+
+
+def test_a_triage_holds_nothing_so_the_lead_start_is_offered_on_its_issue(hub):
+    h, a = hub
+
+    async def go():
+        triage = (await a.start(a.defaults("issue-triage", "boot", 3)))["name"]
+        assert a.holders("issue", "boot", 3) == ([], [])
+        view = await h.item_starts("issue", "boot", 3)
+        assert view["holder"] is None and rows(view)["implementor"]["availability"] == "runs"
+        # an implementor then holds the issue; the triage still runs, beside it
+        _record(a, "x-lead", "implementor", "issue", 3, when_held="hide")
+        assert a.holders("issue", "boot", 3)[0] == ["x-lead"] and triage not in a.holders("issue", "boot", 3)[0]
+        assert rows(await h.item_starts("issue", "boot", 3))["issue-triage"]["availability"] == "runs"
+    asyncio.run(go())
+
+
+def test_an_implementor_holds_its_issue_and_its_engineers_pull_request_and_a_review_holds_nothing(hub):
+    _h, a = hub
+    lead = _record(a, "x-lead", "implementor", "issue", 3, when_held="hide")
+    _record(a, "x-eng", "engineer", "issue", 3, when_held="ask", owner={"name": "x-lead", "session_id": lead["session_id"]})
+    record, inst = a.machines.load("x-lead")
+    inst.managed["engineer"] = {**inst.managed.get("engineer", {}), "child": {"name": "x-eng", "session_id": "sid-x-eng"}}
+    a.machines.save("x-lead", inst)
+    a._prs["x-lead"] = (0.0, [], lead["session_id"])
+    a._prs["x-eng"] = (0.0, [{"repo": "boot", "number": PR, "state": "OPEN"}], "sid-x-eng")
+    assert a.holders("issue", "boot", 3)[0] == ["x-lead"]
+    assert a.holders("pr", "boot", PR) == (["x-lead"], [])
+    _record(a, "x-review", "pr-review", "pr", PR + 1, when_held="beside")
+    assert a.holders("pr", "boot", PR + 1) == ([], [])
+
+
+@pytest.mark.parametrize("kept", [{"when_held": "ask"}, {"when_held": "hide"}, {}])
+def test_an_older_record_of_a_workflow_that_doesnt_build_holds_nothing_whatever_it_kept(hub, kept):
+    _h, a = hub
+    _record(a, "x-old-triage", "issue-triage", "issue", 3, **kept)
+    _record(a, "x-old-review", "pr-review", "pr", PR, **kept)
+    assert a.holders("issue", "boot", 3) == ([], [])
+    assert a.holders("pr", "boot", PR) == ([], [])
+    # the same records of a workflow that builds hold, as before
+    _record(a, "x-old-lead", "implementor", "issue", 3, **kept)
+    assert a.holders("issue", "boot", 3)[0] == ["x-old-lead"]
+
+
+def test_a_start_that_doesnt_build_claims_nothing_while_it_starts(hub):
+    _h, a = hub
+    # even one that asks the owner, as a version saved before this rule may have it
+    triage = {**a.library.actions["issue-triage"], "when_held": "ask"}
+    assert a._claims(triage, a.defaults("issue-triage", "boot", 3)) == []
+    assert a._claims(a.library.actions["implementor"], a.defaults("implementor", "boot", 3)) == [("issue", "boot", 3)]
+
+
+def test_the_library_refuses_beside_for_a_start_whose_managed_workflow_builds(tmp_path):
+    root = tmp_path / "agents"
+    shutil.copytree(REPO / "agents", root)
+    # a reader that manages a builder: its own states build nothing, the one it manages pushes
+    (root / "workflows" / "pr-manager.toml").write_text(PR_READER_OWNER.replace('name = "pr-owner"', 'name = "pr-manager"')
+                                                         .replace('workflow = "pr-fixer"', 'workflow = "pr-engineer"')
+                                                         .replace('persona = "triager"', 'persona = "engineer"')
+                                                         + launch("pr-manager", on="pr", label="Manage beside", when_held="beside"))
+    with pytest.raises(agents_module.LibraryError, match=r"runs beside a holding instance, but its workflow can build .*pr-engineer"):
+        Library(root)
+    (root / "workflows" / "pr-manager.toml").write_text((root / "workflows" / "pr-manager.toml").read_text()
+                                                         .replace('when_held = "beside"', 'when_held = "ask"'))
+    Library(root)
