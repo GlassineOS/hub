@@ -539,15 +539,16 @@ and `hubd/agents.py` holds the item.
   onto its line, cut to a fixed length and has what no card would draw dropped, so a title can't open a line of its own or
   hide one; a look that fails leaves kind, repository and number and says so. A start's prompt fills in only `{repo}`,
   `{number}` and `{checkout}`: the library refuses any other field, so a prompt can't reach an object's attributes.
-- **One instance holds an item.** A session that didn't start beside a holder holds, until it ends or reaches a final state of a workflow of more than one, the items it is on and the
-  pull requests it, or a session it manages, opened. A start refused beside it is refused by hubd's start too, not only hidden
+- **One instance holds an item.** A session whose workflow can build on its item, and that didn't start beside a holder, holds, until it ends or reaches a final state of a workflow
+  of more than one, the items it is on and the pull requests it, or a session it manages, opened. A workflow builds when a
+  state's grant, or a workflow it manages however deep, can push to a branch or open or update a pull request (GitHub `push`
+  or `pr.write`, a `new-branch` or `pr-branch` checkout, `mark_ready`, or full access); one that only reads, comments or hands
+  in a result holds nothing, whatever its session's record kept. A start refused beside it is refused by hubd's start too, not only hidden
   on the page, and the item is claimed before anything is awaited, so two starts can't both take it. A session whose pull
   requests aren't looked up yet makes the item unknown, never free.
-- **Beside means it can't write on the item.** A start runs beside a holder (`when_held = "beside"`) only if its starting
-  state's effective grant can't write on the item: no full access, no GitHub capability beyond `read`, `issues.read`,
-  `pr.read` and `runs.read`, and no hub tool, listed or asked first, beyond the read-only ones and those that only reach the
-  hub (submitting drafts, asking for a move, drafting a workflow). A result the maintainer applies isn't the session writing:
-  the press is theirs. The library refuses a start that breaks this.
+- **Beside means it can't build on the item.** A start runs beside a holder (`when_held = "beside"`) only if its workflow
+  can't build on the item, by the rule above, in any state or through any workflow it manages. It may still read, comment
+  or hand in a result the maintainer applies: the press is theirs. The library refuses a start that breaks this.
 - **Asking the owner takes the owner's path.** A start that asks (`when_held = "ask"`) starts nothing beside the holder. The
   login's ask becomes a managed start under the holder, when its state manages the start's workflow on request, so the
   holder's cap and the approval above it apply as for any managed start (the card comes first, the session after); or a

@@ -424,6 +424,7 @@ class Library:
         self.defaults = dict(self.workflow_texts)  # the files, version 0 of each workflow
         self.files = dict(self.workflows)  # their definitions: the launch every version has, the starts one without its own takes
         self.families = tomllib.loads((root / "personas" / "families.toml").read_text())
+        self._builds: dict[str, list[str]] = {}  # definition version -> why it can build (FR-104), as builds() found it
         self.actions = _Actions(self._actions_of(self.workflows), {})
         self._check()
         self.store = None
@@ -474,6 +475,7 @@ class Library:
                     **{k: getattr(launch, k) for k in ("singleton", "repository", "repo") if getattr(launch, k) is not None},
                     **({"drafting": dict(launch.drafting)} if launch.drafting is not None else {})}
             made = []
+            builds = machine.builds(d, workflows.get)  # FR-104: whether its instances hold their items, in words
             for place, st in enumerate(starts, 1):
                 action = {**base, "id": machine.start_id(d, st, place), "object": st.on, "title": st.label,
                           "summary": st.summary or launch.summary, "ceiling": st.ceiling or launch.ceiling,
@@ -496,6 +498,7 @@ class Library:
                     raise LibraryError(f"workflows/{name}.toml: the start id {action['id']!r} is {out[action['id']]['workflow']}'s too")
                 action["definition"] = self.workflow_texts[name]  # what a session's instance runs on
                 action["grant"] = self._grant_in(d, action)
+                action["builds"] = builds
                 out[action["id"]] = action
         return out
 
@@ -505,7 +508,7 @@ class Library:
         run: what hubd wouldn't start on, it doesn't take as a saved version either."""
         new = object.__new__(Library)
         new.root, new.families, new.defaults, new.store, new.files = self.root, self.families, self.defaults, self.store, self.files
-        new.refused, new._views = self.refused, {}
+        new.refused, new._views, new._builds = self.refused, {}, {}
         new.workflows = {name: self._definition(name, text, f"{where} {name}", need_prompt=False) for name, text in texts.items()}
         for name, d in new.workflows.items():
             if d.launch is not None and d.launch != self.files[name].launch:
@@ -548,6 +551,7 @@ class Library:
         """In place, so whatever holds an action of this library reads it as the new version has it: its grant, definition,
         label, prompt. One the new version doesn't have any more is kept for lookups by id (`_Actions`)."""
         self.workflows, self.workflow_texts = new.workflows, new.workflow_texts
+        self._builds = {}
         live = {}
         for aid, action in new.actions.items():
             mine = dict.get(self.actions, aid) or self.actions.gone.get(aid)
@@ -598,6 +602,15 @@ class Library:
                     log.warning("%s's workflow overrides aren't used: %s", repo, e)
             self._views[repo] = view
         return view
+
+    def builds(self, version: str, d: machine.Definition) -> list[str]:
+        """Why an instance on this definition (`version` its hash) can build on its item (FR-104), the workflows it manages as
+        this library has them; empty if it can't. Kept per version, so asking for every session costs a lookup."""
+        if version not in self._builds:
+            if len(self._builds) > 256:
+                self._builds.clear()
+            self._builds[version] = machine.builds(d, self.workflows.get)
+        return self._builds[version]
 
     @staticmethod
     def _grant_in(definition: machine.Definition, action: dict) -> machine.Grant:
@@ -657,6 +670,10 @@ class Library:
                     if action["object"] in leads:
                         raise LibraryError(f"{where}: {leads[action['object']]} is the lead start for a {action['object']} already")
                     leads[action["object"]] = action["id"]
+            if action.get("when_held") == "beside" and action["builds"]:
+                # FR-104, through the workflows it manages too (machine.check_starts has its own states): one that builds owns
+                raise LibraryError(f"{where}: runs beside a holding instance, but its workflow can build on the item "
+                                   f"({', '.join(action['builds'][:4])}): it asks the owner or is hidden")
             # What a person's press may write through to apply this action's result. The session doesn't get them.
             result_tools = action.get("result_tools", [])
             if not isinstance(result_tools, list) or set(result_tools) - set(APPLY_TOOLS.get(action["result"], ())):
@@ -2527,8 +2544,11 @@ class Agents:
         return next((h for h in held if h not in chain), None)
 
     def _claims(self, action: dict, config: dict) -> list[tuple]:
-        """The items a start will hold once its session is recorded: any start but one that runs beside a holder."""
+        """The items a start will hold once its session is recorded: a start whose workflow can build on them (FR-104), and
+        doesn't run beside a holder."""
         if action.get("when_held") == "beside" or action.get("singleton"):  # a singleton's name is its claim already
+            return []
+        if not action.get("builds", True):  # one that only reads, comments or hands in holds nothing
             return []
         kind = action["object"]
         if kind in NO_REPO_OBJECTS:
@@ -3404,8 +3424,9 @@ class Agents:
 
     def _may_hold(self, name: str, record: dict) -> bool:
         """A session holds what it carries while its workflow instance runs: it hasn't ended, it isn't in a final state of a
-        workflow of more than one (a one-state workflow's only state is final and is where it works), and it didn't start
-        beside a holder: a start that runs beside one is a task next to the item, never its owner."""
+        workflow of more than one (a one-state workflow's only state is final and is where it works), it didn't start
+        beside a holder (a start that runs beside one is a task next to the item, never its owner), and its workflow can
+        build on the item (FR-104): one that only reads, comments or hands in holds nothing, whatever its record kept."""
         if (self.sessions / name / ENDED_FILE).exists() or record.get("beside"):
             return False
         when_held = record.get("when_held")
@@ -3413,8 +3434,14 @@ class Agents:
             when_held = (self.library.actions.get(record["config"].get("action")) or {}).get("when_held")
         if when_held == "beside":
             return False
-        chip = self.machines.summary(name)
-        return bool(chip and (chip["one_state"] or not chip["final"]))
+        current = self.machines.current(name)
+        if current is None:
+            return False
+        inst, d = current
+        if not (len(d.states) == 1 or not d.states[inst.state].final):
+            return False
+        # the definition its instance runs on, with the workflows it manages as a session on its repository has them
+        return bool(self.library.view((record.get("config") or {}).get("repo")).builds(inst.version, d))
 
     def holders(self, kind, repo, number) -> tuple[list[str], list[str]]:
         """The instances holding an item, topmost first (a session managed by another holder of it is that one's, not a

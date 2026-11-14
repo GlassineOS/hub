@@ -327,11 +327,15 @@ id is the action id the API, the records and the history use, so the ids of the 
 
 The checks refuse a start without a label, one that names a state the workflow doesn't have or starts in a final one, two
 starts with the same label on one kind of item, two leads for one kind of item (across the library too), a start id used
-twice, an `ask_move` on a start that doesn't ask, and a start with `when_held = "beside"` whose first state, or any state
-its session can move to, writes on the item (full access, a GitHub capability beyond reading, or a hub tool that writes):
-what runs beside a holder only reads.
+twice, an `ask_move` on a start that doesn't ask, and a start with `when_held = "beside"` whose workflow can build on the
+item (below): what runs beside a holder may read, comment or hand in, never build.
 
 ### Held items
+
+A workflow **builds** on its item when some state's grant can push to a branch or open or update a pull request (GitHub
+`push` or `pr.write`, checkout `new-branch` or `pr-branch`, the `mark_ready` hub tool, or full access), or when a workflow
+it manages, however deep, does. Only a session of a workflow that builds holds anything; a triage, a review, an audit or a
+sweep holds nothing, so it never hides or redirects another start.
 
 A session **holds** its item while it isn't ended or final (a workflow with one state holds while it runs): an issue, a pull
 request, a run or a repository it was started on, and for a pull request also the ones it or the sessions under it opened.
@@ -342,7 +346,7 @@ would hold wait.
 While an item is held, its page names the holder first (its persona, state and next moves) and each start does what its
 `when_held` says:
 
-- **`beside`** runs anyway, next to the holder, read-only.
+- **`beside`** runs anyway, next to the holder: it builds nothing on the item.
 - **`ask`** goes to the holder, not to a new session: if the holder's state starts that start's workflow on request, it is
   a managed start under the holder, with the holder's caps and the approval card as if it had asked; else if the start
   names `ask_move` and the holder's state has an on-request exit there, it is a move request on the holder; else it is
