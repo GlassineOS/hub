@@ -1,21 +1,20 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""The change feed: facts about what changed in the project, a cursor for each Steward, and a ping that is only a count.
+"""The change feed: facts about what changed in the project, and a cursor for each Steward.
 
 The app's work sync sees an issue, a pull request or a run change and records the facts here: which item, what
 changed, the old and new state and head commit, when, who, and a link. Never a title, a body, review text or a log
 line: those can be an outsider's, and the Steward reads them through its own tools, which treat them as data. Anything
 that doesn't fit this shape is dropped, so the app can't smuggle text through.
 
-A Steward catches up by reading from its cursor (`changes_since`), so a lost or merged ping costs nothing. A ping is
-a short count, at most once per Steward per interval and never when nothing it hasn't read has changed. What a Steward
-may read is decided at read time, for the feed and for the counts alike, and a repository that can't be told apart as
-public is treated as private.
+Nothing here wakes a Steward on a timer or with counts (spec 012 FR-056): what changes in an item it named is passed to
+stewardwake.py as it is recorded, and the rest waits until the Steward reads it (FR-057): from its cursor, by item or
+repository, or as a short digest per repository. What a Steward may read is decided at read time, and a repository that
+can't be told apart as public is treated as private.
 """
 from __future__ import annotations
 
 import json
 import logging
-import math
 import re
 import sqlite3
 import threading
@@ -26,9 +25,6 @@ from pathlib import Path
 ORG = "GlassineOS"
 log = logging.getLogger("hubd.feed")
 
-DEFAULT_PING = 300.0   # seconds between pings to one Steward
-MIN_PING = 60.0
-MAX_PING = 86400.0
 KEEP_SECONDS = 14 * 86400
 KEEP_ROWS = 20000
 MAX_BATCH = 500        # events in one record
@@ -74,6 +70,7 @@ CREATE TABLE IF NOT EXISTS events (
     seq INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL UNIQUE, at TEXT NOT NULL, recorded REAL NOT NULL,
     kind TEXT NOT NULL, repo TEXT NOT NULL, number INTEGER NOT NULL, what TEXT NOT NULL,
     old TEXT NOT NULL, new TEXT NOT NULL, old_head TEXT NOT NULL, new_head TEXT NOT NULL, actor TEXT, own TEXT NOT NULL);
+-- pinged_seq and pinged_at are kept for feeds made before the Steward stopped being pinged: nothing reads them.
 CREATE TABLE IF NOT EXISTS cursors (
     session TEXT PRIMARY KEY, read_seq INTEGER NOT NULL, pinged_seq INTEGER NOT NULL, pinged_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS marks (session TEXT NOT NULL, repo TEXT NOT NULL, number INTEGER NOT NULL, at REAL NOT NULL);
@@ -83,21 +80,6 @@ CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
 class FeedError(Exception):
     """A request the feed can't serve; the message goes back to the caller."""
-
-
-def ping_interval(value) -> float:
-    """HUBD_PING_SECONDS: a bad value mustn't stop the hub, nor a small one turn every change into a paid turn."""
-    try:
-        seconds = float(value) if value not in (None, "") else DEFAULT_PING
-    except (TypeError, ValueError):
-        seconds = math.nan
-    if not math.isfinite(seconds):
-        log.warning("HUBD_PING_SECONDS isn't a number: %r; using %s", value, DEFAULT_PING)
-        return DEFAULT_PING
-    clamped = min(MAX_PING, max(MIN_PING, seconds))
-    if clamped != seconds:
-        log.warning("HUBD_PING_SECONDS %s is outside %s to %s; using %s", value, MIN_PING, MAX_PING, clamped)
-    return clamped
 
 
 def clean(event) -> dict | None:
@@ -151,7 +133,7 @@ def importance(row: dict) -> str:
 
 
 def _phrase(row: dict) -> str:
-    """A fixed vocabulary for the ping: nothing of the item goes into it."""
+    """A fixed vocabulary for the digest: nothing of the item goes into it."""
     what, new = row["what"], row["new"]
     if what == "state":
         return {"MERGED": "merged", "CLOSED": "closed", "OPEN": "reopened"}.get(new, "state changes")
@@ -289,31 +271,83 @@ class Feed:
                 "own": session is not None and session in json.loads(row["own"]),
                 "link": link(row["kind"], row["repo"], row["number"]), "importance": importance(row)}
 
-    def changes(self, session: str | None, cursor: int | None, limit: int, public: set[str] | None) -> dict:
+    def _start(self, session: str | None, cursor: int | None) -> int:
+        if cursor is not None and cursor > self.issued():
+            # One cursor past the end would be kept, as it only moves forward, and blind the reader to everything after it.
+            raise FeedError("that cursor is past the newest change: use the cursor an answer gave, or none to go on from your own")
+        if cursor is not None:
+            return cursor
+        kept = self.db.execute("SELECT read_seq FROM cursors WHERE session = ?", (session,)).fetchone() if session else None
+        return kept["read_seq"] if kept else 0
+
+    def changes(self, session: str | None, cursor: int | None, limit: int, public: set[str] | None,
+                repo: str | None = None, number: int | None = None) -> dict:
         """What came after the cursor that this reader may see, in order, with the cursor to ask from next. A reader that
-        is a session has its cursor kept: it only moves forward, so a Steward re-reading older changes loses nothing."""
+        is a session has its cursor kept: it only moves forward, so a Steward re-reading older changes loses nothing.
+
+        Narrowed to a repository, or to one item of it (`repo` and `number`), the answer's cursor is for going on with that
+        narrowed read, and the kept cursor doesn't move: the rest of what came after it is still unread."""
         limit = max(1, min(int(limit), MAX_READ))
+        if number is not None and repo is None:
+            raise FeedError("an item is named with its repository")
         with self.lock, self.db:
-            kept = self.db.execute("SELECT read_seq FROM cursors WHERE session = ?", (session,)).fetchone() if session else None
-            if cursor is not None and cursor > self.issued():
-                # One cursor past the end would be kept, as it only moves forward, and blind the reader to everything after it.
-                raise FeedError("that cursor is past the newest change: use the cursor an answer gave, or none to go on from your own")
-            start = cursor if cursor is not None else (kept["read_seq"] if kept else 0)
+            start = self._start(session, cursor)
             where, args = self._where(public)
+            if repo is not None:
+                where, args = where + " AND repo = ? COLLATE NOCASE", [*args, repo]
+            if number is not None:
+                where, args = where + " AND number = ?", [*args, number]
             rows = self.db.execute(f"SELECT * FROM events WHERE seq > ?{where} ORDER BY seq LIMIT ?", (start, *args, limit + 1)).fetchall()
             more = len(rows) > limit
             rows = rows[:limit]
             # Past the rows it returned, or past everything when it saw them all: what it may not see has no place in the answer.
             last = rows[-1]["seq"] if rows else (start if more else max(start, self.newest()))
             gap = start < self._pruned_to()
-            if session:
+            if session and repo is None:
                 self._keep_cursor(session, last)
             changes = [self._view(r, session) for r in rows]
         order = {"high": 0, "normal": 1, "low": 2}
         changes.sort(key=lambda c: (order[c["importance"]], c["id"]))
         counts = Counter(c["what"] for c in changes)
-        return {"changes": changes, "cursor": str(last), "more": more, "counts": dict(counts), "gap": gap,
-                "order": "most important first, then oldest first; the cursor covers all of them"}
+        out = {"changes": changes, "cursor": str(last), "more": more, "counts": dict(counts), "gap": gap,
+               "order": "most important first, then oldest first; the cursor covers all of them"}
+        if repo is not None:
+            out["narrowed"] = {"repo": repo, "number": number, "kept_cursor": "unchanged: read without repo or item, or a digest, to move it"}
+        return out
+
+    def digest(self, session: str | None, cursor: int | None, public: set[str] | None) -> dict:
+        """One short line per repository of what came after the cursor that this reader may see: how many changes, how many
+        of them important, how many items, and what kinds in the digest's fixed words; changes of the reader's own doing are
+        only counted. A session's kept cursor moves past all of it, as a full read does; `from` is where it started, to read
+        one repository's rows with a narrowed read from there."""
+        with self.lock, self.db:
+            start = self._start(session, cursor)
+            where, args = self._where(public)
+            rows = self.db.execute(f"SELECT * FROM events WHERE seq > ?{where} ORDER BY seq", (start, *args)).fetchall()
+            last = max(start, self.newest())
+            gap = start < self._pruned_to()
+            if session:
+                self._keep_cursor(session, last)
+        lines: dict[str, dict] = {}
+        for row in rows:
+            line = lines.setdefault(row["repo"], {"repo": row["repo"], "changes": 0, "important": 0, "own": 0, "items": set(), "what": Counter()})
+            line["changes"] += 1
+            line["items"].add((row["kind"], row["number"]))
+            if session is not None and session in json.loads(row["own"]):
+                line["own"] += 1
+                continue
+            line["important"] += importance(row) == "high"
+            line["what"][_phrase(row)] += 1
+        digest = [{**line, "items": len(line["items"]), "what": dict(sorted(line["what"].items(), key=lambda p: (-p[1], p[0])))}
+                  for line in sorted(lines.values(), key=lambda x: (-x["important"], -x["changes"], x["repo"]))]
+        return {"digest": digest, "cursor": str(last), "from": str(start), "gap": gap,
+                "order": "repositories with the most important changes first; read one with changes_since, its repo and cursor = from"}
+
+    def rows_after(self, seq: int, session: str) -> list[dict]:
+        """What was recorded after seq, as `session` would read it (its own doing marked), without moving any cursor."""
+        with self.lock:
+            rows = self.db.execute("SELECT * FROM events WHERE seq > ? ORDER BY seq LIMIT ?", (seq, MAX_BATCH)).fetchall()
+        return [self._view(r, session) for r in rows]
 
     def _keep_cursor(self, session: str, seq: int) -> None:
         self.db.execute(
@@ -325,69 +359,11 @@ class Feed:
             return self.db.execute("SELECT 1 FROM cursors WHERE session = ?", (session,)).fetchone() is not None
 
     def begin(self, session: str) -> None:
-        """A Steward seen for the first time starts from now: what happened before it existed isn't a reason to wake it."""
+        """A Steward seen for the first time starts from now: what happened before it existed isn't news to it."""
         with self.lock, self.db:
             newest = self.issued()
             self.db.execute("INSERT OR IGNORE INTO cursors (session, read_seq, pinged_seq, pinged_at) VALUES (?, ?, ?, 0)",
                             (session, newest, newest))
-
-    def unread(self, session: str, public: set[str] | None) -> dict:
-        """What a ping would say: counts of what this session may see and hasn't read, leaving out its own doing.
-        `fresh` is how many came after the last ping."""
-        with self.lock:
-            row = self.db.execute("SELECT * FROM cursors WHERE session = ?", (session,)).fetchone()
-            if row is None:
-                return {"total": 0, "fresh": 0, "since": None, "phrases": {}, "pinged_at": 0.0, "pinged_seq": 0}
-            where, args = self._where(public)
-            rows = self.db.execute(f"SELECT * FROM events WHERE seq > ?{where} ORDER BY seq", (row["read_seq"], *args)).fetchall()
-        mine = [r for r in rows if session not in json.loads(r["own"])]
-        return {"total": len(mine), "fresh": sum(r["seq"] > row["pinged_seq"] for r in mine), "since": mine[0]["at"] if mine else None,
-                "phrases": dict(Counter(_phrase(r) for r in mine)), "pinged_at": row["pinged_at"], "pinged_seq": row["pinged_seq"],
-                "newest": rows[-1]["seq"] if rows else row["read_seq"]}
-
-    def pinged(self, session: str, seq: int) -> None:
-        with self.lock, self.db:
-            self.db.execute("UPDATE cursors SET pinged_seq = max(pinged_seq, ?), pinged_at = ? WHERE session = ?", (seq, self._clock(), session))
-
-
-def ping_text(unread: dict) -> str:
-    """Counts and fixed words. Not an instruction, and nothing of any item: no name, number or repository."""
-    since = unread["since"] or ""
-    when = f" since {since[11:16]} UTC" if _TIME_RE.fullmatch(since) else ""
-    parts = ", ".join(f"{n} {word}" for word, n in sorted(unread["phrases"].items(), key=lambda p: (-p[1], p[0])))
-    n = unread["total"]
-    return f"{n} {'change' if n == 1 else 'changes'}{when}: {parts}. changes_since returns them from your cursor."
-
-
-class Pings:
-    """At most one ping per Steward per interval, and none when nothing it hasn't read has changed."""
-
-    def __init__(self, feed: Feed, agents, public_of, interval: float = DEFAULT_PING, clock=time.time):
-        self.feed = feed
-        self.agents = agents
-        self.public_of = public_of  # async: of these repositories, the ones known to be public
-        self.interval = interval
-        self._clock = clock
-
-    async def round(self) -> int:
-        sent = 0
-        for steward in await self.agents.stewards():
-            name = steward["name"]
-            if not self.feed.known(name):
-                self.feed.begin(name)
-                continue
-            public = None if steward["all_repos"] else await self.public_of(self.feed.repos())
-            unread = self.feed.unread(name, public)
-            if not unread["fresh"] or self._clock() - unread["pinged_at"] < self.interval:
-                continue
-            try:
-                await self.agents.hub_ping(name, ping_text(unread))
-            except Exception as e:  # busy queue, no room, stopped, tmux: the next round tries again, and the feed still has it all
-                log.info("no ping to %s: %s", name, e)
-                continue
-            self.feed.pinged(name, unread["newest"])
-            sent += 1
-        return sent
 
 
 def parse_cursor(value) -> int | None:
