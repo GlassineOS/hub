@@ -5154,6 +5154,14 @@ function readTiles(names) {
     return empty;
   }
 }
+// Tabs and tiles without the names the tree no longer has (a kept layout from before, or a session gone since).
+function pruneTiles(st, names) {
+  const keep = (list) => list.filter((t) => names.has(t));
+  const tiles = keep(st.tiles);
+  if (tiles.length === st.tiles.length && keep(st.tabs).length === st.tabs.length) return st;
+  return { ...st, tabs: keep(st.tabs), tiles, focus: tiles.includes(st.focus) ? st.focus : tiles[0] || null,
+    sizes: tiles.map((t) => st.sizes[st.tiles.indexOf(t)] || 1) };
+}
 const writeTiles = (st) => { try { localStorage.setItem(TILES_KEY, JSON.stringify(st)); } catch { /* a per-browser convenience */ } };
 
 // What a row says changed since the last look (FR-024): its liveness, state, rounds, return, cards or items.
@@ -5177,12 +5185,14 @@ function useChanged(nodes) {
 
 // The mark and the word of a liveness (FR-015): a shape each, so it never rests on colour.
 const LiveMark = ({ live }) => html`<span class="sn-live" data-live=${live}>${LIVE_WORD[live] || live}</span>`;
-const CardsMark = ({ n }) => (n > 0 ? html`<span class="sn-asks">${count(n, "card")} for you</span>` : null);
+// Its cards wait in Needs you (asks, and the workflow's decisions): the mark opens them there.
+const CardsMark = ({ n, name }) => (n > 0 ? html`<button type="button" class="sn-asks" aria-label=${`${count(n, "card")} for you: open ${n === 1 ? "it" : "them"} in Needs you`}
+  onClick=${(e) => { e.stopPropagation(); needsYou({ session: name }); }}>${count(n, "card")} for you</button>` : null);
 
 function TreeItem({ it }) {
   const words = itemWords(it);
   const label = `${KIND_WORD[it.kind] || (it.kind === "repo" ? "Repository" : "Item")} ${itemRef(it)}${it.title ? `: ${it.title}` : ""}${words.length ? `, ${words.map((w) => w.text).join(", ")}` : ""}${it.role === "holds" ? ", held" : ""}`;
-  const body = html`${it.kind !== "repo" && html`<${KindIcon} kind=${it.kind} />`}<span class="sn-item__ref">${itemRef(it)}</span>${words.map((w) => html`<span class="sn-item__st"><span class="sn-item__ck" data-ck=${w.ck}>${w.text}</span></span>`)}`;
+  const body = html`${it.kind !== "repo" && html`<${KindIcon} kind=${it.kind} />`}<span class="sn-item__ref">${itemRef(it)}</span>${words.map((w) => html`<span class="sn-item__st"><span class="sn-item__ck" data-ck=${w.ck}>${w.text}</span></span>`)}${it.role === "holds" && html`<span class="sn-item__st">held</span>`}`;
   const attrs = { class: "sn-item", "data-kind": it.kind, "data-state": it.state || "", "data-checks": it.checks || "", title: label, "aria-label": label };
   return it.kind === "issue" || it.kind === "pr" ? html`<a ...${attrs} href=${itemHref(it)}>${body}</a>` : html`<span ...${attrs}>${body}</span>`;
 }
@@ -5220,7 +5230,7 @@ function TreeRow({ r, tree, sel, focusId, tiles, focusTile, changed, dom, onPick
     const label = `${r.name}, ${n.persona ? n.persona.name : "plain shell"}, ${LIVE_WORD[n.live]}${n.machine ? `, in ${(n.machine.path || [n.machine.state]).join(" › ")}` : ""}${n.cards ? `, ${count(n.cards, "card")} for you` : ""}${t >= 0 ? `, open in tile ${t + 1}` : ""}${r.dim ? ", above a match" : ""}`;
     return html`<li ...${base} aria-selected=${r.name === sel ? "true" : "false"} aria-label=${label} onClick=${() => onPick(r.name)}>
       ${twist}<span class="sn-body">
-        <span class="sn-line"><${PersonaBadge} persona=${n.persona} /><span class="sn-name">${r.name}</span><${LiveMark} live=${n.live} /><${CardsMark} n=${n.cards} />
+        <span class="sn-line"><${PersonaBadge} persona=${n.persona} /><span class="sn-name">${r.name}</span><${LiveMark} live=${n.live} /><${CardsMark} n=${n.cards} name=${r.name} />
           ${t >= 0 && html`<span class="sn-tile" data-focus=${r.name === focusTile ? "true" : "false"}>▣ tile ${t + 1}${r.name === focusTile ? " · focused" : ""}</span>`}
           ${changed.has(r.name) && html`<span class="sn-mark-new">changed</span>`}</span>
         ${(n.machine || (n.items || []).length > 0) && html`<span class="sn-line"><${NodeChip} n=${n} />${(n.items || []).map((it) => html`<${TreeItem} it=${it} />`)}</span>`}
@@ -5329,7 +5339,7 @@ function SessionTile({ name, tree, session, asks, focused, pinned, grow, narrow,
   return html`<article class="tl-tile" role="tabpanel" data-tile=${name} data-focus=${focused ? "true" : "false"} aria-label=${`${name}${focused ? ", focused tile" : ""}`}
       style=${`flex: ${grow} 1 0${narrow && !focused ? "; display: none" : ""}`} onFocusIn=${() => { if (!focused) onFocus(name); }} onClick=${() => { if (!focused) onFocus(name); }}>
     <header class=${`tl-head svhead ${family}`}>
-      <span class="tl-line"><${PersonaBadge} persona=${n.persona} /><span class="tl-name">${name}</span><${LiveMark} live=${n.live} /><${CardsMark} n=${n.cards} />
+      <span class="tl-line"><${PersonaBadge} persona=${n.persona} /><span class="tl-name">${name}</span><${LiveMark} live=${n.live} /><${CardsMark} n=${n.cards} name=${name} />
         ${focused && html`<span class="tl-kb">focused</span>`}${pinned && html`<span class="tl-pin">pinned</span>`}${changed && html`<span class="sn-mark-new">changed</span>`}
         <span class="row" style="gap: 4px; margin-left: auto">
           <button type="button" class="plain small" aria-pressed=${pinned ? "true" : "false"} onClick=${(e) => { e.stopPropagation(); onPin(name); }}>${pinned ? "Unpin" : "Pin"} its workflow</button>
@@ -5446,7 +5456,7 @@ function PhoneRunning({ tree, sessions, asks, view, setView, onEnded, onResume, 
     const kids = under(name).length;
     return html`<button type="button" class="sp-row" key=${name} onClick=${() => go(name)} aria-label=${`${name}, ${LIVE_WORD[n.live]}${n.cards ? `, ${count(n.cards, "card")} for you` : ""}${kids ? `, ${count(kids, "session")} under it` : ""}`}>
       <${PersonaBadge} persona=${n.persona} hidden />
-      <span class="sn-body"><span class="sn-line"><span class="sn-name">${name}</span><${LiveMark} live=${n.live} /><${CardsMark} n=${n.cards} /></span>
+      <span class="sn-body"><span class="sn-line"><span class="sn-name">${name}</span><${LiveMark} live=${n.live} />${n.cards > 0 && html`<span class="sn-asks">${count(n.cards, "card")} for you</span>`}</span>
         ${(n.machine || (n.items || []).length > 0) && html`<span class="sn-line"><${NodeChip} n=${n} />${(n.items || []).map((it) => html`<span class="sn-item" data-kind=${it.kind} data-state=${it.state || ""} data-checks=${it.checks || ""}><span class="sn-item__ref">${itemRef(it)}</span>${itemWords(it).map((w) => html`<span class="sn-item__st"><span class="sn-item__ck" data-ck=${w.ck}>${w.text}</span></span>`)}</span>`)}</span>`}
         ${(nodeSub(n) || kids > 0) && html`<span class="sn-sub">${[nodeSub(n), kids ? `${count(kids, "session")} under it` : ""].filter(Boolean).join(" · ")}</span>`}</span>
       <${Chevron} right /></button>`;
@@ -5459,7 +5469,7 @@ function PhoneRunning({ tree, sessions, asks, view, setView, onEnded, onResume, 
     const session = sessions.find((s) => s.name === open);
     return html`<div class="sp">
       <div class="sp-top"><button type="button" class="sp-back" onClick=${() => setOpen(null)} aria-label="Back to the list"><${Chevron} />List</button>
-        <strong class="sn-name" style="flex: 1">${open}</strong><${CardsMark} n=${n.cards} /></div>
+        <strong class="sn-name" style="flex: 1">${open}</strong><${CardsMark} n=${n.cards} name=${open} /></div>
       ${chain(open).length > 0 && html`<p class="sp-crumbs">under ${chain(open).join(" › ")}</p>`}
       <nav class="sp-sw" aria-label="Switch within this workflow">
         ${owner && html`<button type="button" onClick=${() => setOpen(owner)}>↑ ${owner}</button>`}
@@ -5475,7 +5485,7 @@ function PhoneRunning({ tree, sessions, asks, view, setView, onEnded, onResume, 
     const n = N[at];
     return html`<div class="sp">
       <div class="sp-top"><button type="button" class="sp-back" onClick=${() => setAt(N[at].parent || null)} aria-label=${`Back to ${N[at].parent || "the list"}`}><${Chevron} />${N[at].parent || "List"}</button>
-        <strong class="sn-name" style="flex: 1">${at}</strong><${CardsMark} n=${n.cards} /></div>
+        <strong class="sn-name" style="flex: 1">${at}</strong><${CardsMark} n=${n.cards} name=${at} /></div>
       ${chain(at).length > 0 && html`<p class="sp-crumbs">under ${chain(at).join(" › ")}</p>`}
       ${filters}
       <section class="sp-sec" aria-label=${`${at} itself`}><button type="button" class="sp-row" onClick=${() => setOpen(at)}><${PersonaBadge} persona=${n.persona} hidden />
@@ -5528,14 +5538,17 @@ function Running({ query, asks }) {
   const focusTile = (name) => { setSt((cur) => ({ ...cur, focus: name })); select(name); reveal(name); };
   const open = (name, beside) => { setSt((cur) => placeTile(cur, name, groupOf, beside)); select(name); reveal(name); };
   const workflow = (name) => { setSt((cur) => openWorkflow(cur, name, N)); select(name); };
-  // The address names a session (a link from elsewhere): it opens once the tree has it.
-  const linked = useRef(false);
-  useEffect(() => { if (!linked.current && query.name && N[query.name]) { linked.current = true; open(query.name); } }, [data]);
+  useEffect(() => { if (data) setSt((cur) => pruneTiles(cur, new Set(Object.keys(N)))); }, [data]);
+  // The address names a session (a link from elsewhere, also while on this page): it opens once the tree has it.
+  const linked = useRef(null);
+  useEffect(() => { if (query.name && query.name !== linked.current && N[query.name]) { linked.current = query.name; open(query.name); } }, [data, query.name]);
   // Ctrl+] and Ctrl+[ move between tiles, Ctrl+↑ opens the focused tile's owner (FR-027). Caught before the terminal sees them,
   // so on this page these keys don't reach the session's terminal.
   const keysRef = useRef(null);
   keysRef.current = (e) => {
-    if (!e.ctrlKey || e.altKey || e.metaKey || phone || MODALS.length) return;
+    if (!e.ctrlKey || e.altKey || e.metaKey || phone || MODALS.length || !st.tiles.length) return;
+    // Another terminal on the page (the Steward's) keeps its keys.
+    if (e.target && e.target.closest && e.target.closest(".xterm") && !e.target.closest("[data-tile]")) return;
     const step = e.code === "BracketRight" || e.key === "]" ? 1 : e.code === "BracketLeft" || e.key === "[" ? -1 : 0;
     if (step) {
       e.preventDefault(); e.stopPropagation();
@@ -5553,7 +5566,12 @@ function Running({ query, asks }) {
     window.addEventListener("keydown", on, true);
     return () => window.removeEventListener("keydown", on, true);
   }, []);
-  const resume = (name) => act.run(async () => { await post("agents/resume", { name }); await reload(); open(name); });
+  const [confirm, dialog] = useConfirm();
+  // The old terminal goes with the old session: the tab closes first and opens again on the resumed one.
+  const resumeNow = (name) => act.run(async () => { setSt((cur) => closeTab(cur, name)); await post("agents/resume", { name }); await reload(); open(name); });
+  const resume = (name) => (sessions.some((s) => s.name === name)
+    ? confirm({ title: "Resume this session?", text: "Its conversation continues in a new terminal. The shell open here closes, with anything running in it.", label: "Resume" }, () => resumeNow(name))
+    : resumeNow(name));
   const ended = (r) => { setKept(r && r.kept ? r.kept : null); reload(); };
   const discard = (name) => setDiscarding(name);
   const body = phone
@@ -5563,7 +5581,7 @@ function Running({ query, asks }) {
           onPick=${(name) => open(name)} onOpen=${(name) => open(name)} onBeside=${(name) => open(name, true)} onWorkflow=${workflow} /></aside>
         <div class="running-tiles"><${SessionTiles} tree=${tree} sessions=${sessions} st=${st} setSt=${setSt} asks=${asks} changed=${changed}
           onFocus=${focusTile} onOpen=${(name) => open(name)} onWorkflow=${workflow} onEnded=${ended} onResume=${resume} onDiscard=${discard} /></div></div>`;
-  return html`<main class="page wide running-page"><${SessionTabs} tab="all" asks=${asks} />
+  return html`${dialog}<main class="page wide running-page"><${SessionTabs} tab="all" asks=${asks} />
     <div class="row" style="gap: 6px 12px; margin-bottom: 12px"><h1 id="h-sessions" style="font-size: 27px">Running</h1>
       <button onClick=${() => setCreating(true)}>＋ Plain shell</button>
       <a class="button plain" href=${hash("shells", { tab: "history" })}>Resume a past session</a>

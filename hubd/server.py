@@ -361,7 +361,7 @@ class Hubd:
         return {"sessions": shells, "tree": sessiontree.arrange(collected)}
 
     async def _entry_notes(self, nodes: dict, live: set[str]) -> dict:
-        """managed_status's note for each entry in force under a running owner, verbatim (what it waits for, in words)."""
+        """managed_status's note for each entry in force under a running owner (what it waits for), in the maintainer's words."""
         out: dict[str, dict] = {}
         if self.managed is None:
             return out
@@ -372,7 +372,8 @@ class Hubd:
             record = {"session_id": n.get("session_id")}
             for _sid, m in machine.managed_of(inst.definition(), inst.state):
                 try:
-                    out.setdefault(name, {})[m.name] = (await self.managed._standing(name, record, inst, m, live))["note"]
+                    note = (await self.managed._standing(name, record, inst, m, live))["note"]
+                    out.setdefault(name, {})[m.name] = sessiontree.owner_note(note, name)
                 except Exception:  # noqa: BLE001: the entry shows without its note
                     log.exception("%s: the note of %s couldn't be made", name, m.name)
         return out

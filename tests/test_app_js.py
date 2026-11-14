@@ -486,3 +486,12 @@ def test_an_items_states_are_words():
         return [itemWords({ kind: "pr", state: "draft", checks: "fail", verdict: "pass" }).map((w) => w.text),
                 itemWords({ kind: "issue", state: "closed" }).map((w) => w.text), itemWords({ kind: "repo" })];""")
     assert got == [["draft", "✕ checks", "review pass"], ["closed"], []]
+
+
+def test_a_kept_layout_loses_the_sessions_the_tree_no_longer_has():
+    got = run_tree(["pruneTiles"], """
+        const st = { tabs: ["a", "gone", "b"], tiles: ["gone", "a", "b"], focus: "gone", pinned: [], sizes: [1, 2, 3] };
+        const same = { tabs: ["a"], tiles: ["a"], focus: "a", pinned: [], sizes: [1] };
+        const out = pruneTiles(st, new Set(["a", "b"]));
+        return [out.tabs, out.tiles, out.focus, out.sizes, pruneTiles(same, new Set(["a"])) === same];""")
+    assert got == [["a", "b"], ["a", "b"], "a", [2, 3], True]

@@ -121,6 +121,8 @@ def strip_words(inst: Instance | None, cards: int, running_under: dict[str, list
     records (nothing a session wrote)."""
     if inst is None:
         return ("you" if cards else "nothing the hub tracks", "")
+    if live == "ended":
+        return ("nothing: it has ended", "")
     d = inst.definition()
     st = d.states.get(inst.state)
     exits = [e for sid in machine.ancestors(d, inst.state) for e in d.states[sid].exits]
@@ -134,7 +136,7 @@ def strip_words(inst: Instance | None, cards: int, running_under: dict[str, list
         return ("you, in its terminal", nxt)
     if running_under:
         return ("; ".join(f"its {entry} ({', '.join(names)})" for entry, names in running_under.items()), nxt)
-    if st and st.final:
+    if st and st.final and len(d.states) > 1:
         return ("nothing: it is in a final state", nxt)
     if live == "working":
         return ("nothing: it is working", nxt)
@@ -147,6 +149,19 @@ def _returned_words(checks: dict) -> str:
     bits = [str(v) for v in facts.values()]
     bits += [f"{n} {k}" for k, n in checks.items() if k not in ("from", "returns") and isinstance(n, int) and not isinstance(n, bool) and n]
     return " · ".join(bits) or "handed back"
+
+
+# managed_status speaks to the owner; the tree shows the same note to the maintainer, naming the owner instead.
+OWNER_WORDS = ((" Don't start it or do its work.", ""), ("when you call start_managed", "when {owner} asks for it"),
+               ("above you", "above {owner}"), ("runs under you", "runs under {owner}"), ("your turns end", "{owner}'s turns end"),
+               ("your workflow's", "{owner}'s workflow's"), (": wait for that, and answer its reports.", "."))
+
+
+def owner_note(note: str, owner: str) -> str:
+    """An entry's note from managed_status, as the maintainer reads it on the owner's row."""
+    for said, shown in OWNER_WORDS:
+        note = note.replace(said, shown.format(owner=owner))
+    return note
 
 
 def cards_by_session(items: list[dict]) -> dict[str, int]:

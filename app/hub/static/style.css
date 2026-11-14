@@ -844,6 +844,7 @@ button.lead .small { color: inherit; opacity: .9; }
 .sn-live[data-live="ended"]::before { border-style: dotted; }
 .sn-live[data-live="ended"], .sn-live[data-live="stopped"] { color: var(--ink-soft); }
 .sn-asks { font: 600 11.5px/1.5 var(--font-mono); padding: 0 6px; border: 1.5px solid var(--ink); border-radius: 6px; background: var(--highlight); color: var(--ink); white-space: nowrap; }
+button.sn-asks { min-height: 24px; box-shadow: none; cursor: pointer; }
 .sn-tile { font: 500 11.5px var(--font-mono); white-space: nowrap; }
 .sn-tile[data-focus="true"] { font-weight: 700; text-decoration: underline; }
 .sn-mark-new { font: 500 11px/1.5 var(--font-mono); text-transform: uppercase; letter-spacing: .04em; padding: 0 5px; border: 1px dashed var(--ink); border-radius: 6px; }
