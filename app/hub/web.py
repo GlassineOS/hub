@@ -385,6 +385,10 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
     async def shells(_r, _b, token):
         return (await hubd.call(op="shell.list", token=token))["sessions"]
 
+    async def sessions_tree(_r, _b, token):  # 004 FR-012 to FR-015: Running's tree, with the items' states from the work store
+        reply = await hubd.call(op="shell.tree", token=token)
+        return {"sessions": reply["sessions"], "tree": github.tree_items(reply["tree"])}
+
     async def shell_new(_r, b, token):
         return await hubd.call(op="shell.new", token=token, name=b.get("name"), cwd=b.get("cwd"), command=b.get("command"))
 
@@ -743,6 +747,7 @@ def build(hubd: Hubd, github: GitHub, docs: DocSearch, secure_cookie: bool, allo
         Route("/api/machine-costs", api(machine_costs_list)),
         Route("/api/machines/{name}/{move}", api(machine_move), methods=["POST"]),
         Route("/api/shells", api(shells)),
+        Route("/api/sessions/tree", api(sessions_tree)),
         Route("/api/shells", api(shell_new), methods=["POST"]),
         Route("/api/shells/{name}", api(shell_kill), methods=["DELETE"]),
         WebSocketRoute("/api/shells/{name}/attach", attach),
