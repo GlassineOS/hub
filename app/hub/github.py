@@ -388,6 +388,10 @@ class GitHub:
                                      forward=forward)
         return {k: reply[k] for k in ("id", "to") if k in reply}
 
+    async def withdraw_report(self, report_id, why) -> dict:
+        reply = await self.hubd.call(op="managed.withdraw", agent_token=CALLER.get(), id=report_id, why=why)
+        return {k: reply[k] for k in ("id", "withdrawn") if k in reply}
+
     async def answer_report(self, report_id, decision, note=None) -> dict:
         reply = await self.hubd.call(op="managed.answer", agent_token=CALLER.get(), id=report_id, decision=decision, note=note)
         return {k: reply[k] for k in ("id", "decision") if k in reply}

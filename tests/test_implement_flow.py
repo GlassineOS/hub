@@ -140,6 +140,7 @@ def hub(tmp_path, monkeypatch):
              change_feed=feed, machine_run=runner)
     h.effects.poll = 0.01
     h.effects.relaunch_wait = 5
+    h.managed._sleep = lambda _s: asyncio.sleep(0)  # a start tried again after a while: at once here
     return h, a, gh, apps, judge
 
 
@@ -390,7 +391,7 @@ def test_review_starts_a_capped_reviewer_whose_pass_takes_it_to_merge_ready(hub)
         owner_grant = a.machines.load(name)[1].definition()
         owner_tools = set(machine.effective(owner_grant, "review").hub_tools)
         child_tools = set(a.scope(token_of(a, child))["tools"])
-        assert child_tools - owner_tools == {"return_result", "report_up"}
+        assert child_tools - owner_tools == {"return_result", "report_up", "withdraw_report"}
         assert not record["full"] and "github" not in record["config"]
         # the machine panel lists it, with its own chip
         view = a.machines.view(*a.machines.load(name))
@@ -539,6 +540,7 @@ def test_a_fix_round_on_a_pull_request_taken_on_runs_an_engineer_on_its_branch(h
         await settle(h)
         _record, inst = a.machines.load(name)
         assert inst.state == "review" and inst.pending["to"] == "fix" and inst.pending["adds"] == {"github": ["push"]}
+        (a.sessions / name / IDLE_FILE).touch()  # the hand-back woke it, and its turn has ended: at its prompt for the relaunch
         a.machines.confirm_move(name, inst.pending["id"], "me")
         await settle(h)
         assert state_of(a, name) == "fix"

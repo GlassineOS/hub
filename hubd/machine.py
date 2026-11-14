@@ -46,7 +46,7 @@ APPROVERS = ("none", "owner", "maintainer", "steward", "me")
 STARTS = ("auto", "on-request")
 REUSES = ("resume", "fresh")
 ON_EXIT = ("stop", "keep", "handover")
-WITH = ("issue", "pr", "diff", "diff.since_last_round", "owner.summary")
+WITH = ("issue", "pr", "diff", "diff.since_last_round", "owner.summary", "checks.failing")
 WITH_PREFIXES = ("notes:", "brief:")
 # Starts (FR-100 to FR-105): the kinds of item a start applies to, what it does while an instance holds the item, the checks of
 # the item a start is offered on, and the names a prompt may fill in.

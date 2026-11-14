@@ -11,7 +11,9 @@
 # a full session, which no locked owner holds: its start always waits for the maintainer.
 #
 # The pull request is the engineer's, on the engineer's branch; the hub counts it as the implementor's own for its facts.
-# Fix resumes the same engineer, which is handed the implementor's rolling summary, where the findings it is to address are.
+# Fix resumes the same engineer, which is handed the implementor's rolling summary, where the findings it is to address are,
+# and the pull request's failing check runs by name, whose logs its grant reads (get_run_log). Failing checks send the work
+# to fix from implement, review and qa alike: no state waits on checks that won't pass by themselves.
 schema = 1
 name = "implementor"
 initial = "work"
@@ -132,6 +134,13 @@ to = "review"
 decided_by = "facts"
 requires = ["managed.engineer.status == done", "pr.open", "pr.checks == pass", "design.accepted or not started.design-spike"]
 on = ["hub:managed.return", "feed:pr.opened", "feed:pr.checks", "feed:pr.state", "turn.end"]
+# The engineer is done and its pull request's checks fail: fix resumes it with the failing check runs. implement holds push
+# already, so the move asks no confirm.
+[[state.implement.exit]]
+to = "fix"
+decided_by = "facts"
+requires = ["managed.engineer.status == done", "pr.open", "pr.checks == fail"]
+on = ["hub:managed.return", "feed:pr.opened", "feed:pr.checks", "feed:pr.state", "turn.end"]
 [[state.implement.exit]]
 to = "escalated"
 decided_by = "facts"
@@ -157,12 +166,12 @@ returns = { verdict = ["pass", "fail"], findings = "text-list" }
 [[state.review.exit]]
 to = "escalated"
 decided_by = "counter"
-requires = ["rounds.fix >= 3", "pr.review == changes_requested or managed.reviewer.verdict == fail"]
+requires = ["rounds.fix >= 3", "pr.review == changes_requested or managed.reviewer.verdict == fail or pr.checks == fail"]
 on = ["feed:pr.review", "feed:pr.checks", "turn.end", "hub:managed.return"]
 [[state.review.exit]]
 to = "fix"
 decided_by = "facts"
-requires = ["pr.review == changes_requested or managed.reviewer.verdict == fail"]
+requires = ["pr.review == changes_requested or managed.reviewer.verdict == fail or pr.checks == fail"]
 on = ["feed:pr.review", "feed:pr.checks", "turn.end", "hub:managed.return"]
 [[state.review.exit]]
 to = "qa"
@@ -209,12 +218,12 @@ returns = { verdict = ["pass", "fail"], findings = "text-list" }
 [[state.qa.exit]]
 to = "escalated"
 decided_by = "counter"
-requires = ["rounds.fix >= 3", "managed.qa.verdict == fail or managed.designer.verdict == fail"]
+requires = ["rounds.fix >= 3", "managed.qa.verdict == fail or managed.designer.verdict == fail or pr.checks == fail"]
 on = ["hub:managed.return", "feed:pr.checks", "turn.end"]
 [[state.qa.exit]]
 to = "fix"
 decided_by = "facts"
-requires = ["managed.qa.verdict == fail or managed.designer.verdict == fail"]
+requires = ["managed.qa.verdict == fail or managed.designer.verdict == fail or pr.checks == fail"]
 on = ["hub:managed.return", "feed:pr.checks", "turn.end"]
 [[state.qa.exit]]
 to = "merge-ready"
@@ -239,9 +248,11 @@ move = "on-request"
 
 [state.fix]
 parent = "work"
-instructions = """The review or the QA run asked for changes. The engineer under you is resumed for them by itself, and reads \
-your summary: say in your turn, point by point, what is to be fixed. Your points are the engineer's work, not calls for you \
-to make: don't call start_managed for it, and don't edit, commit or push. It hands back when it has pushed the fixes."""
+instructions = """The review, the QA run or the pull request's failing checks asked for changes. The engineer under you is \
+resumed for them by itself, and reads your summary: say in your turn, point by point, what is to be fixed. When checks fail, \
+the hub names the failing check runs to the engineer, which reads their logs with get_run_log. Your points are the engineer's \
+work, not calls for you to make: don't call start_managed for it, and don't edit, commit or push. It hands back when it has \
+pushed the fixes; the work goes back to review once they pass the checks."""
 [state.fix.grant]
 github = ["push"]
 [[state.fix.manages]]
@@ -253,7 +264,7 @@ start = "auto"
 max = 1
 reuse = "resume"
 on_exit = "stop"
-with = ["issue", "pr", "diff.since_last_round", "owner.summary"]
+with = ["issue", "pr", "diff.since_last_round", "owner.summary", "checks.failing"]
 returns = { status = ["done", "blocked"], summary = "text-list" }
 [[state.fix.exit]]
 to = "review"
@@ -279,8 +290,9 @@ checkout = "new-branch"
 
 [state.escalated]
 final = true
-instructions = """The work can't go on by itself: three rounds of fixes didn't settle the review, or the engineer is blocked. \
-Say in a few sentences what is still asked for and what you think blocks it: the maintainer decides how it goes on."""
+instructions = """The work can't go on by itself: three rounds of fixes didn't settle the review or the checks, or the engineer \
+is blocked. Say in a few sentences what is still asked for and what you think blocks it: the maintainer decides how it goes \
+on."""
 [state.escalated.grant]
 tools = ["Read", "Grep", "Glob", "AskUserQuestion"]
 hub_tools = ["get_issue", "get_pr", "get_pr_threads", "docs_search", "work_search", "request_repository"]

@@ -332,3 +332,21 @@ def test_the_diagram_is_laid_out_the_same_every_time_with_parents_around_their_s
     assert edges["work:1"]["at"] == "pending" and edges["work:1"]["text"] == "≈ Stuck"
     assert edges["review:1"]["history"] and len(a["holds"]) == 1 and edges["review:1"]["text"].startswith("# rounds.review")
     assert len(a["starts"]) == 2 and a["w"] >= max(b["x"] + b["w"] for b in boxes.values())
+
+
+def test_needs_you_opens_by_itself_only_for_a_card_not_put_off():
+    """003 FR-023/FR-024: Later puts off the cards shown; only a new one opens it again."""
+    got = run(["unseenCards"], """
+        return [unseenCards(["a", "b"], []), unseenCards(["a", "b"], ["a", "b"]), unseenCards(["a", "b", "c"], ["a", "b"]),
+                unseenCards([], ["a"]), unseenCards(["a"], null)];""")
+    assert got == [["a", "b"], [], ["c"], [], ["a"]]
+
+
+def test_needs_you_never_takes_the_keys_from_a_terminal_being_typed_in():
+    """003 FR-025: it waits until focus leaves the terminal or 10 s pass without a keystroke, and never over a dialog."""
+    got = run(["mayPrompt"], """
+        return [mayPrompt({ inTerminal: false, lastKey: 0, now: 5, dialogOpen: false }),
+                mayPrompt({ inTerminal: true, lastKey: 1000, now: 5000, dialogOpen: false }),
+                mayPrompt({ inTerminal: true, lastKey: 1000, now: 11000, dialogOpen: false }),
+                mayPrompt({ inTerminal: false, lastKey: 0, now: 5, dialogOpen: true })];""")
+    assert got == [True, False, True, False]

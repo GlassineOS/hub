@@ -456,11 +456,14 @@ the person or session that started work in the hub.
   approval report whose addressee has ended, or is in another conversation, is settled as unanswerable and asked again
   where it can be answered, so nobody waits on a session that isn't there. Forwarded up, an approval keeps what it
   approves and is carried out where it is answered.
-- **The tools of the role are hubd's.** `start_managed`, `return_result`, `report_up` and `answer_report` aren't in any
+- **The tools of the role are hubd's.** `start_managed`, `return_result`, `report_up`, `withdraw_report` and `answer_report` aren't in any
   grant: hubd puts them on a session's list from its role (an owner whose state manages, a managed session) and the tool
   server, the grant hook and the launch all see the same list. Each reaches hubd with the session's own token, which names it
   and its conversation; a token from an earlier conversation, or a call for an entry, report or round that isn't the
-  caller's, is refused.
+  caller's, is refused. `withdraw_report` withdraws only a report the calling session sent and that still waits.
+- **What wakes a session is the hub's own words.** A session idle at its prompt is woken with fixed sentences and facts the
+  hub holds (an entry's name, a status, a fact's value, report ids), never a managed session's text, which reaches the
+  owner only between marks as data.
 - **What starts it carries no transcript.** Its first prompt is its action's prompt and a block the hub writes from the
   entry's named references; the owner's rolling summary, if named, sits between random marks as data. A return is a closed set of fields, each a value from the definition (a fact, never text) or, for a `text-list`
   field, at most 20 lines of at most 500 characters with no invisible characters, which reach the owner's next turn

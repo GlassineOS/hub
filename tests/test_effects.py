@@ -170,8 +170,9 @@ def told(a, name) -> str:
 def test_a_session_that_can_move_starts_with_its_first_states_grant_and_the_hook(world):
     a, _d, _e = world
     name = run(start(a))
-    # report_up comes from its place in the chain of owners: a session whose workflow can move reports up (012 FR-051)
-    assert grant_of(a, name) == {"tools": ["AskUserQuestion", "Read"], "hub_tools": [*TOOLS, "report_up"], "server": agents_module.HUB_SERVER}
+    # report_up comes from its place in the chain of owners: a session whose workflow can move reports up (012 FR-051) and can take
+    # back what it reported (withdraw_report)
+    assert grant_of(a, name) == {"tools": ["AskUserQuestion", "Read"], "hub_tools": [*TOOLS, "report_up", "withdraw_report"], "server": agents_module.HUB_SERVER}
     assert hook(a, name, "mcp__glassine-hub__get_issue") is None
     assert "Bash" in hook(a, name, "Bash")
 

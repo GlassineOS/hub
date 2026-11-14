@@ -17,7 +17,7 @@ from starts_util import start_again
 from hubd import agents as agents_module
 from hubd import judge as judgelib
 from hubd import machine, machinestore, summary
-from hubd.agents import IDLE_FILE, OUTCOMES_FILE, Library
+from hubd.agents import HUB_SENDER, IDLE_FILE, OUTCOMES_FILE, Library
 from hubd.decisions import APPROVE
 
 import test_implement_flow as base
@@ -267,9 +267,10 @@ async def into_qa_with_a_designer(h, a, gh, judge):
     assert (await give(h, reviewer, verdict="pass", findings=[]))["ok"]
     await base.at_prompt(h, a, name)
     assert state_of(a, name) == "qa"
-    # idle at its prompt, it is woken with the hub's fixed words, so its `when` gets a turn to be judged on
-    assert (name, "Your workflow moved: what it says is in this turn, from the hub.") in sent
-    assert all(words.startswith(("Your workflow moved", "[From the hub]")) or who != name for who, words in sent)
+    # idle at its prompt, it is woken once with the hub's fixed words, so its `when` gets a turn to be judged on: the hand-back
+    # and the move it made come together, the return's values only, as facts
+    assert [(who, words) for who, words in sent if who == name] == [
+        (name, f"{reviewer}, your reviewer, handed back: verdict pass. Your workflow moved: what it says is in this turn, from the hub.")]
     judge.yes = {"accepted design board covers", "is user-facing: a person"}
     got = await h.request({"op": "managed.start", "agent_token": token_of(a, name), "entry": "designer"})
     await settle(h)
@@ -754,6 +755,14 @@ def test_a_refused_call_counts_as_a_failed_draft_and_a_replay_that_cant_run_fail
 
 def test_a_re_review_needs_a_new_draft_and_a_stale_draft_goes_back_to_drafting(team):
     h, a, _gh, _apps, _judge = team
+    real = a._send
+
+    async def send(who, words, by=None):
+        got = await real(who, words, by=by)
+        if by == HUB_SENDER:  # the hub woke it (its reviewer handed back): that turn ends at once, at its prompt again
+            (a.sessions / who / IDLE_FILE).touch()
+        return got
+    a._send = send
 
     async def go():
         name = (await a.run("workflow-change", None, None, notes="The workflow: implement."))["name"]

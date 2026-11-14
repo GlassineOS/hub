@@ -107,6 +107,7 @@ class Effects:
         self._quiet: set[str] = set()  # sessions being moved back by this module: only their grant follows
         self._answering: str | None = None  # the card being answered, which the move it confirms mustn't end as stale
         self.managed = None  # managed.Managed: approvals at a level a session above can give, and its own cards
+        self._relaunching: set[str] = set()  # sessions a move relaunches: a word typed at their prompt would hold it up
         self.machines.on_move(self.on_move)
         if decisions is not None and hasattr(agents, "switch_watchers"):
             agents.switch_watchers.append(decisions.retarget)
@@ -148,6 +149,7 @@ class Effects:
             words = (words or f"{LABEL} Workflow: now in {path_of(d, result['to'])}.") + "\n\n" + line
         context, focus = context_of(d, result["from"], result["to"])
         if context == "fresh":  # a new conversation takes over: its launch has the new grant and its note the instructions
+            self._relaunching.add(name)
             self._spawn(self._fresh(name, result))
             return
         state = narrowed["state"]
@@ -155,6 +157,7 @@ class Effects:
         # Its own launch takes what its own grant adds; what the sessions it manages add comes with their own launches (FR-023).
         relaunch = bool(result.get("own_widening", result.get("widening"))) or (_full(state) and record.get("permission_mode") != _mode(state))
         if relaunch:
+            self._relaunching.add(name)
             self._spawn(self._relaunch(name, result, words, focus if context == "compact" else None))
             return
         if words:
@@ -321,12 +324,20 @@ class Effects:
         return inst.state == result["to"]  # moved again meanwhile: that move's effects apply
 
     async def _relaunch(self, name: str, result: dict, words: str | None, focus: str | None) -> None:
+        try:
+            await self._relaunch_once(name, result, words, focus)
+        finally:
+            if name in self._relaunching:  # it didn't relaunch: moved again, failed back, or never came to its prompt
+                self._relaunched(name, False)
+
+    async def _relaunch_once(self, name: str, result: dict, words: str | None, focus: str | None) -> None:
         state = await self._at_prompt(name, result)
         if state is None:
             return
         if state == "Stopped":  # not started for this: its next resume has the new grant
             if words:
                 self.agents.tell(name, words)
+            self._relaunched(name, False)
             return
         if not self._still_there(name, result):
             return
@@ -336,12 +347,33 @@ class Effects:
             self._fail_back(name, result, str(e))
             return
         log.info("%s relaunched in %s", name, result["to"])
+        self._relaunched(name, True)
         if words:
             self.agents.tell(name, words)
         if focus is not None:
             await self._compact(name, focus)
 
+    def relaunching(self, name: str) -> bool:
+        return name in self._relaunching
+
+    def _relaunched(self, name: str, ran: bool) -> None:
+        """The sessions the new state manages start once it holds what the state adds, and a wake that waited for it is
+        sent (managed.py)."""
+        self._relaunching.discard(name)
+        if self.managed is not None:
+            try:
+                self.managed.relaunched(name, ran)
+            except Exception:  # noqa: BLE001: its entries start on its next signals instead
+                log.exception("%s: its managed sessions didn't start after its relaunch", name)
+
     async def _fresh(self, name: str, result: dict) -> None:
+        try:
+            await self._fresh_once(name, result)
+        finally:
+            if name in self._relaunching:
+                self._relaunched(name, False)
+
+    async def _fresh_once(self, name: str, result: dict) -> None:
         """FR-021, context = "fresh": the conversation ends and one of the state's persona takes over with the hand-off note
         (handoff.py), always inside a resume that checks everything first. A running session is switched once it is at its
         prompt; a stopped one, still stopped under the resume lock, gets the switch owed for its next resume. One that was
@@ -362,8 +394,10 @@ class Effects:
                             continue  # resumed since the look: it switches at its prompt
                         handoff.owe(self.agents, name, text, persona, inst.state)
                     handoff.log_switch(self.agents, name, record["session_id"], record["session_id"], persona, "at its next resume")
+                    self._relaunched(name, False)
                     return
                 await self.agents.resume(name, relaunch=True, fresh={"note": text, "persona": persona, "at_prompt": True})
+                self._relaunched(name, True)
                 return
             except NotAtPrompt:
                 continue
@@ -421,7 +455,7 @@ class Effects:
         if self.decisions is None:
             return
         for record in self.decisions.open_widenings(name, kind):
-            if record["scope"].get("type") == "report":  # a report up stays until it is answered, wherever the session moves
+            if record["scope"].get("type") == "report":  # a report up: managed.py withdraws it on a move, saying so on its card
                 continue
             if record["scope"].get("type") == "managed":  # a start's approval: managed.py withdraws it when its entry leaves force
                 continue

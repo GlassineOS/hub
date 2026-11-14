@@ -3345,6 +3345,9 @@ function MachinePanel({ name, onMoved }) {
     <${Err} text=${got.error || hist.error} />
     ${waiting && !confirmOpen && html`<div role="status" class="waitbar"><span>A ${waiting.kind === "rollback" ? "roll-back" : "move"} to ${waiting.to} waits for your confirm: it widens the grant.</span>
       <button type="button" class="il-btn il-btn--primary" onClick=${() => setAsking(waiting)}>See what ${waiting.to} adds…</button></div>`}
+    ${v.stalled && html`<div role="status" class="waitbar stalled"><span><b>Stalled in ${here.join(" › ")}</b> for ${waitedWords(Math.max(0, Math.round(Date.now() / 1000 - v.stalled.since)))}: no exit can hold by itself, nothing under it is working and it is idle at its prompt.</span>
+      <ul class="small" aria-label="What holds it">${v.stalled.why.map((w) => html`<li>${w}</li>`)}</ul>
+      <button type="button" class="il-btn" onClick=${() => needsYou({ session: name })}>Its card in Needs you</button></div>`}
     <div class="mpcols">
       <div class="stack">
         <section class="stack tight" aria-labelledby=${`mp-ex-${name}`}>
@@ -4628,7 +4631,7 @@ function InteractionCard({ item, dense, where, reload }) {
   const body = () => {
     if (item.kind === "permission" || item.kind === "question") return html`<${Ask} ask=${d} compact=${settled} onDone=${reload} where=${where} />`;
     if (item.kind === "result" && d.type) return html`<${ResultView} r=${d} reload=${reload} where=${where} />`;
-    if (item.kind === "decision") return html`<div class="ask calm ${settled ? "done" : ""}"><div class="ask-head"><span class="ask-kind">${d.kind === "go" ? (d.scope.actions.includes("eye-test") ? "GO · EYE TEST" : "GO") : d.kind === "machine.widen" ? "WORKFLOW MOVE" : d.kind === "machine.approve" ? "WORKFLOW APPROVAL" : d.kind === "workflow.change" ? "WORKFLOW CHANGE" : "MERGE"}</span>
+    if (item.kind === "decision") return html`<div class="ask calm ${settled ? "done" : ""}"><div class="ask-head"><span class="ask-kind">${d.kind === "go" ? (d.scope.actions.includes("eye-test") ? "GO · EYE TEST" : "GO") : d.kind === "machine.widen" ? "WORKFLOW MOVE" : d.kind === "machine.approve" ? ((d.scope || {}).type === "stalled" ? "WORKFLOW STALLED" : "WORKFLOW APPROVAL") : d.kind === "workflow.change" ? "WORKFLOW CHANGE" : "MERGE"}</span>
       <span class="small mono">${d.asked_by || (d.scope && d.scope.proposed_by) || "you"}</span></div><div class="ask-body">${d.kind === "workflow.change"
         ? html`<${WorkflowChangeCard} key=${`${d.id}-${d.state}`} d=${d} onChanged=${reload} where=${where} />`
         : html`<${DecisionRow} key=${`${d.id}-${d.state}`} d=${d} onChanged=${reload} where=${where} />`}</div></div>`;
@@ -4676,6 +4679,21 @@ function Feed({ items, filter = "all", dense, session, where = "Needs you", relo
 // The modal's own filters beside the Feed's: what you've allowed that stands (003 FR-020), every decision, and what's settled.
 const NEEDS_VIEWS = [...FEED_FILTERS, ["grants", "Active grants"], ["decisions", "Decisions"], ["settled", "Settled"]];
 
+// 003 FR-023, FR-024: the waiting cards the person hasn't put off yet, which open Needs you by itself. `dismissed`: the ids
+// put off with Later or by closing it, kept per browser.
+function unseenCards(pending, dismissed) {
+  const off = new Set(dismissed || []);
+  return pending.filter((id) => !off.has(id));
+}
+// 003 FR-025: whether Needs you may open by itself now. Never over another dialog, nor while keys go to a terminal: it waits
+// until focus leaves it, or `quiet` ms pass without a keystroke there.
+function mayPrompt({ inTerminal, lastKey, now, dialogOpen, quiet = 10000 }) {
+  if (dialogOpen) return false;
+  return !inTerminal || now - (lastKey || 0) >= quiet;
+}
+const readPutOff = () => { try { const v = JSON.parse(localStorage.getItem("needs-put-off") || "[]"); return Array.isArray(v) ? v.filter((x) => typeof x === "string") : []; } catch { return []; } };
+const writePutOff = (ids) => { try { localStorage.setItem("needs-put-off", JSON.stringify(ids.slice(-500))); } catch { /* a per-browser convenience */ } };
+
 function NeedsYouModal({ initial, data, asks, onClose }) {
   const ref = useRef();
   const [filter, setFilter] = useState(NEEDS_VIEWS.some(([id]) => id === initial.filter) ? initial.filter : "all");
@@ -4693,10 +4711,13 @@ function NeedsYouModal({ initial, data, asks, onClose }) {
   const cards = (list) => list.map((r) => html`<${InteractionCard} key=${r.id} item=${r} dense=${dense} where="Needs you" reload=${asks.reload} />`);
   const settledRows = data.items.filter((r) => r.status !== "pending").filter(bySession);
   const pending = data.counts.pending;
-  return html`<dialog ref=${ref} class="needs sheet" aria-labelledby="needs-h" onClose=${onClose}>
-    <div class="needs-head"><h2 id="needs-h">Needs you</h2>
+  const prompted = Boolean(initial.prompted);
+  return html`<dialog ref=${ref} class="needs sheet" aria-labelledby="needs-h" aria-describedby=${prompted ? "needs-why" : undefined} onClose=${onClose}>
+    <div class="needs-head"><h2 id="needs-h">Needs you <span class="ask-tally ${pending > 0 ? "on" : ""}" aria-hidden="true">${pending}</span></h2>
       <span class="small" role="status">${pending ? `${count(pending, "thing")} waiting${data.counts.blocking ? `, ${data.counts.blocking} blocking` : ""}` : "Nothing waiting"}${asks.stale ? " · hubd can't be reached: showing what was last read" : ""}</span>
+      ${prompted && html`<button class="plain" onClick=${() => ref.current.close()}>Later</button>`}
       <button class="square" aria-label="Close Needs you" onClick=${() => ref.current.close()}>×</button></div>
+    ${prompted && html`<p class="small needs-why" id="needs-why">Opened because something new waits for you. Later keeps it in the header count; this opens again only when something new arrives.</p>`}
     <div class="needs-body stack" style="gap: 18px">
       <div class="row" style="gap: 6px 12px">
         <div role="group" aria-label="Show" class="row" style="gap: 6px">${NEEDS_VIEWS.map(([id, label]) => html`<button class="ask-filter" aria-pressed=${filter === id ? "true" : "false"} onClick=${() => setFilter(id)}>${label}${id === "grants" && data.grants.length ? ` (${data.grants.length})` : ""}</button>`)}</div>
@@ -4859,8 +4880,9 @@ const needsState = (c) => (c.blocking > 0 ? "blocking" : c.pending > 0 ? "pendin
 function NeedsButton({ asks, before }) {
   const c = asks.interactions.counts;
   const state = needsState(c);
+  // 001 FR-002: the count is loud whenever anything waits, as all of it waits for you; the button keeps its three states.
   return html`<button class="needs-open ${state === "none" ? "plain" : ""}" data-state=${state} data-waits=${state === "blocking" ? "" : undefined}
-    aria-label=${needsLabel(asks)} onClick=${() => { if (before) before(); needsYou(); }}>Needs you <span class="ask-tally">${c.pending}</span></button>`;
+    aria-label=${needsLabel(asks)} onClick=${() => { if (before) before(); needsYou(); }}>Needs you <span class="ask-tally ${c.pending > 0 ? "on" : ""}">${c.pending}</span></button>`;
 }
 
 // 001 FR-007: at phone width the header is "New" and "Menu". Menu carries the Needs you count, in the same three states
@@ -4870,7 +4892,7 @@ function MenuButton({ asks, onOpen }) {
   const state = needsState(c);
   const waits = c.pending ? `, ${count(c.pending, "thing")} waiting for you${c.blocking ? `, ${c.blocking} blocking a session` : ""}` : "";
   return html`<button class="needs-open menu-open ${state === "none" ? "plain" : ""}" data-state=${state} data-waits=${state === "blocking" ? "" : undefined}
-    aria-haspopup="dialog" aria-label=${`Menu${waits}`} onClick=${onOpen}>Menu${c.pending > 0 && html` <span class="ask-tally" aria-hidden="true">${c.pending}</span>`}</button>`;
+    aria-haspopup="dialog" aria-label=${`Menu${waits}`} onClick=${onOpen}>Menu${c.pending > 0 && html` <span class="ask-tally on" aria-hidden="true">${c.pending}</span>`}</button>`;
 }
 
 // The Menu sheet: the navigation, Needs you and the user line (001 FR-007), a full sheet that traps focus and closes on
@@ -5627,9 +5649,35 @@ function Hub({ host: first, route, onOut }) {
     needsYou({ filter: oldNeeds });
     history.replaceState(null, "", route.path === "decisions" ? hash("overview") : hash("shells", { tab: "all" }));
   }, [oldNeeds]);
+  // 003 FR-023 to FR-025: a new waiting card opens Needs you by itself, once the person isn't typing in a terminal; closing
+  // it, with Later or otherwise, puts off what was waiting until something new comes.
+  const pendingIds = inter.items.filter((r) => r.status === "pending").map((r) => r.id);
+  const [putOff, setPutOff] = useState(readPutOff);
+  const unseen = listed.data ? unseenCards(pendingIds, putOff) : [];
+  const lastKey = useRef(0);
+  const [recheck, setRecheck] = useState(0);
+  useEffect(() => {
+    const typed = (e) => { if (e.target && e.target.closest && e.target.closest(".xterm")) lastKey.current = Date.now(); };
+    window.addEventListener("keydown", typed, true);
+    return () => window.removeEventListener("keydown", typed, true);
+  }, []);
+  useEffect(() => {
+    if (needs || !unseen.length) return undefined;
+    const at = document.activeElement;
+    const inTerminal = Boolean(at && at.closest && at.closest(".xterm"));
+    if (mayPrompt({ inTerminal, lastKey: lastKey.current, now: Date.now(), dialogOpen: MODALS.length > 0 })) {
+      setNeeds({ prompted: true, key: Date.now(), opener: at });
+      return undefined;
+    }
+    const later = setTimeout(() => setRecheck((n) => n + 1), 1000);  // focus left the terminal, or it went quiet
+    return () => clearTimeout(later);
+  }, [unseen.join(" "), Boolean(needs), recheck]);
   // Focus goes back where it was; if that's gone, to the header's Needs you button.
   const closeNeeds = () => {
     const back = needs && needs.opener;
+    const seen = [...new Set([...putOff.filter((id) => pendingIds.includes(id)), ...pendingIds])];
+    setPutOff(seen);
+    writePutOff(seen);
     setNeeds(null);
     const to = back && back.isConnected && back !== document.body ? back : document.querySelector("header.top .needs-open");
     if (to) to.focus();

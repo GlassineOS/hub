@@ -134,7 +134,7 @@ MAX_MANAGED = 20
 # The chain of owners' tools (012 FR-040 to FR-053). A session gets them from where it stands, not from a grant: a managed
 # session returns and reports to its owner, a session whose workflow manages sessions starts them on request and answers
 # their reports and sees how they stand, one whose workflow can move reports up. They reach only the hub, never GitHub.
-CHAIN_TOOLS = ("start_managed", "return_result", "report_up", "answer_report", "managed_status")
+CHAIN_TOOLS = ("start_managed", "return_result", "report_up", "withdraw_report", "answer_report", "managed_status")
 IDLE_FILE = "idle"  # its turn ended, and it's waiting for nothing but a person's next word
 ASKING_FILE = "asks-open"  # hubd holds a prompt of this session's
 MACHINE_HOOK_TIME = 5  # seconds; it sends one line and goes
@@ -1476,6 +1476,10 @@ class Agents:
             entries = [m for st in d.states.values() for m in st.manages]
             if len(d.states) > 1:
                 tools.append("report_up")
+        if "report_up" in tools:  # what it reported, it may take back once what happened since settles it
+            tools.insert(tools.index("report_up") + 1, "withdraw_report")
+        for d in definitions:
+            entries = [m for st in d.states.values() for m in st.manages]
             if entries:
                 tools.append("answer_report")
                 tools.append("managed_status")
@@ -2793,6 +2797,10 @@ class Agents:
                 return {**await self.start(planned["config"], started_by=by), "planner_cost_usd": planned["planner_cost_usd"]}
             return await self.start(self.defaults(action_id, repo, number), started_by=by)
 
+    def _waits_for_you(self, name: str) -> bool:
+        directory = self.sessions / name
+        return (directory / "waiting").exists() and not (directory / IDLE_FILE).exists()
+
     @staticmethod
     def _state_word(directory: Path, ended: bool) -> str:
         # The idle notification comes after Stop, so a finished session has both markers.
@@ -3536,7 +3544,9 @@ class Agents:
                 "persona_name": badge["name"], "initials": badge["initials"], "family": badge["family"],
                 "posts_as": self.apps.posts_as(config["persona"]) if self.apps else None,
                 "github_as": self._github_as(name),  # whose token its shell has: an App's, "you", or None without one
-                "full": record.get("full", False), "waiting": (self.sessions / name / "waiting").exists(), "idle": (self.sessions / name / IDLE_FILE).exists(),
+                # Claude Code's idle notification comes after Stop: a session at its prompt, after a hand-back from one it
+                # manages say, is idle and not waiting for you (as _state_word has it)
+                "full": record.get("full", False), "waiting": self._waits_for_you(name), "idle": (self.sessions / name / IDLE_FILE).exists(),
                 "ended": (self.sessions / name / ENDED_FILE).exists(),
                 "machine": self.machines.summary(name),  # 012 FR-080: its state chip
                 "created": record.get("created"), "started_by": record.get("started_by")}

@@ -1099,6 +1099,10 @@ class ResultAgents:
                       "triage-token": ("issue-triage-boot-7", RESULT_LIBRARY.actions["issue-triage"]["grant"].hub_tools),
                       "full-token": ("issue-docs-boot-9", None)}
         self.ended = set()
+        self.owners = {}
+
+    def owner_record(self, name):
+        return self.owners.get(name)
 
     def scope(self, token):
         if token not in self.tools:
@@ -1349,6 +1353,11 @@ def test_a_session_that_opened_a_pull_request_has_it_as_its_result(result_hub):
     result_hub._note_pr_results(rows)
     made = [(r["session"], r["payload"]) for r in result_hub.results.all()]
     assert made == [("issue-docs-boot-9", {"repo": "boot", "number": 12})]
+    # it is on GitHub already: nothing to apply, so it never waits in Needs you
+    record = result_hub.results.all()[0]
+    assert (record["state"], record["applied_by"]) == ("applied", "the hub")
+    listed = run(result_hub.request({"op": "interaction.list", "token": "login"}))
+    assert next(i for i in listed["items"] if i["id"] == record["id"])["status"] == "answered"
     # pr-review covers a pull request but ends in a comment; a pr action on a pull request waits for its end.
     result_hub.agents.sessions["pr-address-review-boot-5"] = ("pr-address-review", "pr", 5, "engineer")
     result_hub._note_pr_results([{"name": "pr-address-review-boot-5", "agent": result_hub.agents.describe("pr-address-review-boot-5")}])
@@ -1356,6 +1365,15 @@ def test_a_session_that_opened_a_pull_request_has_it_as_its_result(result_hub):
     result_hub.agents.ended.add("pr-address-review-boot-5")
     result_hub._note_pr_results([{"name": "pr-address-review-boot-5", "agent": result_hub.agents.describe("pr-address-review-boot-5")}])
     assert len(result_hub.results.all()) == 2
+
+
+def test_a_managed_session_s_pull_request_is_no_result_of_its_own(result_hub):
+    """What a session under a workflow made is its owner's, which had the hand-back: no card for the person."""
+    result_hub.agents.sessions["engineer-boot-8"] = ("issue-docs", "issue", 8, "engineer")
+    result_hub.agents.prs = {"engineer-boot-8": [{"repo": "boot", "number": 8, "state": "OPEN"}]}
+    result_hub.agents.owners["engineer-boot-8"] = {"name": "implementor-boot-8", "session_id": "conv-0", "entry": "engineer"}
+    result_hub._note_pr_results([{"name": "engineer-boot-8", "agent": result_hub.agents.describe("engineer-boot-8")}])
+    assert not result_hub.results.all()
 
 
 def test_results_are_interactions_answered_like_any_card(result_hub):
