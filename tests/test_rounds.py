@@ -330,7 +330,10 @@ def test_a_proposed_move_is_carried_out_when_the_maintainer_approves_it(team):
         assert state_of(a, name) == "fix"
         [move] = [m for m in base.history(a, name)["moves"] if m["to"] == "fix"]
         assert move["by"] == "hand" and move["who"] == h.sessions.own_user()
-        assert a.machines.load(name)[1].handover["handover"] == "Fix the bound only."
+        inst = a.machines.load(name)[1]
+        assert inst.handover["handover"] == "Fix the bound only." and inst.handover["by"] == reviewer
+        # its sessions read it as the reviewer's proposal, not the implementor's words
+        assert f"What {reviewer}'s, proposed in a report the maintainer approved, request" in handover_text(name, inst)
         assert h.managed.log.get_report(card["scope"]["report"])["state"] == "answered"
     asyncio.run(go())
 
@@ -412,4 +415,25 @@ def test_any_move_withdraws_its_card_even_to_a_state_that_asks_about_the_tool_to
         assert h.decisions.open_asks(name) == []
         assert "where a call of merge_pr asks again if it still holds" in h.decisions._get(card["id"])["why_ended"]
         assert not (await answer(h, card, "approve"))["ok"]
+    asyncio.run(go())
+
+
+def test_a_proposed_move_of_the_reporters_own_work_is_answered_not_withdrawn_by_that_move(team):
+    h, a, _gh, _apps, _judge = team
+
+    async def go():
+        name = (await a.start(a.defaults("implementor", "boot", 7)))["name"]
+        await settle(h)
+        sent = await report(h, a, name, {"type": "move", "to": "escalated"}, "The issue asks for two things at once.")
+        assert sent["ok"] and sent["to"] == "you"
+        [card] = [c for c in h.decisions.open_approvals(name) if c["scope"].get("report") == sent["id"]]
+        (a.sessions / name / IDLE_FILE).touch()
+        got = await answer(h, card, "approve")
+        await settle(h)
+        assert got["ok"], got
+        assert state_of(a, name) == "escalated"
+        # the move it proposed doesn't withdraw it: it is answered, and the session hears what was carried out
+        assert h.managed.log.get_report(sent["id"])["state"] == "answered"
+        assert f"Report {sent['id']} is answered by" in told(a, name)
+        assert f"What report {sent['id']} proposed is carried out: {name} moved to escalated." in told(a, name)
     asyncio.run(go())
