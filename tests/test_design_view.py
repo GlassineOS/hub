@@ -284,10 +284,11 @@ console.log(JSON.stringify(nodes.map((n) => n.nodeType === 3 ? ["text", n.data] 
 
 
 def test_a_design_session_s_view_opens_from_its_session_view_at_every_size():
-    """FR-010: the entry is in the head (full and embedded) and in the send row (compact, which has no head)."""
+    """FR-010: the entry is in the head (full and embedded), in a tile's bar and in the send row (compact, which has no head)."""
     text = APP.read_text()
     assert 'const designing = Boolean(a && a.action === "design")' in text
-    assert text.count('href=${hash("design", { name })}>Design view</a>') == 2
+    assert text.count('href=${hash("design", { name })}>Design view</a>') == 3
+    assert 'const head = tile ? html`<div class="row svtilebar"' in text
     assert "${compact && designing &&" in text
     assert "design: DesignView" in text
 
