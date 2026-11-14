@@ -345,8 +345,25 @@ def test_needs_you_opens_by_itself_only_for_a_card_not_put_off():
 def test_needs_you_never_takes_the_keys_from_a_terminal_being_typed_in():
     """003 FR-025: it waits until focus leaves the terminal or 10 s pass without a keystroke, and never over a dialog."""
     got = run(["mayPrompt"], """
-        return [mayPrompt({ inTerminal: false, lastKey: 0, now: 5, dialogOpen: false }),
-                mayPrompt({ inTerminal: true, lastKey: 1000, now: 5000, dialogOpen: false }),
-                mayPrompt({ inTerminal: true, lastKey: 1000, now: 11000, dialogOpen: false }),
-                mayPrompt({ inTerminal: false, lastKey: 0, now: 5, dialogOpen: true })];""")
+        return [mayPrompt({ typing: false, lastKey: 0, now: 5, dialogOpen: false }),
+                mayPrompt({ typing: true, lastKey: 1000, now: 5000, dialogOpen: false }),
+                mayPrompt({ typing: true, lastKey: 1000, now: 11000, dialogOpen: false }),
+                mayPrompt({ typing: false, lastKey: 0, now: 5, dialogOpen: true })];""")
     assert got == [True, False, True, False]
+
+
+def test_closing_needs_you_puts_off_only_what_it_showed_when_it_opened():
+    """003 FR-024: a prompt's cards (or the whole list's), not a card that came meanwhile, with what other tabs put off."""
+    got = run(["putOffAfter"], """
+        return [putOffAfter([], ["a", "b"], ["a", "b", "c"]),       // c came while it was open: it still opens it again
+                putOffAfter(["x", "a"], [], ["a", "b"]),            // a filtered open shows nothing to put off; x isn't waiting
+                putOffAfter(["b"], ["a"], ["a", "b"]),              // another tab put b off
+                putOffAfter(null, null, ["a"])];""")
+    assert got == [["a", "b"], ["a"], ["b", "a"], []]
+
+
+def test_needs_you_waits_for_typing_in_any_field_as_the_shortcuts_do():
+    """One selector says where keys are typed: the item keys and the Needs you guard both use it."""
+    source = APP.read_text()
+    assert 'const TYPING = "input, textarea, select, [contenteditable], .xterm";' in source
+    assert "typingIn(e.target)" in source and "typing: typingIn(at)" in source and "closest(`${TYPING}, dialog`)" in source

@@ -6,6 +6,7 @@ reports that events overtook are withdrawn, by the hub on a move or by their rep
 The hub is real behind hubd's ops, as in test_personas_flow; the terminal, GitHub and the judge are faked."""
 import asyncio
 import json
+import time
 
 import pytest
 
@@ -341,3 +342,227 @@ def test_a_session_that_reports_up_also_has_withdraw_report():
 
 def test_the_outcomes_file_name_is_what_told_reads():
     assert OUTCOMES_FILE  # the helper above reads the same file the hook does
+
+
+# --- follow-ups: waits that aren't stalls, counters, rounds across a relaunch, resumes that fail, reports answered late ---
+
+def _clock(a, start=1_000_000.0):
+    now = [start]
+    a.machines.clock = lambda: now[0]
+    return now
+
+
+def test_a_report_naming_a_counter_never_wakes_its_reporter(team):
+    """time.*, tokens.*, rounds.* change by themselves: naming one isn't a fact that can overtake the report."""
+    h, a, _gh, _apps, _judge = team
+
+    async def go():
+        name, _engineer = await started(h, a)
+        now = _clock(a, time.time())  # after it entered implement: time.implement counts up
+        await report(h, a, name, evidence="We have been in time.implement long; still waiting.")
+        (a.sessions / name / IDLE_FILE).touch()
+        sent = watch_sends(a)
+        for _ in range(4):
+            now[0] += 30
+            await h.managed.watch()
+            await settle(h)
+            (a.sessions / name / IDLE_FILE).touch()
+        assert not [w for who, w in sent if who == name and "named has changed" in w]
+    asyncio.run(go())
+
+
+def test_a_named_fact_wakes_its_reporter_once_a_value_and_not_more_often_than_the_gap(team):
+    h, a, gh, _apps, _judge = team
+
+    async def go():
+        name, engineer = await started(h, a)
+        now = _clock(a)
+        gh.branches[engineer] = [pr()]
+        await feed(h, ev("opened", "OPEN"), ev("checks", "pending"))
+        await h.machine_run.facts_now(name, *a.machines.load(name))
+        rid = await report(h, a, name)
+        sent = watch_sends(a)
+
+        async def tick(checks=None, later=0.0):
+            if checks:
+                await feed(h, ev("checks", checks))
+            now[0] += later
+            (a.sessions / name / IDLE_FILE).touch()
+            await h.managed.watch()
+            await settle(h)
+            return [w for who, w in sent if who == name and "named has changed" in w]
+        assert len(await tick("failing")) == 1
+        assert len(await tick("passing", 10)) == 1          # within the gap: it waits
+        woken = await tick(None, managed_module.NAMED_WAKE_GAP)  # the gap is over: the new value is told
+        assert len(woken) == 2 and "pr.checks is now pass" in woken[-1] and rid in woken[-1]
+        assert len(await tick("failing", managed_module.NAMED_WAKE_GAP + 1)) == 2  # fail was told already
+    asyncio.run(go())
+
+
+def test_a_widening_move_clears_last_rounds_returns_at_once(team):
+    """review → fix widens (fix adds push), so the engineer starts after the relaunch; meanwhile its `done` from implement
+    mustn't take fix on to review once the checks pass."""
+    h, a, gh, _apps, judge = team
+
+    async def go():
+        name, _engineer = await personas.through_implement(h, a, gh, judge)
+        assert state_of(a, name) == "review"
+        h.effects.relaunch_wait = 120
+        (a.sessions / name / IDLE_FILE).unlink(missing_ok=True)  # in a turn: its relaunch waits for its prompt
+        gh.pr_more = {"statusCheckRollup": FAILING}
+        assert (await h.request({"op": "feed.record", "events": [ev("checks", "failing")]}))["kept"] == 1
+        for _ in range(4):
+            await h.machine_run.idle()
+            await asyncio.sleep(0)
+        assert state_of(a, name) == "fix" and a.machines.load(name)[1].managed["engineer"]["returns"] == {}
+        gh.pr_more = {"statusCheckRollup": []}
+        assert (await h.request({"op": "feed.record", "events": [ev("checks", "passing")]}))["kept"] == 1
+        for _ in range(4):
+            await h.machine_run.idle()
+            await asyncio.sleep(0)
+        assert state_of(a, name) == "fix"  # no hand-back in this round yet
+        (a.sessions / name / IDLE_FILE).touch()
+        await settle(h)
+        assert [(m["from"], m["to"]) for m in personas.history(a, name)["moves"]][-1] != ("fix", "review")
+    asyncio.run(go())
+
+
+def test_two_widening_moves_before_the_first_relaunch_keep_the_second_moves_starts(team):
+    """What a move waits to start is keyed by that move: the first move's relaunch doesn't start, or drop, the second's."""
+    h, a, gh, _apps, _judge = team
+
+    async def go():
+        name, engineer = await started(h, a)
+        gh.branches[engineer] = [pr()]
+        a.machines._watchers = [w for w in a.machines._watchers if getattr(w, "__self__", None) is not h.effects]  # no relaunch
+        now = _clock(a)
+        a.machines.move(name, "review", "hand", who="you")
+        await settle(h)
+        now[0] += 5
+        a.machines.move(name, "fix", "hand", who="you")
+        await settle(h)
+        [first] = list(h.managed._deferred[name])
+        now[0] += 5
+        a.machines.move(name, "review", "hand", who="you")
+        now[0] += 5
+        a.machines.move(name, "fix", "hand", who="you")
+        await settle(h)
+        [second] = list(h.managed._deferred[name])
+        assert first != second and first[0] == second[0] == "fix"
+        h.managed.relaunched(name, True, first)
+        await settle(h)
+        assert engineer not in a.shells.live and second in h.managed._deferred[name]
+        assert "engineer" not in h.managed.waiting_starts(name, a.machines.load(name)[1])  # it waits for its relaunch
+        h.managed.relaunched(name, True, second)
+        await settle(h)
+        assert children(h, a, name, "engineer") == [engineer] and engineer in a.shells.live
+    asyncio.run(go())
+
+
+def test_a_start_tried_again_gives_up_once_its_owner_has_moved(team, monkeypatch):
+    h, a, gh, _apps, _judge = team
+
+    async def go():
+        name, engineer = await started(h, a)
+        gh.branches[engineer] = [pr()]
+        monkeypatch.setattr(managed_module, "MAX_MANAGED", 0)
+        tries = []
+        real_start = h.managed.start
+
+        async def start(owner, entry, by="entry", item=None):
+            tries.append(by)
+            return await real_start(owner, entry, by, item)
+        h.managed.start = start
+
+        async def sleep(_seconds):
+            # it moves on while the retry waits, and there is room again
+            a.machines._watchers = [w for w in a.machines._watchers if getattr(w, "__self__", None) is not h.managed]
+            a.machines.move(name, "implement", "hand", who="you")
+            monkeypatch.setattr(managed_module, "MAX_MANAGED", 20)
+        h.managed._sleep = sleep
+        a.machines.move(name, "fix", "hand", who="you")
+        await settle(h)
+        assert tries == ["entry"]  # tried once on entering fix, and not again for a state it left
+    asyncio.run(go())
+
+
+def test_a_resume_that_cant_happen_starts_a_fresh_session_and_wakes_nobody_over_and_over(team):
+    h, a, gh, _apps, _judge = team
+
+    async def go():
+        name, engineer = await started(h, a)
+        gh.branches[engineer] = [pr()]
+
+        async def broken(child, **kw):
+            raise managed_module.AgentError("a later session used the name and its branch")
+        a.resume = broken
+        (a.sessions / name / IDLE_FILE).touch()
+        sent = watch_sends(a)
+        a.machines.move(name, "fix", "hand", who="you")
+        await settle(h)
+        for _ in range(3):
+            await h.managed.sweep()
+            await settle(h)
+            (a.sessions / name / IDLE_FILE).touch()
+            await h.request({"op": "session.signal", "agent_token": token_of(a, name), "how": "Stop"})
+            await settle(h)
+        assert len([w for who, w in sent if who == name]) <= 1
+        [fresh] = [n for n in children(h, a, name, "engineer") if n != engineer]
+        assert fresh in a.shells.live and "can't be resumed" in told(a, name)
+        assert record(a, engineer)["owner"].get("ended") is not False  # never marked running again
+    asyncio.run(go())
+
+
+def test_waiting_for_an_answer_to_its_report_is_not_a_stall_and_the_report_stays_open(team):
+    """workflow-change's ask waits on report.answered: entering it keeps the report it waits on, and the wait isn't a stall."""
+    h, a, _gh, _apps, _judge = team
+
+    async def go():
+        name = (await a.run("workflow-change", None, None, notes="The workflow: implement."))["name"]
+        await settle(h)
+        rid = await report(h, a, name, evidence="Three drafts failed.")
+        a.machines.move(name, "ask", "hand", who="you")
+        await settle(h)
+        assert state_of(a, name) == "ask" and a.machines.log.get_report(rid)["state"] == "open"
+        (a.sessions / name / IDLE_FILE).touch()
+        a._sends.clear()
+        now = _clock(a)
+        await h.managed.watch()
+        now[0] += managed_module.STALL_AFTER + 5
+        await h.managed.watch()
+        await settle(h)
+        assert "stalled" not in [c["scope"].get("type") for c in h.decisions.open_approvals(name)]
+    asyncio.run(go())
+
+
+def test_an_answer_that_reaches_a_report_just_withdrawn_goes_to_the_reporter_as_a_note(team):
+    h, a, gh, _apps, _judge = team
+
+    async def go():
+        name, engineer = await started(h, a)
+        rid = await report(h, a, name)
+        [card] = report_cards(h, name)
+        await failing_pr(h, gh, engineer)
+        assert (await give(h, engineer, status="done", summary=["Opened it."]))["ok"]
+        assert a.machines.log.get_report(rid)["state"] == "withdrawn"
+        from hubd.decisions import DecisionError  # noqa: PLC0415
+        with pytest.raises(DecisionError, match="withdrawn .* your answer and your words went to"):
+            await h.effects.answer_approval(card["id"], True, "you", "Wait for the checks.")
+        said = told(a, name)
+        assert f"Report {rid} was withdrawn" in said and "Wait for the checks." in said and "Nothing was carried out" in said
+    asyncio.run(go())
+
+
+def test_a_withdrawn_report_has_its_own_answer_and_everyone_on_its_way_hears_it(team):
+    h, a, _gh, _apps, _judge = team
+
+    async def go():
+        name, engineer = await started(h, a)
+        rid = await report(h, a, engineer, evidence="The tests need a device.")  # to its owner, which can answer
+        assert a.machines.log.get_report(rid)["to_name"] == name
+        got = await h.request({"op": "managed.withdraw", "agent_token": token_of(a, engineer), "id": rid, "why": "Found an emulator."})
+        assert got["ok"], got
+        assert f"Report {rid} from {engineer} is withdrawn: Found an emulator." in told(a, name)
+        late = await h.request({"op": "managed.answer", "agent_token": token_of(a, name), "id": rid, "decision": "approve"})
+        assert not late["ok"] and "was withdrawn (Found an emulator.)" in late["error"], late
+    asyncio.run(go())

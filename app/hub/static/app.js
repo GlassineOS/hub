@@ -2035,7 +2035,7 @@ function WorkLists({ query, asks }) {
     if (!current) return undefined;
     const on = (e) => {
       if (e.ctrlKey || e.metaKey || e.altKey || (e.key !== "k" && e.key !== "j")) return;
-      if (e.target.closest("input, textarea, select, [contenteditable], .xterm, dialog")) return;
+      if (e.target.closest(`${TYPING}, dialog`)) return;
       step.current(e.key === "j" ? 1 : -1);
     };
     window.addEventListener("keydown", on);
@@ -4562,6 +4562,9 @@ const BLOCKING = (r) => r.blocking;
 const KIND_LABEL = { permission: "Permission", question: "Question", decision: "Decision", suggestion: "Suggestion", result: "Result" };
 const STATUS_WORD = { pending: "waiting for you", allowed: "allowed", always: "always allowed", denied: "denied", answered: "answered", started: "started",
   dismissed: "dismissed", terminal: "answered in the terminal", timeout: "timed out", ended: "ended" };
+// Where keys are being typed: a field, an editable element or a terminal (shortcuts and Needs you leave those alone).
+const TYPING = "input, textarea, select, [contenteditable], .xterm";
+const typingIn = (el) => Boolean(el && el.closest && el.closest(TYPING));
 const needsYou = (detail = {}) => window.dispatchEvent(new CustomEvent("hub-needs-you", { detail }));
 // Only a session hubd still knows gets a chip with a state; a name it doesn't know is just the name, never "running".
 const sessionOfRow = (r) => (r.session && r.persona ? { name: r.session, attached: 0, agent: { persona: r.persona.id, persona_name: r.persona.name, initials: r.persona.initials,
@@ -4685,11 +4688,17 @@ function unseenCards(pending, dismissed) {
   const off = new Set(dismissed || []);
   return pending.filter((id) => !off.has(id));
 }
-// 003 FR-025: whether Needs you may open by itself now. Never over another dialog, nor while keys go to a terminal: it waits
-// until focus leaves it, or `quiet` ms pass without a keystroke there.
-function mayPrompt({ inTerminal, lastKey, now, dialogOpen, quiet = 10000 }) {
+// 003 FR-025: whether Needs you may open by itself now. Never over another dialog, nor while keys go to a field or a terminal:
+// it waits until focus leaves it, or `quiet` ms pass without a keystroke there.
+function mayPrompt({ typing, lastKey, now, dialogOpen, quiet = 10000 }) {
   if (dialogOpen) return false;
-  return !inTerminal || now - (lastKey || 0) >= quiet;
+  return !typing || now - (lastKey || 0) >= quiet;
+}
+// 003 FR-024: what closing Needs you puts off: what it showed when it opened (a prompt's cards, or every waiting card for an
+// open of the whole list), kept to cards still waiting, with what other tabs put off.
+function putOffAfter(stored, shown, pending) {
+  const waiting = new Set(pending);
+  return [...new Set([...(stored || []).filter((id) => waiting.has(id)), ...(shown || []).filter((id) => waiting.has(id))])];
 }
 const readPutOff = () => { try { const v = JSON.parse(localStorage.getItem("needs-put-off") || "[]"); return Array.isArray(v) ? v.filter((x) => typeof x === "string") : []; } catch { return []; } };
 const writePutOff = (ids) => { try { localStorage.setItem("needs-put-off", JSON.stringify(ids.slice(-500))); } catch { /* a per-browser convenience */ } };
@@ -4712,8 +4721,10 @@ function NeedsYouModal({ initial, data, asks, onClose }) {
   const settledRows = data.items.filter((r) => r.status !== "pending").filter(bySession);
   const pending = data.counts.pending;
   const prompted = Boolean(initial.prompted);
+  // opened by itself, it starts on its heading, which says what it is: not on Later, which one Enter would press
+  useEffect(() => { if (prompted) { const h = document.getElementById("needs-h"); if (h) h.focus(); } }, []);
   return html`<dialog ref=${ref} class="needs sheet" aria-labelledby="needs-h" aria-describedby=${prompted ? "needs-why" : undefined} onClose=${onClose}>
-    <div class="needs-head"><h2 id="needs-h">Needs you <span class="ask-tally ${pending > 0 ? "on" : ""}" aria-hidden="true">${pending}</span></h2>
+    <div class="needs-head"><h2 id="needs-h" tabindex="-1">Needs you <span class="ask-tally ${pending > 0 ? "on" : ""}" aria-hidden="true">${pending}</span></h2>
       <span class="small" role="status">${pending ? `${count(pending, "thing")} waiting${data.counts.blocking ? `, ${data.counts.blocking} blocking` : ""}` : "Nothing waiting"}${asks.stale ? " · hubd can't be reached: showing what was last read" : ""}</span>
       ${prompted && html`<button class="plain" onClick=${() => ref.current.close()}>Later</button>`}
       <button class="square" aria-label="Close Needs you" onClick=${() => ref.current.close()}>×</button></div>
@@ -5630,6 +5641,7 @@ function Hub({ host: first, route, onOut }) {
     decisions: { items: [...inter.items, ...inter.grants].filter((r) => r.kind === "decision").map((r) => r.detail), holding: inter.holding, reload: listed.reload, error: listed.error } };
   asks.waiting = inter.counts.pending;
   const [needs, setNeeds] = useState(null); // the Needs you modal, and what had focus when it opened
+  const pendingRef = useRef([]); // the waiting cards' ids, for an open from an event
   const phone = usePhone();
   const [menu, setMenu] = useSheet(route.path, phone); // the Menu sheet, at phone width
 
@@ -5637,7 +5649,9 @@ function Hub({ host: first, route, onOut }) {
   const [behind, setBehind] = useState(null); // a Launch sent to the background (005 FR-008)
   useEffect(() => {
     const show = (e) => { setBehind(null); setLaunching({ ...e.detail, key: Date.now() }); };
-    const openNeeds = (e) => setNeeds({ ...e.detail, key: Date.now(), opener: document.activeElement });
+    // an open of the whole list shows every waiting card, so closing it puts them off; a filtered one puts off nothing
+    const whole = (d) => (!d.filter || d.filter === "all") && !d.session;
+    const openNeeds = (e) => setNeeds({ ...e.detail, key: Date.now(), opener: document.activeElement, shown: whole(e.detail) ? pendingRef.current : [] });
     window.addEventListener("hub-launch", show);
     window.addEventListener("hub-needs-you", openNeeds);
     return () => { window.removeEventListener("hub-launch", show); window.removeEventListener("hub-needs-you", openNeeds); };
@@ -5652,30 +5666,37 @@ function Hub({ host: first, route, onOut }) {
   // 003 FR-023 to FR-025: a new waiting card opens Needs you by itself, once the person isn't typing in a terminal; closing
   // it, with Later or otherwise, puts off what was waiting until something new comes.
   const pendingIds = inter.items.filter((r) => r.status === "pending").map((r) => r.id);
+  pendingRef.current = pendingIds;
   const [putOff, setPutOff] = useState(readPutOff);
   const unseen = listed.data ? unseenCards(pendingIds, putOff) : [];
   const lastKey = useRef(0);
-  const [recheck, setRecheck] = useState(0);
   useEffect(() => {
-    const typed = (e) => { if (e.target && e.target.closest && e.target.closest(".xterm")) lastKey.current = Date.now(); };
+    const typed = (e) => { if (typingIn(e.target)) lastKey.current = Date.now(); };
+    // another tab's Later counts here too
+    const synced = (e) => { if (e.key === "needs-put-off") setPutOff(readPutOff()); };
     window.addEventListener("keydown", typed, true);
-    return () => window.removeEventListener("keydown", typed, true);
+    window.addEventListener("storage", synced);
+    return () => { window.removeEventListener("keydown", typed, true); window.removeEventListener("storage", synced); };
   }, []);
+  const unseenKey = unseen.join(" ");
   useEffect(() => {
     if (needs || !unseen.length) return undefined;
-    const at = document.activeElement;
-    const inTerminal = Boolean(at && at.closest && at.closest(".xterm"));
-    if (mayPrompt({ inTerminal, lastKey: lastKey.current, now: Date.now(), dialogOpen: MODALS.length > 0 })) {
-      setNeeds({ prompted: true, key: Date.now(), opener: at });
-      return undefined;
-    }
-    const later = setTimeout(() => setRecheck((n) => n + 1), 1000);  // focus left the terminal, or it went quiet
-    return () => clearTimeout(later);
-  }, [unseen.join(" "), Boolean(needs), recheck]);
+    const shown = unseen.slice();
+    // checked again until focus leaves the field or it goes quiet; nothing renders until it opens
+    const tryOpen = () => {
+      const at = document.activeElement;
+      if (!mayPrompt({ typing: typingIn(at), lastKey: lastKey.current, now: Date.now(), dialogOpen: MODALS.length > 0 })) return false;
+      setNeeds({ prompted: true, key: Date.now(), opener: at, shown });
+      return true;
+    };
+    if (tryOpen()) return undefined;
+    const timer = setInterval(() => { if (tryOpen()) clearInterval(timer); }, 1000);
+    return () => clearInterval(timer);
+  }, [unseenKey, Boolean(needs)]);
   // Focus goes back where it was; if that's gone, to the header's Needs you button.
   const closeNeeds = () => {
     const back = needs && needs.opener;
-    const seen = [...new Set([...putOff.filter((id) => pendingIds.includes(id)), ...pendingIds])];
+    const seen = putOffAfter(readPutOff().concat(putOff), needs && needs.shown, pendingIds);
     setPutOff(seen);
     writePutOff(seen);
     setNeeds(null);
