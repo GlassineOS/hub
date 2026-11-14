@@ -3214,7 +3214,7 @@ function historyRows(h) {
     const result = [m.widening ? `widened${m.confirmed_by ? `: confirmed by ${m.confirmed_by}` : ""}` : "", adds.length ? `adds ${adds.join(", ")}` : "",
       removes.length ? `takes away ${removes.join(", ")}` : ""].filter(Boolean).join(" · ");
     // the words a move was asked for with are the requester's: shown as text, marked as theirs (012 FR-027)
-    const whose = asked && asked.by === "maintainer" ? "the maintainer's words" : "the session's words";
+    const whose = !asked ? "" : asked.by === "maintainer" ? "the maintainer's words" : asked.by === "session" ? "the session's words" : `${asked.by}'s words, approved by you`;
     const details = asked ? [asked.reasons && [`Reasons (${whose})`, asked.reasons], asked.handover && [`Hand-over (${whose})`, asked.handover]].filter(Boolean) : [];
     return { key: `m${m.seq}`, at: m.at, kind: "move", title: `${BY[m.by] || m.by} · ${what}`, by: m.who || (m.by === "machine" ? "the machine" : "the hub"), result, details };
   });

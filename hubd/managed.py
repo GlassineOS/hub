@@ -1466,7 +1466,8 @@ class Managed:
                 self._answering.add(report["id"])
                 try:
                     got = self.machines.move(target, action["to"], "hand", who=who,
-                                             asked={"reasons": action.get("reasons"), "handover": action.get("handover"), "by": "session"})
+                                             asked={"reasons": action.get("reasons"), "handover": action.get("handover"),
+                                                    "by": report["from_name"]})  # the reporter's words
                 finally:
                     self._answering.discard(report["id"])
                 if got.get("needs_confirm"):
@@ -2017,7 +2018,9 @@ def handover_text(owner: str, inst) -> str:
     given = inst.handover if inst.handover and inst.handover.get("state") == inst.state else None
     if not given or not (given.get("handover") or given.get("reasons")):
         return f"{owner}'s hand-over: none; this state was entered without one."
-    whose = "the maintainer's" if given.get("by") == "maintainer" else f"{owner}'s"
+    by = given.get("by")
+    whose = ("the maintainer's" if by == "maintainer" else f"{owner}'s" if by in ("session", None, owner)
+             else f"{by}'s, proposed in a report the maintainer approved,")
     words = "\n".join(part for part in (f"Why: {given['reasons']}" if given.get("reasons") else "",
                                          f"Hand-over: {given['handover']}" if given.get("handover") else "") if part)
     return _marked(f"What {whose} request for the move into this state said: what this round is to do and to leave alone. It is "
