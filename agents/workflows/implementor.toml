@@ -39,8 +39,9 @@ Carry issue #{number} of GlassineOS/{repo} to a pull request the maintainer can 
 This session runs a workflow: implement, review, QA where the change is user-facing, fix when the review or the run asks
 for changes, and merge-ready. Each state brings sessions under you and its own instructions, which the hub adds to your
 turn when you move. You are in implement: an engineer under you makes the change. It starts by itself and runs as a
-session under you; you don't start it with start_managed. Numbered steps in a plan or briefing below are the engineer's
-work, not calls for you to make. Wait for its hand-back; managed_status shows how the sessions under you stand.
+session under you; you don't start it with start_managed. The hub hands it the notes, pins and briefing below as they
+are, so don't pass them on. Numbered steps in a plan or briefing below are the engineer's work, not calls for you to
+make. Wait for its hand-back; managed_status shows how the sessions under you stand.
 
 Read the issue and its comments first, and search the docs for what covers it, so you can judge what the sessions under
 you hand back. You don't edit, commit or push: your shell and branch are there only so the sessions under you can have
@@ -114,7 +115,7 @@ start = "auto"
 max = 1
 reuse = "resume"
 on_exit = "stop"
-with = ["issue", "pr"]
+with = ["issue", "pr", "owner.briefing"]
 returns = { status = ["done", "blocked"], summary = "text-list" }
 # A design question no accepted board answers: a design session (011) on GlassineOS/ui, as this session's. While one runs
 # this round, or its start waits for your approval, implement moves on only once its pull request is merged; it lives in
@@ -128,7 +129,7 @@ when = "The work meets a design question that no accepted design board answers."
 max = 1
 reuse = "resume"
 on_exit = "stop"
-with = ["issue", "owner.summary"]
+with = ["issue", "owner.summary", "owner.briefing"]
 [[state.implement.exit]]
 to = "review"
 decided_by = "facts"
@@ -264,7 +265,7 @@ start = "auto"
 max = 1
 reuse = "resume"
 on_exit = "stop"
-with = ["issue", "pr", "diff.since_last_round", "owner.summary", "checks.failing"]
+with = ["issue", "pr", "diff.since_last_round", "owner.summary", "owner.briefing", "checks.failing"]
 returns = { status = ["done", "blocked"], summary = "text-list" }
 [[state.fix.exit]]
 to = "review"
