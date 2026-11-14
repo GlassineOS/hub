@@ -490,9 +490,15 @@ def test_a_pull_request_closed_at_merge_ready_ends_the_work_in_closed(team):
         judge.yes = {"isn't user-facing"}
         await base.turn_ends(h, a, name)
         assert state_of(a, name) == "merge-ready"
+        # idle there, it takes room under the cap until a call of its waits on your card (FR-054)
+        (a.sessions / name / IDLE_FILE).touch()
+        assert not h.managed._done_waiting(name)
+        await hook(h, a, name, arguments={"repo": "boot", "number": PR, "head": HEAD})
+        assert h.decisions.open_asks(name) and h.managed._done_waiting(name)
         gh.branches[engineer] = [pr(state="closed")]
         await feed(h, ev("state", "CLOSED"))
         assert state_of(a, name) == "closed" and a.machines.summary(name)["final"]
+        assert h.managed._done_waiting(name) is (a.sessions / name / IDLE_FILE).exists()
         assert "request_move" not in grant_of(a, name)["hub_tools"]  # a final state has no exit to ask for
     asyncio.run(go())
 

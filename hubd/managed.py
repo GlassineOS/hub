@@ -1911,14 +1911,15 @@ class Managed:
         return out
 
     def _done_waiting(self, name: str) -> bool:
-        """A session of a workflow with more than one state, idle at its prompt in a final state or one that manages no
-        sessions (merge-ready, which waits for the maintainer's merge): it does nothing more until it is answered, so it takes
-        no room. A one-state session is always in its final state, and does count."""
+        """A session of a workflow with more than one state, idle at its prompt in a final state, or in one that manages no
+        sessions while a tool call of its waits on your card (merge-ready, waiting for your merge): it does nothing more until
+        it is answered, so it takes no room. A one-state session is always in its final state, and does count."""
         try:
             inst = self.machines.peek(name)
             d = inst.definition() if inst is not None else None
-            return bool(d is not None and len(d.states) > 1
-                        and (d.states[inst.state].final or not machine.managed_of(d, inst.state))
+            waits = (self.decisions is not None and not machine.managed_of(d, inst.state)
+                     and bool(self.decisions.open_asks(name))) if d is not None else False
+            return bool(d is not None and len(d.states) > 1 and (d.states[inst.state].final or waits)
                         and (self.agents.sessions / name / IDLE_FILE).exists())
         except (MachineError, KeyError, OSError):
             return False
