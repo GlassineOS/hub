@@ -834,14 +834,20 @@ class Machines:
             log.exception("%s: whether it stalled couldn't be read", record.get("name"))
             return None
 
-    def summary(self, name: str) -> dict | None:
-        """What a state chip shows, for the session lists: read from the file only, so it creates and writes nothing
-        and asks nothing about the session (is_session asks this)."""
+    def current(self, name: str) -> tuple[Instance, Definition] | None:
+        """The session's instance and the definition it runs on now, or None: read from the file only, so it creates and
+        writes nothing and asks nothing about the session (is_session asks this)."""
         try:
             inst = Instance.from_json(json.loads((self.sessions / name / FILE).read_text()))
-            d = inst.definition()
+            return inst, inst.definition()
         except (OSError, ValueError, MachineError, DefinitionError):
             return None
+
+    def summary(self, name: str) -> dict | None:
+        """What a state chip shows, for the session lists (see current)."""
+        if (current := self.current(name)) is None:
+            return None
+        inst, d = current
         return {"workflow": inst.workflow, "state": inst.state, "path": list(reversed(machine.ancestors(d, inst.state))),
                 "one_state": len(d.states) == 1, "final": d.states[inst.state].final, "paused": inst.paused,
                 "waits": inst.pending is not None}
