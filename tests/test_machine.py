@@ -441,10 +441,21 @@ def test_no_starts_named_differs_from_none():
     ("", "", '\n[[start]]\non = "pr"\nlabel = "Other"\n', "has the id 'w' too"),
     ("\nlead = true", "", '\n[[start]]\nid = "w-2"\non = "pr"\nlabel = "Other"\nlead = true\n', "leads for a pr already"),
     ('\nstate = "gone"', "", "", "'gone' isn't a state"),
-    ('\nwhen_held = "beside"', 'github = ["pr.comment"]', "", "can write on the item (GitHub pr.comment)"),
+    # FR-104: beside is refused only where the workflow can build on the item; a comment, a label or a rerun isn't building
+    ('\nwhen_held = "beside"', 'github = ["push"]', "", "can build on the item (look: GitHub push)"),
+    ('\nwhen_held = "beside"', 'github = ["pr.write"]', "", "look: GitHub pr.write"),
+    ('\nwhen_held = "beside"', 'checkout = "new-branch"', "", "look: checkout new-branch"),
+    ('\nwhen_held = "beside"', 'checkout = "pr-branch"', "", "look: checkout pr-branch"),
     ('\nwhen_held = "beside"', 'access = "full"', "", "full access"),
-    ('\nwhen_held = "beside"', 'hub_tools = ["merge_pr"]', "", "merge_pr"),
-    ('\nwhen_held = "beside"', 'asks_first = ["comment_pr"]', "", "comment_pr"),
+    ('\nwhen_held = "beside"', 'hub_tools = ["mark_ready"]', "", "look: mark_ready"),
+    ('\nwhen_held = "beside"', 'asks_first = ["mark_ready"]', "", "look: mark_ready"),
+    ('\nwhen_held = "beside"', 'github = ["pr.comment", "issues.comment"]', "", None),
+    ('\nwhen_held = "beside"', 'hub_tools = ["merge_pr", "comment_pr"]', "", "look: merge_pr"),
+    ('\nwhen_held = "beside"', 'asks_first = ["close_pr"]', "", "look: close_pr"),
+    ('\nwhen_held = "beside"', 'github = ["merge"]', "", "look: GitHub merge"),
+    ('\nwhen_held = "beside"', 'hub_tools = ["comment_pr", "comment_issue", "label_issue", "rerun"]', "", None),
+    ('\nwhen_held = "beside"', 'asks_first = ["comment_pr"]', "", None),
+    ('\nwhen_held = "beside"', 'checkout = "pr"', "", None),
     ('\nwhen_held = "hide"\nask_move = "look"', "", "", "only a start that asks the owner"),
     ("", "", "", None),
 ])
@@ -481,10 +492,45 @@ hub_tools = ["get_issue"%s]
 '''
 
 
-def test_beside_is_refused_when_a_state_its_session_can_move_to_writes_on_the_item():
-    found = [f.text for f in check(parse(TWO_STEP % ', "comment_issue"')) if f.kind == "problem"]
-    assert any("b's grant can write on the item (comment_issue), and a can move there" in t for t in found), found
+def test_beside_is_refused_when_any_state_of_its_workflow_builds_on_the_item():
+    found = [f.text for f in check(parse(TWO_STEP % ', "mark_ready"')) if f.kind == "problem"]
+    assert any("its workflow can build on the item (b: mark_ready)" in t for t in found), found
+    assert [f for f in check(parse(TWO_STEP % ', "comment_issue"')) if f.kind == "problem"] == []
     assert [f for f in check(parse(TWO_STEP % "")) if f.kind == "problem"] == []
+
+
+MANAGER = '''schema = 1
+name = "%s"
+initial = "a"
+[state.a]
+final = true
+[state.a.grant]
+hub_tools = ["get_issue"]
+[[state.a.manages]]
+name = "m"
+prompt = "Hand back what you find."
+persona = "triager"
+workflow = "%s"
+'''
+
+
+def _leaf_workflow(name: str, grant: str) -> str:
+    return f'schema = 1\nname = "{name}"\ninitial = "a"\n[state.a]\nfinal = true\n[state.a.grant]\n{grant}\n'
+
+
+def test_a_workflow_builds_through_the_workflows_it_manages_however_deep():
+    from hubd.machine import builds
+    lib = {"top": parse(MANAGER % ("top", "mid")), "mid": parse(MANAGER % ("mid", "eng")),
+           "eng": parse(_leaf_workflow("eng", 'checkout = "new-branch"')), "reader": parse(_leaf_workflow("reader", 'checkout = "pr"'))}
+    assert builds(lib["eng"]) == ["a: checkout new-branch"]
+    assert builds(lib["top"]) == []  # its own states only: the library resolves the rest
+    assert builds(lib["top"], lib.get) == ["m (mid) › m (eng) › a: checkout new-branch"]
+    lib["mid"] = parse(MANAGER % ("mid", "reader"))
+    assert builds(lib["top"], lib.get) == []
+    # a cycle ends; a workflow the hub doesn't know counts as building
+    lib["mid"] = parse(MANAGER % ("mid", "top"))
+    assert builds(lib["top"], lib.get) == []
+    assert builds(parse(MANAGER % ("lone", "gone")), lib.get) == ["m (gone): a workflow the hub doesn't know"]
 
 
 def test_a_start_on_a_named_final_state_is_refused_but_a_one_state_workflow_starts_in_its_only_state():
