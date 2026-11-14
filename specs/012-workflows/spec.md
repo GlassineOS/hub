@@ -310,10 +310,11 @@ number, as in "Launch (005) FR-012".
 - **FR-040**: A state's `manages` entries name, for each session it may start: the persona and its workflow;
   `start` (automatic when `when` holds, or on the owning agent's request, checked against `when` and `max`);
   `max`, how many run at once; `reuse` (resume the same session or start a fresh one for a later round); `with`,
-  the initial context; `returns`, the shape of the result; and `on_exit` (stop, keep, or hand over to the next
-  state).
+  the initial context; `prompt`, what the session is asked to do; `returns`, the shape of the result; and
+  `on_exit` (stop, keep, or hand over to the next state).
 - **FR-041**: `with` holds only named references the hub fills in from facts: the issue, the pull request, the
-  diff since the last round, the owner's summary, the owner's briefing, notes topics, a brief template with slots.
+  pull request's checks as they stand, the failing check runs, the diff since the last round, the owner's
+  summary, the owner's briefing, notes topics.
   It never copies free text from a transcript; the owner's summary is passed as data (FR-017). The owner's briefing
   is what the owner's start carried besides its prompt: the starter's notes and pins, and the planner's briefing,
   docs and steps, each marked as whose words it is, as in the owner's own first prompt. A session that starts by
@@ -325,6 +326,18 @@ number, as in "Launch (005) FR-012".
 - **FR-044**: A managed session's owner is the session whose state started it. When an owner ends, crashes or is
   lost, the sessions it manages end with it.
 - **FR-045**: A `manages` entry on a parent state holds in all of its states.
+- **FR-046**: Every `manages` entry has a `prompt`, and a managed session's first prompt is that prompt, never
+  the prompt of one of its workflow's starts (FR-100): a start is how a person begins the work, and its words
+  (who reads the result, how it is handed in) don't hold for a session an owner starts. The prompt may hold
+  slots the hub fills from the same facts as `with` (the item, the owner's name, the pull request's head, its
+  checks); text outside the slots is the definition's. The session receives its persona, then the entry's
+  prompt, then the item's details and the `with` context marked as data, then how to hand back (`returns`).
+  The checks (FR-008) refuse a `manages` entry without a prompt, a slot the hub doesn't know, and a prompt that
+  tells the session to hand in by any tool other than the hand-back.
+- **FR-047**: When a managed session is resumed for a later round, it receives the entry's prompt again with
+  its slots filled for that round, followed by that round's `with` context.
+- **FR-048**: The workflow editor shows, for each `manages` entry, the prompt a session started by it would
+  receive, with its slots filled from an example item.
 
 #### Owners and escalation
 
@@ -361,6 +374,9 @@ number, as in "Launch (005) FR-012".
 
 #### Personas and default workflows
 
+- **FR-069**: A persona says who the session is and how it works, whatever started it. It never assumes a
+  trigger: who reads the result, how it is handed in, or what has already run (such as a pull request's checks)
+  belongs to the start's prompt (FR-102) or the `manages` entry's prompt (FR-046), where it is true.
 - **FR-070**: The persona library has: an **Implementor** (one session per piece of work, carrying its pull
   request and issue and coordinating the engineer, reviewer and QA engineer as managed sessions); a **QA
   engineer** (runs the change, audits whether it can be tested and whether what is tested matters, keeps the
@@ -428,7 +444,7 @@ number, as in "Launch (005) FR-012".
   flag, prompt, and what it does when an instance holds the item.
 - **Instance**: a session's machine: its workflow version, current state, counters and history.
 - **Grant**: the capabilities a state allows; the effective grant adds those of its parents.
-- **Managed session**: a session a state started, with its owner, context, and what it returns.
+- **Managed session**: a session a state started, with its owner, the prompt its entry gives it, context, and what it returns.
 - **Report**: a blocker or decision sent up the chain, with evidence and a proposal.
 - **Definition change**: a proposed new version with its diff, checks, replay and warnings.
 
