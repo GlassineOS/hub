@@ -62,8 +62,6 @@ if [ ! -f "$config/agents.env" ]; then
 # CLAUDE_CONFIG_DIR=~/.claude-something
 # Which Claude Code, if not the one on PATH:
 # HUBD_CLAUDE=/path/to/claude
-# Seconds between the hub's pings to a Steward about changes (60 to 86400, 300 if unset):
-# HUBD_PING_SECONDS=300
 # Dollars a day for the usage meter, when Claude Code's status line gives no rate limit:
 # HUBD_DAILY_USAGE_USD=20
 EOF

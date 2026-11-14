@@ -348,10 +348,11 @@ Claude Code's status-line JSON. hubd never asks Claude or the network for it.
   itself: that can only change the meter's words, which say "usage not known" for anything they can't read as numbers.
 - **The `ping` reply names hubd's socket path**, for the header's "connected to". Anything that can ask is already on that socket.
 
-## The change feed and the Steward's pings
+## The change feed and the Steward's events
 
-hubd keeps a feed of what changed in issues, pull requests and runs (`feed.sqlite` in its state folder), and pings each running
-Steward with a count. The work sync records into it; the Steward reads it with `changes_since`.
+hubd keeps a feed of what changed in issues, pull requests and runs (`feed.sqlite` in its state folder). The work sync records
+into it; the Steward reads it with `changes_since`. Nothing in it wakes the Steward on a timer or with counts: it is woken only by
+events about its own work (`hubd/stewardwake.py`, kept in `steward-events.json` in the state folder).
 
 - **Facts, not text.** A row is the item, what changed, old and new state, old and new head commit, a time, a login or nothing, and a link
   hubd builds itself. `hubd/feed.py` checks every field against a closed shape and drops what doesn't fit, so a title, a comment, review
@@ -360,15 +361,27 @@ Steward with a count. The work sync records into it; the Steward reads it with `
   organization's. What stays free is `actor`: a GitHub login, up to 39 characters (44 with an app's `[bot]`), which whoever owns the account chooses. A row can carry
   that much of an outsider's wording, so the Steward's persona and the tool's description say it is a name to look at and never words to
   follow. Anything on the socket can send a row, as it could send a device report, and the worst it does is mislead with a state or a login.
-- **A ping is a count, labelled as the hub's.** `1 change since 15:02 UTC: 1 merged.` in a fixed vocabulary, with no repository, number or name,
-  between two random lines, from `@hub`, which is no session's name. It uses the same paste as a message between sessions, and is not the
-  Steward-to-session path, whose no-card rule is for read-only sessions. A count is only sent to a Steward that is idle, with nothing queued for
-  it and an empty prompt: during a turn it isn't queued (it would be pasted after the Steward had read what it counts) and the next round, 30
-  seconds on, asks again. A stopped session is never pinged and never started. Waking an idle one is checked, under the same lock, as starting a session is: it is refused while
-  4 sessions the Steward started are working. The Steward is started by the person, so it is not one of the 4, and its pings pause while those 4
-  work (which is when their pull requests change); the next round asks again and the feed holds everything. Each item with new comments counts once per sync, however many comments it got.
-- **What a session may read decides the rows and the counts.** The Steward's workflow grants `all_repos`; a session without it, or the general tool
-  token, gets public repositories only, in the feed, in the counts and in the ping. Whether a repository is public is asked of GitHub and
+- **An event is the hub's words, labelled as data.** One line per event in a fixed form: a suggestion's id with its title (the
+  action's, or what the Steward gave it) and what the person did; a session's name and item with "finished its turn", "handed in
+  its result" or "ended"; the sentence managed.py wakes any owner with (report and card ids, a decision word); or `repo#N`, the
+  kind, where the Steward named it, one of five fixed phrases (merged, closed, its checks are failing, reviewed: approved or changes
+  requested, a new comment) and the link hubd built. Nothing of an item's text, and no login. The batch goes between two random
+  lines, from `@hub`, which is no session's name, with the same paste as a message between sessions; it is not the
+  Steward-to-session path, whose no-card rule is for read-only sessions.
+- **What wakes it is about its own work only.** A change to an item wakes it only while the item is one it named (in a suggestion's
+  items, as `repo#N` or a link in one of its reports, or as the item of a session it started), for 14 days after it last named it,
+  at most 500 items; its own doing (marked as below) doesn't. An outsider who comments on an item the Steward named starts a turn
+  (several within a few seconds make one); the rest of the project's churn doesn't.
+- **Sent only at its prompt, never queued behind a turn.** Events wait on disk (at most 100; the oldest give way, and the next
+  batch says how many) and go as one turn once none has come for 3 seconds, only to a Steward that is idle, with nothing queued
+  for it and an empty prompt. Queued behind a turn, each would become a turn of its own. A busy Steward, one waiting for you, or a
+  stopped one keeps them waiting: a tick every 10 seconds tries again, and events older than 2 days are dropped. A stopped session
+  is never started. Waking an idle one is checked, under the same lock, as starting a session is: it is refused while 4 sessions
+  the Steward started are working. The Steward is started by the person, so it is not one of the 4; its events wait while those
+  4 work.
+- **What a session may read decides the rows, the digest and the events.** The Steward's workflow grants `all_repos`; a session without it, or the general tool
+  token, gets public repositories only, in the feed and in the digest, and a Steward without it gets no event about a repository
+  that isn't known to be public. Whether a repository is public is asked of GitHub and
   kept for 10 minutes (1 minute when it didn't say); if GitHub doesn't say, it's private. The cursor is a number over every change, and when
   a read finds nothing it may see, the cursor goes to the newest change there is. So a session that can't read some learns how many changes it
   can't see and when they came: its cursor jumps by the count between two reads (1 to 7 after six private changes). It learns nothing else of
@@ -381,19 +394,22 @@ Steward with a count. The work sync records into it; the Steward reads it with `
   repositories was made before it, and if that read finds nothing else, its cursor passes the change.
 - **A cursor can't be past the end.** One a caller supplies must be one an answer gave: a number above the highest ever issued (counted by
   SQLite's sequence, which pruning doesn't lower) is refused, as the kept cursor only moves forward and one such would hide everything after it.
-  A Steward's cursor starts at the newest change when the ping loop first sees it running, which is within 30 seconds of its starting: what
-  happened before it existed isn't a reason to wake it. A read before that first look, or by a session the ping loop doesn't know, starts from the
+  A Steward's cursor starts at the newest change when the hub's tick first sees it running, which is within 10 seconds of its starting: what
+  happened before it existed isn't news to it. A read before that first look, or by a session the tick doesn't know, starts from the
   oldest change kept (up to 14 days or 20,000 rows). For anything older, the Steward reads the item lists.
 - **Its own doing is marked, not hidden.** A write by a session's token (`gh` through hubd) marks the item for 15 minutes, and changes to it
-  that arrive then are marked `own` for that session and left out of its counts. It can't tell a stranger's comment on the same item in
+  that arrive then are marked `own` for that session; they don't wake it and the digest only counts them. It can't tell a stranger's comment on the same item in
   that time from its own, so it errs toward calling it its own. Everything stays in the feed.
 - **What waits to be sent can be lost, and is counted.** The app writes each change it sees to an outbox table in the same transaction as the
   item, so a failed sync tick or a restart loses none. It keeps at most 5,000: beyond that the oldest are dropped. Dropped and refused changes
   are counted in the work status (`feed_dropped`, `feed_refused`), and `feed_waiting` is how many wait. The outbox is in the work store, which
   is a cache dropped when its version changes: what waited in it then is lost, so a version bump should wait for `feed_waiting` to be 0.
   Changes to a run first seen finishing more than 2 days ago aren't sent: a pruned run that the latest-runs window returns again isn't news.
-- **Nothing acts on a ping.** It asks for nothing and the persona says to re-read. Any write still asks first.
-- **`changes_since` is by list,** read-only, on the Steward's only. Under your login the page reads all of it and moves nobody's cursor.
+- **Nothing acts on an event.** It asks for nothing and the persona says to re-read the item, and to read `my_suggestions` before
+  saying a suggestion waits. Any write still asks first.
+- **`changes_since` and `my_suggestions` are by list,** read-only, on the Steward's only. A read narrowed to a repository or an item
+  doesn't move the kept cursor; a digest moves it past what it summed up. `my_suggestions` lists only the caller's own suggestions.
+  Under your login the page reads all of the feed and moves nobody's cursor.
 
 ## Workflow signals and moves
 

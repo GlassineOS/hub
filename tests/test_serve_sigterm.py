@@ -35,7 +35,7 @@ def test_sigterm_stops_renderers(tmp_path, monkeypatch):
     async def idle(_hubd):
         await asyncio.Event().wait()
 
-    for name in ("_tidy", "_keep_copies", "_ping"):
+    for name in ("_tidy", "_keep_copies", "_steward"):
         monkeypatch.setattr(server, name, idle)
     hubd = FakeHubd()
 
