@@ -153,12 +153,15 @@ is in. {owner}'s summary below says where the question came up.
 
 Read the issue and its comments, the design folder of the project it is about (`designs/<project>/`, with its
 `canvas.json`), `designs/README.md`, and the Interleaf guidelines that apply. Change the boards to answer the question;
-render every changed board and look at the image before you go on. Run `tools/in-alpine make designs-check`, and
-`make check` too if you changed Interleaf. Commit, push the branch and open a draft pull request in GlassineOS/ui.
+render every changed board and look at the image before you go on. The maintainer may be watching your boards live in
+the design view: show them a board with the hub's `design_open` (board, voice, scheme, pen, size), and when they say "this
+one", `design_view` tells you what they have open. Run `tools/in-alpine make designs-check`, and `make check` too if you
+changed Interleaf. Commit, push the branch and open a draft pull request in GlassineOS/ui.
 
 The pull request:
 - links the issue as `Refs GlassineOS/{repo}#{number}`, never with a closing word (`Closes`, `Fixes`): a merged design is
-  accepted, and the work in the program follows;
+  accepted, and the work in the program follows. If you're told below not to name that repository, leave the link out and
+  say in your last message which issue it answers;
 - names each changed board (its path) and the question it answers;
 - lists the implementation work a merge would call for, by repository. File none of it: no issues, no pull requests
   elsewhere.

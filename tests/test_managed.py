@@ -1287,3 +1287,13 @@ def test_a_version_saved_before_entries_had_prompts_loads_and_runs_with_the_hubs
     assert all(not m.prompt for s in machine.parse(stripped).states.values() for m in s.manages)
     assert [st.prompt for st in machine.parse(stripped).starts] == [st.prompt for st in machine.parse(text).starts]
     lib._with_texts({**lib.workflow_texts, "implementor": stripped}, "the saved version of")  # taken, not refused
+
+
+def test_a_managed_session_restored_from_the_history_starts_from_the_hubs_entry_prompt_not_its_starts():
+    """A restored session's prompt.md is written again: for a managed one, the hub's own entry prompt (a later fresh context
+    starts from it), never its workflow's start prompt."""
+    from hubd.agents import _restored_entry_prompt, fill_entry
+    assert _restored_entry_prompt({}, {"repo": "boot", "number": 7}) is None
+    got = _restored_entry_prompt({"owner": {"name": "implementor-boot-7", "entry": "reviewer"}}, {"repo": "boot", "number": 7})
+    text = fill_entry(got["prompt"], got["slots"], None)
+    assert text.startswith("Your owner, implementor-boot-7, started you as its reviewer.") and "submit_result" not in text
