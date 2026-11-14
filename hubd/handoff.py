@@ -46,7 +46,8 @@ JOURNAL_FILE = "handoff.json"     # a switch under way: {from, to}, gone once th
 MAX_CONVERSATIONS = 20            # earlier conversation ids a session's record keeps
 MAX_MOVES = 30                    # moves the note lists, the newest
 LABEL = "[From the hub, not from the person or a session]"
-BY = {"machine": "by the machine", "hand": "by hand", "rollback": "rolled back", "pause": "paused", "resume": "resumed"}
+BY = {"machine": "by the machine", "hand": "by hand", "rollback": "rolled back", "pause": "paused", "resume": "resumed",
+      "waive": "waived for a round", "unwaive": "its waiver taken back"}
 
 
 class HandoffError(Exception):
@@ -107,7 +108,9 @@ def note(agents, name: str, record: dict, d: machine.Definition, state: str, per
         moves = None
     if moves:
         lines.append("- Its moves so far, oldest first: " + "; ".join(
-            f"{m['from']} → {m['to']} {BY.get(m['by'], m['by'])}" if m["by"] not in ("pause", "resume") else f"{BY[m['by']]} in {m['to']}"
+            f"{m['from']} → {m['to']} {BY.get(m['by'], m['by'])}" if m["by"] not in ("pause", "resume", "waive", "unwaive")
+            else f"{(m.get('change') or {}).get('waived', 'a state')} {BY[m['by']]} in {m['to']}" if m["by"] in ("waive", "unwaive")
+            else f"{BY[m['by']]} in {m['to']}"
             for m in moves) + ".")
     elif moves is None:
         lines.append("- Its moves so far: the machine log couldn't be read.")

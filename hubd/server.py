@@ -32,7 +32,8 @@ from .statusline import StatusLines
 from .managed import Managed, ManagedError, _marked
 from . import feed as feedlib
 from .designs import TICK as DESIGN_TICK, DesignError, Designs, Tools as DesignTools
-from .agents import _REPO_RE as _AGENT_REPO_RE, MAX_REPO_NAME, NO_REPO_OBJECTS
+from .agents import _REPO_RE as _AGENT_REPO_RE, MAX_REPO_NAME, NO_REPO_OBJECTS, _draws_nothing
+from .instances import MAX_ASKED
 from .machine import START_ON
 from .agents import MAX_ALSO, MAX_NOTES, NOTES_TOOL, PLANNER_MODELS, RESULTS as RESULTS_WORDS, SCREENS, AgentError, Agents, Library, _full, load_environment, screen_of, validate, with_also
 from .apps import AppError, Apps, Creation, is_write
@@ -303,7 +304,12 @@ class Hubd:
             if op == "machine.costs":  # 012 FR-090, SC-003: what a piece of work cost, and how fast its moves were
                 return Costs(self.agents).request(req) if self.agents else {"ok": False, "error": "agent sessions are not set up"}
             if op.startswith("machine."):  # 012 FR-026: the maintainer's moves, logged as theirs
-                return self.agents.machines.request(op, req, self.sessions.own_user()) if self.agents else {"ok": False, "error": "agent sessions are not set up"}
+                if not self.agents:
+                    return {"ok": False, "error": "agent sessions are not set up"}
+                got = self.agents.machines.request(op, req, self.sessions.own_user())
+                if op == "machine.waive" and got.get("changed") and self.machine_run:  # an exit may rely on it now (FR-028)
+                    self.machine_run.signal("hub:decision", req.get("name"))
+                return got
             if op.startswith("usage."):
                 if op != "usage.status":
                     return {"ok": False, "error": f"unknown request: {op}"}
@@ -439,13 +445,19 @@ class Hubd:
         scope = self.agents.scope(req.get("agent_token")) if self.agents else None
         if not scope or not scope.get("session"):
             return {"ok": False, "refused": True, "error": "not a session's token"}
-        if not self._lists(scope, "request_move"):
-            return {"ok": False, "refused": True, "error": "this session can't use request_move"}
+        # listed for the whole workflow, held only in a state with an exit moved on request (012 FR-027)
+        if not self._lists(scope, "request_move") or not self.agents.holds_request_move(scope["session"]):
+            return {"ok": False, "refused": True, "error": self.agents.request_move_refusal(scope["session"])}
         if self.machine_run is None:
             return {"ok": False, "error": "the workflows don't move on their own here"}
         if scope.get("instance") != self.agents.session_id_of(scope["session"]):
             return {"ok": False, "refused": True, "error": "that token is from an earlier conversation of this session"}
-        return {"ok": True, **await self.machine_run.request(scope["session"], scope.get("instance"), req.get("to"))}
+        for key in ("reasons", "handover"):  # the session's words, shown in the log and to the sessions it hands over to
+            value = req.get(key)
+            if value is not None and (not isinstance(value, str) or len(value) > MAX_ASKED or any(_draws_nothing(c) for c in value)):
+                return {"ok": False, "error": f"{key} is text of up to {MAX_ASKED} characters, with no control or invisible characters"}
+        return {"ok": True, **await self.machine_run.request(scope["session"], scope.get("instance"), req.get("to"),
+                                                             reasons=req.get("reasons"), handover=req.get("handover"))}
 
     def draft_tool(self, op: str, req: dict) -> dict:
         """draft_workflow, read_draft and read_workflow: by a session's own token, from its current conversation, with the tool on
@@ -490,7 +502,8 @@ class Hubd:
             if op == "managed.status":
                 return {"ok": True, **await self.managed.status(scope)}
             if op == "managed.report":
-                return {"ok": True, **self.managed.report_up(scope, req.get("kind"), req.get("evidence"), req.get("proposal"), req.get("forward"))}
+                return {"ok": True, **self.managed.report_up(scope, req.get("kind"), req.get("evidence"), req.get("proposal"), req.get("forward"),
+                                                             req.get("action"))}
             if op == "managed.withdraw":
                 return {"ok": True, **self.managed.withdraw(scope, req.get("id"), req.get("why"))}
             return {"ok": True, **self.managed.answer(scope, req.get("id"), req.get("decision"), req.get("note"))}
@@ -1919,7 +1932,7 @@ class Hubd:
             return {"asked": True, "via": "managed", "holder": name, **got}
         if self.machine_run is None:
             return {"asked": False, "why": "workflows don't move on their own here"}
-        got = await self.machine_run.request(name, self.agents.session_id_of(name), route["to"], signal="maintainer request")
+        got = await self.machine_run.request(name, self.agents.session_id_of(name), route["to"], signal="maintainer request", by="maintainer")
         return {"asked": True, "via": "move", "holder": name, **got}
 
     async def agent_request(self, op: str, req: dict) -> dict:

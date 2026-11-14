@@ -418,7 +418,14 @@ such as a decision answered for it (`hubd/machinerun.py`).
   with the session's own token, which names the session and its conversation: the request can't name another session, a
   token from an earlier conversation under the same name is refused, and the tool must be on the session's list. Only an
   exit of its current state marked `move = "on-request"` can be taken, and only if its `requires` hold; it is logged like
-  any evaluation.
+  any evaluation. The hub gives the tool only in a state with such an exit, whatever a grant lists. The reasons and the
+  hand-over the session sends are its words: kept with the move and passed to the new state's sessions marked as data.
+- **A waiver is the maintainer's, for one round.** `machine.waive` is behind the login, logged as the maintainer's, and
+  only makes the fact `waived.<state>` true; exits still decide. It lapses when the state is entered, when an exit that
+  relied on it is taken, or when the work ends.
+- **A report's proposed action is carried out only by the maintainer.** A session may attach a move, a start or a waiver
+  to a report; it is checked when sent, a session above that approves it only sends it on, and the maintainer's yes
+  carries it out as a move by hand (the confirm for a widening still applies). If it no longer holds, nothing is settled.
 - **An approval is the maintainer's.** An exit that holds and whose `approve` names a level becomes a `machine.approve` card
   in Needs you, made by hubd alone (`decision.add` and a token's `decision_request` refuse the kind), one per session,
   state, version and exit. Approving it makes that move and nothing else, and only if the session is still in that state

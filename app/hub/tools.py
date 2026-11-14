@@ -111,12 +111,14 @@ def build(github: GitHub, docs: DocSearch) -> MCPServer:
 
     @mcp.tool(annotations=WRITE)
     @_says_why
-    async def request_move(to: str) -> dict:
-        """Ask your workflow to move you to the state `to` by one of your current state's exits that move on request. It moves
-        only if that exit's requirements hold (facts the hub checks itself, such as an open pull request with passing checks),
-        and an exit that needs an approval waits for it; the answer says which, or why not. You get the new state's
-        instructions at your next turn."""
-        return await github.request_move(to)
+    async def request_move(to: str, reasons: str, handover: str | None = None) -> dict:
+        """Ask your workflow to move you to the state `to` by one of your current state's exits that move on request. Say why
+        in `reasons`. Where `to` manages sessions, `handover` is required: what they are to do this round and what to leave
+        alone (for a fix round, which findings to take up). Both are kept with the move and handed to those sessions as your
+        words. It moves only if that exit's requirements hold (facts the hub checks itself, such as an open pull request with
+        passing checks), and an exit that needs an approval waits for it; the answer says which, or why not. You get the new
+        state's instructions at your next turn."""
+        return await github.request_move(to, reasons, handover)
 
     @mcp.tool(annotations=WRITE)
     @_says_why
@@ -170,13 +172,20 @@ def build(github: GitHub, docs: DocSearch) -> MCPServer:
 
     @mcp.tool(annotations=WRITE)
     @_says_why
-    async def report_up(kind: str, evidence: str, proposal: str, forward: str | None = None) -> dict:
+    async def report_up(kind: str, evidence: str, proposal: str, forward: str | None = None, action: dict | None = None) -> dict:
         """Report to your owner something you may not do or a decision that isn't yours: kind is blocker or decision, evidence
         what you found, proposal what you suggest. To send a report you were given further up, name its id as forward. With no
         session above you it goes to the person. The answer comes in a later turn. Name the facts it rests on (pr.checks,
         managed.engineer.status): if one changes you are told, and withdraw_report takes it back. It is withdrawn by itself
-        when your workflow moves."""
-        return await github.report_up(kind, evidence, proposal, forward)
+        when your workflow moves.
+
+        action, optional: what approving it carries out, besides the words, for your own workflow ("for": "self", the default)
+        or the one you report for ("for": "owner"). One of: {"type": "move", "to": <state>, "handover": <what the sessions
+        there are to do this round and leave alone; needed where that state manages sessions>}; {"type": "start", "entry":
+        <a managed entry of its current state>, "item": <"repo#number", optional>}; {"type": "waive", "state": <a state to
+        skip this round>}. The maintainer carries it out, checked as a move by hand; without an action, approving only
+        answers."""
+        return await github.report_up(kind, evidence, proposal, forward, action)
 
     @mcp.tool(annotations=WRITE)
     @_says_why

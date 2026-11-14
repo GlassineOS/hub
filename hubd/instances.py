@@ -41,7 +41,8 @@ FILE = "machine.json"
 MAX_TRAIL = 50                  # moves that can be rolled back, newest last
 UNREADABLE = "machine_unreadable"  # in a history record: the folder's machine couldn't be read when it went
 ENDED = "ended"                 # the marker a session's terminal leaves when Claude ends (agents.ENDED_FILE)
-OPS = ("machine.get", "machine.history", "machine.move", "machine.confirm", "machine.rollback", "machine.pause")
+OPS = ("machine.get", "machine.history", "machine.move", "machine.confirm", "machine.rollback", "machine.pause", "machine.waive")
+MAX_ASKED = 4000                # the reasons or the hand-over a move was asked for with, clipped
 
 _LISTS = ("tools", "hub_tools", "asks_first", "github")
 _LEVELS = {"access": machine.ACCESS, "permission_mode": machine.PERMISSION_MODES, "all_repos": (False, True)}
@@ -199,6 +200,11 @@ class Instance:
     # "round": the owner's rounds of the entry's state when its child last started, "allowed": what an approval above the owner
     # let its sessions have beyond the owner's grant, "since": the pull request's head its last round started from}
     managed: dict[str, dict] = field(default_factory=dict)
+    # what the session said asking for the move into the current state (FR-027): {"state", "reasons", "handover", "by"}; the
+    # hand-over is passed to the state's managed sessions as data (FR-041). None after any other move.
+    handover: dict | None = None
+    # state -> {"who", "at"}: the states the maintainer waived for this round (FR-028), each the fact waived.<state>
+    waivers: dict[str, dict] = field(default_factory=dict)
 
     @classmethod
     def new(cls, text: str, now: float, state: str | None = None) -> Instance:
@@ -225,6 +231,8 @@ class Instance:
         names = {f.name for f in dataclasses.fields(cls)}
         if isinstance(raw, dict) and "managed" not in raw:  # a record from before managed sessions: it had none
             raw = {**raw, "managed": {}}
+        if isinstance(raw, dict):  # a record from before hand-overs and waivers: it had neither
+            raw = {"handover": None, "waivers": {}, **raw}
         if isinstance(raw, dict) and isinstance(raw.get("managed"), dict):  # an entry from before heads (or items, whens) were kept
             raw = {**raw, "managed": {k: {**_empty_entry(), **v} if isinstance(v, dict) else v for k, v in raw["managed"].items()}}
         if set(raw) - {"schema"} != names:
@@ -258,6 +266,12 @@ class Instance:
             raise bad
         if not (isinstance(inst.managed, dict) and all(isinstance(k, str) and _managed_ok(v) for k, v in inst.managed.items())):
             raise bad
+        if inst.handover is not None and not (isinstance(inst.handover, dict) and set(inst.handover) == {"state", "reasons", "handover", "by"}
+                                              and all(v is None or isinstance(v, str) for v in inst.handover.values())):
+            raise bad
+        if not (isinstance(inst.waivers, dict) and all(isinstance(k, str) and isinstance(v, dict) and set(v) == {"who", "at"}
+                                                       for k, v in inst.waivers.items())):
+            raise bad
         return inst
 
     @property
@@ -276,6 +290,8 @@ class Instance:
         for entry, kept in self.managed.items():  # what its managed sessions returned this round (FR-042)
             for name, value in kept["returns"].items():
                 out[f"managed.{entry}.{name}"] = value
+        for sid in d.states:
+            out[f"waived.{sid}"] = sid in self.waivers
         return out
 
     def entry(self, name: str) -> dict:
@@ -413,10 +429,11 @@ def as_run(d: Definition, leaf: str, inst: Instance, grant_of=None) -> Grant:
 
 
 def move(inst: Instance, to: str, by: str, *, enter: str = "first", latest: str | None = None, who: str | None = None,
-         now: float | None = None, grant_of=None) -> dict:
+         now: float | None = None, grant_of=None, asked: dict | None = None, spend=()) -> dict:
     """Move to `to` (a parent enters its first state, or with enter = "history" where it last was). `latest` is the
     definition's newest text: a move to a state it has takes it. Once a machine's move finds the current state gone from
-    the newest text, the instance keeps its version until a move by hand."""
+    the newest text, the instance keeps its version until a move by hand. `asked`: the reasons and hand-over the session
+    asked for this move with (FR-027). `spend`: the waivers the exit taken relied on, which it uses up (FR-028)."""
     now = time.time() if now is None else now
     if by not in ("hand", "machine"):
         raise MachineError("a move is by hand or by the machine")
@@ -440,7 +457,40 @@ def move(inst: Instance, to: str, by: str, *, enter: str = "first", latest: str 
     target = _parse(text)
     if to not in target.states:
         raise MachineError(f"{to[:64]!r} isn't a state of {inst.workflow}")
-    return _propose(inst, text, _enter(target, to, inst.history, enter), by, who, now, grant_of)
+    return _propose(inst, text, _enter(target, to, inst.history, enter), by, who, now, grant_of, _asked(asked), spend)
+
+
+def _asked(asked) -> dict | None:
+    if asked is None:
+        return None
+    if not isinstance(asked, dict) or not all(asked.get(k) is None or isinstance(asked.get(k), str) for k in ("reasons", "handover", "by")):
+        raise MachineError("a move is asked for with words")
+    clip = lambda v: v if v is None or len(v) <= MAX_ASKED else v[:MAX_ASKED - 1] + "…"  # noqa: E731
+    return {k: clip(asked.get(k)) for k in ("reasons", "handover", "by")}
+
+
+def waive(inst: Instance, state, waived, who: str | None = None, now: float | None = None) -> dict:
+    """The maintainer waives a state for this round of the instance, or takes the waiver back (FR-028). A waiver is the fact
+    waived.<state>; it lapses when the state is entered, when an exit that relied on it is taken, or when the instance ends."""
+    d = inst.definition()
+    if not isinstance(state, str) or state not in d.states:
+        raise MachineError(f"{str(state)[:64]!r} isn't a state of {inst.workflow}")
+    if not isinstance(waived, bool):
+        raise MachineError("waived is true or false")
+    if d.states[inst.state].final:
+        raise MachineError("the session's workflow has ended: there is no round to waive a state for")
+    if state in machine.ancestors(d, inst.state):
+        raise MachineError(f"the session is in {state} already")
+    if (state in inst.waivers) == waived:
+        return {"waived": waived, "changed": False, "waivers": dict(inst.waivers)}
+    if waived:
+        inst.waivers[state] = {"who": who, "at": time.time() if now is None else now}
+    else:
+        inst.waivers.pop(state)
+    return {"waived": waived, "changed": True, "waivers": dict(inst.waivers),
+            # no move: from and to are where it is, as for a pause; the state waived is in the change
+            "log": {"from_state": inst.state, "to_state": inst.state, "from_version": inst.version, "to_version": inst.version,
+                    "by": "waive" if waived else "unwaive", "who": who, "change": {"waived": state}}}
 
 
 def rollback(inst: Instance, who: str | None = None, now: float | None = None, grant_of=None) -> dict:
@@ -467,7 +517,7 @@ def confirm_move(inst: Instance, pending_id, who: str | None, accept: bool = Tru
         return {"moved": False, "declined": True}
     text = inst.definitions[p["to_version"]]
     change = machine.compare(as_run(inst.definition(), inst.state, inst, grant_of), as_run(_parse(text), p["to"], inst, grant_of))
-    return _apply(inst, text, p["to"], p["kind"], p["who"], who, change, now)
+    return _apply(inst, text, p["to"], p["kind"], p["who"], who, change, now, p.get("asked"), p.get("spend", ()))
 
 
 def pause(inst: Instance, paused: bool, who: str | None = None, now: float | None = None) -> dict:
@@ -484,17 +534,18 @@ def pause(inst: Instance, paused: bool, who: str | None = None, now: float | Non
                     "by": "pause" if paused else "resume", "who": who}}
 
 
-def _propose(inst: Instance, text: str, leaf: str, by: str, who, now: float, grant_of=None) -> dict:
+def _propose(inst: Instance, text: str, leaf: str, by: str, who, now: float, grant_of=None, asked=None, spend=()) -> dict:
     new_d = _parse(text)
     new_grant = machine.effective(new_d, leaf)
     change = machine.compare(as_run(inst.definition(), inst.state, inst, grant_of), as_run(new_d, leaf, inst, grant_of))
     adds = unheld(inst.held, new_grant)  # the confirm is about the session's own grant: its managed sessions are capped by it
     if not adds:
-        return _apply(inst, text, leaf, by, who, None, change, now)
+        return _apply(inst, text, leaf, by, who, None, change, now, asked, spend)
     to_version = version_of(text)
     inst.definitions[to_version] = text
     inst.pending = {"id": secrets.token_hex(8), "kind": by, "from": inst.state, "from_version": inst.version, "to": leaf,
-                    "to_version": to_version, "who": who, "change": change_json(change), "adds": adds}
+                    "to_version": to_version, "who": who, "change": change_json(change), "adds": adds,
+                    **({"asked": asked} if asked else {}), **({"spend": list(spend)} if spend else {})}
     _prune(inst)
     return {"moved": False, "needs_confirm": True, "pending": inst.pending["id"], "to": leaf, "change": change_json(change),
             "adds": adds, "widening": change.widens}
@@ -518,7 +569,8 @@ def set_stopped(inst: Instance, stopped: bool, at: float) -> bool:
     return True
 
 
-def _apply(inst: Instance, text: str, leaf: str, by: str, who, confirmed_by, change: machine.Change, now: float) -> dict:
+def _apply(inst: Instance, text: str, leaf: str, by: str, who, confirmed_by, change: machine.Change, now: float,
+           asked: dict | None = None, spend=()) -> dict:
     old_d, old, old_version = inst.definition(), inst.state, inst.version
     own_widens = machine.compare(machine.effective(old_d, old), machine.effective(_parse(text), leaf)).widens
     _bank(inst, now)
@@ -540,12 +592,19 @@ def _apply(inst: Instance, text: str, leaf: str, by: str, who, confirmed_by, cha
     inst.workflow = new_d.name
     inst.held = _raised(inst.held, machine.effective(new_d, leaf))
     inst.pending = None
+    inst.handover = {"state": leaf, "reasons": asked.get("reasons"), "handover": asked.get("handover"), "by": asked.get("by")} if asked else None
+    # a waiver lasts one round (FR-028): it lapses when its state is entered after all, when an exit that relied on it is
+    # taken, and when the instance ends
+    entered = set(machine.ancestors(new_d, leaf))
+    inst.waivers = {} if new_d.states[leaf].final else {s: w for s, w in inst.waivers.items()
+                                                         if s not in entered and s not in spend and s in new_d.states}
     _prune(inst)
     # own_widening: what the session's own launch has to take, which a relaunch is for; widening also counts what the
     # sessions the new state manages run with (FR-023)
     return {"moved": True, "from": old, "to": leaf, "widening": change.widens, "own_widening": own_widens, "change": change_json(change),
             "log": {"from_state": old, "to_state": leaf, "from_version": old_version, "to_version": to_version, "by": by,
-                    "who": who, "widening": change.widens, "confirmed_by": confirmed_by, "change": change_json(change)}}
+                    "who": who, "widening": change.widens, "confirmed_by": confirmed_by,
+                    "change": {**change_json(change), **({"asked": asked} if asked else {})}}}
 
 
 def _prune(inst: Instance) -> None:
@@ -737,7 +796,10 @@ class Machines:
         return {"instance": {"workflow": inst.workflow, "version": inst.version, "state": inst.state, "paused": inst.paused,
                              "history": dict(inst.history), "counters": inst.counters, "held": inst.held, "pending": pending,
                              "can_roll_back": bool(inst.trail), "created": inst.created, "entered": inst.entered,
-                             "definition": inst.definitions[inst.version]},
+                             "definition": inst.definitions[inst.version],
+                             # the states waived for this round (FR-028), and the words the move here was asked for with (FR-027)
+                             "waivers": {s: dict(w) for s, w in inst.waivers.items()},
+                             "handover": dict(inst.handover) if inst.handover else None},
                 "grant": grant_json(machine.effective(d, inst.state)),
                 "exits": [_tried_exit(owner, place, e, facts) for owner in machine.ancestors(d, inst.state)
                           for place, e in enumerate(d.states[owner].exits, 1)],
@@ -821,10 +883,15 @@ class Machines:
                     log.exception("%s: a watcher of its moves failed", name)
         return result
 
-    def move(self, name, to, by: str = "machine", enter: str = "first", who: str | None = None, why: str | None = None) -> dict:
-        """`why`: what made the machine move, in the definition's words (the exit's question or its facts), for the watchers."""
+    def move(self, name, to, by: str = "machine", enter: str = "first", who: str | None = None, why: str | None = None,
+             asked: dict | None = None, spend=()) -> dict:
+        """`why`: what made the machine move, in the definition's words (the exit's question or its facts), for the watchers.
+        `asked`: the reasons and hand-over it was asked for with; `spend`: the waivers its exit relied on."""
         return self._act(name, lambda record, inst, now: move(inst, to, by, enter=enter, latest=self.latest(record), who=who, now=now,
-                                                                     grant_of=self._grant_for(record)), by, why)
+                                                                     grant_of=self._grant_for(record), asked=asked, spend=spend), by, why)
+
+    def waive(self, name, state, waived, who: str | None = None) -> dict:
+        return self._act(name, lambda _record, inst, now: waive(inst, state, waived, who, now))
 
     def rollback(self, name, who: str | None = None) -> dict:
         return self._act(name, lambda record, inst, now: rollback(inst, who, now, self._grant_for(record)), "rollback")
@@ -856,6 +923,8 @@ class Machines:
                 return {"ok": True, **self.confirm_move(name, req.get("pending"), who, req.get("accept", True))}
             if op == "machine.rollback":
                 return {"ok": True, **self.rollback(name, who)}
+            if op == "machine.waive":
+                return {"ok": True, **self.waive(name, req.get("state"), req.get("waived", True), who)}
             return {"ok": True, **self.pause(name, req.get("paused"), who)}
         except (MachineError, LogError) as e:
             return {"ok": False, "error": str(e)}

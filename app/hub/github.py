@@ -379,8 +379,9 @@ class GitHub:
         return {"words": reply["words"]}
 
     # --- workflows: a session asks to move, and its machine decides ----------------------------
-    async def request_move(self, to) -> dict:
-        reply = await self.hubd.call(op="session.request_move", agent_token=CALLER.get(), to=to)
+    async def request_move(self, to, reasons=None, handover=None) -> dict:
+        # the words go to hubd as data, never to gh
+        reply = await self.hubd.call(op="session.request_move", agent_token=CALLER.get(), to=to, reasons=reasons, handover=handover)
         return {k: reply[k] for k in ("moved", "why", "waits", "needs_confirm", "state") if reply.get(k) is not None}
 
     # --- the chain of owners: managed sessions, their results and reports -------------------
@@ -409,10 +410,10 @@ class GitHub:
         reply = await self.hubd.call(op="managed.return", agent_token=CALLER.get(), fields=fields)
         return {k: reply[k] for k in ("returned", "to") if k in reply}
 
-    async def report_up(self, kind, evidence, proposal, forward=None) -> dict:
+    async def report_up(self, kind, evidence, proposal, forward=None, action=None) -> dict:
         reply = await self.hubd.call(op="managed.report", agent_token=CALLER.get(), kind=kind, evidence=evidence, proposal=proposal,
-                                     forward=forward)
-        return {k: reply[k] for k in ("id", "to") if k in reply}
+                                     forward=forward, action=action)
+        return {k: reply[k] for k in ("id", "to", "proposes") if k in reply}
 
     async def withdraw_report(self, report_id, why) -> dict:
         reply = await self.hubd.call(op="managed.withdraw", agent_token=CALLER.get(), id=report_id, why=why)
