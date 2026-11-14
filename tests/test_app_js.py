@@ -367,3 +367,131 @@ def test_needs_you_waits_for_typing_in_any_field_as_the_shortcuts_do():
     source = APP.read_text()
     assert 'const TYPING = "input, textarea, select, [contenteditable], .xterm";' in source
     assert "typingIn(e.target)" in source and "typing: typingIn(at)" in source and "closest(`${TYPING}, dialog`)" in source
+
+
+# --- Sessions › Running: the tree and the tiles (004 FR-012–FR-015, FR-024–FR-030) ---------------
+TREE_PRELUDE = 'const MAX_TILES = 3;\nconst itemRef = (it) => (it.kind === "repo" ? it.repo : `${it.repo}#${it.number}`);\n'
+
+
+def run_tree(names: list[str], body: str):
+    script = TREE_PRELUDE + "\n".join(function(n) for n in names) + f"\nconsole.log(JSON.stringify((() => {{ {body} }})()));"
+    out = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=30, check=True).stdout
+    return json.loads(out)
+
+
+def _entry(name, sessions=(), earlier=(), **kw):
+    return {"name": name, "persona": "engineer", "reuse": "fresh", "start": "auto", "max": 1, "states": [], "in_force": True,
+            "round": 1, "sessions": list(sessions), "earlier": list(earlier), "running": len(sessions), **kw}
+
+
+def _node(name, live="working", parent=None, entries=(), items=(), cards=0, kept=False, entry=None):
+    return {"name": name, "live": live, "parent": parent, "entry": entry, "entries": list(entries), "items": list(items),
+            "cards": cards, "kept": kept, "persona": {"name": name.title()}, "title": "", "machine": None}
+
+
+TREE = {
+    "nodes": {
+        "steward": _node("steward", "idle", entries=[_entry("maint", ["m-hub"])]),
+        "m-hub": _node("m-hub", parent="steward", entry="maint", entries=[
+            _entry("review", ["rev-2"], [{"name": "rev-1", "round": 1, "returned": "fail · 3 findings"}], reuse="fresh"),
+            _entry("fix", ["impl"], reuse="resume")]),
+        "rev-2": _node("rev-2", "waits", parent="m-hub", entry="review", cards=1,
+                       items=[{"kind": "pr", "repo": "hub", "number": 7, "title": "Tree view"}]),
+        "impl": _node("impl", "working", parent="m-hub", entry="fix", items=[{"kind": "issue", "repo": "hub", "number": 3}]),
+        "q1": _node("q1", "idle", items=[{"kind": "issue", "repo": "docs", "number": 9}]),
+        "old": _node("old", "ended", items=[{"kind": "issue", "repo": "docs", "number": 9}]),
+        "sh": _node("sh", "working"),
+    },
+    "roots": ["steward"], "quick": [["docs#9", ["q1", "old"]]], "shells": ["sh"],
+}
+
+
+def test_the_tree_nests_entries_folds_earlier_rounds_and_groups_the_rest():
+    got = run_tree(["treeMatches", "treeRows"], f"""
+        const rows = treeRows({json.dumps(TREE)}, {{ filter: "all", query: "", repo: "", ended: false, exp: {{}} }});
+        return rows.map((r) => [r.id, r.level, r.open, r.setsize, r.pos]);""")
+    ids = [r[0] for r in got]
+    assert ids == ["n:steward", "e:steward:maint", "n:m-hub", "e:m-hub:review", "n:rev-2", "f:m-hub:review", "e:m-hub:fix", "n:impl",
+                   "g:quick", "q:docs#9", "n:q1", "g:shells", "n:sh"]
+    levels = {r[0]: r[1] for r in got}
+    assert levels["n:rev-2"] == 5 and levels["f:m-hub:review"] == 5
+    # An entry's earlier rounds are folded until opened; an ended quick task not kept is hidden.
+    assert [r[2] for r in got if r[0] == "f:m-hub:review"] == [False]
+    # The review entry holds the live reviewer and the fold: two in its set.
+    assert [r[3:] for r in got if r[0] in ("n:rev-2", "f:m-hub:review")] == [[2, 1], [2, 2]]
+
+
+def test_a_filter_keeps_the_owners_above_a_match_dimmed_and_opens_the_way():
+    got = run_tree(["treeMatches", "treeRows"], f"""
+        const tree = {json.dumps(TREE)};
+        const rows = (o) => treeRows(tree, {{ filter: "all", query: "", repo: "", ended: false, exp: {{ "n:m-hub": false }}, ...o }});
+        const needs = rows({{ filter: "needs" }}).map((r) => [r.id, r.dim]);
+        const search = rows({{ query: "tree view" }}).map((r) => r.id);
+        const repo = rows({{ repo: "docs" }}).map((r) => r.id);
+        const ended = rows({{ ended: true, repo: "docs" }}).map((r) => r.id);
+        const none = rows({{ query: "nothing like it" }}).length;
+        return {{ needs, search, repo, ended, none }};""")
+    # The hand-closed owner stays closed only without a filter: a filter opens the way, unless closed by hand again.
+    assert got["needs"] == [["n:steward", True], ["e:steward:maint", False], ["n:m-hub", True]]
+    assert got["search"] == ["n:steward", "e:steward:maint", "n:m-hub"]
+    assert got["repo"] == ["g:quick", "q:docs#9", "n:q1"]
+    assert got["ended"] == ["g:quick", "q:docs#9", "n:q1", "n:old"]
+    assert got["none"] == 0
+
+
+def test_the_tree_keys_walk_open_and_close():
+    got = run_tree(["treeMatches", "treeRows", "treeKey"], f"""
+        const rows = treeRows({json.dumps(TREE)}, {{ filter: "all", query: "", repo: "", ended: false, exp: {{}} }});
+        return [treeKey(rows, "n:steward", "ArrowDown"), treeKey(rows, "n:steward", "ArrowUp"), treeKey(rows, "n:m-hub", "ArrowLeft"),
+                treeKey(rows, "n:rev-2", "ArrowLeft"), treeKey(rows, "f:m-hub:review", "ArrowRight"), treeKey(rows, "n:rev-2", "Enter"),
+                treeKey(rows, "n:rev-2", " "), treeKey(rows, "n:sh", "Home"), treeKey(rows, "n:steward", "End"), treeKey(rows, "n:sh", "x")];""")
+    assert got == [{"focus": "e:steward:maint"}, {}, {"toggle": "n:m-hub", "open": False}, {"focus": "e:m-hub:review"},
+                   {"toggle": "f:m-hub:review", "open": True}, {"open": "rev-2"}, {"select": "rev-2"}, {"focus": "n:steward"},
+                   {"focus": "n:sh"}, None]
+
+
+def test_a_chosen_session_takes_the_focused_tile_unless_its_workflow_is_pinned():
+    got = run_tree(["tabGroup", "placeTile", "openWorkflow", "tileCount", "closeTab", "stepTile", "resizeTiles"], f"""
+        const N = {json.dumps(TREE["nodes"])};
+        const g = (t) => tabGroup(N, t);
+        const s0 = {{ tabs: [], tiles: [], focus: null, pinned: [], sizes: [] }};
+        const a = placeTile(s0, "impl", g);
+        const b = placeTile(a, "q1", g);                       // replaces the focused tile
+        const c = placeTile({{ ...a, pinned: ["steward"] }}, "q1", g); // impl's workflow pinned: opens beside it
+        const d = placeTile(c, "impl", g);                     // already in a tile: focused, nothing moves
+        const full = {{ tabs: ["impl", "rev-2", "sh"], tiles: ["impl", "rev-2", "sh"], focus: "impl", pinned: ["steward"], sizes: [1, 1, 1] }};
+        const e = placeTile(full, "q1", g);                    // the last tile not pinned goes
+        const f = placeTile({{ ...full, tiles: ["impl", "rev-2", "m-hub"] }}, "q1", g); // all pinned: it waits as a tab
+        const w = openWorkflow(s0, "m-hub", N);
+        return {{ groups: [g("rev-2"), g("q1")], a: a.tiles, b: [b.tiles, b.tabs], c: [c.tiles, c.focus], d: [d.tiles, d.focus],
+          e: e.tiles, f: [f.tiles, f.tabs.includes("q1")], w: [w.tiles, w.focus], one: tileCount(w, 1).tiles,
+          closed: [closeTab(w, "m-hub").tiles, closeTab(w, "m-hub").focus], step: [stepTile(w, 1).focus, stepTile(w, -1).focus],
+          sizes: resizeTiles([1, 1], 0, 0.9).map((x) => Math.round(x * 100)) }};""")
+    assert got["groups"] == ["steward", "q1"]
+    assert got["a"] == ["impl"]
+    assert got["b"] == [["q1"], ["impl", "q1"]]
+    assert got["c"] == [["impl", "q1"], "q1"]
+    assert got["d"] == [["impl", "q1"], "impl"]
+    assert got["e"] == ["impl", "rev-2", "q1"]
+    assert got["f"] == [["impl", "rev-2", "m-hub"], True]
+    assert got["w"] == [["m-hub", "rev-2", "impl"], "m-hub"]
+    assert got["one"] == ["m-hub"]
+    assert got["closed"] == [["rev-2", "impl"], "rev-2"]
+    assert got["step"] == ["rev-2", "impl"]
+    assert got["sizes"] == [170, 30]
+
+
+def test_an_items_states_are_words():
+    got = run_tree(["itemWords"], """
+        return [itemWords({ kind: "pr", state: "draft", checks: "fail", verdict: "pass" }).map((w) => w.text),
+                itemWords({ kind: "issue", state: "closed" }).map((w) => w.text), itemWords({ kind: "repo" })];""")
+    assert got == [["draft", "✕ checks", "review pass"], ["closed"], []]
+
+
+def test_a_kept_layout_loses_the_sessions_the_tree_no_longer_has():
+    got = run_tree(["pruneTiles"], """
+        const st = { tabs: ["a", "gone", "b"], tiles: ["gone", "a", "b"], focus: "gone", pinned: [], sizes: [1, 2, 3] };
+        const same = { tabs: ["a"], tiles: ["a"], focus: "a", pinned: [], sizes: [1] };
+        const out = pruneTiles(st, new Set(["a", "b"]));
+        return [out.tabs, out.tiles, out.focus, out.sizes, pruneTiles(same, new Set(["a"])) === same];""")
+    assert got == [["a", "b"], ["a", "b"], "a", [2, 3], True]

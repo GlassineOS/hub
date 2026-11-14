@@ -224,6 +224,20 @@ class Log:
                            "to": r["to_state"], "widening": bool(r["widening"]), "change": json.loads(r["change"])} for r in moves]}
 
 
+    def managed_events(self, session_id, limit: int = MAX_READ) -> list[dict]:
+        """An owner's managed starts, returns and ends (`hub:managed.*`), oldest first, the newest `limit` of them, over one
+        conversation id or a list of them: what the sessions tree reads for the rounds each session served."""
+        limit = max(1, min(10 * MAX_READ, limit)) if isinstance(limit, int) and not isinstance(limit, bool) else MAX_READ
+        ids = [session_id] if isinstance(session_id, str) else [s for s in session_id if isinstance(s, str)][-MAX_IDS:]
+        marks = ", ".join("?" * len(ids)) or "NULL"
+        with self.lock:
+            rows = self.db.execute(
+                f"SELECT * FROM (SELECT seq, at, state, signal, proposal, checks FROM evaluations WHERE session_id IN ({marks}) "
+                "AND signal IN ('hub:managed.start', 'hub:managed.return', 'hub:managed.end') ORDER BY seq DESC LIMIT ?) ORDER BY seq",
+                (*ids, limit)).fetchall()
+        return [{**dict(r), "checks": json.loads(r["checks"])} for r in rows]
+
+
 def _report(row) -> dict:
     out = dict(row)
     out["chain"] = json.loads(out["chain"])
