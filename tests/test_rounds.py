@@ -400,6 +400,109 @@ def test_a_proposed_start_is_carried_out_when_the_maintainer_approves_it(team):
     asyncio.run(go())
 
 
+# --- FR-041, FR-072: the implementor's rounds ---------------------------------------------------------------------------
+
+def test_the_implementor_takes_up_findings_of_a_pass_waives_review_and_ends_merged(team):
+    h, a, gh, _apps, judge = team
+    from test_personas_flow import pr
+
+    async def go():
+        name, engineer = await through_implement(h, a, gh, judge)
+        [reviewer] = children(h, a, name, "reviewer")
+        # the review passes with findings: on to qa by itself, and the findings reach the implementor's turn
+        assert (await give(h, reviewer, verdict="pass", findings=["The retry bound is off by one.", "Name the constant."]))["ok"]
+        assert state_of(a, name) == "qa" and "- The retry bound is off by one." in told(a, name)
+        # it takes up one of them: a fix round on its request, with a hand-over (FR-072)
+        (a.sessions / name / IDLE_FILE).touch()
+        got = await ask_move(h, a, name, "fix", reasons="The pass left a real bug.",
+                             handover="Fix the off-by-one in the retry bound. Leave the naming as it is.")
+        assert got["moved"], got
+        await base.at_prompt(h, a, name)
+        assert state_of(a, name) == "fix" and children(h, a, name, "engineer") == [engineer]
+        # the resumed engineer gets the reviewer's return and the hand-over, each marked as whose words it is (FR-041)
+        resumed = told(a, engineer)
+        assert "What reviewer (" in resumed and "verdict: pass" in resumed and "- The retry bound is off by one." in resumed
+        assert f"What {name}'s request for the move into this state said" in resumed
+        assert "Hand-over: Fix the off-by-one in the retry bound. Leave the naming as it is." in resumed
+        assert "What qa handed back: nothing yet." in resumed
+        # the maintainer waives review for this round: the fix goes straight to merge-ready once its checks pass
+        assert (await waive(h, name, "review"))["ok"]
+        gh.head = "b" * 40
+        gh.branches[engineer] = [pr(sha=gh.head)]
+        await feed(h, ev("head", old_head=HEAD, new_head=gh.head), ev("checks", "passing"))
+        assert (await give(h, engineer, status="done", summary=["Fixed the bound."]))["ok"]
+        assert state_of(a, name) == "merge-ready"
+        assert a.machines.load(name)[1].waivers == {}  # spent by the exit that relied on it
+        # merge-ready isn't final: failing checks there send it to fix by themselves
+        assert not a.machines.summary(name)["final"]
+        (a.sessions / name / IDLE_FILE).touch()
+        await feed(h, ev("checks", "failing"))
+        assert state_of(a, name) == "fix"
+        gh.head = "c" * 40
+        gh.branches[engineer] = [pr(sha=gh.head)]
+        await feed(h, ev("head", old_head="b" * 40, new_head=gh.head), ev("checks", "passing"))
+        assert (await give(h, engineer, status="done", summary=["Fixed the flaky test."]))["ok"]
+        assert state_of(a, name) == "review"  # no waiver this round: back through review
+        reviewer2 = [c for c in children(h, a, name, "reviewer") if c != reviewer][-1]
+        assert (await give(h, reviewer2, verdict="pass", findings=[]))["ok"]
+        judge.yes = {"isn't user-facing"}
+        await base.turn_ends(h, a, name)
+        assert state_of(a, name) == "merge-ready"
+        # there the implementor asks for a fix round too (the maintainer asked for changes), and the same engineer resumes
+        assert "request_move" in grant_of(a, name)["hub_tools"]
+        (a.sessions / name / IDLE_FILE).touch()
+        got = await ask_move(h, a, name, "fix", reasons="The maintainer asked for a changelog line.",
+                             handover="Add the changelog line only.")
+        assert got["moved"], got
+        await base.at_prompt(h, a, name)
+        assert state_of(a, name) == "fix" and children(h, a, name, "engineer") == [engineer]
+        assert "Hand-over: Add the changelog line only." in told(a, engineer)
+        assert "What reviewer (" in told(a, engineer)
+        assert (await waive(h, name, "review"))["ok"]
+        gh.head = "d" * 40
+        gh.branches[engineer] = [pr(sha=gh.head)]
+        await feed(h, ev("head", old_head="c" * 40, new_head=gh.head), ev("checks", "passing"))
+        assert (await give(h, engineer, status="done", summary=["Added the line."]))["ok"]
+        assert state_of(a, name) == "merge-ready"
+        # the pull request is merged: the work ends, in merged
+        gh.branches[engineer] = [pr(sha=gh.head, state="closed", merged="2026-01-01T00:00:00Z")]
+        await feed(h, ev("state", "MERGED"))
+        await base.turn_ends(h, a, name)
+        assert state_of(a, name) == "merged"
+        return name
+    name = asyncio.run(go())
+    moves = [(m["from"], m["to"], m["by"]) for m in base.history(a, name)["moves"] if m["by"] in ("machine", "hand")]
+    assert [(f, t) for f, t, _by in moves] == [
+        ("implement", "review"), ("review", "qa"), ("qa", "fix"), ("fix", "merge-ready"), ("merge-ready", "fix"),
+        ("fix", "review"), ("review", "qa"), ("qa", "merge-ready"), ("merge-ready", "fix"), ("fix", "merge-ready"),
+        ("merge-ready", "merged")]
+    assert a.machines.summary(name)["final"]
+
+
+def test_a_pull_request_closed_at_merge_ready_ends_the_work_in_closed(team):
+    h, a, gh, _apps, judge = team
+    from test_personas_flow import pr
+
+    async def go():
+        name, engineer = await through_implement(h, a, gh, judge)
+        [reviewer] = children(h, a, name, "reviewer")
+        assert (await give(h, reviewer, verdict="pass", findings=[]))["ok"]
+        judge.yes = {"isn't user-facing"}
+        await base.turn_ends(h, a, name)
+        assert state_of(a, name) == "merge-ready"
+        # idle there, it takes room under the cap until a call of its waits on your card (FR-054)
+        (a.sessions / name / IDLE_FILE).touch()
+        assert not h.managed._done_waiting(name)
+        await hook(h, a, name, arguments={"repo": "boot", "number": PR, "head": HEAD})
+        assert h.decisions.open_asks(name) and h.managed._done_waiting(name)
+        gh.branches[engineer] = [pr(state="closed")]
+        await feed(h, ev("state", "CLOSED"))
+        assert state_of(a, name) == "closed" and a.machines.summary(name)["final"]
+        assert h.managed._done_waiting(name) is (a.sessions / name / IDLE_FILE).exists()
+        assert "request_move" not in grant_of(a, name)["hub_tools"]  # a final state has no exit to ask for
+    asyncio.run(go())
+
+
 def test_any_move_withdraws_its_card_even_to_a_state_that_asks_about_the_tool_too(hub):
     h, a, gh, _apps, _judge = hub
 

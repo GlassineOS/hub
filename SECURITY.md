@@ -436,7 +436,9 @@ such as a decision answered for it (`hubd/machinerun.py`).
   than one by hand or to a final state, from a state whose grant has `push` to one without it, unless it requires
   `pr.open`. In `implement`, review drops `push`: its new token can't change the branch under review, though the one it
   replaces works until it expires, up to an hour (Workflow moves). Every state asks first with `merge_pr`, held from the start so merge-ready needs no confirm: a merge needs
-  your decision for the head, as for any session on a list (Merges). This is the first locked session that reads
+  your decision for the head, as for any session on a list (Merges). In `implementor`, merge-ready isn't final (it can go
+  back to fix, and ends in merged or closed) and keeps the sandboxed shell and GitHub read, comment and pull request access of
+  `work`, without `push`: an engineer under it is capped at that grant while it waits, and resumes from there for a fix round. This is the first locked session that reads
   outsiders' text (the issue, review comments) while holding a GitHub token that can write; what limits it is that
   token's scope (its repositories, no merge) and the sandbox, not the text it reads.
 

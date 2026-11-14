@@ -302,8 +302,10 @@ class Instance:
 def _empty_entry() -> dict:
     # since: the head the last round reviewed; head: the pull request's newest head the hub knows (a new one voids the returns)
     # allowed_items: what an approval added for one named item only ("repo#N" or "repo"); when: the round its `when` was last
-    # judged in and what the judge said, so an exit can tell "judged not to hold" from "not started"
-    return {"returns": {}, "child": None, "round": 0, "allowed": {}, "since": None, "head": None, "allowed_items": {}, "when": None}
+    # judged in and what the judge said, so an exit can tell "judged not to hold" from "not started"; last: what its latest
+    # session handed back, fields and text, kept across rounds for another entry's `with = ["returns.<entry>"]` (FR-041)
+    return {"returns": {}, "child": None, "round": 0, "allowed": {}, "since": None, "head": None, "allowed_items": {}, "when": None,
+            "last": None}
 
 
 def _managed_ok(v) -> bool:
@@ -320,7 +322,12 @@ def _managed_ok(v) -> bool:
             and all(isinstance(i, str) and isinstance(g, dict) and all(k in (*_LISTS, *_LEVELS, "checkout") and isinstance(x, list)
                                                                       for k, x in g.items()) for i, g in v["allowed_items"].items())
             and (v["when"] is None or (isinstance(v["when"], dict) and set(v["when"]) == {"round", "holds"}
-                                       and type(v["when"]["round"]) is int and type(v["when"]["holds"]) is bool)))
+                                       and type(v["when"]["round"]) is int and type(v["when"]["holds"]) is bool))
+            and (v["last"] is None or (isinstance(v["last"], dict) and set(v["last"]) == {"child", "head", "fields"}
+                                       and isinstance(v["last"]["child"], str) and (v["last"]["head"] is None or isinstance(v["last"]["head"], str))
+                                       and isinstance(v["last"]["fields"], dict)
+                                       and all(isinstance(k, str) and (isinstance(x, str) or (isinstance(x, list) and all(isinstance(i, str) for i in x)))
+                                               for k, x in v["last"]["fields"].items()))))
 
 
 def add_tokens(inst: Instance, tokens: int) -> None:
