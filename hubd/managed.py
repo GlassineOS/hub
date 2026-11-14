@@ -65,12 +65,15 @@ COUNTERS = ("time.", "tokens.", "rounds.", "cost.")  # facts that change by them
 NAMED_WAKE_GAP = 300.0  # seconds: a report's reporter is woken for its named facts at most this often
 STALL_AFTER = 600.0      # seconds a workflow sits stalled before it is put to you: long enough for checks and lookups to land
 WAKE_WAIT = 30.0         # seconds a wake waits for the evaluation its signal started, so it comes after any move it makes
+TURN_GRACE = 30.0        # seconds an owner has sat at its prompt before the tick wakes it for an unjudged `when`
 START_RETRIES = (5.0, 15.0, 45.0)  # seconds before an automatic start on entering that didn't happen is tried again
 MAX_WHY_CARD = 2000      # a stall card's text
 MAX_CHECKS = 50          # check runs of a pull request looked at for the failing ones
 FAILED_CHECKS = ("FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE")
 REPORT_WORDS = "A report waits for you: it is in this turn, from the hub."
 MOVED_WORDS = "Your workflow moved: what it says is in this turn, from the hub."
+WHEN_WORDS = ("Your workflow waits for your turn: what starts here is judged when your turn ends. Say where the work stands, "
+              "as your state's instructions ask. From the hub.")
 NEW_ROUND_WORDS = "A new round from your owner's workflow: what it says is in this turn, from the hub."
 _ITEM = re.compile(r"(?:GlassineOS/)?(\.?[A-Za-z0-9_][A-Za-z0-9._-]{0,99})(?:#([1-9][0-9]{0,9}))?")  # repo or repo#N, GlassineOS/ or not
 
@@ -139,6 +142,7 @@ class Managed:
         self._raised: set[tuple] = set()  # (conversation, state, version, entered): stalls put to you, once a stay
         self._named: dict[str, dict] = {}  # report id -> the facts its words named, as they were: a change wakes its reporter
         self._after_relaunch: dict[str, list[str]] = {}  # owner -> a wake's sentences held while its move relaunches it
+        self._turn_asked: dict[str, tuple] = {}  # owner -> (conversation, state, entered, rounds) woken on the tick for an unjudged `when`
         self.relaunching = None  # (name) -> whether a move relaunches it now (effects.py)
         self._sleep = asyncio.sleep  # injectable, so tests don't wait for a retry
         # owner -> {move (state, entered): (conversation, entries)}: the starts a move that relaunches it waits to make
@@ -1398,6 +1402,10 @@ class Managed:
                 self._check_stall(name, live, now)
             except Exception:  # noqa: BLE001 — one session's fault mustn't keep the others from being looked at
                 log.exception("%s: whether it stalled couldn't be told", name)
+            try:
+                self._owe_turn(name, live)
+            except Exception:  # noqa: BLE001
+                log.exception("%s: whether it waits for a turn to judge couldn't be told", name)
 
     def _check_stall(self, name: str, live: set[str], now: float) -> None:
         if not self._running(name, live):
@@ -1433,15 +1441,15 @@ class Managed:
         if inst.paused or inst.pending:
             return None
         directory = self.agents.sessions / name
-        if not (directory / IDLE_FILE).exists() or self.agents._sends.get(name):
-            return None  # its turn goes on, or words wait for it
+        if not (directory / IDLE_FILE).exists() or self._words_wait(name):
+            return None  # its turn goes on, or words of a person or a session wait for it
         sid = record.get("session_id")
         approval = getattr(self.runner, "approval_open", None)
         if approval is not None and approval(name, sid, inst.state, inst.version):
             return None
         children = self.children(name, sid)
         for child, _crec in children:
-            if self._running(child, live) and (not (self.agents.sessions / child / IDLE_FILE).exists() or self.agents._sends.get(child)):
+            if self._running(child, live) and (not (self.agents.sessions / child / IDLE_FILE).exists() or self._words_wait(child)):
                 return None
         if self._waits_on_someone(name, sid, children):
             return None
@@ -1450,21 +1458,81 @@ class Managed:
         if any(self._pending(sid, m.name) for m in here):
             return None
         rnd = {m.name: self._round_of(inst, m.name) for m in here}
+        found = {m.name: m for m in here}
+        unjudged = []
         for entry in self.waiting_starts(name, inst):
             when = inst.entry(entry).get("when") or {}
-            if not (when.get("round") == rnd.get(entry) and when.get("holds") is False):
-                return None  # it may still start: only a `when` judged not to hold this round waits for a turn
+            if when.get("round") == rnd.get(entry) and when.get("holds") is False:
+                continue  # judged not to hold this round: it waits for a turn, as the rest does
+            if found[entry].when.strip() and when.get("round") != rnd.get(entry):
+                # judged only on its turn ends, and it sits idle at its prompt with nothing on its way to it: no turn comes
+                unjudged.append(entry)
+                continue
+            return None  # it may still start: one without a `when` is tried again, one judged to hold starts
         exits = [e for e in machine.exits_of(d, inst.state) if e.decided_by != "hand" and e.move == "auto"]
-        if not exits or any(e.decided_by == "judge" for e in exits):
+        out = [f"{entry}'s when isn't judged yet: it is judged on the owner's turn ends, and the owner sits idle at its prompt"
+               for entry in unjudged]
+        if not exits:
+            return out or None
+        if any(e.decided_by == "judge" for e in exits):
             return None
         facts = self.runner.facts_known(name, record, inst) if self.runner is not None else inst.facts(self.machines.clock())
-        out = []
+        # what only a turn of its own can bring: a `when` not judged, and what an entry that hasn't started would return
+        blocked = {f"when.{entry}": "not judged yet" for entry in unjudged}
+        if unjudged:  # the turn that judges it is also the one that could start an on-request entry
+            blocked |= {f"managed.{m.name}.": "nothing, as it hasn't started" for m in here if facts.get(f"started.{m.name}") is False}
         for e in exits:
-            failing = _known_false(e, facts)
+            failing = _known_false(e, facts, blocked)
             if not failing:
                 return None
             out.append(f"to {path_of(d, e.to) if e.to in d.states else e.to} needs {'; '.join(failing)}")
         return out
+
+    def _words_wait(self, name: str) -> bool:
+        """Words of a person or a session queued for its prompt: its turn comes with them. The hub's own wake, queued and
+        not gone, isn't one: a prompt that never empties holds it for good."""
+        return any(by != HUB_SENDER for by in self.agents._from.get(name, ())) if self.agents._sends.get(name) else False
+
+    def _unjudged(self, name: str, inst) -> list[str]:
+        """Auto entries here waiting to start whose `when` the judge hasn't said anything of this round."""
+        found = {m.name: m for _s, m in machine.managed_of(inst.definition(), inst.state)}
+        out = []
+        for entry in self.waiting_starts(name, inst):
+            m, when = found.get(entry), (inst.managed.get(entry) or {}).get("when") or {}
+            if m is not None and m.when.strip() and when.get("round") != self._round_of(inst, entry):
+                out.append(entry)
+        return out
+
+    def _owe_turn(self, name: str, live: set[str]) -> None:
+        """On the tick: an owner idle at its prompt in a state whose `when` isn't judged yet is woken, once a stay and round,
+        whatever moved it there and whatever became of the wake on entering (sent while it was busy, held for a relaunch
+        that didn't run, lost). Not while a turn, a pass, a relaunch or words are on their way: their ends judge it."""
+        if not self._running(name, live):
+            self._turn_asked.pop(name, None)
+            return
+        try:
+            record, inst = self.machines.load(name)
+        except (MachineError, OSError):
+            return
+        entries = [] if inst.paused or inst.pending else self._unjudged(name, inst)
+        if not entries:
+            self._turn_asked.pop(name, None)
+            return
+        key = (record.get("session_id"), inst.state, inst.entered, tuple((e, self._round_of(inst, e)) for e in entries))
+        if self._turn_asked.get(name) == key:
+            return
+        try:
+            since = (self.agents.sessions / name / IDLE_FILE).stat().st_mtime
+        except OSError:
+            return  # its turn goes on: its end judges the `when`
+        if time.time() - since < TURN_GRACE:
+            return  # a turn just ended: the pass its end started judges it
+        relaunching, running = getattr(self, "relaunching", None), getattr(self.runner, "running", None)
+        if self.agents._sends.get(name) or name in self._wakes or name in self._after_relaunch \
+                or (relaunching is not None and relaunching(name)) or (running is not None and running(name) is not None):
+            return
+        self._turn_asked[name] = key
+        self._spawn(self._wake(name, WHEN_WORDS))
 
     def _waits_on_someone(self, name: str, sid, children: list[tuple[str, dict]]) -> bool:
         """Whether it, or a session under it, waits on an answer: a report it sent up, a card in Needs you (a report's, a
@@ -1665,18 +1733,25 @@ class Managed:
             await asyncio.sleep(0)  # a finished task leaves the set in its done callback, which runs only once the loop turns
 
 
-def _known_false(e: machine.Exit, facts: dict) -> list[str]:
+def _known_false(e: machine.Exit, facts: dict, blocked: dict | None = None) -> list[str]:
     """The requirements of an exit that fail on facts the hub knows and that don't change by waiting, with the values they
-    saw. Empty when the exit holds, or each failing requirement has a term still unknown, pending or about time."""
+    saw. Empty when the exit holds, or each failing requirement has a term still unknown, pending or about time. `blocked`:
+    facts without a value that only a turn of the session's own can bring (a name, or a prefix ending in a dot), with what
+    to say of each; with the session idle, they don't change by waiting either."""
+    blocked = blocked or {}
+
+    def held(name: str) -> str | None:
+        return next((why for key, why in blocked.items() if name == key or (key.endswith(".") and name.startswith(key))), None)
     out = []
     for expr in e.requires:
         req = machine.parse_requires(expr)
         if req.holds(facts):
             continue
         terms = req.terms
-        if any(t.name not in facts or t.name.startswith("time.") or (t.name == "pr.checks" and facts[t.name] == "pending") for t in terms):
+        if any((t.name not in facts and held(t.name) is None) or t.name.startswith("time.")
+               or (t.name == "pr.checks" and facts.get(t.name) == "pending") for t in terms):
             continue
-        out.append(f"{expr} ({', '.join(f'{t.name} is {_value(facts[t.name])}' for t in terms)})")
+        out.append(f"{expr} ({', '.join(f'{t.name} is ' + (_value(facts[t.name]) if t.name in facts else held(t.name)) for t in terms)})")
     return out
 
 
