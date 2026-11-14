@@ -31,6 +31,7 @@ APPLY_TOOLS = {"comment": ("review_pr",), "labels": ("label_issue", "edit_issue"
 # stopped, or the tool gave no answer in time), which doesn't run again until a login has looked and said which.
 OP_STATES = ("pending", "running", "applied", "failed", "unknown")
 STATES = ("pending", "applying", "applied", "dismissed")
+PR_SETTLED = "The pull request is on GitHub: there is nothing to apply."
 KEEP = 200  # results kept; settled ones go first, oldest first
 PAGE = 20
 INTERRUPTED = "hubd restarted while this was being applied: check GitHub before applying it again."
@@ -239,13 +240,15 @@ class Results:
                          action=action, persona=persona)
 
     def note_pr(self, *, session: str, session_id, launch, items: list[dict], action: str, persona, repo: str, number: int) -> dict | None:
-        """The pull request a session opened (or worked on), once per run. Nothing to apply: the card links it."""
+        """The pull request a session opened (or worked on), once per run. It is on GitHub already, so there is nothing to
+        apply and nothing to ask: it is settled as it is made, and its card only links it."""
         payload = clean_payload("pr", {"repo": repo, "number": number}, items)
         if any(r["type"] == "pr" and r["session"] == session and r.get("session_id") == session_id and r["payload"] == payload
                for r in self.records.values()):
             return None
         return self._new(type="pr", payload=payload, session=session, session_id=session_id, launch=launch, items=items,
-                         action=action, persona=persona)
+                         action=action, persona=persona, state="applied", applied_at=time.time(), applied_by="the hub",
+                         note=PR_SETTLED)
 
     def list(self, kind=None, kept=None, session=None, after=None) -> list[dict]:
         rows = sorted(self.records.values(), key=lambda r: r["made"], reverse=True)

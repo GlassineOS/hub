@@ -223,6 +223,7 @@ def make_hub(tmp_path, monkeypatch, owner_workflow):
     runner.debounce = 0.0
     runner._sleep = lambda _s: asyncio.sleep(0)
     h = Hubd(FakeGh(), shells, auth.Sessions(), "shared", agents=a, decision_store=Decisions(tmp_path / "decisions"), machine_run=runner)
+    h.managed._sleep = lambda _s: asyncio.sleep(0)  # a start tried again after a while: at once here
     return h, a, judge
 
 

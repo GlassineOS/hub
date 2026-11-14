@@ -41,7 +41,7 @@ CREATE INDEX IF NOT EXISTS reports_from ON reports (from_sid, seq);
 CREATE INDEX IF NOT EXISTS reports_to ON reports (to_sid, seq);
 """
 REPORT_KINDS = ("blocker", "decision", "approval")  # approval: made by the hub, for an `approve` level or a managed start
-REPORT_STATES = ("open", "answered", "forwarded")
+REPORT_STATES = ("open", "answered", "forwarded", "withdrawn")  # withdrawn: taken back, by its reporter or as its machine moved
 YOU = "you"  # a report's addressee when no session above may decide it: a Needs-you decision
 
 
@@ -143,13 +143,13 @@ class Log:
 
     def settle_report(self, report_id: str, state: str, decision: str | None = None, note: str | None = None,
                       answered_by: str | None = None) -> dict | None:
-        """An open report answered or forwarded, or a forwarded one answered with the report it went on in. Nothing if it is
-        answered already: the first answer stands."""
+        """An open report answered, forwarded or withdrawn, or a forwarded one answered or withdrawn with the report it went on
+        in. Nothing if it is settled already: the first answer stands."""
         if state not in REPORT_STATES[1:]:
-            raise LogError("a report is answered or forwarded")
+            raise LogError("a report is answered, forwarded or withdrawn")
         with self.lock, self.db:
             done = self.db.execute("UPDATE reports SET state = ?, decision = ?, note = ?, answered_by = ?, answered_at = ? "
-                                   "WHERE id = ? AND (state = 'open' OR (state = 'forwarded' AND ? = 'answered'))",
+                                   "WHERE id = ? AND (state = 'open' OR (state = 'forwarded' AND ? != 'forwarded'))",
                                    (state, decision, _clip(note), _clip(answered_by, 64), self._clock(), report_id, state)).rowcount
         return self.get_report(report_id) if done else None
 

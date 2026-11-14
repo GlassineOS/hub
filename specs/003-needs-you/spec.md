@@ -105,6 +105,9 @@ that spec's name and number, as in "App frame (001) FR-011".
   "Launch…" (opens Launch prefilled) and "Dismiss".
 - **FR-010**: A result card shows the result type and a summary, and opens the result
   actions for its type (Launch (005) FR-015 to FR-021).
+- **FR-010a**: A result made by a session another session manages is not an interaction:
+  it belongs to that session's owner. A pull request result whose pull request is already
+  on GitHub has nothing to apply and is shown as handled, never as waiting.
 - **FR-011**: Once handled, an interaction shows its final status, who handled it and
   where, and stays visible in the "N handled in this view" line until the view is left.
 - **FR-012**: Permission and question cards are blocking; they are the only kinds shown
@@ -131,6 +134,15 @@ that spec's name and number, as in "App frame (001) FR-011".
 - **FR-021**: Needs you can be filtered to one session (used by the Steward's waiting
   strip).
 - **FR-022**: Closing Needs you returns to the same place in the view below.
+- **FR-023**: When a new interaction becomes pending, or the app opens while interactions wait
+  that the maintainer hasn't put off, Needs you opens by itself, showing them as its Feed;
+  it can be answered or closed from the keyboard alone, and Esc closes it.
+- **FR-024**: "Later" (or closing it) puts off what Needs you showed: it stays in the header
+  count and Needs you doesn't open by itself again until a new interaction arrives. What
+  was put off is remembered per browser.
+- **FR-025**: Needs you never opens by itself while the maintainer is typing in a terminal
+  or another dialog is open: it waits until focus leaves the terminal, or 10 seconds pass
+  without a keystroke there, or the dialog closes.
 
 ### Key Entities
 
