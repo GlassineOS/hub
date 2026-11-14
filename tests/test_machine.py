@@ -74,7 +74,7 @@ name = "reviewer"
 persona = "reviewer"
 workflow = "pr-review"
 reuse = "fresh"
-with = ["pr", "diff.since_last_round", "owner.summary"]
+with = ["pr", "diff.since_last_round", "owner.briefing", "owner.summary"]
 returns = { verdict = ["pass", "fail"] }
 
 [state.fix]
@@ -169,7 +169,7 @@ def test_parse_reads_the_example(impl):
     assert impl.initial == "work" and impl.judge == "default"
     assert impl.states["implement"].parent == "work"
     assert impl.states["review"].manages[0].returns == {"verdict": ("pass", "fail")}
-    assert impl.states["review"].manages[0].with_ == ("pr", "diff.since_last_round", "owner.summary")
+    assert impl.states["review"].manages[0].with_ == ("pr", "diff.since_last_round", "owner.briefing", "owner.summary")
     assert impl.states["escalated"].exits[0].enter == "history"
     assert impl.states["review"].focus == "the open findings and what each needs" and impl.states["work"].focus == ""
     assert parse(ONE).states["session"].grant.checkout is False
