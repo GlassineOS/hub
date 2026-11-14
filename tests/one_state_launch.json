@@ -5326,7 +5326,7 @@
       "hooks": [
        {
         "command": "<python> -I <repo>/hubd/ask_hook.py <state>/hubd.sock <state>/sessions/steward/tool-token",
-        "timeout": 630,
+        "timeout": 60,
         "type": "command"
        }
       ],

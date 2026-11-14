@@ -338,9 +338,10 @@ def build(github: GitHub, docs: DocSearch) -> MCPServer:
     async def merge_pr(repo: str, number: int, head: str, method: str = "squash", delete_branch: bool = False) -> dict:
         """Merge a pull request. head is the commit you checked, in full: the merge fails if the pull request has moved on
         from it. hubd refuses this unless the person's merge decision covers that head, and there's one way to get it for
-        each kind of session. If your calls show as cards, allowing this call's card is the decision: call this, and don't
-        look for another way. Otherwise ask first with decision_request (kind merge), wait until decision_check says yes,
-        then call this. method is merge, squash or rebase."""
+        each kind of session. If your state asks before this call, the call comes back at once saying it waits on a card:
+        end your turn, and you are woken with the answer; on a yes, call this again with exactly the same arguments, once
+        (a moved head asks again). Don't look for another way. Otherwise ask first with decision_request (kind merge), wait
+        until decision_check says yes, then call this. method is merge, squash or rebase."""
         return await github.merge_pr(repo, number, method, delete_branch, head)
 
     @mcp.tool(annotations=HARD)

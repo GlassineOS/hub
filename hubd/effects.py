@@ -42,7 +42,7 @@ import sqlite3
 
 from . import handoff, instances, machine
 from .agents import ENDED_FILE, GITHUB_FOLDER, HUB_SENDER, AgentError, NotAtPrompt, _full, _mode, managed_line
-from .decisions import APPROVE, WIDEN, DecisionError
+from .decisions import APPROVE, ASK, WIDEN, DecisionError
 from .instances import MachineError
 from .machine_log import LogError
 from .shells import ShellError
@@ -137,6 +137,7 @@ class Effects:
             log.exception("%s: its grant couldn't follow its move, so its tools refuse everything", name)
             self.agents.lock_down(name)
             return
+        self._withdraw_asks(name, self.agents._asks_first(narrowed["config"], narrowed["state"]), result["to"])
         if narrowed["github_changed"]:
             self._spawn(self._renew_token(name, narrowed["config"], narrowed["state"]))
         for child, got in narrowed.get("children", ()):  # the sessions it manages, narrowed to their cap again (FR-043)
@@ -477,6 +478,17 @@ class Effects:
                 continue
             if record["id"] != self._answering:
                 self.decisions.settle(record["id"], False, why)
+
+    def _withdraw_asks(self, name: str, keep, where: str) -> None:
+        """012 FR-054: a tool call's card, or its unused yes, lasts until it is answered or withdrawn. A move to a state that
+        doesn't ask about that tool first withdraws it: the call it was about can't be made there."""
+        if self.decisions is None:
+            return
+        for record in list(self.decisions._all.values()):
+            if record["kind"] != ASK or record["scope"].get("session") != name or record["scope"].get("tool") in keep:
+                continue
+            if self.decisions.current_state(record) == "requested" or self.decisions.allowed_ask(record):
+                self.decisions.withdraw_ask(record, f"withdrawn: {name} moved to {where}, which doesn't ask about {record['scope']['tool']}")
 
     def _log_failure(self, name: str, state: str, version: str, why: str) -> None:
         try:
