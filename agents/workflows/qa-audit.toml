@@ -43,7 +43,8 @@ checkout = "pr"
 
 [state.run]
 parent = "audit"
-instructions = """Run the change: its tests, the repository's own checks, and the dev hub where the change shows there. A run on \
+instructions = """Run the change: the dev hub where the change shows there, and its tests and the repository's own checks \
+where the pull request's checks haven't run them. A run on \
 a device needs the maintainer's go: ask for it with report_up, and don't assume one. Then audit what you ran: can the change be \
 tested, and do its tests check what matters? Note what is wrong with the test setup itself. When you are done you move to \
 report: on your own when your turn ends, or at once with `request_move` to `report`."""

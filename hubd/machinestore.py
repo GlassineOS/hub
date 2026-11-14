@@ -41,11 +41,12 @@ ORG = "org"
 OWNER = "GlassineOS"
 MAX_TEXT = 128 * 1024
 MAX_NOTE = 2000
+MAX_ENTRY_PROMPT = 8000
 _NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 _REPO = re.compile(r"\.?[A-Za-z0-9_][A-Za-z0-9._-]{0,99}")
 _FILE = re.compile(r"v([1-9][0-9]{0,6})\.toml")
 OPS = ("workflow.list", "workflow.get", "workflow.check", "workflow.diff", "workflow.replay", "workflow.save",
-       "workflow.propose", "workflow.reorder", "workflow.start")
+       "workflow.propose", "workflow.reorder", "workflow.start", "workflow.entry")
 
 
 class StoreError(Exception):
@@ -259,7 +260,9 @@ def _leaf(d: Definition, sid: str) -> str:
 
 
 def outline(d: Definition, inherited=None) -> dict:
-    """The definition as the editor's outline and inspector read it: states in the order the text lists them."""
+    """The definition as the editor's outline and inspector read it: states in the order the text lists them, each entry
+    it manages with what a session it starts would receive (FR-048)."""
+    from .managed import entry_preview  # managed imports agents, which imports this module
     states = []
     for s in d.states.values():
         mine = machine.effective(d, s.id)
@@ -276,7 +279,8 @@ def outline(d: Definition, inherited=None) -> dict:
                        "inherited": [{**_exit_json(e), "from": owner, "place": i} for owner in machine.ancestors(d, s.id)[1:]
                                      for i, e in enumerate(d.states[owner].exits, 1)],
                        "manages": [{**{k: (list(v) if isinstance(v, tuple) else v) for k, v in dataclasses.asdict(m).items() if k != "with_"},
-                                    "with": list(m.with_), "returns": {k: list(v) for k, v in m.returns.items()}} for m in s.manages]})
+                                    "with": list(m.with_), "returns": {k: list(v) for k, v in m.returns.items()},
+                                    "place": i, "receives": entry_preview(m)} for i, m in enumerate(s.manages, 1)]})
     return {"name": d.name, "initial": d.initial, "judge": d.judge, "status": d.status, "states": states,
             "launch": _launch_json(d.launch), "starts": starts_outline(d, inherited), "starts_named": d.starts is not None}
 
@@ -322,6 +326,21 @@ def edit_start(text: str, place, start, inherited=None) -> str:
         else:
             starts[place - 1] = new
     return machine.emit(dataclasses.replace(d, starts=tuple(starts)))
+
+
+def edit_entry(text: str, state, entry, prompt) -> str:
+    """The text with one `manages` entry's prompt changed (FR-048, as a start's, FR-102): the entry `entry` of the state
+    `state`, written again by machine.emit (comments go). Nothing else of the entry changes."""
+    d = machine.parse(text)
+    s = d.states.get(state) if isinstance(state, str) else None
+    if s is None:
+        raise StoreError("state is one of the definition's states")
+    if not any(m.name == entry for m in s.manages):
+        raise StoreError(f"{state} manages no entry of that name")
+    if not isinstance(prompt, str) or len(prompt) > MAX_ENTRY_PROMPT:
+        raise StoreError(f"prompt is text, at most {MAX_ENTRY_PROMPT} characters")
+    manages = tuple(dataclasses.replace(m, prompt=prompt) if m.name == entry else m for m in s.manages)
+    return machine.emit(dataclasses.replace(d, states={**d.states, state: dataclasses.replace(s, manages=manages)}))
 
 
 def _finding(f) -> dict:
@@ -880,6 +899,20 @@ class Workflows:
             raise StoreError("start is a table of a start's fields, or none to remove it")
         try:
             new = edit_start(text, req.get("place"), start, _file_starts(self.library, name))
+        except DefinitionError as e:
+            raise StoreError("; ".join(f"{p.where}: {p.text}" for p in e.problems[:5])) from None
+        _scope, repo = self._scope(req)
+        return {"text": new, **examine(new, name, self.library, repo)}
+
+    def _entry(self, req, _who) -> dict:
+        """One `manages` entry's prompt changed in the text (FR-048), for the editor to show and check: nothing is saved, as
+        for a start (workflow.start)."""
+        name = self._known(req.get("name"))
+        text = req.get("text")
+        if not isinstance(text, str) or len(text) > MAX_TEXT:
+            raise StoreError("text is the definition, at most 128 KiB")
+        try:
+            new = edit_entry(text, req.get("state"), req.get("entry"), req.get("prompt"))
         except DefinitionError as e:
             raise StoreError("; ".join(f"{p.where}: {p.text}" for p in e.problems[:5])) from None
         _scope, repo = self._scope(req)

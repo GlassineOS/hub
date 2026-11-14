@@ -3553,7 +3553,26 @@ function Sensitive({ marks, intro }) {
 }
 
 // The inspector for a state or one of its exits. Read-only: the Text view is the definition.
-function Inspector({ outline, sel, onPick, onMove, busy }) {
+// FR-048: one `manages` entry's prompt, filled from an example item as hubd fills it, and edited like a start's (FR-102):
+// applying writes it into the text through hubd (workflow.entry); saving it is the editor's own save or proposal.
+function EntryPrompt({ name, text, state, m, busy, onText }) {
+  const [prompt, setPrompt] = useState(m.prompt || "");
+  const [error, setError] = useState(null);
+  useEffect(() => { setPrompt(m.prompt || ""); setError(null); }, [m.prompt]);
+  const apply = () => post(`hub-workflows/${encodeURIComponent(name)}/entry`, { text, state, entry: m.name, prompt })
+    .then((r) => { setError(null); onText(r.text); }, (e) => setError(e.message));
+  return html`<li class="wfbox small stack tight"><span><strong>${m.persona}</strong> · ${m.name} · workflow <span class="mono">${m.workflow}</span> · ${m.start === "auto" ? "starts on entry" : "on request"}, at most ${m.max}${Object.keys(m.returns).length ? ` · returns ${Object.keys(m.returns).join(", ")}` : ""}</span>
+    ${!m.prompt && html`<span>No prompt of its own: a session gets the hub’s fixed one until you write one, and a save needs one.</span>`}
+    <details><summary>What a session it starts receives</summary>
+      <p class="small soft">After its persona, on an example item (GlassineOS/example#42): never a start’s prompt.</p>
+      <div class="wfbox receives"><p class="small" style="white-space: pre-wrap">${m.receives}</p></div>
+      <label class="stack tight small"><span class="eyebrow">Prompt</span><textarea rows="6" value=${prompt} onInput=${(e) => setPrompt(e.target.value)}></textarea></label>
+      <span class="small soft">Editing a prompt grants nothing and needs no confirm; it is part of this workflow’s next version, in its diff and replay. It fills in {repo}, {number}, {owner}, {head}, {checks} and {checkout}, and hands back only with return_result.</span>
+      <div class="row"><button type="button" class="il-btn" disabled=${busy || prompt === (m.prompt || "")} onClick=${apply}>Apply to the text</button></div>
+      <${Err} text=${error} /></details></li>`;
+}
+
+function Inspector({ outline, sel, onPick, onMove, busy, name, text, onText }) {
   const states = (outline && outline.states) || [];
   const s = sel && states.find((x) => x.id === sel.state);
   if (!s) return html`<p class="small soft">Select a state or an exit in the outline to see it here.</p>`;
@@ -3590,7 +3609,7 @@ function Inspector({ outline, sel, onPick, onMove, busy }) {
         <ul class="wfpick">${items.filter((g) => !(g.set === false)).map((g) => html`<li><span class="small mono">${g.item === false ? "none" : String(g.item)}</span>${g.sensitive && html` <span class="wfsens">sensitive</span>`}<span class="small soft">${g.from ? `from ${g.from}` : "its own"}</span></li>`)}
           ${items.every((g) => g.set === false) && html`<li><span class="small soft">not set: ${items.map((g) => String(g.item)).join(", ")}</span></li>`}</ul></div>`)}</section>
     <section class="stack tight" aria-labelledby="wfe-m"><h3 class="wfh3" id="wfe-m">Sessions it runs</h3>
-      ${s.manages.length ? html`<ul class="stack tight">${s.manages.map((m) => html`<li class="wfbox small"><strong>${m.persona}</strong> · workflow <span class="mono">${m.workflow}</span> · ${m.start === "auto" ? "starts on entry" : "on request"}, at most ${m.max}${Object.keys(m.returns).length ? ` · returns ${Object.keys(m.returns).join(", ")}` : ""}</li>`)}</ul>` : html`<p class="small soft">None.</p>`}</section>
+      ${s.manages.length ? html`<ul class="stack tight">${s.manages.map((m) => html`<${EntryPrompt} key=${m.name} name=${name} text=${text} state=${s.id} m=${m} busy=${busy} onText=${onText} />`)}</ul>` : html`<p class="small soft">None.</p>`}</section>
     <section class="stack tight" aria-labelledby="wfe-x"><h3 class="wfh3" id="wfe-x">Exits, in order</h3>
       <p class="small soft">The first that holds moves. ↑ and ↓ write the text again through the hub, so its comments go.</p>
       ${s.exits.length ? html`<ol class="wforder">${s.exits.map((e, i) => html`<li><span class="mono">${e.place}</span>
@@ -3722,7 +3741,7 @@ function WorkflowEditor({ name, scope, proposal }) {
             <textarea class="mono wfe-text" spellcheck="false" rows=${phone ? 18 : 30} value=${text} onInput=${(e) => setDraft(e.target.value)}></textarea></label>`}
         ${shown !== "text" && html`<p class="small soft">Select a state or an exit to see it in the inspector. Edit in the Text view.</p>`}
       </section>
-      <aside class="wfe-insp wfbox" aria-labelledby="wfe-insp"><${Inspector} outline=${outline} sel=${sel} onPick=${setSel} onMove=${move} busy=${act.busy} /></aside>
+      <aside class="wfe-insp wfbox" aria-labelledby="wfe-insp"><${Inspector} outline=${outline} sel=${sel} onPick=${setSel} onMove=${move} busy=${act.busy} name=${name} text=${text} onText=${setDraft} /></aside>
       <${StartsSection} name=${name} outline=${outline} text=${text} busy=${act.busy} onText=${setDraft} />
       <section class="stack wfe-checks" aria-labelledby="wfe-chk">
         <div class="row"><h2 class="wfh3" id="wfe-chk">Checks</h2><span class="small soft">${approveReason(findings, "Save") ? "a problem stops a save" : marks.length ? `${count(marks.length, "marked item")}: they only show` : "nothing found"}</span></div>

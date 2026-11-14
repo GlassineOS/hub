@@ -7,8 +7,8 @@ Pure data and checks, no I/O. `parse` reads the TOML text form, `emit` writes it
 A state's grant holds a session's rights: access, permission_mode, tools, hub_tools, asks_first, checkout and all_repos,
 plus github capabilities. A workflow also says how its sessions begin: its `[[start]]` tables (spec 012, FR-100 to FR-105),
 each a way to start it from one kind of item, and its `[launch]` table, what every session of it is however it begins
-(its personas, its result type and how a person applies it, what a managed session of it starts with). Neither grants
-anything: a session's rights are its starting state's grant.
+(its personas, its result type and how a person applies it). A managed session starts with its `manages` entry's prompt,
+never a start's. Neither grants anything: a session's rights are its starting state's grant.
 """
 from __future__ import annotations
 
@@ -46,8 +46,13 @@ APPROVERS = ("none", "owner", "maintainer", "steward", "me")
 STARTS = ("auto", "on-request")
 REUSES = ("resume", "fresh")
 ON_EXIT = ("stop", "keep", "handover")
-WITH = ("issue", "pr", "diff", "diff.since_last_round", "owner.summary", "owner.briefing", "checks.failing")
-WITH_PREFIXES = ("notes:", "brief:")
+WITH = ("issue", "pr", "diff", "diff.since_last_round", "owner.summary", "owner.briefing", "checks", "checks.failing")
+WITH_PREFIXES = ("notes:",)
+# A `manages` entry's prompt (FR-046): the names it may fill in, each from a fact the hub holds when the session starts or
+# resumes, and the tools a person-started session hands in with, which a managed session never uses: it hands back.
+ENTRY_SLOTS = ("repo", "number", "owner", "head", "checks", "checkout")
+HAND_IN_TOOLS = ("submit_result", "submit_drafts")
+_HAND_IN = re.compile(r"\b(" + "|".join(HAND_IN_TOOLS) + r")\b")
 # Starts (FR-100 to FR-105): the kinds of item a start applies to, what it does while an instance holds the item, the checks of
 # the item a start is offered on, and the names a prompt may fill in.
 START_ON = ("issue", "pr", "run", "repo", "project", "knowledge", "notes")
@@ -159,6 +164,7 @@ class Manage:
     on_exit: str = "stop"
     with_: tuple[str, ...] = ()
     returns: dict[str, tuple[str, ...] | str] = field(default_factory=dict)  # field -> its values, or TEXT_LIST
+    prompt: str = ""               # what a session it starts is asked to do (FR-046); empty only in a version saved before it
 
 
 @dataclass(frozen=True)
@@ -202,7 +208,8 @@ class Start:
 @dataclass(frozen=True)
 class Launch:
     """What a session of the workflow is however it begins. A workflow without starts is started only as a managed session,
-    which takes `on`, `label`, `summary`, `ceiling`, `models`, `efforts` and `prompt` from here."""
+    which takes `on`, `label`, `summary`, `ceiling`, `models` and `efforts` from here; its first prompt is its `manages`
+    entry's (FR-046), so `prompt` here, still required, is never what one receives."""
     personas: tuple[str, ...] = ()
     result: str = ""
     result_tools: tuple[str, ...] = ()
@@ -556,7 +563,8 @@ def _manage(r: _Reader, raw, where: str) -> Manage:
                   workflow=r.get(t, "workflow", where, str, "", pattern=_NAME), on_pr=r.get(t, "on_pr", where, str, "", pattern=_NAME),
                   start=r.get(t, "start", where, str, "auto", STARTS),
                   when=r.get(t, "when", where, str, ""), max=most, reuse=r.get(t, "reuse", where, str, "resume", REUSES),
-                  on_exit=r.get(t, "on_exit", where, str, "stop", ON_EXIT), with_=refs, returns=returns)
+                  on_exit=r.get(t, "on_exit", where, str, "stop", ON_EXIT), with_=refs, returns=returns,
+                  prompt=r.get(t, "prompt", where, str, ""))
 
 
 def _structure(r: _Reader, initial: str, states: dict[str, State]) -> None:
@@ -683,7 +691,9 @@ def emit(d: Definition) -> str:
         for e in s.exits:
             out += [f"[[state.{s.id}.exit]]", *_lines(e)]
         for m in s.manages:
-            out += [f"[[state.{s.id}.manages]]", *_lines(m, rename={"with_": "with"})]
+            out += [f"[[state.{s.id}.manages]]", *_lines(m, skip=("prompt",), rename={"with_": "with"})]
+            if m.prompt:
+                out.append(f"prompt = {_text_value(m.prompt)}")
     return "\n".join(out) + "\n"
 
 
@@ -926,8 +936,9 @@ def writes_on_item(grant: Grant) -> list[str]:
     return out
 
 
-def prompt_problem(prompt: str) -> str | None:
-    """Why a start's prompt can't be filled in, or None. Only {repo}, {number} and {checkout}, with {{ and }} for braces."""
+def prompt_problem(prompt: str, slots: tuple[str, ...] = PROMPT_FIELDS) -> str | None:
+    """Why a prompt can't be filled in, or None. A start's fills only {repo}, {number} and {checkout}, a `manages` entry's the
+    ENTRY_SLOTS; {{ and }} write a brace."""
     import string
     try:
         parts = list(string.Formatter().parse(prompt))
@@ -936,8 +947,8 @@ def prompt_problem(prompt: str) -> str | None:
     for _text, field_name, spec, conversion in parts:
         if field_name is None:
             continue
-        if field_name not in PROMPT_FIELDS or spec or conversion:
-            return f"{{{field_name}}} isn't one of {', '.join('{' + f + '}' for f in PROMPT_FIELDS)}: write {{{{ and }}}} for a brace"
+        if field_name not in slots or spec or conversion:
+            return f"{{{field_name}}} isn't one of {', '.join('{' + f + '}' for f in slots)}: write {{{{ and }}}} for a brace"
     return None
 
 
@@ -995,11 +1006,32 @@ def check_starts(d: Definition, starts: tuple[Start, ...]) -> list[Finding]:
     return found
 
 
-def check(d: Definition) -> list[Finding]:
-    """Problems stop a save or an approval; marks only show (FR-008)."""
+def check_entries(d: Definition, need_prompt: bool = True) -> list[Finding]:
+    """FR-046: each `manages` entry's prompt names only slots the hub fills, and tells the session to hand back, never to hand
+    in by a person-started session's tools. need_prompt: an entry without a prompt is a problem too. A version saved before
+    entries had prompts still loads and runs (`need_prompt` False there); saving it again needs them."""
+    found: list[Finding] = []
+    for s in d.states.values():
+        for i, m in enumerate(s.manages, 1):
+            where = f"state.{s.id}.manages.{i}.prompt"
+            if not m.prompt.strip():
+                if need_prompt:
+                    found.append(Finding("problem", where, f"{m.name} has no prompt: say what a session it starts is to do"))
+                continue
+            if why := prompt_problem(m.prompt, ENTRY_SLOTS):
+                found.append(Finding("problem", where, why))
+            if tool := _HAND_IN.search(m.prompt):
+                found.append(Finding("problem", where, f"it names {tool.group(1)}: a managed session hands back with return_result, "
+                                                       "as the hub tells it, never by a tool whose result a person applies"))
+    return found
+
+
+def check(d: Definition, need_prompt: bool = True) -> list[Finding]:
+    """Problems stop a save or an approval; marks only show (FR-008). need_prompt: see check_entries."""
     found: list[Finding] = []
     problem = lambda where, text: found.append(Finding("problem", where, text))  # noqa: E731
     found += check_starts(d, d.starts or ())
+    found += check_entries(d, need_prompt)
     leaves = [s for s in d.states if not _is_parent(d, s)]
     parsed: dict[tuple[str, int], list[Requirement]] = {}
 

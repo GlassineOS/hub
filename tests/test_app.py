@@ -3351,3 +3351,14 @@ def _pr_node(number):
             "mergeable": "MERGEABLE", "author": {"login": "a"}, "repository": {"name": "boot"}, "labels": {"nodes": []}, "assignees": {"nodes": []},
             "comments": {"totalCount": 0, "nodes": []}, "additions": 1, "deletions": 0,
             "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}]}}
+
+
+def test_the_inspector_shows_and_edits_each_entrys_prompt():
+    """A static check (012 FR-048): each entry a state manages shows what its session receives, filled by hubd from an example
+    item, and its prompt is edited through hubd's workflow.entry, like a start's."""
+    script = _app_js()
+    entry = _component(script, "EntryPrompt")
+    assert "hub-workflows/${encodeURIComponent(name)}/entry" in entry and "onText(r.text)" in entry and "m.receives" in entry
+    assert "needs no confirm" in entry and "never a start’s prompt" in entry
+    assert "<${EntryPrompt} key=${m.name}" in _component(script, "Inspector")
+    assert "onText=${setDraft} />" in _component(script, "WorkflowEditor")

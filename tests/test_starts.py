@@ -32,6 +32,7 @@ hub_tools = ["get_issue", "notes_find"]
 checkout = false
 [[state.look.manages]]
 name = "fixer"
+prompt = "Work as your owner's fixer."
 persona = "triager"
 workflow = "pr-fixer"
 start = "on-request"
@@ -61,6 +62,7 @@ hub_tools = ["get_issue", "notes_find"]
 checkout = false
 [[state.look.manages]]
 name = "helper"
+prompt = "Work as your owner's helper."
 persona = "triager"
 workflow = "issue-helper"
 start = "auto"
@@ -78,6 +80,7 @@ permission_mode = "auto"
 checkout = "new-branch"
 [[state.work.manages]]
 name = "fixer"
+prompt = "Work as your owner's fixer."
 persona = "ci-fixer"
 workflow = "pr-fix-checks"
 start = "on-request"
