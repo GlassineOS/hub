@@ -71,7 +71,8 @@ def _parse(text: str) -> Definition:
             d = machine.parse(text)
         except DefinitionError as e:
             raise MachineError(f"the definition has problems: {e}") from None
-        if problems := [f for f in machine.check(d) if f.kind == "problem"]:
+        # a version an instance holds may predate entries' prompts: it runs with the hub's own (managed.DEFAULT_ENTRY_PROMPT)
+        if problems := [f for f in machine.check(d, need_prompt=False) if f.kind == "problem"]:
             raise MachineError("the definition has problems: " + "; ".join(f"{p.where}: {p.text}" for p in problems[:5]))
         if len(_parsed) > 256:
             _parsed.clear()

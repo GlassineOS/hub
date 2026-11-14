@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Workflow definitions: parse, emit, checks, grants, exits, requires and the outline diff."""
 import dataclasses
+import re
 import sys
 from pathlib import Path
 
@@ -71,6 +72,7 @@ requires = ["rounds.review >= 3"]
 on = ["hub:managed.return"]
 [[state.review.manages]]
 name = "reviewer"
+prompt = "Work as your owner's reviewer."
 persona = "reviewer"
 workflow = "pr-review"
 reuse = "fresh"
@@ -740,3 +742,75 @@ def test_every_hub_tool_a_shipped_workflow_grants_is_a_tool_of_the_tool_server()
         for s in d.states.values():
             for key in ("hub_tools", "asks_first"):
                 assert set(getattr(s.grant, key)) <= names, (path.name, s.id, key, set(getattr(s.grant, key)) - names)
+
+
+ENTRY = '''schema = 1
+name = "x"
+initial = "a"
+[state.a]
+final = true
+[[state.a.manages]]
+name = "reviewer"
+persona = "reviewer"
+workflow = "pr-review"
+'''
+
+
+def _entry_problems(prompt_line: str, need_prompt: bool = True) -> list[str]:
+    from hubd.machine import check_entries, parse
+    return [f.text for f in check_entries(parse(ENTRY + prompt_line), need_prompt) if f.kind == "problem"]
+
+
+def test_an_entry_needs_a_prompt_with_known_slots_that_hands_back_by_no_persons_tool():
+    """FR-046: the checks refuse a `manages` entry without a prompt, a slot the hub doesn't fill, and a prompt that tells
+    the session to hand in by a tool a person-started session hands in with."""
+    assert any("reviewer has no prompt" in t for t in _entry_problems(""))
+    assert _entry_problems("", need_prompt=False) == []  # a version saved before prompts still loads
+    assert _entry_problems('prompt = "Review #{number} of {repo} for {owner} at {head}: {checks}, in {checkout}. {{x}}"') == []
+    assert any("{issue} isn't one of {repo}, {number}, {owner}, {head}, {checks}, {checkout}" in t
+               for t in _entry_problems('prompt = "Review {issue}."'))
+    assert any("isn't one of" in t for t in _entry_problems('prompt = "Review {repo.__class__}."'))
+    assert any("names submit_result" in t for t in _entry_problems('prompt = "Hand in with submit_result."'))
+    assert any("names submit_drafts" in t for t in _entry_problems('prompt = "Hand in with `submit_drafts`."'))
+    assert _entry_problems('prompt = "Hand back with return_result."') == []
+
+
+def test_an_entrys_prompt_reads_back_the_same_and_checks_is_a_named_reference():
+    from hubd.machine import emit, parse
+    d = parse(ENTRY + "with = [\"pr\", \"checks\", \"checks.failing\"]\nprompt = '''\nReview #{number}.\n\nRead the diff.\n'''\n")
+    m = d.states["a"].manages[0]
+    assert m.with_ == ("pr", "checks", "checks.failing") and m.prompt == "Review #{number}.\n\nRead the diff.\n"
+    again = parse(emit(d))
+    assert again == d and "prompt = '''" in emit(d)
+    with pytest.raises(DefinitionError, match="isn't a named reference"):
+        parse(ENTRY + 'with = ["brief:review"]\n')
+
+
+def test_every_shipped_entry_has_its_own_prompt_that_passes_the_checks_and_none_is_a_starts():
+    """Each `manages` entry of the shipped workflows says what its session is to do there, and none borrows a start's
+    prompt: no shipped entry's prompt is one of the starts' or names a person's hand-in tool."""
+    from hubd.agents import Library
+    from hubd.machine import check_entries
+    lib = Library(Path(__file__).resolve().parents[1] / "agents")
+    starts = {st.prompt.strip() for d in lib.workflows.values() for st in d.starts or ()} | {
+        d.launch.prompt.strip() for d in lib.workflows.values() if d.launch and d.launch.prompt}
+    entries = [(name, s.id, m) for name, d in lib.workflows.items() for s in d.states.values() for m in s.manages]
+    assert len(entries) >= 10
+    for name, sid, m in entries:
+        assert m.prompt.strip(), f"{name} {sid}.{m.name}"
+        assert m.prompt.strip() not in starts and "submit_result" not in m.prompt, f"{name} {sid}.{m.name}"
+    assert all(check_entries(d) == [] for d in lib.workflows.values())
+    reviewer = next(m for name, sid, m in entries if (name, sid, m.name) == ("implementor", "review", "reviewer"))
+    assert "{checks}" in reviewer.prompt and "checks" in reviewer.with_ and "don't run again" in reviewer.prompt
+
+
+def test_no_persona_assumes_how_it_was_started():
+    """FR-069: a persona, and what the hub appends to one, says who the session is and how it works. Who reads the result,
+    how it is handed in and what has run already belong to the start's or the entry's prompt."""
+    agents = Path(__file__).resolve().parents[1] / "agents"
+    texts = {p.name: p.read_text() for p in [*(agents / "personas").glob("*.md"), *(agents / n for n in (
+        "sandbox.md", "github-token.md", "repositories.md", "private.md", "asking.md", "advisor.md"))]}
+    for name, text in texts.items():
+        assert "submit_result" not in text and "return_result" not in text, name
+        assert not re.search(r"the person (reads|posts)|(checks|CI) (already )?(passed|ran)", text), name
+    assert "run the tests" not in texts["reviewer.md"] + texts["sandbox.md"] + texts["qa-engineer.md"]

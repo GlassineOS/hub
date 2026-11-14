@@ -424,15 +424,16 @@ class Library:
         self._views: dict[str, Library] = {}
 
     @staticmethod
-    def _definition(name: str, text: str, where: str) -> machine.Definition:
-        """A definition, refused on any problem the checks find. Marks only show."""
+    def _definition(name: str, text: str, where: str, need_prompt: bool = True) -> machine.Definition:
+        """A definition, refused on any problem the checks find. Marks only show. need_prompt False: a saved version, which may
+        predate entries' prompts (machine.check_entries); the file's own, and a version being saved, need them."""
         try:
             definition = machine.parse(text)
         except machine.DefinitionError as e:
             raise LibraryError(f"{where}: {e}") from None
         if definition.name != name:
             raise LibraryError(f"{where}: its name is {definition.name!r}, not " + ("the file's" if where.startswith("workflows/") else repr(name)))
-        if problems := [f for f in machine.check(definition) if f.kind == "problem"]:
+        if problems := [f for f in machine.check(definition, need_prompt) if f.kind == "problem"]:
             raise LibraryError(f"{where}: " + "; ".join(f"{f.where}: {f.text}" for f in problems))
         return definition
 
@@ -498,7 +499,7 @@ class Library:
         new = object.__new__(Library)
         new.root, new.families, new.defaults, new.store, new.files = self.root, self.families, self.defaults, self.store, self.files
         new.refused, new._views = self.refused, {}
-        new.workflows = {name: self._definition(name, text, f"{where} {name}") for name, text in texts.items()}
+        new.workflows = {name: self._definition(name, text, f"{where} {name}", need_prompt=False) for name, text in texts.items()}
         for name, d in new.workflows.items():
             if d.launch is not None and d.launch != self.files[name].launch:
                 raise LibraryError(f"{where} {name}: its [launch] is the file's (agents/workflows/{name}.toml); a saved version "
@@ -1015,6 +1016,15 @@ def _details_block(kind: str, config: dict, got: dict | None, read: bool | None 
     elif not read:
         lines.append("(GitHub didn't say more when the session started: read the item yourself)")
     return handoff.marked(DETAILS_HEADING, "\n".join(lines))
+
+
+def fill_entry(template: str, slots: dict, checkout) -> str:
+    """A `manages` entry's prompt with its slots filled (012 FR-046): machine.ENTRY_SLOTS, the checkout's path among them. The
+    checks refuse a slot it doesn't know; a text that still can't be filled (a version that predates them) is sent as it is."""
+    try:
+        return template.format(**{**slots, "checkout": str(checkout) if checkout else "(none)"})
+    except (KeyError, IndexError, ValueError):
+        return template
 
 
 def details_preview(kind: str, prompt: str) -> str:
@@ -2052,11 +2062,16 @@ class Agents:
             return None
         return said if isinstance(said, bool) else None
 
-    def _prompt(self, config: dict, action: dict, checkout, also=(), commit=None, beside=None, unnamed=None, details=None) -> str:
+    def _prompt(self, config: dict, action: dict, checkout, also=(), commit=None, beside=None, unnamed=None, details=None,
+                entry_prompt: dict | None = None) -> str:
         """unnamed: the covered repositories the pull request mustn't name (_unnamed_here); None when it wasn't asked,
         as for a preview, which then says so for all of them. details: the item as GitHub had it when the session started
-        (_item_details); None for a preview, which shows where it goes."""
-        prompt = action["prompt"].format(repo=config["repo"], number=config["number"], checkout=checkout or "(none)")
+        (_item_details); None for a preview, which shows where it goes. entry_prompt: for a managed session, its `manages`
+        entry's prompt and slots (012 FR-046), which take the place of the start's prompt."""
+        if entry_prompt is not None:
+            prompt = fill_entry(entry_prompt["prompt"], entry_prompt["slots"], checkout)
+        else:
+            prompt = action["prompt"].format(repo=config["repo"], number=config["number"], checkout=checkout or "(none)")
         block = details if details is not None else _details_block(action["object"], config, None)
         if block:  # 012 FR-100: the start's prompt, then the item's details, marked as data
             prompt = prompt.rstrip("\n") + "\n\n" + block
@@ -2345,8 +2360,8 @@ class Agents:
         return self.library.text(".", who) + copies + self.library.text(".", "private")
 
     def _script(self, config: dict, action: dict, directory: Path, checkout: Path | None, session_id: str, mcp: Path, also=(), commit=None, beside=None,
-                unnamed=None, context: str | None = None, chain=(), details: str | None = None) -> Path:
-        prompt = self._prompt(config, action, checkout, also, commit, beside, unnamed, details)
+                unnamed=None, context: str | None = None, chain=(), details: str | None = None, entry_prompt: dict | None = None) -> Path:
+        prompt = self._prompt(config, action, checkout, also, commit, beside, unnamed, details, entry_prompt)
         if context:  # 012 FR-041: a managed session's context, filled in by the hub from named references (managed.py)
             prompt += "\n\n" + context
         first = first_state(action)
@@ -2387,9 +2402,10 @@ class Agents:
         return f"sh {shlex.quote(str(script))}; touch {shlex.quote(str(directory / ENDED_FILE))}"
 
     async def start(self, config, started_by: str | None = None, origin: dict | None = None, owner: dict | None = None,
-                    context: str | None = None) -> dict:
+                    context: str | None = None, entry_prompt: dict | None = None) -> dict:
         """owner: for a managed session (012 FR-044), the session whose state started it ({name, session_id, entry}); context:
-        its first prompt's context, which the hub filled in from named references (FR-041)."""
+        its first prompt's context, which the hub filled in from named references (FR-041); entry_prompt: its entry's prompt
+        and slots ({prompt, slots}, FR-046), which its first prompt begins with in place of the start's."""
         config = validate(self.library, config)
         action = self.library.action(config["action"], config.get("repo"))  # on the repository's override of its workflow, if any
         self._check_sandbox(config, action)
@@ -2424,7 +2440,7 @@ class Agents:
             self._holding.extend(claims)
         try:
             async with self._one_per_repo(action, config.get("repo")):
-                return await self._start(config, action, started_by, origin, owner, context, held_by)
+                return await self._start(config, action, started_by, origin, owner, context, held_by, entry_prompt)
         finally:
             for claim in claims:
                 self._holding.remove(claim)
@@ -2493,7 +2509,7 @@ class Agents:
         except (MachineError, KeyError, OSError):
             return False
 
-    async def _start(self, config: dict, action: dict, started_by, origin, owner, context, held_by=None) -> dict:
+    async def _start(self, config: dict, action: dict, started_by, origin, owner, context, held_by=None, entry_prompt=None) -> dict:
         mcp = self._prepare_home()
         self.sessions.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.work.mkdir(parents=True, exist_ok=True)
@@ -2525,7 +2541,8 @@ class Agents:
             config = await self._github_for(config, action)
             chain = self.chain_tools(name, action, owned=owner is not None)
             script = self._script(config, action, directory, checkout, session_id, mcp, checkouts[1:], commit, beside,
-                                  await self._unnamed_here(config, action), context, chain, await self._item_details(config, action))
+                                  await self._unnamed_here(config, action), context, chain, await self._item_details(config, action),
+                                  entry_prompt)
             await self._github_token(directory, config, action)
             await self._probe_sandbox(directory, config, action)
             self._session_token(directory, config, _full(action), session_id, chain)
@@ -2658,6 +2675,16 @@ class Agents:
         async with self._one_per_repo(self.library.actions.get((record.get("config") or {}).get("action")),
                                       (record.get("config") or {}).get("repo"), name):
             return await self._resume(name, relaunch, fresh)
+
+    def checkout_of(self, name) -> Path | None:
+        """Where a session's first checkout is, as its start placed it: for its entry prompt's {checkout} on a later round."""
+        record = self._plain_record(name)
+        try:
+            action = self.library.action(record["config"]["action"], record["config"].get("repo")) if record else None
+        except AgentError:
+            return None
+        checkouts = self._checkouts(name, record["config"], action) if action else []
+        return checkouts[0][1] if checkouts else None
 
     def _plain_record(self, name) -> dict | None:
         if not (isinstance(name, str) and _NAME_RE.fullmatch(name)):
