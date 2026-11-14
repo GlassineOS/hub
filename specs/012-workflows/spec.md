@@ -372,6 +372,17 @@ number, as in "Launch (005) FR-012".
   a move by hand (FR-026); if it no longer holds, the card says why and the report stays open. Declining sends
   the words back.
 
+- **FR-056**: The Steward is woken only by events about its own work, each naming the item and what happened,
+  marked as data: a suggestion it made being started, dismissed or its result applied; a session it started
+  handing back, reporting or ending; the maintainer's answer to its reports and decisions; and, for items it
+  named in a suggestion, a report or a session it started, a merge, a close, failing checks, a review or a new
+  comment. Events that arrive together come in one turn. Nothing wakes it on a timer or with counts.
+- **FR-057**: Everything else in the change feed waits until the Steward asks for it, by item or repository or
+  as a short digest per repository, from its cursor.
+- **FR-058**: Before the Steward tells the maintainer that something waits for them, it reads that thing's
+  current state from the hub; a suggestion that was started, dismissed or applied is never presented as
+  waiting.
+
 #### Changing workflows
 
 - **FR-060**: A definition changes only by the maintainer saving it, in the editor or by approving a proposed
