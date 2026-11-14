@@ -395,3 +395,21 @@ def test_a_proposed_start_is_carried_out_when_the_maintainer_approves_it(team):
         assert h.decisions._get(card["id"])["why_ended"] == f"approved: {name}'s designer started."
         assert designer
     asyncio.run(go())
+
+
+def test_any_move_withdraws_its_card_even_to_a_state_that_asks_about_the_tool_too(hub):
+    h, a, gh, _apps, _judge = hub
+
+    async def go():
+        name = await merge_ready(h, a, gh)
+        await hook(h, a, name)
+        card = card_of(h, name)
+        (a.sessions / name / IDLE_FILE).touch()
+        assert (await h.request({"op": "machine.move", "token": h.sessions.create(), "name": name, "to": "fix"}))["ok"]
+        await settle(h)
+        assert state_of(a, name) == "fix" and "merge_pr" in a.scope(token_of(a, name))["asks_first"]
+        # a yes now would let a merge through in the middle of a fix round: the card goes, and the call asks again later
+        assert h.decisions.open_asks(name) == []
+        assert "where a call of merge_pr asks again if it still holds" in h.decisions._get(card["id"])["why_ended"]
+        assert not (await answer(h, card, "approve"))["ok"]
+    asyncio.run(go())
