@@ -218,11 +218,13 @@ def test_a_stalled_workflow_raises_one_card_after_the_quiet_time_which_a_move_en
         await settle(h)
         [card] = [c for c in h.decisions.open_approvals(name) if c["scope"].get("type") == "stalled"]
         says = card["scope"]["says"]
-        assert says.startswith(f"{name} stalled in work › fix: to work › review needs pr.checks == pass (pr.checks is fail)"), says
+        assert says.startswith(f"{name} stalled in work › fix: "), says  # each exit in order, the waived one to merge-ready first
+        assert "to merge-ready needs pr.checks == pass (pr.checks is fail); waived.review (waived.review is no)" in says
+        assert "to work › review needs pr.checks == pass (pr.checks is fail)" in says
         assert "to escalated needs managed.engineer.status == blocked (managed.engineer.status is done)" in says
         # the machine panel says so too, and the session hears it with the same facts
         record_, inst = a.machines.load(name)
-        assert a.machines.view(record_, inst)["stalled"]["why"][0].startswith("to work › review needs pr.checks == pass")
+        assert a.machines.view(record_, inst)["stalled"]["why"][1].startswith("to work › review needs pr.checks == pass")
         assert "can't move by itself" in told(a, name)
         assert any(who == name and "stalled in work › fix" in w for who, w in sent)
         # any move ends it
