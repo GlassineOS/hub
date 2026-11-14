@@ -333,7 +333,8 @@ item (below): what runs beside a holder may read, comment or hand in, never buil
 ### Held items
 
 A workflow **builds** on its item when some state's grant can push to a branch or open or update a pull request (GitHub
-`push` or `pr.write`, checkout `new-branch` or `pr-branch`, the `mark_ready` hub tool, or full access), or when a workflow
+`push`, `pr.write` or `merge`, checkout `new-branch` or `pr-branch`, the hub tools `mark_ready`, `merge_pr` and `close_pr`,
+or full access), or when a workflow
 it manages, however deep, does. Only a session of a workflow that builds holds anything; a triage, a review, an audit or a
 sweep holds nothing, so it never hides or redirects another start.
 

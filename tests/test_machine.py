@@ -441,7 +441,7 @@ def test_no_starts_named_differs_from_none():
     ("", "", '\n[[start]]\non = "pr"\nlabel = "Other"\n', "has the id 'w' too"),
     ("\nlead = true", "", '\n[[start]]\nid = "w-2"\non = "pr"\nlabel = "Other"\nlead = true\n', "leads for a pr already"),
     ('\nstate = "gone"', "", "", "'gone' isn't a state"),
-    # FR-104: beside is refused only where the workflow can build on the item; a comment or a merge isn't building on it
+    # FR-104: beside is refused only where the workflow can build on the item; a comment, a label or a rerun isn't building
     ('\nwhen_held = "beside"', 'github = ["push"]', "", "can build on the item (look: GitHub push)"),
     ('\nwhen_held = "beside"', 'github = ["pr.write"]', "", "look: GitHub pr.write"),
     ('\nwhen_held = "beside"', 'checkout = "new-branch"', "", "look: checkout new-branch"),
@@ -450,7 +450,10 @@ def test_no_starts_named_differs_from_none():
     ('\nwhen_held = "beside"', 'hub_tools = ["mark_ready"]', "", "look: mark_ready"),
     ('\nwhen_held = "beside"', 'asks_first = ["mark_ready"]', "", "look: mark_ready"),
     ('\nwhen_held = "beside"', 'github = ["pr.comment", "issues.comment"]', "", None),
-    ('\nwhen_held = "beside"', 'hub_tools = ["merge_pr", "comment_pr"]', "", None),
+    ('\nwhen_held = "beside"', 'hub_tools = ["merge_pr", "comment_pr"]', "", "look: merge_pr"),
+    ('\nwhen_held = "beside"', 'asks_first = ["close_pr"]', "", "look: close_pr"),
+    ('\nwhen_held = "beside"', 'github = ["merge"]', "", "look: GitHub merge"),
+    ('\nwhen_held = "beside"', 'hub_tools = ["comment_pr", "comment_issue", "label_issue", "rerun"]', "", None),
     ('\nwhen_held = "beside"', 'asks_first = ["comment_pr"]', "", None),
     ('\nwhen_held = "beside"', 'checkout = "pr"', "", None),
     ('\nwhen_held = "hide"\nask_move = "look"', "", "", "only a start that asks the owner"),

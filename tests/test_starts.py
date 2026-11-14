@@ -107,6 +107,11 @@ def hub(tmp_path, monkeypatch):
                                        + launch("pr-reader", on="pr", label="Read it beside", when_held="beside"))
     (wf / "pr-own.toml").write_text(HELPER.format(name="pr-own", tools='["get_issue", "mark_ready"]')
                                     + launch("pr-own", on="pr", label="A session of its own", when_held="hide"))
+    # an owner on a pull request whose own states build nothing: it holds only once what it manages builds
+    (wf / "pr-lead.toml").write_text(PR_READER_OWNER.replace('name = "pr-owner"', 'name = "pr-lead"').replace('"pr-fixer"', '"pr-helper"')
+                                     + launch("pr-lead", on="pr", label="Lead it", when_held="hide"))
+    (wf / "pr-helper.toml").write_text(HELPER.format(name="pr-helper", tools='["get_issue", "comment_pr"]')
+                                       + launch("pr-helper", on="pr", start=False))
     # builds on the pull request, asks the owner, and the owner has no way to take it on
     (wf / "pr-stray.toml").write_text(HELPER.format(name="pr-stray", tools='["get_issue", "mark_ready"]')
                                       + launch("pr-stray", on="pr", label="Stray", when_held="ask"))
@@ -465,8 +470,9 @@ def test_a_managed_start_is_refused_on_an_item_held_by_a_session_outside_its_cha
 
 
 def test_a_session_holds_by_what_its_start_did_when_it_started_not_by_a_later_version(hub, tmp_path):
-    """Whether a session holds its item is kept in its record when it starts: a later version of its start that runs beside
-    doesn't free the item, and a later one that holds doesn't make a session that started beside a holder."""
+    """Whether a session holds its item follows the version it runs on: a later version of its workflow that builds nothing
+    and runs beside doesn't free the item, and a later one that builds and holds doesn't make a session that started beside
+    a holder."""
     from hubd.machinestore import ORG, Store
     h, a = hub
     lib = a.library
@@ -475,15 +481,39 @@ def test_a_session_holds_by_what_its_start_did_when_it_started_not_by_a_later_ve
     async def go():
         own = (await a.start(a.defaults("pr-own", "boot", PR)))["name"]
         assert json.loads((a.sessions / own / "session.json").read_text())["when_held"] == "hide"
-        lib.store.save("pr-own", ORG, lib.workflow_texts["pr-own"].replace('when_held = "hide"', 'when_held = "beside"'), 0, "me")
+        later = lib.workflow_texts["pr-own"].replace('"mark_ready"]', '"notes_find"]').replace('when_held = "hide"', 'when_held = "beside"')
+        lib.store.save("pr-own", ORG, later, 0, "me")
         lib.saved()
+        assert lib.workflow_texts["pr-own"] == later and not lib.refused
         assert a.holders("pr", "boot", PR)[0] == [own]
         (a.sessions / own / ENDED_FILE).touch()
         reader = (await a.start(a.defaults("pr-reader", "kernel", PR)))["name"]
-        lib.store.save("pr-reader", ORG, lib.workflow_texts["pr-reader"].replace('when_held = "beside"', 'when_held = "hide"'), 0, "me")
+        later = lib.workflow_texts["pr-reader"].replace('"notes_find"]', '"mark_ready"]').replace('when_held = "beside"', 'when_held = "hide"')
+        lib.store.save("pr-reader", ORG, later, 0, "me")
         lib.saved()
+        assert lib.workflow_texts["pr-reader"] == later and not lib.refused
         assert a.holders("pr", "kernel", PR)[0] == []
         assert json.loads((a.sessions / reader / "session.json").read_text())["when_held"] == "beside"
+    asyncio.run(go())
+
+
+def test_a_manager_holds_once_a_workflow_it_manages_builds_as_the_library_has_it_now(hub, tmp_path):
+    """A manager whose own states build nothing holds through what it manages, as the library has those workflows now: its own
+    text unchanged, a saved version of the workflow it manages that builds makes it hold."""
+    from hubd.machinestore import ORG, Store
+    h, a = hub
+    lib = a.library
+    lib.use_store(Store(tmp_path / "store", lib.defaults))
+
+    async def go():
+        lead = (await a.start(a.defaults("pr-lead", "boot", PR)))["name"]
+        await settle(h)
+        assert a.holders("pr", "boot", PR) == ([], [])
+        later = lib.workflow_texts["pr-helper"].replace('"comment_pr"]', '"comment_pr", "mark_ready"]')
+        lib.store.save("pr-helper", ORG, later, 0, "me")
+        lib.saved()
+        assert lib.workflow_texts["pr-helper"] == later and not lib.refused
+        assert a.holders("pr", "boot", PR)[0] == [lead]
     asyncio.run(go())
 
 
@@ -591,9 +621,8 @@ def test_the_shipped_workflows_that_build_are_those_that_push_or_write_a_pull_re
              "run-slow", "workflow-change", "workflow-review"}
     shipped = {p.stem for p in (REPO / "agents" / "workflows").glob("*.toml")}
     assert {w for w in shipped if not builds[w]} == reads
-    # the Steward and a repository's maintainer push nothing themselves: they build through the implementor they manage
+    # a repository's maintainer pushes nothing itself: it builds through the implementor it manages
     assert "implementor" in a.library.actions["repo-maintainer"]["builds"][0]
-    assert "repo-maintainer" in a.library.actions["project-steward"]["builds"][0]
     # what builds never runs beside a holder; of what doesn't, these ask nothing of it now
     assert all(a.library.actions[aid]["when_held"] != "beside" for aid in a.library.actions
                if a.library.actions[aid]["builds"] and not a.library.actions[aid].get("managed_only"))
@@ -637,6 +666,8 @@ def test_an_older_record_of_a_workflow_that_doesnt_build_holds_nothing_whatever_
     _record(a, "x-old-review", "pr-review", "pr", PR, **kept)
     assert a.holders("issue", "boot", 3) == ([], [])
     assert a.holders("pr", "boot", PR) == ([], [])
+    # so the lead start on the issue is offered, not hidden behind the triage
+    assert rows(a.starts_for("issue", "boot", 3))["implementor"]["availability"] == "runs"
     # the same records of a workflow that builds hold, as before
     _record(a, "x-old-lead", "implementor", "issue", 3, **kept)
     assert a.holders("issue", "boot", 3)[0] == ["x-old-lead"]
