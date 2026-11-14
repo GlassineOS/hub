@@ -12,7 +12,7 @@ from hubd import auth
 from hubd.agents import AgentError
 from hubd.ghrun import Gh
 from hubd.server import Hubd, serve
-from hubd.shells import FRAME_DATA, FRAME_EXIT, FRAME_RESIZE, TMUX_SERVER, Shells, _HEADER, frame
+from hubd.shells import FRAME_DATA, FRAME_EXIT, FRAME_RESIZE, TMUX_SERVER, Shells, _HEADER, frame, prompt_empty_in
 
 USER = auth.Sessions.own_user()
 needs_tmux = pytest.mark.skipif(shutil.which("tmux") is None, reason="tmux is not installed")
@@ -594,14 +594,39 @@ def test_a_pasted_message_arrives_whole_and_is_entered(tmp_path, monkeypatch):
     assert marks.read_text().replace("\x1b", "").startswith("-first\nsecond 'quoted' $HOME\n")
 
 
+# Lines as a terminal draws them, escapes and all. Claude Code's suggested next prompt sits dim after the marker.
+E = "\x1b"
+PROMPTS = [
+    ("❯ ", True),
+    ("❯ half a thought", False),
+    ("  1. pick me", False),
+    (f"{E}[38;5;246m❯{E}[39m {E}[2mmark the pr ready for review{E}[0m", True),  # the suggestion, as seen live
+    (f"{E}[1m❯{E}[0m ", True),  # a styled marker, nothing after it
+    (f"❯ {E}[7m {E}[27m", True),  # the cursor's reversed cell
+    (f"❯ {E}[7mm{E}[27m{E}[2mark the pr ready for review{E}[22m", True),  # the cursor on the suggestion's first letter
+    ("❯ mark the pr ready for review", False),  # the same words, typed
+    (f"❯ fix the{E}[2m tests{E}[22m", False),  # a draft with a dim tail
+    (f"❯ {E}[7mm{E}[27m", False),  # one typed letter under the cursor
+    (f"{E}[34m❯ 1. Yes{E}[39m", False),  # a picker's choice
+    (f"{E}[38;2;2;7;2m❯ x", False),  # a colour whose values read like dim and reverse
+]
+
+
+@pytest.mark.parametrize("line,empty", PROMPTS)
+def test_dim_text_after_the_prompt_is_a_suggestion_and_anything_else_a_draft(line, empty):
+    assert prompt_empty_in(f"some output\n{line}\n") is empty
+
+
 @needs_tmux
-@pytest.mark.parametrize("line,empty", [("❯ ", True), ("❯ half a thought", False), ("  1. pick me", False)])
+@pytest.mark.parametrize("line,empty", PROMPTS)
 def test_only_an_empty_prompt_counts(tmp_path, monkeypatch, line, empty):
+    """Through a real tmux, which writes the attributes again in its own way (22 and 27 come back as 0)."""
     monkeypatch.setenv("TMUX_TMPDIR", str(tmp_path))
+    (tmp_path / "line").write_text(line + "\n")
 
     async def go():
         shells = Shells(default_cwd=str(tmp_path))
-        await shells.new("t", str(tmp_path), f"printf '%s\\n' '{line}'; sleep 30")
+        await shells.new("t", str(tmp_path), f"cat {tmp_path / 'line'}; sleep 30")
         await asyncio.sleep(0.3)
         got = await shells.prompt_empty("t")
         await shells._tmux("kill-server")

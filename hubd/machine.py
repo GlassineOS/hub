@@ -65,6 +65,7 @@ READ_HUB_TOOLS = frozenset({
     "map_overview", "map_string", "map_usages", "notes_find", "overview", "plan_work", "rate_limit", "read_repo_file", "read_report",
     "request_repository", "roadmap", "run_history", "submit_result", "work_search", "work_status"})
 QUIET_HUB_TOOLS = READ_HUB_TOOLS | {"submit_drafts", "request_move", "draft_workflow", "read_draft", "read_workflow"}
+_NAMED_TOOL = re.compile(r"`([a-z][a-z0-9_]{0,63})`")  # a tool named in a state's instructions
 
 
 def _feed_signals() -> tuple[str, ...]:
@@ -1107,6 +1108,23 @@ def check(d: Definition) -> list[Finding]:
         if set(where) >= {leaf for leaf in leaves if owner in ancestors(d, leaf)}:
             problem(f"state.{owner}.exit.{place}", f"it never moves: in {', '.join(sorted(where))} the exit to "
                     f"{', '.join(sorted(set(where.values())))} before it holds whenever it does")
+
+    # A tool a state's instructions tell the session to call is one it holds: on its hub_tools, or asked first. Instructions
+    # reach every state under the one that has them, so each leaf is held to its own and its parents'.
+    named = set(QUIET_HUB_TOOLS) | set(SENSITIVE_HUB_TOOLS) | {t for st in d.states.values() for t in (*st.grant.hub_tools, *st.grant.asks_first)}
+    told: dict[tuple[str, str], list[str]] = {}
+    for leaf in leaves:
+        grant = effective(d, leaf)
+        if grant.access == "full":
+            continue
+        held = {*grant.hub_tools, *grant.asks_first}
+        for sid in ancestors(d, leaf):
+            for tool in dict.fromkeys(_NAMED_TOOL.findall(d.states[sid].instructions)):
+                if tool in named and tool not in held:
+                    told.setdefault((sid, tool), []).append(leaf)
+    for (sid, tool), where in told.items():
+        problem(f"state.{sid}.instructions", f"they name `{tool}`, which {', '.join(sorted(where))} doesn't grant: "
+                "put it on hub_tools, or on asks_first for one that asks you on a card")
 
     for s in d.states.values():
         for item in s.grant.github:

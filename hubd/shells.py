@@ -23,7 +23,8 @@ from pathlib import Path
 
 TMUX_SERVER = "glassine-hub"
 PASTE_SETTLE = 0.4  # seconds
-_EMPTY_PROMPT = re.compile(r"\s*[❯>]\s*")
+_PROMPT_MARKS = "❯>"
+_ESCAPE = re.compile(r"\x1b(?:\[([0-9;:]*)([@-~])|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-_])")  # CSI, OSC, or a two-byte one
 _NAME_RE = re.compile(r"[A-Za-z0-9_-]{1,40}")
 _FORMAT = "#{session_name}\t#{session_created}\t#{session_attached}\t#{session_windows}\t#{pane_current_path}\t#{pane_current_command}"
 
@@ -37,6 +38,55 @@ MAX_FRAME = 1024 * 1024
 
 class ShellError(Exception):
     pass
+
+
+def _cells(line: str) -> list[tuple[str, bool, bool]]:
+    """A captured line as (character, dim, reverse) cells, its escapes taken out. Only SGR changes the two: 2 and 7 set them,
+    22, 27 and 0 (or no parameter) clear them."""
+    cells, dim, reverse, at = [], False, False, 0
+    for m in _ESCAPE.finditer(line):
+        cells += [(c, dim, reverse) for c in line[at:m.start()]]
+        at = m.end()
+        if m.group(2) != "m":
+            continue
+        params, i = (m.group(1) or "").split(";"), 0
+        while i < len(params):
+            p = params[i].split(":")[0]
+            i += 1
+            if p in ("38", "48", "58"):  # a colour: its values could read as 2 or 7
+                if ":" not in params[i - 1] and i < len(params):
+                    i += {"5": 2, "2": 4}.get(params[i], 1)
+            elif p in ("", "0"):
+                dim = reverse = False
+            elif p == "2":
+                dim = True
+            elif p == "22":
+                dim = False
+            elif p == "7":
+                reverse = True
+            elif p == "27":
+                reverse = False
+    cells += [(c, dim, reverse) for c in line[at:]]
+    return cells
+
+
+def _empty_after_mark(line: str) -> bool:
+    """A prompt line with nothing typed: the marker alone, or followed only by dim text (Claude Code's suggested next
+    prompt, which a paste replaces) and the cursor's reversed cell over its first character."""
+    cells = _cells(line)
+    text = [c for c, _d, _r in cells]
+    first = next((i for i, c in enumerate(text) if not c.isspace()), None)
+    if first is None or text[first] not in _PROMPT_MARKS:
+        return False
+    after = [cell for cell in cells[first + 1:] if not cell[0].isspace()]
+    if after and after[0][2] and not after[0][1] and len(after) > 1 and all(d for _c, d, _r in after[1:]):
+        after = after[1:]  # the cursor on the suggestion's first letter
+    return all(d for _c, d, _r in after)
+
+
+def prompt_empty_in(captured: str) -> bool:
+    """Whether a pane, captured with its attributes (capture-pane -e), shows a prompt with nothing typed."""
+    return any(_empty_after_mark(line) for line in captured.splitlines())
 
 
 def frame(kind: int, payload: bytes = b"") -> bytes:
@@ -127,9 +177,10 @@ class Shells:
             raise ShellError(err.strip() or "tmux refused the key")
 
     async def prompt_empty(self, name) -> bool:
-        """Whether its prompt is on screen with nothing typed. A draft, a picker or anything else: no."""
-        rc, out, _ = await self._tmux("capture-pane", "-p", "-t", f"={_check_name(name)}:")
-        return rc == 0 and any(_EMPTY_PROMPT.fullmatch(line) for line in out.splitlines())
+        """Whether its prompt is on screen with nothing typed. A draft, a picker or anything else: no. Read with its
+        attributes, as a suggested next prompt is drawn dim where a draft would be (prompt_empty_in)."""
+        rc, out, _ = await self._tmux("capture-pane", "-e", "-p", "-t", f"={_check_name(name)}:")
+        return rc == 0 and prompt_empty_in(out)
 
     async def interrupt(self, name) -> None:
         """Esc, never Ctrl-C: Claude Code stops the turn and keeps the session."""

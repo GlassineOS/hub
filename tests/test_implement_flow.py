@@ -329,6 +329,10 @@ def test_the_happy_path_ends_merge_ready_waiting_for_the_merge_decision(hub):
         held = json.loads((a.sessions / name / "settings.json").read_text())["hooks"]["PreToolUse"]
         assert any(h.get("matcher") == "mcp__glassine-hub__merge_pr" and "ask_hook.py" in h["hooks"][0]["command"] for h in held)
         assert scope["asks_first"] == ["merge_pr"] and "merge_pr" not in json.loads((a.sessions / name / "session.json").read_text())["config"]["hub_tools"]
+        # held, both: merge_pr on its card, and mark_ready for a draft, which doesn't merge
+        assert {"merge_pr", "mark_ready"} <= set(scope["tools"])
+        assert {"merge_pr", "mark_ready"} <= set(json.loads((a.sessions / name / "grant.json").read_text())["hub_tools"])
+        assert "`mark_ready`" in told(a, name)
         # the session can't merge: without a merge decision for the head, hubd refuses its merge and nothing runs
         got = await h.request({"op": "gh", "agent_token": token_of(a, name),
                                "argv": ["pr", "merge", str(PR), "-R", "GlassineOS/boot", "--squash", "--match-head-commit", HEAD]})

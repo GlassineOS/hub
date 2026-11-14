@@ -513,6 +513,9 @@ the person or session that started work in the hub.
   changes nothing.
 - **Waking for a `when`.** Entering a state whose auto entry has a `when` wakes an idle owner with fixed words only, and
   the tick does so once more, with fixed words only, for an owner still idle with that `when` not judged.
+- **Waking for a move.** A move wakes a session idle at its prompt with fixed words only; the instructions it is told
+  are the definition's, in its next turn through its hook as before, never typed at the prompt. The tick wakes one that was
+  at work when it moved once its prompt is back, once a move.
 
 ### Starts and held items
 
