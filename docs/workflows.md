@@ -115,6 +115,18 @@ returns = { verdict = ["pass", "fail"], findings = "text-list" }  # what it hand
   manages hands back, ends by itself or is stuck, and when a report sent to it arrives. One message carries what came
   together; a session that isn't at its prompt gets nothing, as the news comes with its next turn. A move that widens its
   grant relaunches it first, and the message follows the relaunch.
+- **Waking for a move's words.** A move's words (the instructions of the states it enters, what runs under it there) wait
+  for the session's next turn, and only a turn reads them. So a move wakes a session idle at its prompt with fixed words
+  ("Your workflow moved: what it says is in this turn, from the hub."), final states too: merge-ready's words ask for the
+  merge. One message carries it with what came together (a hand-back that moved it, say). A session at work when it moved
+  isn't typed into: the tick (every 30 seconds) wakes it once it has sat at its prompt for 5 seconds with the move's words
+  still unread and no wake of the hub's in this stay, nothing typed for it waiting, no pass or relaunch under way. A
+  relaunch's wake comes after it, at the new prompt. Once a move: words its own turn read, or a wake the hub sent in that
+  stay, end it. A conversation that takes over (`fresh`) begins with them in its note, so nothing wakes it.
+- **What reads as a draft.** The hub types at a prompt only when it reads as empty, so Enter can't send a draft along. The
+  pane is read with its attributes: dim text after the prompt marker is Claude Code's suggested next prompt, not a draft,
+  and counts as empty, as does the cursor's reversed cell over its first letter. Anything else typed there holds the hub's
+  words back.
 - **Stalls.** A machine with no exit that can still hold, nothing it manages running or waiting to start, no confirm or
   approval open, no report of its own or of a session under it waiting for an answer, no card of theirs in Needs you, and
   its owner idle is stalled. After 10 minutes like that the hub logs it, tells and wakes the session (and
@@ -168,8 +180,8 @@ returns = { verdict = ["pass", "fail"], findings = "text-list" }  # what it hand
   judged this round, and no turn, pass, relaunch or words on their way to it, is woken once more, once a stay and round.
   The `when` isn't judged on entry without a turn: the judge answers yes or no only, and a no would be kept as
   `when.<entry>` false, which an exit like qa's `not when.qa` takes at once, before the owner has said what the state's
-  instructions ask it to say. Hub sessions run without Claude Code's suggested next prompt, whose grey text would read as a
-  draft and hold the hub's words back.
+  instructions ask it to say. Hub sessions run without Claude Code's suggested next prompt; where one shows anyway (a
+  session launched with it), its dim text reads as an empty prompt, not a draft (above).
 - **Actions only for managed sessions.** An action with `managed_only = true` (the engineer, on an issue or a pull request, the QA audit, the design check,
   the workflow review) is on no menu and starts only under an owner. One with `per_repo = true` (the repository maintainer)
   runs once per repository at a time.
@@ -221,6 +233,10 @@ conversation under a new launch once the session is at its prompt. A move to a c
 this instance waits for the maintainer's confirm, a "Workflow move" card that shows what it adds, takes away and keeps; a
 later move back into what it held already doesn't ask again. In `implement`, review drops `push` and fix gets it back without
 a confirm, as implement held it. `merge_pr` asks first in every state, so merge-ready needs no confirm: a call shows a card, and allowing it is the merge decision.
+A tool on `asks_first` is held: listed for the session like one on `hub_tools`, but each call asks first. A draft pull request
+doesn't merge, so `mark_ready` (`pr.write`) is on `hub_tools` from `work` to merge-ready, which has no shell. A state's
+instructions that name a tool in backticks the state doesn't hold (its own or its parents' `hub_tools` or `asks_first`) are
+a problem, and the workflow doesn't save or load.
 
 While a "Workflow approval" card is up for where a session is, nothing else is tried for it, as for a pending confirm.
 
@@ -357,7 +373,7 @@ Steps after the first difference are less certain.
   only when the judge found it isn't user-facing; a fail goes to `fix`, which resumes the same engineer, and three fix rounds
   end in `escalated`. Failing checks go to `fix` too, with no confirm: from `implement` once the engineer is done with its
   pull request open, and from `review` and `qa`; the engineer is handed the failing runs. `fix` goes on to `review` only
-  with checks passing; pending checks are a wait. `merge-ready` asks first with `merge_pr`. The implementor holds a shell, a new branch and `push` in
+  with checks passing; pending checks are a wait. `merge-ready` marks a draft ready with `mark_ready` and asks first with `merge_pr`. The implementor holds a shell, a new branch and `push` in
   `implement` and `fix` so its engineer starts within its grant; it doesn't edit. When the work meets a design question no
   accepted board answers, a design spike (a full design session on GlassineOS/ui, in force in `implement` only) starts
   after your approval, raises a "Look at the design" card that opens its design view, and the work waits for its pull

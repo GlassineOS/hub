@@ -680,3 +680,63 @@ def test_the_status_line_is_a_top_level_boolean_written_only_when_set():
     with pytest.raises(DefinitionError) as e:
         parse('status = "yes"\n' + IMPLEMENT)
     assert any(p.where == "workflow.status" for p in e.value.problems)
+
+
+MERGING = '''schema = 1
+name = "w"
+initial = "work"
+[state.work]
+[state.work.grant]
+hub_tools = ["get_pr", "mark_ready"]
+asks_first = ["merge_pr"]
+[[state.work.exit]]
+to = "merge-ready"
+decided_by = "hand"
+[state.merge-ready]
+final = true
+instructions = """If it is still a draft, mark it ready with `mark_ready`. Then call `merge_pr`, which asks on a card. `gh pr view` shows it."""
+[state.merge-ready.grant]
+hub_tools = ["get_pr"%s]
+%s
+'''
+
+
+def test_instructions_that_name_a_tool_the_state_doesnt_grant_are_refused():
+    def problems(hub_tools, asks):
+        return [f for f in check(parse(MERGING % (hub_tools, asks))) if f.kind == "problem"]
+    assert problems(', "mark_ready"', 'asks_first = ["merge_pr"]') == []  # asked first is held: its card is the decision
+    [missing] = problems("", 'asks_first = ["merge_pr"]')
+    assert missing.where == "state.merge-ready.instructions" and "`mark_ready`, which merge-ready doesn't grant" in missing.text
+    [missing] = problems(', "mark_ready"', "")
+    assert "`merge_pr`" in missing.text  # named, and neither listed nor asked first
+    # a parent's instructions reach every state under it: a holds no merge_pr, so work's naming it is refused for a
+    nested = '''schema = 1
+name = "w"
+initial = "work"
+[state.work]
+initial = "a"
+instructions = "Call `merge_pr` once it passes."
+[state.a]
+parent = "work"
+[[state.a.exit]]
+to = "b"
+decided_by = "hand"
+[state.b]
+parent = "work"
+final = true
+[state.b.grant]
+asks_first = ["merge_pr"]
+'''
+    found = [f for f in check(parse(nested)) if f.kind == "problem"]
+    assert [(f.where, "`merge_pr`, which a doesn't grant" in f.text) for f in found] == [("state.work.instructions", True)], found
+
+
+def test_every_hub_tool_a_shipped_workflow_grants_is_a_tool_of_the_tool_server():
+    from app.hub import tools as tools_module
+    names = set(tools_module.build(None, None)._tool_manager._tools)
+    library = Path(__file__).resolve().parents[1] / "agents" / "workflows"
+    for path in sorted(library.glob("*.toml")):
+        d = parse(path.read_text())
+        for s in d.states.values():
+            for key in ("hub_tools", "asks_first"):
+                assert set(getattr(s.grant, key)) <= names, (path.name, s.id, key, set(getattr(s.grant, key)) - names)

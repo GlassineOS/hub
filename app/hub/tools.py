@@ -327,6 +327,12 @@ def build(github: GitHub, docs: DocSearch) -> MCPServer:
         without text. An approval can count toward merging. You can't approve a pull request you opened."""
         return await github.review_pr(repo, number, event, body)
 
+    @mcp.tool(annotations=WRITE)
+    @_says_why
+    async def mark_ready(repo: str, number: int) -> dict:
+        """Mark a draft pull request ready for review. One that is ready already stays so."""
+        return await github.ready_pr(repo, number)
+
     @mcp.tool(annotations=HARD)
     @_says_why
     async def merge_pr(repo: str, number: int, head: str, method: str = "squash", delete_branch: bool = False) -> dict:

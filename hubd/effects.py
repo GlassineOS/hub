@@ -5,7 +5,8 @@ Machines (instances.py) keeps the state; this watches its moves (`Machines.on_mo
 for sessions whose workflow has more than one state. A one-state session never moves, and nothing here touches it.
 
 - **Instructions** (FR-020): entering a state that has instructions puts them in the session's next turn, through
-  `Agents.tell`, in a block marked as the hub's. They are the definition's words, never a transcript's.
+  `Agents.tell`, in a block marked as the hub's. They are the definition's words, never a transcript's. A session idle at
+  its prompt is woken for them with fixed words (managed.py, `moved`), one at work or being relaunched once that is done.
 - **Narrowing** (FR-022) is cheap and at once: what the new state doesn't grant goes from the session's tool token and from
   grant.json, which grant_hook.py reads before each tool use, and a GitHub token is made again with fewer capabilities.
 - **Widening** (FR-023) is deliberate: Machines holds a move to a capability never held in the instance until the
@@ -161,11 +162,19 @@ class Effects:
         if relaunch:
             self._relaunching.setdefault(name, set()).add(move)
             self._spawn(self._relaunch(name, result, words, focus if context == "compact" else None, move))
+            if words:
+                self._wake(name)  # held while it relaunches, then sent at its prompt
             return
         if words:
             self.agents.tell(name, words)
+            self._wake(name)
         if context == "compact":
             self._spawn(self._compact(name, focus))
+
+    def _wake(self, name: str) -> None:
+        """Its move's words wait for its next turn: an idle session gets one now (managed.py), a busy one at its end."""
+        if self.managed is not None:
+            self.managed.moved(name)
 
     def _under_you(self, name: str, inst, frm: str | None = None) -> str | None:
         """The managed sessions line for the session's turn: from the hub's records with managed.py, else the definition's."""
@@ -351,9 +360,9 @@ class Effects:
             self._fail_back(name, result, str(e))
             return
         log.info("%s relaunched in %s", name, result["to"])
-        self._relaunched(name, True, move)
-        if words:
+        if words:  # before the wake held for the relaunch is sent, so the turn it begins has them
             self.agents.tell(name, words)
+        self._relaunched(name, True, move)
         if focus is not None:
             await self._compact(name, focus)
 
