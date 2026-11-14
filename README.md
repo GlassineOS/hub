@@ -144,7 +144,10 @@ When a full session shows a permission prompt or asks a question, it also appear
 Sessions, in Needs you, and the first answer wins: the card's or the terminal's. The hub waits 10 minutes,
 then leaves it to the terminal with nothing approved. A session started before this needs a resume to get
 the hook. Locked sessions don't prompt, but every session can ask a question. A locked one's question shows only on its card, and goes
-unanswered after 10 minutes, when it carries on without you. The Steward's waits until you answer. The full actions run in auto mode, where
+unanswered after 10 minutes, when it carries on without you. The Steward's waits until you answer. A locked session's call of a
+tool its state asks about first (a merge, an edit of an issue) doesn't wait in its turn: the call comes back at once saying it
+waits on a card, which stays in Needs you until you answer it; your answer wakes the session, a yes lets exactly that call
+through once when it makes it again, and a no goes back to it with your words. The full actions run in auto mode, where
 Claude Code decides most commands itself, so from those you'll mostly see questions.
 
 Needs you opens by itself when a new card arrives, or on load when cards wait that you haven't put off. "Later" puts the

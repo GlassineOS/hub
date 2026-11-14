@@ -156,6 +156,11 @@ class Asks:
                 return True
         return False
 
+    def grant(self, session: str, tool: str, arguments) -> None:
+        """Lets exactly this call through the tool server once, for GRANT_LIFE: a yes given on a lasting card (012 FR-054),
+        minted as the session makes the call again."""
+        self._grants = [*self._grants, (session, tool, _same(arguments), time.time() + GRANT_LIFE)][-MAX_GRANTS:]
+
     def add(self, session: str, how, tool, tool_input, suggestions, agent: dict | None, wait: float | None) -> Ask:
         if how not in HOW:
             raise AskError("not a hook this knows")

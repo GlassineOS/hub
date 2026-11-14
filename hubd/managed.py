@@ -1626,13 +1626,15 @@ class Managed:
 
     def _waits_on_someone(self, name: str, sid, children: list[tuple[str, dict]]) -> bool:
         """Whether it, or a session under it, waits on an answer: a report it sent up, a card in Needs you (a report's, a
-        start's approval, a design to look at). Its answer moves it on, so that is a wait, not a stall."""
+        start's approval, a design to look at, a tool call's). Its answer moves it on, so that is a wait, not a stall."""
         under = [(child, (crec or {}).get("session_id")) for child, crec in children if not self._ended(child)]
         if any(self._open_reports(s) for _n, s in [(name, sid), *under]):
             return True
         if self.decisions is None:
             return False
         for who, s in [(name, sid), *under]:
+            if any(card["scope"].get("session_id") == s for card in self.decisions.open_asks(who)):
+                return True  # a tool call waits on its card: the answer wakes it
             for card in self.decisions.open_approvals(who):
                 scope = card["scope"]
                 if scope.get("type") in (TYPE_REPORT, TYPE_START, TYPE_DESIGN) and scope.get("session_id") in (s, None):

@@ -111,6 +111,7 @@ REPOS_FOLDER = "repos"  # a session's own snapshots of the hub's copies
 GUARD_FILE = "shell-guard"
 ENDED_FILE = "ended"  # Claude has ended in this session
 OUTCOMES_FILE = "outcomes"  # what the hub has to tell it, until its next turn reads it
+ASK_FIRST_HOOK = 60  # seconds: hubd answers a call of a tool asked about first at once, from its lasting card
 GRANT_FILE = "grant.json"  # the tools its workflow's current state grants, read by grant_hook.py before each tool use
 GRANT_HOOK_TIME = 10  # seconds; it only reads a file
 RESUME_ROUNDS = 5  # times a resume is set up again because the session's workflow moved meanwhile
@@ -2327,10 +2328,11 @@ class Agents:
             moved = {"hooks": [{"type": "command", "command": f"test -e {shlex.quote(str(directory / ASKING_FILE))} && {command}; true", "timeout": HOOK_MOVED}]}
             return {"PreToolUse": marks, "PermissionRequest": [ask], "PostToolUse": [moved], "PostToolUseFailure": [moved], "Stop": [moved]}
         held = [{"matcher": QUESTION_TOOL, **ask}] if QUESTION_TOOL in config["tools"] else []
-        # Not on the allowed list, so under dontAsk these run only when this says allow, and hubd checks that too.
+        # Not on the allowed list, so under dontAsk these run only when this says allow, and hubd checks that too. hubd answers
+        # at once (012 FR-054): the call waits on a lasting card, and a yes lets it through when the session makes it again.
         writes = self._asks_first(config, action if self.staged(action, directory.name) else None)  # a state's, for a session that can move
         if writes:
-            held.append({"matcher": "|".join(_qualified(t) for t in writes), "hooks": [{"type": "command", "command": command, "timeout": WAIT + HOOK_MARGIN}]})
+            held.append({"matcher": "|".join(_qualified(t) for t in writes), "hooks": [{"type": "command", "command": command, "timeout": ASK_FIRST_HOOK}]})
         return {"PreToolUse": [*marks, *held]}
 
     @staticmethod
