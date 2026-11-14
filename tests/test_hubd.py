@@ -1385,6 +1385,30 @@ def test_a_managed_session_s_pull_request_is_no_result_of_its_own(result_hub):
     assert not result_hub.results.all()
 
 
+def test_a_managed_session_hands_in_no_result_card(result_hub):
+    """003 FR-010a: under a workflow, what it made goes to its owner with return_result; submit_result raises no card."""
+    result_hub.agents.sessions["pr-review-boot-6"] = ("pr-review", "pr", 6, "reviewer")
+    result_hub.agents.tools["managed-token"] = ("pr-review-boot-6", RESULT_LIBRARY.actions["pr-review"]["grant"].hub_tools)
+    result_hub.agents.owners["pr-review-boot-6"] = {"name": "implementor-boot-6", "session_id": "conv-0", "entry": "reviewer"}
+    got = _submit(result_hub, "managed-token", "comment", REVIEW)
+    assert got.get("refused") and "return_result" in got["error"]
+    assert not result_hub.results.all()
+
+
+def test_a_pull_request_result_isnt_made_again_once_pruned(tmp_path, monkeypatch):
+    """Settled at birth, a pr result is the first to go when the store prunes: it is remembered apart, so no new one comes."""
+    from hubd import results as results_module  # noqa: PLC0415
+    monkeypatch.setattr(results_module, "KEEP", 2)
+    store = Results(tmp_path / "results")
+    note = lambda n: store.note_pr(session="issue-docs-boot-9", session_id="conv-1", launch=None, items=[], action="issue-docs",  # noqa: E731
+                                   persona="engineer", repo="boot", number=n)
+    assert note(1) and note(2) and note(3)
+    assert len(store.all()) == 2  # the first was pruned
+    assert note(1) is None and note(3) is None
+    assert Results(tmp_path / "results").note_pr(session="issue-docs-boot-9", session_id="conv-1", launch=None, items=[],
+                                                 action="issue-docs", persona="engineer", repo="boot", number=1) is None
+
+
 def test_results_are_interactions_answered_like_any_card(result_hub):
     rid = _submit(result_hub, "review-token", "comment", REVIEW)["id"]
     listed = run(result_hub.request({"op": "interaction.list", "token": "login"}))

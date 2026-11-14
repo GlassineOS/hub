@@ -1356,6 +1356,9 @@ class Hubd:
         if op == "result.report":
             return self._read_report(scope, req.get("id"))
         name = scope["session"]
+        if self.agents.owner_record(name) is not None:  # 003 FR-010a: what it made is its owner's, which gets the hand-back
+            return {"ok": False, "refused": True, "error": "a session under a workflow hands its result to its owner with "
+                                                          "return_result: it isn't a card for the maintainer"}
         agent = self.agents.describe(name)
         action = self.agents.library.actions.get(agent["action"]) if agent else None
         if action is None or action["result"] != req.get("type"):

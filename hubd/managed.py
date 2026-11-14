@@ -61,6 +61,8 @@ TYPE_REPORT, TYPE_START = "report", "managed"   # the `type` of a Needs-you appr
 TYPE_DESIGN = "design"   # "Look at the design" (012 FR-073): a design session started under a workflow, to look at
 TYPE_STUCK = "stuck"     # a managed session that can't start for a reason that won't change by itself: for you to look at
 TYPE_STALLED = "stalled"  # a workflow that sits in a state none of whose exits can hold, with nothing under it working
+COUNTERS = ("time.", "tokens.", "rounds.", "cost.")  # facts that change by themselves: a report naming one isn't overtaken
+NAMED_WAKE_GAP = 300.0  # seconds: a report's reporter is woken for its named facts at most this often
 STALL_AFTER = 600.0      # seconds a workflow sits stalled before it is put to you: long enough for checks and lookups to land
 WAKE_WAIT = 30.0         # seconds a wake waits for the evaluation its signal started, so it comes after any move it makes
 START_RETRIES = (5.0, 15.0, 45.0)  # seconds before an automatic start on entering that didn't happen is tried again
@@ -139,7 +141,9 @@ class Managed:
         self._after_relaunch: dict[str, list[str]] = {}  # owner -> a wake's sentences held while its move relaunches it
         self.relaunching = None  # (name) -> whether a move relaunches it now (effects.py)
         self._sleep = asyncio.sleep  # injectable, so tests don't wait for a retry
-        self._deferred: dict[str, tuple] = {}  # owner -> (conversation, state, entries, stops) entered by a move that relaunches it
+        # owner -> {move (state, entered): (conversation, entries)}: the starts a move that relaunches it waits to make
+        self._deferred: dict[str, dict[tuple, tuple]] = {}
+        self._retrying: dict[tuple, tuple] = {}  # (owner, entry) -> the move whose start is being tried again: one loop an entry
 
     @property
     def log(self):
@@ -215,34 +219,44 @@ class Managed:
         # An entry the move both leaves and enters again (the engineer, from implement to fix) stops before its new round
         # starts, in one task: its old session would still count as running against its `max`.
         entered = [e for e in after if e not in before or after[e][0] != before[e][0]]
-        self._deferred.pop(name, None)
+        # a new round for each, at once: what it returned in the round before must not move the owner meanwhile
+        self._new_rounds(name, inst, entered)
+        move = (inst.state, inst.entered)
+        self._deferred.pop(name, None)  # what a move before this one waited to start is about a state it has left
         if result.get("own_widening", result.get("widening")) and entered:
             # what its new state adds comes with its relaunch (effects.py): until then its sessions would be capped at what it
-            # held before, and ask above it for what it is about to hold. They start once it has relaunched.
-            self._deferred[name] = (record.get("session_id"), inst.state, entered, {e: stops.pop(e) for e in entered if e in stops})
+            # held before, and ask above it for what it is about to hold. They start once this move's relaunch is done; what
+            # it stops, stops now.
+            self._deferred[name] = {move: (record.get("session_id"), entered)}
             entered = []
-        self._entered(name, entered, stops)
-        self._withdraw_on_move(name, record, path_of(d, result["to"]))
+        self._entered(name, entered, stops, reset=False)
+        self._withdraw_on_move(name, record, path_of(d, result["to"]), inst)
         self._quiet.pop(name, None)
 
-    def relaunched(self, name: str, ran: bool = True) -> None:
-        """Its relaunch after a move that widened it is done (effects.py): the entries the move entered start now, under the
-        grant it holds. `ran`: False when it wasn't running, so it isn't started for them."""
-        words = self._after_relaunch.pop(name, None)
-        if words:  # the wake that waited for it: typed now, it would have held the relaunch up
-            text = " ".join(words) + ((" " + listed) if (listed := self._open_reports_line(name)) else "")
-            self._spawn(self._nudge(name, text) if ran else self._wake(name, text))
-        deferred = self._deferred.pop(name, None)
+    def relaunched(self, name: str, ran: bool = True, move: tuple | None = None) -> None:
+        """A move's relaunch is done, or won't happen (effects.py): the entries that move entered start now, under the grant
+        it holds. `ran`: False when it wasn't relaunched (not running, failed back, moved again), so nothing starts for it
+        here: entries still in force wait as any start that didn't happen, tried again on its signals."""
+        relaunching = getattr(self, "relaunching", None)
+        if not (relaunching is not None and relaunching(name)):  # no other relaunch to come, which a word would hold up
+            words = self._after_relaunch.pop(name, None)
+            if words:
+                text = " ".join(words) + ((" " + listed) if (listed := self._open_reports_line(name)) else "")
+                self._spawn(self._nudge(name, text) if ran else self._wake(name, text))
+        waiting = self._deferred.get(name) or {}
+        deferred = waiting.pop(move, None)
+        if not waiting:
+            self._deferred.pop(name, None)
         if deferred is None or not ran:
             return
-        sid, state, entries, stops = deferred
+        sid, entries = deferred
         try:
             record, inst = self.machines.load(name)
         except (MachineError, OSError):
             return
-        if record.get("session_id") != sid or inst.state != state:
+        if record.get("session_id") != sid or (inst.state, inst.entered) != move:
             return  # it moved again meanwhile: that move's entries apply
-        self._entered(name, entries, stops)
+        self._entered(name, entries, reset=False)
 
     def after_start(self, name: str) -> None:
         """A session has started: what its first state manages starts as on any entry."""
@@ -252,33 +266,39 @@ class Managed:
             return
         self._entered(name, [m.name for _sid, m in machine.managed_of(inst.definition(), inst.state)])
 
-    def _entered(self, name: str, entries: list[str], stops: dict | None = None) -> None:
-        """A new round for each entry: what it returned last round no longer holds, and an automatic one starts. `stops`: the
-        entries the move stops, (owner conversation, why) each. They stop first, then the starts begin, in one task: a session
-        about to be stopped would still count against its entry's `max` and the most managed sessions at once."""
+    def _new_rounds(self, name: str, inst, entries: list[str]) -> None:
+        """A new round for each entry: nothing it returned holds, and none of its sessions has started in it yet, so a start
+        that fails now is tried again (its round, kept from the state it last ran in, could equal this one's)."""
+        if not entries:
+            return
+        for entry in entries:
+            inst.entry(entry)["returns"] = {}
+            inst.entry(entry)["round"] = 0  # rounds count from 1 on entry
+        self.machines.save(name, inst)
+
+    def _entered(self, name: str, entries: list[str], stops: dict | None = None, reset: bool = True) -> None:
+        """The entries a state entered: a new round each (unless the move made it already), and an automatic one starts.
+        `stops`: the entries the move stops, (owner conversation, why) each. They stop first, then the starts begin, in one
+        task: a session about to be stopped would still count against its entry's `max` and the most managed sessions at once."""
         stops = dict(stops or {})
         if not entries:
             if stops:
-                self._spawn(self._switch(name, stops, []))
+                self._spawn(self._switch(name, stops, [], None))
             return
         try:
             _record, inst = self.machines.load(name)
         except (MachineError, OSError):
             return
-        for entry in entries:
-            # a new round: nothing it returned holds, and none of its sessions has started in it yet, so a start that fails
-            # now is tried again (its round, kept from the state it last ran in, could equal this one's)
-            inst.entry(entry)["returns"] = {}
-            inst.entry(entry)["round"] = 0  # rounds count from 1 on entry
-        self.machines.save(name, inst)
+        if reset:
+            self._new_rounds(name, inst, entries)
         found = dict((m.name, m) for _sid, m in machine.managed_of(inst.definition(), inst.state))
         starts = [e for e in entries if (m := found.get(e)) is not None and m.start == "auto" and not m.when.strip()]
-        self._spawn(self._switch(name, stops, starts))
+        self._spawn(self._switch(name, stops, starts, (inst.state, inst.entered)))
         if any(m is not None and m.start == "auto" and m.when.strip() for m in (found.get(e) for e in entries)):
             # its `when` is judged on the owner's turn ends: an owner idle at its prompt is woken, with fixed words, for one
             self.wake_owner(name, MOVED_WORDS)
 
-    async def _switch(self, name: str, stops: dict, starts: list[str]) -> None:
+    async def _switch(self, name: str, stops: dict, starts: list[str], move: tuple | None) -> None:
         """A move's effect on the sessions under it: what it leaves stops, then what it enters starts. Each start is tried
         even if a stop failed, as a stop that failed leaves nothing for it to wait for."""
         for entry, (sid, why) in stops.items():
@@ -286,24 +306,35 @@ class Managed:
                 await self._stop_entry(name, sid, entry, why)
             except Exception:  # noqa: BLE001 — the sweep ends it if its owner moved on
                 log.exception("%s: %s didn't stop", name, entry)
-        await asyncio.gather(*(self._restart(name, entry) for entry in starts))
+        await asyncio.gather(*(self._restart(name, entry, move) for entry in starts))
 
-    async def _restart(self, name: str, entry: str) -> None:
+    async def _restart(self, name: str, entry: str, move: tuple) -> None:
         """An entry's start on entering a state. A start that didn't happen for a reason that can pass (the cap, a pull
-        request not found yet) is tried again soon, a few times, besides on the owner's signals."""
-        sid = self._sid_of(name)
-        for wait in (0, *START_RETRIES):
-            if wait:
-                await self._sleep(wait)
+        request not found yet) is tried again soon, a few times, besides on the owner's signals; given up once the owner has
+        moved since, and never two loops for one entry: the newest move's goes on."""
+        sid, key = self._sid_of(name), (name, entry)
+        self._retrying[key] = move
+        try:
+            for wait in (0, *START_RETRIES):
+                if wait:
+                    await self._sleep(wait)
+                if self._retrying.get(key) != move:
+                    return  # a newer move's loop has it
                 try:
                     _record, inst = self.machines.load(name)
                 except (MachineError, OSError):
                     return
-                if self._sid_of(name) != sid or entry not in self.waiting_starts(name, inst):
+                if self._sid_of(name) != sid or (inst.state, inst.entered) != move or entry not in self.waiting_starts(name, inst):
                     return  # it moved on, started meanwhile, waits for an approval or can't start this round
-            got = await self.start(name, entry, by="entry" if not wait else "entry, tried again")
-            if got.get("started") or got.get("stuck"):
-                return
+                m = next((m for _s, m in machine.managed_of(inst.definition(), inst.state) if m.name == entry), None)
+                if m is None or m.when.strip():
+                    return  # one with a `when` starts once the judge finds it holds, on the owner's turn ends
+                got = await self.start(name, entry, by="entry" if not wait else "entry, tried again")
+                if got.get("started") or got.get("stuck"):
+                    return
+        finally:
+            if self._retrying.get(key) == move:
+                self._retrying.pop(key, None)
 
     # --- when: the judge decides, on the owner's turn ends -----------------------------------
     def _round_of(self, inst, entry: str) -> int:
@@ -315,8 +346,8 @@ class Managed:
         on entering didn't happen (MAX_MANAGED was reached, its pull request wasn't there yet), so it is tried again on the
         owner's signals. Not one whose start waits for an approval."""
         sid = self._sid_of(name)
-        deferred = self._deferred.get(name)
-        later = set(deferred[2]) if deferred and deferred[1] == inst.state else set()  # they start once it has relaunched
+        deferred = (self._deferred.get(name) or {}).get((inst.state, inst.entered))
+        later = set(deferred[1]) if deferred else set()  # they start once its move's relaunch is done
         return [m.name for _sid, m in machine.managed_of(inst.definition(), inst.state)
                 if m.start == "auto" and m.name not in later and inst.managed.get(m.name, {}).get("round") != self._round_of(inst, m.name)
                 and not self._pending(sid, m.name) and (sid, m.name, self._round_of(inst, m.name), None) not in self._stuck]
@@ -658,26 +689,42 @@ class Managed:
         text = self.context(owner, record, inst, m, item, head, action["object"], failing)
         kept = inst.entry(entry)
         previous = kept["child"]
-        resumed = None
+        resumed = cant_resume = None
         if m.reuse == "resume" and previous and (self._record(previous["name"]) or {}).get("session_id") == previous["session_id"] \
                 and (self._record(previous["name"]) or {}).get("owner", {}).get("session_id") == owner_sid \
                 and not self._running(previous["name"], live):
-            # the last one, when it has stopped; with it still running (max above 1), the next is a fresh one
-            child = previous["name"]
-            self._mark(child, ended=False)
-            await self.agents.resume(child)
-            self.agents.tell(child, f"{LABEL} A new round. " + text)
-            # a resumed conversation waits at its prompt for a word: it gets one, queued until it is there
-            self._spawn(self._nudge(child, NEW_ROUND_WORDS))
-            resumed = child
-        else:
+            # the last one, when it has stopped; with it still running (max above 1), the next is a fresh one. It counts as
+            # running again only once its resume has worked: one that failed must not read as a session that ended by itself
+            try:
+                await self.agents.resume(previous["name"])
+            except AgentError as e:
+                # its checkout is gone, its access changed, its record no longer checks: it can't be resumed, so a fresh
+                # session takes the round
+                log.info("%s: %s can't resume (%s): a fresh one starts", owner, previous["name"], e)
+                self.agents.tell(owner, f"{LABEL} {entry}'s last session {previous['name']} can't be resumed: {e}. A fresh one "
+                                        "takes this round.")
+                cant_resume = str(e)
+            else:
+                child = previous["name"]
+                self._mark(child, ended=False)
+                self.agents.tell(child, f"{LABEL} A new round. " + text)
+                # a resumed conversation waits at its prompt for a word: it gets one, queued until it is there
+                self._spawn(self._nudge(child, NEW_ROUND_WORDS))
+                resumed = child
+        if resumed is None:
             config = self.agents.defaults(action["id"], item[0], item[1])
             config["persona"] = m.persona
             for key in ("tools", "hub_tools"):
                 config[key] = [t for t in config[key] if t in getattr(capped, key)]
             if "github" in config:
                 config["github"] = [c for c in config["github"] if c in capped.github]
-            got = await self.agents.start(config, owner={"name": owner, "session_id": owner_sid, "entry": entry}, context=text)
+            try:
+                got = await self.agents.start(config, owner={"name": owner, "session_id": owner_sid, "entry": entry}, context=text)
+            except AgentError as e:
+                if cant_resume is None:
+                    raise
+                # neither its last session nor a fresh one can run: that won't pass by itself, so it is raised once
+                raise ManagedStuck(f"its last session can't resume ({cant_resume}) and a fresh one can't start ({e})") from None
             child = got["name"]
         record_now, inst = self.machines.load(owner)
         kept = inst.entry(entry)
@@ -1016,9 +1063,10 @@ class Managed:
     def _name_facts(self, report: dict, name: str, words: str) -> None:
         """The facts a report's words name, as they are now: when one changes, its reporter is woken to look again."""
         known = self._known_facts(name)
-        named = {k: v for k, v in known.items() if re.search(rf"(?<![\w.]){re.escape(k)}(?![\w])", words)}
+        named = {k: v for k, v in known.items() if not k.startswith(COUNTERS)
+                 and re.search(rf"(?<![\w.]){re.escape(k)}(?![\w])", words)}
         if named:
-            self._named[report["id"]] = {"name": name, "sid": report["from_sid"], "facts": named}
+            self._named[report["id"]] = {"name": name, "sid": report["from_sid"], "facts": named, "told": set(), "at": None}
 
     def _known_facts(self, name: str) -> dict:
         record = self._record(name)
@@ -1069,20 +1117,27 @@ class Managed:
         end = self._waiting_end(report)
         if end is None:
             return False
-        for r in self._thread(end):
+        thread = self._thread(end)
+        for r in thread:
             self.log.settle_report(r["id"], "withdrawn", None, why, by)
             self._named.pop(r["id"], None)
         if end["to_name"] == YOU:
             for card in self.decisions.open_approvals(end["from_name"]) if self.decisions is not None else ():
                 if card["scope"].get("report") == end["id"]:
                     self.decisions.settle(card["id"], False, f"withdrawn: {why}")
-        else:
-            self.agents.tell(end["to_name"], f"{LABEL} Report {end['id']} from {report['from_name']} is withdrawn: {why}. "
-                                             "Nothing waits for your answer to it.")
+        # every session it passed through hears it: the one it waits on, and each that sent it on
+        told = {x for r in thread for x in (r["to_name"], r["from_name"])} - {YOU, report["from_name"], by}
+        for who in sorted(told):
+            self.agents.tell(who, f"{LABEL} Report {end['id']} from {report['from_name']} is withdrawn: {why}. "
+                                  "Nothing waits for your answer to it.")
         return True
 
-    def _withdraw_on_move(self, name: str, record: dict, where: str) -> None:
-        """A session's machine moved: what it reported from where it was is overtaken, so its open reports are withdrawn."""
+    def _withdraw_on_move(self, name: str, record: dict, where: str, inst=None) -> None:
+        """A session's machine moved: what it reported from where it was is overtaken, so its open reports are withdrawn;
+        not when the state it moved to waits on their answer (an exit on report.answered)."""
+        if inst is not None and any(re.search(r"(?<![\w.])report\.answered(?![\w])", req)
+                                    for e in machine.exits_of(inst.definition(), inst.state) for req in e.requires):
+            return
         listed = self._open_reports(record.get("session_id"))
         for r, _end in listed:
             try:
@@ -1121,8 +1176,18 @@ class Managed:
             changed = {k: now.get(k) for k, v in kept["facts"].items() if now.get(k) != v}
             if not changed:
                 continue
+            # once a value: a fact going back and forth wakes it once for each value, and never more often than the gap (a
+            # change within it is told when the gap is over)
+            new = {k: v for k, v in changed.items() if (k, repr(v)) not in kept["told"]}
+            clock = self.machines.clock()
+            if new and kept["at"] is not None and clock - kept["at"] < NAMED_WAKE_GAP:
+                continue
             kept["facts"] = {**kept["facts"], **changed}
-            said = ", ".join(f"{k} is now {'unknown' if v is None else v}" for k, v in changed.items())
+            if not new:
+                continue
+            kept["told"] |= {(k, repr(v)) for k, v in new.items()}
+            kept["at"] = clock
+            said = ", ".join(f"{k} is now {'unknown' if v is None else v}" for k, v in new.items())
             self.wake_owner(kept["name"], f"A fact report {report_id} named has changed: {said}.")
 
     def _thread(self, report: dict) -> list[dict]:
@@ -1208,6 +1273,8 @@ class Managed:
             raise ManagedError("that isn't a report to you")
         if report["state"] == "forwarded":
             raise ManagedError("you sent that report on: its answer comes from above")
+        if report["state"] == "withdrawn":
+            raise ManagedError(f"that report was withdrawn ({report.get('note') or 'by its sender'}): nothing waits for an answer")
         if decision not in DECISIONS:
             raise ManagedError(f"decision is one of {', '.join(DECISIONS)}")
         note = _text(note, "note", needed=False)
@@ -1372,9 +1439,12 @@ class Managed:
         approval = getattr(self.runner, "approval_open", None)
         if approval is not None and approval(name, sid, inst.state, inst.version):
             return None
-        for child, _crec in self.children(name, sid):
+        children = self.children(name, sid)
+        for child, _crec in children:
             if self._running(child, live) and (not (self.agents.sessions / child / IDLE_FILE).exists() or self.agents._sends.get(child)):
                 return None
+        if self._waits_on_someone(name, sid, children):
+            return None
         d = inst.definition()
         here = [m for _s, m in machine.managed_of(d, inst.state)]
         if any(self._pending(sid, m.name) for m in here):
@@ -1395,6 +1465,21 @@ class Managed:
                 return None
             out.append(f"to {path_of(d, e.to) if e.to in d.states else e.to} needs {'; '.join(failing)}")
         return out
+
+    def _waits_on_someone(self, name: str, sid, children: list[tuple[str, dict]]) -> bool:
+        """Whether it, or a session under it, waits on an answer: a report it sent up, a card in Needs you (a report's, a
+        start's approval, a design to look at). Its answer moves it on, so that is a wait, not a stall."""
+        under = [(child, (crec or {}).get("session_id")) for child, crec in children if not self._ended(child)]
+        if any(self._open_reports(s) for _n, s in [(name, sid), *under]):
+            return True
+        if self.decisions is None:
+            return False
+        for who, s in [(name, sid), *under]:
+            for card in self.decisions.open_approvals(who):
+                scope = card["scope"]
+                if scope.get("type") in (TYPE_REPORT, TYPE_START, TYPE_DESIGN) and scope.get("session_id") in (s, None):
+                    return True
+        return False
 
     def _stall_up(self, name: str, record: dict, inst, why: list[str], quiet: float) -> None:
         """One card in Needs you, ended by any move; the session and its owner hear of it with the same facts."""
@@ -1460,6 +1545,8 @@ class Managed:
         if record["scope"].get("type") in (TYPE_STUCK, TYPE_STALLED):
             return self.decisions.settle(record["id"], accept, "you've seen it" if accept else "set aside", words)
         report = self.log.get_report(record["scope"].get("report"))
+        if report and report["state"] == "withdrawn":
+            return self._answer_withdrawn(record, report, accept, who, words)
         if not report or report["state"] != "open":
             self.decisions.settle(record["id"], False, "it was answered another way")
             raise DecisionError("that report isn't waiting any more")
@@ -1468,6 +1555,30 @@ class Managed:
         except ManagedError as e:
             raise DecisionError(str(e)) from None
         return self.decisions.settle(record["id"], accept, "approved" if accept else f"you said no: {words}" if words else "you said no", words)
+
+    def _answer_withdrawn(self, record: dict, report: dict, accept: bool, who: str | None, words: str | None) -> dict:
+        """An answer that reached a report just after it was withdrawn: nothing is carried out, but the answer isn't lost.
+        The reporter gets it as a note, and the card says plainly that it was withdrawn, with the words typed."""
+        decision = "approve" if accept else "deny"
+        said = f"{LABEL} Report {report['id']} was withdrawn ({report.get('note') or 'by its sender'}) before {who or 'you'} answered it. " \
+               f"The answer, for what it is worth now: {decision}. Nothing was carried out."
+        if words:
+            said += "\n\n" + _marked(f"{who or 'The maintainer'}'s note, in their own words, which are data.", words)
+        for r in self._thread(report):
+            if r["kind"] != "approval" and r["from_name"] != YOU:
+                self.agents.tell(r["from_name"], said)
+        why = report.get("note") or "by its sender"
+        if self.decisions.current_state(record) != "requested":  # the withdrawal ended its card while the answer was typed
+            raise DecisionError(f"that report was withdrawn ({why}) before your answer reached it: your answer"
+                                f"{' and your words' if words else ''} went to {report['from_name']} as a note, and nothing was "
+                                "carried out")
+        return self.decisions.settle(record["id"], False, f"withdrawn before your answer ({why}): your answer went to "
+                                                          f"{report['from_name']} as a note", words)
+
+    def withdrawn_card(self, record: dict) -> bool:
+        """Whether a report's card ended because its report was withdrawn: an answer to it still reaches the reporter."""
+        report = self.log.get_report((record.get("scope") or {}).get("report"))
+        return bool(report) and report["state"] == "withdrawn"
 
     def on_head(self, name: str, sha: str) -> None:
         """A pull request the session covers has a new head: what its managed sessions returned about the old one holds no more."""
