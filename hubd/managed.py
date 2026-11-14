@@ -743,7 +743,7 @@ class Managed:
         self.machines.save(owner, inst)
         self._mark(child, round=kept["round"])  # each session of an entry with max above 1 may return in its round
         self._log(owner, record_now, inst, "hub:managed.start", proposal=f"start {entry}",
-                  checks={"started": child, "resumed": bool(resumed), "by": by, "grant": _grant_words(capped)})
+                  checks={"started": child, "resumed": bool(resumed), "by": by, "round": kept["round"], "grant": _grant_words(capped)})
         if entry not in {m.name for _s, m in machine.managed_of(inst.definition(), inst.state)} or record_now.get("session_id") != owner_sid:
             await self._end(child, "its owner moved on while it started")  # moved on while it started
         else:

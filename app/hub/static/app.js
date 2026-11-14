@@ -2791,11 +2791,13 @@ function SessionView({ session, mode = "full", asks, here, seen, buttons, queued
   const a = session.agent;
   const name = session.name;
   const full = mode === "full", compact = mode === "compact";
+  // A tile (Sessions › Running) draws its own header and workflow strip, and its terminal waits to be focused.
+  const tile = mode === "tile";
   const act = useAct(after);
   const [confirm, dialog] = useConfirm();
   const [note, setNote] = useState("");
   const focus = useRef(null);
-  const { data, error } = useLoad(() => (a && !compact ? post("agents/manifest", { name }) : Promise.resolve(null)), [name, a ? a.persona : ""]);
+  const { data, error } = useLoad(() => (a && !compact && !tile ? post("agents/manifest", { name }) : Promise.resolve(null)), [name, a ? a.persona : ""]);
   const m = data && data.manifest;
   const mine = ((asks && asks.open) || []).filter((x) => x.session === name);
   const words = sessionWords(session);
@@ -2804,7 +2806,7 @@ function SessionView({ session, mode = "full", asks, here, seen, buttons, queued
   // 004 FR-004: the others, beside the one you're on.
   const others = here ? covers.filter((c) => `${c.repo}#${c.number}` !== here) : covers.slice(1);
   const hid = `sv-${mode}-${name}`;
-  const where = full ? "Sessions" : compact ? (seen && seen.screen) || "Sessions" : "Work";
+  const where = full || tile ? "Sessions" : compact ? (seen && seen.screen) || "Sessions" : "Work";
   const live = a && !a.ended;
   const thisItem = seen && seen.selection ? `${seen.kind || "item"} ${seen.selection}` : "";
   // The presets are written for the Steward (steward-buttons.toml). Other sessions get Esc and your own words.
@@ -2830,7 +2832,10 @@ function SessionView({ session, mode = "full", asks, here, seen, buttons, queued
   const chip = a ? chipOf(a.machine, a.ended) : null;
   const embeddedNow = mode === "embedded" || (a && a.view && a.view.mode === "embedded");
   const family = a && FAMILY_WORD[a.family] ? a.family : a ? "unknown" : "shell";
-  const head = !compact && html`<header class="svhead ${family}">
+  const head = tile ? html`<div class="row svtilebar" style="gap: 6px">
+      ${designing && html`<a class="button plain" href=${hash("design", { name })}>Design view</a>`}
+      <button class="plain" disabled=${act.busy} onClick=${stop}>${a ? "Stop…" : "End…"}</button></div>`
+    : !compact && html`<header class="svhead ${family}">
     <${PersonaBadge} persona=${personaOf(a)} />
     <span class="stack" style="gap: 2px; flex: 1 1 220px; min-width: 0">
       <h2 id=${hid}>${a ? a.persona_name || a.persona : name}</h2>
@@ -2844,21 +2849,21 @@ function SessionView({ session, mode = "full", asks, here, seen, buttons, queued
       ${!full && html`<a class="button plain" href=${hash("shells", { name })}>Open in Sessions</a>`}
       ${full && onClose && html`<button class="plain" onClick=${onClose}>Detach</button>`}
       <button class="plain" disabled=${act.busy} onClick=${stop}>${a ? "Stop…" : "End…"}</button></span></header>`;
-  const pills = !compact && (covers.length > 0 || prs.length > 0) && html`<div class="svitems">
+  const pills = !compact && !tile && (covers.length > 0 || prs.length > 0) && html`<div class="svitems">
     ${covers.length > 0 && html`<span class="row" style="gap: 6px"><span class="eyebrow">Covers</span><${ItemPill} ...${here ? covers.find((c) => `${c.repo}#${c.number}` === here) || covers[0] : covers[0]} /></span>`}
     ${others.length > 0 && html`<nav class="row" style="gap: 6px" aria-label="Also on these items"><span class="eyebrow">Also on these items</span>${others.map((c) => html`<${ItemPill} ...${c} />`)}</nav>`}
     ${prs.length > 0 && html`<span class="row" style="gap: 6px"><span class="eyebrow">Pull requests</span>${prs.map((p) => html`<${ItemPill} kind="pr" repo=${p.repo} number=${p.number} state=${p.state ? String(p.state).toLowerCase() : undefined} />`)}</span>`}</div>`;
   // 012 FR-081: the Workflow row, with the long chip, and the machine panel it opens in place.
   // A session from before workflow instances has none until its machine is first read: opening the panel makes it.
-  const wfrow = !compact && a && html`<div class="svwf">
+  const wfrow = !compact && !tile && a && html`<div class="svwf">
     <span class="eyebrow">Workflow</span>${chip && html`<${StateChip} machine=${a.machine} ended=${a.ended} size="lg" />`}
     <span class="small soft" style="flex: 1 1 200px">${!chip ? "no machine yet: open it to start one from its action" : a.machine.one_state ? `one-state workflow ${a.machine.workflow}, from its action` : `${a.machine.workflow}${a.machine.paused ? " · paused" : ""}`}</span>
     <button type="button" class=${`il-btn${chip && chip.kind === "waits" && !machineOpen ? " wfwaits" : ""}`} aria-expanded=${machineOpen ? "true" : "false"} aria-controls=${`mp-${hid}`}
       onClick=${() => setMachineOpen(!machineOpen)}>${machineOpen ? "Hide the workflow" : "Show the workflow"}</button></div>
     ${machineOpen && html`<div class="svmachine" id=${`mp-${hid}`}><${MachinePanel} name=${name} onMoved=${after} /></div>`}`;
-  return html`${dialog}<section class="sv ${mode} ${full ? "termbox" : mode === "embedded" ? "embedded" : "dock-session"}" aria-labelledby=${compact ? undefined : hid} aria-label=${compact ? `Session ${name}` : undefined}>
+  return html`${dialog}<section class="sv ${mode} ${full ? "termbox" : mode === "embedded" ? "embedded" : tile ? "" : "dock-session"}" aria-labelledby=${compact || tile ? undefined : hid} aria-label=${compact || tile ? `Session ${name}` : undefined}>
     ${head}${pills}${wfrow}
-    ${!compact && html`<${SessionSpec} session=${session} manifest=${m} error=${error} />`}
+    ${!compact && !tile && html`<${SessionSpec} session=${session} manifest=${m} error=${error} />`}
     <${Err} text=${act.error} />
     ${mine.length > 0 && html`<div class="${compact ? "dock-asks" : "session-asks"} stack" style="gap: ${compact ? 8 : 10}px">${mine.map((x) => html`<${Ask} key=${x.id} ask=${x} compact=${compact} onDone=${asks.reload} />`)}</div>`}
     ${children}
@@ -2866,7 +2871,7 @@ function SessionView({ session, mode = "full", asks, here, seen, buttons, queued
       <button class="plain" onClick=${() => focus.current && focus.current()}>Jump to prompt</button></div>`}
     ${a && a.ended && onResume && html`<div role="status" class="waitbar ended"><span>Claude has ended in this session.</span>
       <button class="plain" disabled=${act.busy} onClick=${onResume}>Resume…</button></div>`}
-    <div class=${compact ? "dock-term" : "svterm"} data-theme=${compact ? undefined : "white-night"}><${TerminalView} key=${name} name=${name} quiet=${compact} focusRef=${focus} onGone=${onGone || (() => {})} /></div>
+    <div class=${compact ? "dock-term" : "svterm"} data-theme=${compact ? undefined : "white-night"}><${TerminalView} key=${name} name=${name} quiet=${compact || tile} focusRef=${focus} onGone=${onGone || (() => {})} /></div>
     ${a && html`<div class="svsend ${compact ? "compact" : ""}">
       <div class="row" style="gap: 6px">
         ${offered.map((b) => html`<button class="dock-msg" disabled=${act.busy || !live} title=${b.text.replaceAll("{selection}", thisItem)} onClick=${() => press(b)}>${b.label}</button>`)}
@@ -4940,105 +4945,666 @@ function SessionTabs({ tab }) {
 function Sessions({ query, asks }) {
   const tab = query.tab || "all";
   if (tab === "history") return html`<${SessionHistory} asks=${asks} />`;
-  return html`<${Shells} query=${query} asks=${asks} />`;
+  return html`<${Running} query=${query} asks=${asks} />`;
 }
 
-const SESSIONS_EVERY = 4000; // ms
+const SESSIONS_EVERY = 4000; // ms: a move, start, resume, end, return or item change shows within 5 s (004 FR-024)
 
-// 004 FR-012: Running, in four groups by where a session is drawn and whether Claude still runs in it.
-const RUN_GROUPS = [["embedded", "Embedded in a view"], ["background", "In the background"], ["finished", "Finished, tmux still open"], ["plain", "Plain shells"]];
-const runGroup = (s) => (!s.agent ? "plain" : s.agent.ended ? "finished" : s.agent.view && s.agent.view.mode === "embedded" ? "embedded" : "background");
-const readBadgesOnly = () => { try { return localStorage.getItem("sessions-badges") === "1"; } catch { return false; } };
+// --- Sessions › Running: a tree of the workflows beside tabbed, tiled session views (004 FR-012–FR-015, FR-024–FR-030) ---
+const LIVE_WORD = { working: "working", idle: "idle", waits: "waits for you", stopped: "stopped", ended: "ended" };
+const TREE_FILTERS = [["all", "All"], ["needs", "Needs you"], ["working", "Working"]];
+const MAX_TILES = 3;
+const TILE_MIN = 380; // px: below two of these side by side, only the focused tile shows (FR-026)
+const TILES_KEY = "sessions-tiles";
+const itemRef = (it) => (it.kind === "repo" ? it.repo : `${it.repo}#${it.number}`);
+const minutes = (s) => (s == null ? "" : s < 90 ? `${s} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min`);
+const costWords = (c) => (c == null ? "" : `$${c < 10 ? c.toFixed(2) : Math.round(c)}`);
+const servedWords = (n) => (n.served || []).map(([st, r]) => (st ? `${st}${r != null ? ` ${r}` : ""}` : `round ${r}`)).join(" → ");
 
-function Shells({ query, asks }) {
-  const [kept, setKept] = useState(null);
-  // Sessions are started from other pages and by the Steward, so this list is the one that polls quickly.
-  const { data, error, reload } = useLoad(() => api("shells"), [], SESSIONS_EVERY);
-  const stopped = useLoad(() => api("agents/stopped").catch(() => []), [], SESSIONS_EVERY);
+// An item's states in words (FR-015): an issue open or closed; a pull request draft, open or merged, its checks and the
+// review verdict. Each is a word, so none rests on colour.
+function itemWords(it) {
+  const out = [];
+  if (it.state) out.push({ text: it.state, ck: "" });
+  if (it.kind === "pr" && it.checks) out.push({ text: `${it.checks === "pass" ? "✓" : it.checks === "fail" ? "✕" : "…"} checks`, ck: it.checks });
+  if (it.kind === "pr" && it.verdict) out.push({ text: `review ${it.verdict}`, ck: "" });
+  return out;
+}
+
+// Whether a node matches the filters by itself (FR-025). An ended one the tree doesn't keep (FR-024) shows only with Ended.
+function treeMatches(n, o) {
+  if (!n) return false;
+  if (n.live === "ended" && !n.kept && !o.ended) return false;
+  if (o.filter === "needs" && !(n.cards > 0 || n.live === "waits" || (n.machine && n.machine.waits))) return false;
+  if (o.filter === "working" && n.live !== "working") return false;
+  const items = n.items || [];
+  if (o.repo && !items.some((i) => i.repo === o.repo)) return false;
+  const words = String(o.query || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length) {
+    const hay = [n.name, n.persona && n.persona.name, n.title, ...items.map((i) => `${itemRef(i)} ${i.title || ""}`)].join(" ").toLowerCase();
+    if (!words.every((w) => hay.includes(w))) return false;
+  }
+  return true;
+}
+
+// The tree's rows in order (FR-012–FR-014, FR-025): each root, its entries and their sessions, an entry's earlier rounds
+// folded; then quick tasks by item, then plain shells. A filter keeps the owners above a match, dimmed, and opens the way to
+// it. o: {filter, query, repo, ended, exp}; exp holds what was opened or closed by hand, by row id.
+function treeRows(tree, o) {
+  const N = (tree && tree.nodes) || {};
+  const filtering = o.filter !== "all" || Boolean(String(o.query || "").trim()) || Boolean(o.repo);
+  const exp = o.exp || {};
+  const isOpen = (id, dflt) => (exp[id] !== undefined ? exp[id] : filtering ? true : dflt);
+  const kids = (name) => ((N[name] && N[name].entries) || []).flatMap((e) => e.sessions.filter((k) => N[k]));
+  const shows = {};
+  const visit = (name, depth) => {
+    if (name in shows || depth > 32) return Boolean(shows[name]);
+    shows[name] = false;
+    let any = treeMatches(N[name], o);
+    for (const k of kids(name)) if (visit(k, depth + 1)) any = true;
+    shows[name] = any;
+    return any;
+  };
+  const rows = [];
+  const session = (name, level, parentId) => {
+    const n = N[name];
+    const id = `n:${name}`;
+    const entries = (n.entries || []).filter((e) => (filtering ? e.sessions.some((k) => shows[k])
+      : n.live !== "ended" || e.sessions.some((k) => shows[k]) || e.earlier.length > 0));
+    const canOpen = entries.length > 0;
+    const open = canOpen && isOpen(id, true);
+    rows.push({ id, kind: "session", name, level, parentId, canOpen, open, dim: filtering && !treeMatches(n, o) });
+    if (!open) return;
+    for (const e of entries) {
+      const eid = `e:${name}:${e.name}`;
+      const live = e.sessions.filter((k) => shows[k]);
+      const fold = !filtering && e.earlier.length > 0;
+      const has = live.length > 0 || fold;
+      const eo = has && isOpen(eid, true);
+      rows.push({ id: eid, kind: "entry", owner: name, entry: e, level: level + 1, parentId: id, canOpen: has, open: eo, dim: false });
+      if (!eo) continue;
+      for (const k of live) session(k, level + 2, eid);
+      if (fold) {
+        const fid = `f:${name}:${e.name}`;
+        const fo = isOpen(fid, false);
+        rows.push({ id: fid, kind: "fold", owner: name, entry: e, level: level + 2, parentId: eid, canOpen: true, open: fo, dim: false });
+        if (fo) for (const x of e.earlier) rows.push({ id: `h:${name}:${x.name}`, kind: "past", past: x, level: level + 3, parentId: fid, canOpen: false, open: false, dim: false });
+      }
+    }
+  };
+  for (const r of tree.roots || []) if (N[r] && visit(r, 0)) session(r, 1, "");
+  const quick = (tree.quick || []).map(([key, names]) => [key, names.filter((k) => N[k] && visit(k, 0))]).filter(([, names]) => names.length);
+  if (quick.length) {
+    const gid = "g:quick", go = isOpen(gid, true);
+    rows.push({ id: gid, kind: "group", label: "Quick tasks · one state, on an item", level: 1, parentId: "", canOpen: true, open: go, dim: false });
+    if (go) {
+      for (const [key, names] of quick) {
+        const qid = `q:${key}`, qo = isOpen(qid, true);
+        rows.push({ id: qid, kind: "item", label: key, count: names.length, level: 2, parentId: gid, canOpen: true, open: qo, dim: false });
+        if (qo) for (const k of names) session(k, 3, qid);
+      }
+    }
+  }
+  const shells = (tree.shells || []).filter((k) => N[k] && visit(k, 0));
+  if (shells.length) {
+    const gid = "g:shells", go = isOpen(gid, true);
+    rows.push({ id: gid, kind: "group", label: "Plain shells · no workflow", level: 1, parentId: "", canOpen: true, open: go, dim: false });
+    if (go) for (const k of shells) session(k, 2, gid);
+  }
+  const sizes = {};
+  for (const r of rows) sizes[r.parentId] = (sizes[r.parentId] || 0) + 1;
+  const seen = {};
+  for (const r of rows) { seen[r.parentId] = (seen[r.parentId] || 0) + 1; r.setsize = sizes[r.parentId]; r.pos = seen[r.parentId]; }
+  return rows;
+}
+
+// A tree view's keys (FR-025, WAI-ARIA tree view): arrows walk and open or close, Home and End jump, Enter opens a session
+// (or opens and closes a group), Space selects. What to do, for the component to carry out; null: the key isn't the tree's.
+function treeKey(rows, focusId, key) {
+  const i = rows.findIndex((r) => r.id === focusId);
+  if (!rows.length) return null;
+  if (i < 0) return { focus: rows[0].id };
+  const r = rows[i];
+  if (key === "ArrowDown") return i + 1 < rows.length ? { focus: rows[i + 1].id } : {};
+  if (key === "ArrowUp") return i > 0 ? { focus: rows[i - 1].id } : {};
+  if (key === "Home") return { focus: rows[0].id };
+  if (key === "End") return { focus: rows[rows.length - 1].id };
+  if (key === "ArrowRight") return r.canOpen && !r.open ? { toggle: r.id, open: true } : r.canOpen && rows[i + 1] ? { focus: rows[i + 1].id } : {};
+  if (key === "ArrowLeft") return r.canOpen && r.open ? { toggle: r.id, open: false } : r.parentId ? { focus: r.parentId } : {};
+  if (key === "Enter") return r.kind === "session" ? { open: r.name } : r.canOpen ? { toggle: r.id, open: !r.open } : {};
+  if (key === " ") return r.kind === "session" ? { select: r.name } : r.canOpen ? { toggle: r.id, open: !r.open } : {};
+  return null;
+}
+
+// A session's workflow, for its tab's group (FR-026): the top of its owner chain.
+function tabGroup(nodes, name) {
+  let at = name;
+  for (let i = 0; i < 32 && nodes[at] && nodes[at].parent && nodes[nodes[at].parent]; i++) at = nodes[at].parent;
+  return at;
+}
+
+// FR-028: choosing a session focuses its tile, or opens it in the focused tile's place unless that tile's group is pinned
+// (then beside it, or in the last tile not pinned). beside: open it next to the tiles there are, up to three.
+function placeTile(st, name, groupOf, beside) {
+  const tabs = st.tabs.includes(name) ? st.tabs : [...st.tabs, name];
+  if (st.tiles.includes(name)) return { ...st, tabs, focus: name };
+  const pinned = (t) => st.pinned.includes(groupOf(t));
+  const tiles = st.tiles.slice();
+  let at = tiles.indexOf(st.focus);
+  if (beside || at < 0 || pinned(st.focus)) {
+    if (tiles.length < MAX_TILES) at = tiles.length;
+    else at = [...tiles.keys()].reverse().find((k) => !pinned(tiles[k])) ?? -1;
+  }
+  if (at < 0) return { ...st, tabs }; // every tile is pinned: it waits as a tab
+  tiles[at] = name;
+  const sizes = tiles.map((_t, k) => (k < st.sizes.length && tiles.length === st.tiles.length ? st.sizes[k] : 1));
+  return { ...st, tabs, tiles, focus: name, sizes };
+}
+
+// FR-026: "Open this workflow": the owner and the sessions under it that still run, side by side; the rest stay as tabs.
+function openWorkflow(st, name, nodes) {
+  const under = ((nodes[name] && nodes[name].entries) || []).flatMap((e) => e.sessions).filter((k) => nodes[k] && nodes[k].live !== "ended");
+  const tiles = [name, ...under].slice(0, MAX_TILES);
+  const tabs = [...st.tabs, ...[name, ...under].filter((k) => !st.tabs.includes(k))];
+  return { ...st, tabs, tiles, focus: name, sizes: tiles.map(() => 1) };
+}
+
+// How many tiles side by side (the 1, 2, 3 switch): the focused one first, then the tiles there were, then other tabs.
+function tileCount(st, k) {
+  const pool = [st.focus, ...st.tiles, ...st.tabs].filter((t, i, a) => t && a.indexOf(t) === i);
+  const tiles = pool.slice(0, k);
+  return { ...st, tiles, sizes: tiles.map(() => 1), focus: tiles.includes(st.focus) ? st.focus : tiles[0] || null };
+}
+
+// A tab closed: its tile goes too; the focus moves to a neighbour.
+function closeTab(st, name) {
+  const tiles = st.tiles.filter((t) => t !== name);
+  const at = st.tiles.indexOf(name);
+  const focus = st.focus !== name ? st.focus : tiles[Math.max(0, at - 1)] || null;
+  return { ...st, tabs: st.tabs.filter((t) => t !== name), tiles, focus, sizes: st.sizes.filter((_s, k) => k !== at) };
+}
+
+// Ctrl+] and Ctrl+[ (FR-027): the next or the previous tile, round.
+function stepTile(st, step) {
+  if (!st.tiles.length) return st;
+  const at = st.tiles.indexOf(st.focus);
+  return { ...st, focus: st.tiles[((at < 0 ? 0 : at) + step + st.tiles.length) % st.tiles.length] };
+}
+
+// A gutter moved (pointer or arrows): the two tiles beside it share their widths, each keeping at least 15 %.
+function resizeTiles(sizes, j, delta) {
+  const s = sizes.slice();
+  const total = s[j] + s[j + 1];
+  s[j] = Math.max(total * 0.15, Math.min(total * 0.85, s[j] + delta * total));
+  s[j + 1] = total - s[j];
+  return s;
+}
+
+// The tiles kept per viewer, without names the tree no longer has.
+function readTiles(names) {
+  const empty = { tabs: [], tiles: [], focus: null, pinned: [], sizes: [] };
+  try {
+    const v = JSON.parse(localStorage.getItem(TILES_KEY) || "null");
+    if (!v || !Array.isArray(v.tabs)) return empty;
+    const ok = (list) => (Array.isArray(list) ? list.filter((t) => typeof t === "string" && (!names || names.has(t))) : []);
+    const tiles = ok(v.tiles).slice(0, MAX_TILES);
+    return { tabs: ok(v.tabs), tiles, focus: tiles.includes(v.focus) ? v.focus : tiles[0] || null,
+      pinned: Array.isArray(v.pinned) ? v.pinned.filter((p) => typeof p === "string") : [], sizes: tiles.map(() => 1) };
+  } catch {
+    return empty;
+  }
+}
+// Tabs and tiles without the names the tree no longer has (a kept layout from before, or a session gone since).
+function pruneTiles(st, names) {
+  const keep = (list) => list.filter((t) => names.has(t));
+  const tiles = keep(st.tiles);
+  if (tiles.length === st.tiles.length && keep(st.tabs).length === st.tabs.length) return st;
+  return { ...st, tabs: keep(st.tabs), tiles, focus: tiles.includes(st.focus) ? st.focus : tiles[0] || null,
+    sizes: tiles.map((t) => st.sizes[st.tiles.indexOf(t)] || 1) };
+}
+const writeTiles = (st) => { try { localStorage.setItem(TILES_KEY, JSON.stringify(st)); } catch { /* a per-browser convenience */ } };
+
+// What a row says changed since the last look (FR-024): its liveness, state, rounds, return, cards or items.
+const nodeSig = (n) => JSON.stringify([n.live, n.machine && n.machine.state, n.pending_to, n.served, n.returned, n.cards,
+  (n.items || []).map((i) => [i.state, i.checks, i.verdict])]);
+function useChanged(nodes) {
+  const prev = useRef(null);
+  const [changed, setChanged] = useState(() => new Set());
+  useEffect(() => {
+    if (!nodes) return;
+    const sigs = Object.fromEntries(Object.entries(nodes).map(([k, n]) => [k, nodeSig(n)]));
+    if (prev.current) {
+      const moved = Object.keys(sigs).filter((k) => prev.current[k] !== undefined && prev.current[k] !== sigs[k]);
+      if (moved.length) setChanged((s) => new Set([...s, ...moved]));
+    }
+    prev.current = sigs;
+  }, [nodes]);
+  const seen = useCallback((name) => setChanged((s) => { if (!s.has(name)) return s; const t = new Set(s); t.delete(name); return t; }), []);
+  return [changed, seen];
+}
+
+// The mark and the word of a liveness (FR-015): a shape each, so it never rests on colour.
+const LiveMark = ({ live }) => html`<span class="sn-live" data-live=${live}>${LIVE_WORD[live] || live}</span>`;
+// Its cards wait in Needs you (asks, and the workflow's decisions): the mark opens them there.
+const CardsMark = ({ n, name }) => (n > 0 ? html`<button type="button" class="sn-asks" aria-label=${`${count(n, "card")} for you: open ${n === 1 ? "it" : "them"} in Needs you`}
+  onClick=${(e) => { e.stopPropagation(); needsYou({ session: name }); }}>${count(n, "card")} for you</button>` : null);
+
+function TreeItem({ it }) {
+  const words = itemWords(it);
+  const label = `${KIND_WORD[it.kind] || (it.kind === "repo" ? "Repository" : "Item")} ${itemRef(it)}${it.title ? `: ${it.title}` : ""}${words.length ? `, ${words.map((w) => w.text).join(", ")}` : ""}${it.role === "holds" ? ", held" : ""}`;
+  const body = html`${it.kind !== "repo" && html`<${KindIcon} kind=${it.kind} />`}<span class="sn-item__ref">${itemRef(it)}</span>${words.map((w) => html`<span class="sn-item__st"><span class="sn-item__ck" data-ck=${w.ck}>${w.text}</span></span>`)}${it.role === "holds" && html`<span class="sn-item__st">held</span>`}`;
+  const attrs = { class: "sn-item", "data-kind": it.kind, "data-state": it.state || "", "data-checks": it.checks || "", title: label, "aria-label": label };
+  return it.kind === "issue" || it.kind === "pr" ? html`<a ...${attrs} href=${itemHref(it)}>${body}</a>` : html`<span ...${attrs}>${body}</span>`;
+}
+
+function NodeChip({ n }) {
+  if (!n.machine) return null;
+  return html`<${StateChip} machine=${n.machine} ended=${n.live === "ended"} />${n.pending_to && html`<span class="small">→ ${n.pending_to}, waits for your confirm</span>`}`;
+}
+
+// How an entry runs (FR-013): resume or fresh, how it starts, the round, and how many run against its most.
+function entryWords(e) {
+  if (e.gone) return "no longer in its workflow";
+  const start = e.start === "on-request" ? (e.when ? `on request, when ${e.when}` : "on request") : e.when ? `by itself when ${e.when}` : "by itself";
+  return [e.reuse === "resume" ? "resumes" : "fresh each round", start, e.round ? `round ${e.round}` : "", `${e.running}/${e.max} running`,
+    e.on_exit === "keep" ? "kept on exit" : e.on_exit === "handover" ? "handed over on exit" : ""].filter(Boolean).join(" · ");
+}
+
+// A session row's second line: rounds served, what it returned, who started it, and time and cost when known (FR-014, FR-015).
+function nodeSub(n) {
+  return [n.resumed ? `resumed · served ${servedWords(n)}` : n.served && n.served.length ? `served ${servedWords(n)}` : "",
+    n.returned ? `returned ${n.returned}` : "", !n.parent && n.started_by ? `started by ${byWords(n.started_by)}` : "",
+    n.plain ? `plain shell${n.cwd ? ` · ${n.cwd}` : ""}` : "", [minutes(n.seconds), costWords(n.cost)].filter(Boolean).join(" · ")].filter(Boolean).join(" · ");
+}
+
+function TreeRow({ r, tree, sel, focusId, tiles, focusTile, changed, dom, onPick, onToggle, onOpen, onBeside, onWorkflow }) {
+  const N = tree.nodes;
+  const base = { role: "treeitem", id: dom(r.id), class: "sn-row", "data-row": r.kind, "data-dim": r.dim ? "true" : "false", "aria-level": r.level,
+    "aria-setsize": r.setsize, "aria-posinset": r.pos, "aria-expanded": r.canOpen ? (r.open ? "true" : "false") : undefined,
+    tabindex: r.id === focusId ? 0 : -1, style: `padding-left: ${(r.level - 1) * 16 + 2}px` };
+  const twist = html`<span class="sn-tw" data-open=${r.open ? "true" : "false"} aria-hidden="true" onClick=${(e) => { e.stopPropagation(); onToggle(r); }}>${r.canOpen && html`<${Chevron} right />`}</span>`;
+  if (r.kind === "session") {
+    const n = N[r.name];
+    const t = tiles.indexOf(r.name);
+    const has = (n.entries || []).some((e) => e.sessions.length);
+    const label = `${r.name}, ${n.persona ? n.persona.name : "plain shell"}, ${LIVE_WORD[n.live]}${n.machine ? `, in ${(n.machine.path || [n.machine.state]).join(" › ")}` : ""}${n.cards ? `, ${count(n.cards, "card")} for you` : ""}${t >= 0 ? `, open in tile ${t + 1}` : ""}${r.dim ? ", above a match" : ""}`;
+    return html`<li ...${base} aria-selected=${r.name === sel ? "true" : "false"} aria-label=${label} onClick=${() => onPick(r.name)}>
+      ${twist}<span class="sn-body">
+        <span class="sn-line"><${PersonaBadge} persona=${n.persona} /><span class="sn-name">${r.name}</span><${LiveMark} live=${n.live} /><${CardsMark} n=${n.cards} name=${r.name} />
+          ${t >= 0 && html`<span class="sn-tile" data-focus=${r.name === focusTile ? "true" : "false"}>▣ tile ${t + 1}${r.name === focusTile ? " · focused" : ""}</span>`}
+          ${changed.has(r.name) && html`<span class="sn-mark-new">changed</span>`}</span>
+        ${(n.machine || (n.items || []).length > 0) && html`<span class="sn-line"><${NodeChip} n=${n} />${(n.items || []).map((it) => html`<${TreeItem} it=${it} />`)}</span>`}
+        ${nodeSub(n) && html`<span class="sn-sub">${nodeSub(n)}</span>`}
+        ${r.name === sel && html`<span class="sn-act">
+          <button type="button" onClick=${(e) => { e.stopPropagation(); onOpen(r.name); }}>${t >= 0 ? "Focus its tile" : "Open in a tile"}</button>
+          ${t < 0 && tiles.length > 0 && tiles.length < MAX_TILES && html`<button type="button" onClick=${(e) => { e.stopPropagation(); onBeside(r.name); }}>Open beside</button>`}
+          ${has && html`<button type="button" onClick=${(e) => { e.stopPropagation(); onWorkflow(r.name); }}>Open this workflow</button>`}</span>`}</span></li>`;
+  }
+  if (r.kind === "entry") {
+    const e = r.entry;
+    const off = !e.in_force && e.states && e.states.length ? `runs in ${e.states.join(", ")}` : "";
+    const note = e.note || (!e.sessions.length && !e.earlier.length ? (e.in_force ? "not started" : "not started in this state") : "");
+    return html`<li ...${base} data-force=${e.in_force ? "true" : "false"} aria-label=${`Entry ${e.name}: ${entryWords(e)}${off ? `, ${off}` : ""}${note ? `. ${note}` : ""}`} onClick=${() => onToggle(r)}>
+      ${twist}<span class="sn-body"><span class="sn-entry">${e.name}${e.persona && html` <span class="sn-entry__cfg">${e.persona}</span>`}<span class="sn-entry__cfg">${entryWords(e)}</span>${off && html`<span class="sn-entry__off">${off}</span>`}</span>
+        ${note && html`<span class="sn-note">${note}</span>`}</span></li>`;
+  }
+  if (r.kind === "fold") {
+    const e = r.entry;
+    const rets = e.earlier.map((x) => x.returned).filter(Boolean);
+    const text = `${e.earlier.length} earlier ${e.name}${e.earlier.length === 1 ? "" : "s"}${rets.length ? ` · ${rets.join("; ")}` : ""}`;
+    return html`<li ...${base} aria-label=${text} onClick=${() => onToggle(r)}>${twist}<span class="sn-body"><span class="sn-fold">${text}</span></span></li>`;
+  }
+  if (r.kind === "past") {
+    const x = r.past;
+    return html`<li ...${base} aria-label=${`${x.name}, round ${x.round ?? "unknown"}, returned ${x.returned || "nothing"}`}>${twist}<span class="sn-body">
+      <span class="sn-line"><span class="sn-name">${x.name}</span><${LiveMark} live="ended" />${x.round != null && html`<span class="small">round ${x.round}</span>`}</span>
+      <span class="sn-sub">returned <b>${x.returned || "nothing"}</b>${x.seconds != null || x.cost != null ? ` · ${[minutes(x.seconds), costWords(x.cost)].filter(Boolean).join(" · ")}` : ""}${x.gone ? " · its folder is gone" : ""}</span></span></li>`;
+  }
+  return html`<li ...${base} aria-label=${r.label} onClick=${() => onToggle(r)}>${twist}<span class="sn-body">
+    <span class=${r.kind === "group" ? "sn-group" : "sn-line"}>${r.kind === "item" ? html`<span class="sn-name">${r.label}</span><span class="sn-sub">${count(r.count, "task")}</span>` : r.label}</span></span></li>`;
+}
+
+// FR-025: the filters, the search and the tree, a keyboard tree with one row in the tab order.
+function SessionTree({ tree, view, setView, sel, tiles, focusTile, changed, onPick, onOpen, onBeside, onWorkflow }) {
+  const N = tree.nodes || {};
+  const rows = treeRows(tree, view);
+  const [focusId, setFocusId] = useState(null);
+  const box = useRef(null);
+  const uid = useRef(`sn${++pickerSeq}`).current;
+  const dom = (id) => `${uid}-${String(id).replace(/[^A-Za-z0-9_-]/g, "_")}`;
+  const at = rows.some((r) => r.id === focusId) ? focusId : rows.some((r) => r.id === `n:${sel}`) ? `n:${sel}` : (rows[0] || {}).id;
+  const toggle = (r) => { setFocusId(r.id); setView({ ...view, exp: { ...view.exp, [r.id]: !r.open } }); };
+  const moveTo = (id) => { setFocusId(id); setTimeout(() => { const el = document.getElementById(dom(id)); if (el) el.focus(); }); };
+  const onKey = (e) => {
+    if (e.target.closest && e.target.closest("button, a, input, select")) return;
+    const did = treeKey(rows, at, e.key);
+    if (!did) return;
+    e.preventDefault();
+    if (did.focus) moveTo(did.focus);
+    if (did.toggle) setView({ ...view, exp: { ...view.exp, [did.toggle]: did.open } });
+    if (did.open) onOpen(did.open);
+    if (did.select) onPick(did.select);
+  };
+  const live = Object.values(N).filter((n) => !n.plain && n.live !== "ended");
+  const cards = Object.values(N).reduce((a, n) => a + (n.cards || 0), 0);
+  const repos = [...new Set(Object.values(N).flatMap((n) => (n.items || []).map((i) => i.repo)).filter(Boolean))].sort();
+  const filtering = view.filter !== "all" || view.query.trim() || view.repo;
+  const empty = !Object.keys(N).length;
+  const expandAll = () => { const exp = {}; for (const r of treeRows(tree, { ...view, exp: {} })) if (r.canOpen) exp[r.id] = true; for (const n of Object.values(N)) for (const e of n.entries || []) if (e.earlier.length) exp[`f:${n.name}:${e.name}`] = true; setView({ ...view, exp }); };
+  const collapseAll = () => { const exp = {}; for (const r of rows) if (r.canOpen) exp[r.id] = false; setView({ ...view, exp }); };
+  return html`<nav class="sn" aria-label="Sessions by workflow" ref=${box}>
+    <div class="sn-bar">
+      <label class="sn-search"><span class="sr">Find a session or item</span><input type="search" value=${view.query} placeholder="Find a session, issue or PR" onInput=${(e) => setView({ ...view, query: e.target.value })} /></label>
+      <div class="sn-filters" role="group" aria-label="Show">
+        ${TREE_FILTERS.map(([id, label]) => html`<button type="button" class="sn-f" aria-pressed=${view.filter === id ? "true" : "false"} onClick=${() => setView({ ...view, filter: id })}>${label}<span class="sn-f__n">${id === "all" ? live.length : id === "needs" ? cards : live.filter((n) => n.live === "working").length}</span></button>`)}
+        <label class="sn-f"><span class="sr">Repository</span><select value=${view.repo} onChange=${(e) => setView({ ...view, repo: e.target.value })}>
+          <option value="">Every repository</option>${repos.map((r) => html`<option value=${r}>${r}</option>`)}</select></label></div>
+      <div class="sn-tools">
+        <label><input type="checkbox" checked=${view.ended} onChange=${(e) => setView({ ...view, ended: e.target.checked })} />Ended (${tree.ended_hidden || 0})</label>
+        <button type="button" onClick=${expandAll}>Expand all</button><button type="button" onClick=${collapseAll}>Collapse all</button></div>
+      <p class="sn-sum" role="status"><span><b>${live.length}</b> live</span><span><b>${live.filter((n) => n.live === "working").length}</b> working</span><span><b>${cards}</b> ${cards === 1 ? "card" : "cards"} for you</span>${!view.ended && tree.ended_hidden > 0 && html`<span>${tree.ended_hidden} ended hidden</span>`}</p></div>
+    ${!rows.length && html`<div class="sn-empty">${empty || !filtering
+      ? html`<strong>No sessions running</strong><span class="small soft">Start work from an item's page or ask the Steward. Sessions you start show here under the workflow that runs them.</span>
+        <div class="row" style="gap: 8px"><a class="button plain" href="#/work">Find work to start</a><a class="button plain" href=${hash("shells", { tab: "history" })}>Resume a past session</a></div>`
+      : html`<strong>Nothing matches</strong><span class="small soft">No session ${view.filter === "needs" ? "waits for you" : view.filter === "working" ? "is working" : "matches"}${view.query.trim() ? ` with “${view.query.trim()}”` : ""}${view.repo ? ` in ${view.repo}` : ""}${view.ended ? "" : ". Ended sessions are hidden."}</span>
+        <div class="row"><button type="button" onClick=${() => setView({ ...view, filter: "all", query: "", repo: "" })}>Clear the filters</button></div>`}</div>`}
+    <ul class="sn-tree" role="tree" aria-label="Sessions by workflow and owner" onKeyDown=${onKey}>
+      ${rows.map((r) => html`<${TreeRow} key=${r.id} r=${r} tree=${tree} sel=${sel} focusId=${at} tiles=${tiles} focusTile=${focusTile} changed=${changed} dom=${dom}
+        onPick=${(name) => { setFocusId(`n:${name}`); onPick(name); }} onToggle=${toggle} onOpen=${onOpen} onBeside=${onBeside} onWorkflow=${onWorkflow} />`)}</ul>
+    <details class="small"><summary>What the marks mean</summary><div class="stack" style="gap: 8px; margin-top: 8px">
+      <ul class="legend" aria-label="Liveness">${Object.keys(LIVE_WORD).map((k) => html`<li><${LiveMark} live=${k} /></li>`)}</ul>
+      <${FamilyLegend} /></div></details></nav>`;
+}
+
+// The strip under a tile (FR-027): the workflow state, what it waits for and the next exit, in words.
+function TileStrip({ n }) {
+  if (n.plain) return null;
+  return html`<dl class="tl-strip" aria-label="Its workflow">
+    <dt>State</dt><dd>${n.machine ? html`<${NodeChip} n=${n} />` : "no workflow yet"}</dd>
+    <dt>Waits for</dt><dd>${n.waits_for || "—"}</dd>
+    ${n.next && html`<dt>Next</dt><dd>${n.next}</dd>`}</dl>`;
+}
+
+// One tile (FR-027): the session view header with links to its owner and to the sessions under it, the session itself
+// (or what an ended one left), and the strip. The focused tile has a heavy edge and says so.
+function SessionTile({ name, tree, session, asks, focused, pinned, grow, narrow, changed, onFocus, onOpen, onWorkflow, onClose, onPin, onEnded, onResume, onDiscard, focusRef }) {
+  const N = tree.nodes;
+  const n = N[name];
+  const owner = n && n.parent;
+  const under = n ? (n.entries || []).flatMap((e) => e.sessions).filter((k) => N[k]) : [];
+  const entry = owner && N[owner] ? (N[owner].entries || []).find((e) => e.name === n.entry) : null;
+  if (!n) return null;
+  const family = n.persona && FAMILY_WORD[n.persona.family] ? n.persona.family : n.plain ? "shell" : "unknown";
+  const meta = [n.model && shortModel(n.model), nodeSub(n)].filter(Boolean).join(" · ");
+  return html`<article class="tl-tile" role="tabpanel" data-tile=${name} data-focus=${focused ? "true" : "false"} aria-label=${`${name}${focused ? ", focused tile" : ""}`}
+      style=${`flex: ${grow} 1 0${narrow && !focused ? "; display: none" : ""}`} onFocusIn=${() => { if (!focused) onFocus(name); }} onClick=${() => { if (!focused) onFocus(name); }}>
+    <header class=${`tl-head svhead ${family}`}>
+      <span class="tl-line"><${PersonaBadge} persona=${n.persona} /><span class="tl-name">${name}</span><${LiveMark} live=${n.live} /><${CardsMark} n=${n.cards} name=${name} />
+        ${focused && html`<span class="tl-kb">focused</span>`}${pinned && html`<span class="tl-pin">pinned</span>`}${changed && html`<span class="sn-mark-new">changed</span>`}
+        <span class="row" style="gap: 4px; margin-left: auto">
+          <button type="button" class="plain small" aria-pressed=${pinned ? "true" : "false"} onClick=${(e) => { e.stopPropagation(); onPin(name); }}>${pinned ? "Unpin" : "Pin"} its workflow</button>
+          <button type="button" class="square" aria-label=${`Close the tile of ${name}`} onClick=${(e) => { e.stopPropagation(); onClose(name); }}>×</button></span></span>
+      ${(n.machine || (n.items || []).length > 0) && html`<span class="tl-line"><${NodeChip} n=${n} />${(n.items || []).map((it) => html`<${TreeItem} it=${it} />`)}</span>`}
+      <span class="tl-line small">
+        ${owner && html`<button type="button" class="tl-link" title="Open its owner (Ctrl+↑)" onClick=${(e) => { e.stopPropagation(); onOpen(owner); }}>↑ under <b>${owner}</b></button>${entry && html`<span class="soft">entry ${entry.name} · ${entry.reuse === "resume" ? "resumes" : "fresh each round"}${n.round != null ? ` · round ${n.round}` : ""}</span>`}`}
+        ${under.length > 0 && html`<button type="button" class="tl-link" title="Open the sessions it runs as tiles" onClick=${(e) => { e.stopPropagation(); onWorkflow(name); }}>↓ <b>${count(under.length, "session")}</b> under it</button>`}
+        ${meta && html`<span class="soft">${meta}</span>`}</span></header>
+    ${session ? html`<${SessionView} key=${name} session=${session} mode="tile" asks=${asks} focusRef=${focusRef} onEnded=${onEnded} onGone=${() => {}}
+        onResume=${() => onResume(name)} onClose=${() => onClose(name)} />`
+      : html`<div class="tl-ended stack" style="gap: 8px">
+          <p><span class="eyebrow">${n.live === "stopped" ? "Stopped" : "Ended"}</span> ${n.returned ? `returned ${n.returned}` : n.live === "stopped" ? "its terminal is gone; it can be resumed" : "ended"}${n.round != null ? ` · round ${n.round}` : ""} · read-only</p>
+          <div class="row" style="gap: 8px">${n.live === "stopped" && !n.parent && html`<button onClick=${() => onResume(name)}>Resume</button><button class="plain" onClick=${() => onDiscard(name)}>Discard…</button>`}
+            ${n.live === "stopped" && n.parent && html`<span class="small soft">Its owner's workflow resumes it in its next round.</span>`}
+            <a class="button plain" href=${hash("shells", { tab: "history" })}>Find it in History</a></div></div>`}
+    <${TileStrip} n=${n} /></article>`;
+}
+
+// FR-026: the tabs, grouped by workflow (a pinned group first), and up to three tiles whose widths change by pointer and keys.
+function SessionTiles({ tree, sessions, st, setSt, asks, changed, onFocus, onOpen, onWorkflow, onEnded, onResume, onDiscard }) {
+  const N = tree.nodes;
+  const box = useRef(null);
+  const [width, setWidth] = useState(1200);
+  const focusRefs = useRef({});
+  useEffect(() => {
+    if (!box.current || typeof ResizeObserver !== "function") return undefined;
+    const o = new ResizeObserver(([e]) => setWidth(e.contentRect.width));
+    o.observe(box.current);
+    return () => o.disconnect();
+  }, []);
+  const groupOf = (t) => tabGroup(N, t);
+  const tabs = st.tabs.filter((t) => N[t]);
+  const tiles = st.tiles.filter((t) => N[t]);
+  const narrow = width < 2 * TILE_MIN;
+  const groups = [];
+  for (const t of tabs) {
+    const g = groupOf(t);
+    let G = groups.find((x) => x.key === g);
+    if (!G) {
+      const top = N[g];
+      const first = top && (top.items || [])[0];
+      G = { key: g, label: `${g}${first ? ` · ${itemRef(first)}` : ""}`, pinned: st.pinned.includes(g), tabs: [] };
+      groups.push(G);
+    }
+    G.tabs.push(t);
+  }
+  groups.sort((a, b) => Number(b.pinned) - Number(a.pinned));
+  const flat = groups.flatMap((g) => g.tabs);
+  const pick = (t) => { setSt(placeTile(st, t, groupOf)); onFocus(t); };
+  const tabKey = (e) => {
+    const at = flat.indexOf(st.focus);
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    e.preventDefault();
+    const t = flat[(Math.max(0, at) + (e.key === "ArrowRight" ? 1 : -1) + flat.length) % flat.length];
+    pick(t);
+    setTimeout(() => { const el = box.current && box.current.parentElement.querySelector(`[data-tab="${CSS.escape(t)}"]`); if (el) el.focus(); });
+  };
+  const pin = (g) => setSt({ ...st, pinned: st.pinned.includes(g) ? st.pinned.filter((p) => p !== g) : [...st.pinned, g] });
+  const sizes = tiles.map((_t, k) => st.sizes[k] || 1);
+  const gutter = (j) => {
+    const drag = (e) => {
+      const w = box.current ? box.current.getBoundingClientRect().width : 1;
+      const x0 = e.clientX, s0 = sizes.slice(), sum = s0.reduce((a, b) => a + b, 0);
+      const move = (m) => setSt((cur) => ({ ...cur, sizes: resizeTiles(s0, j, ((m.clientX - x0) / w) * sum / (s0[j] + s0[j + 1])) }));
+      const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    };
+    const key = (e) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      e.preventDefault();
+      setSt({ ...st, sizes: resizeTiles(sizes, j, e.key === "ArrowLeft" ? -0.05 : 0.05) });
+    };
+    const share = Math.round((100 * sizes[j]) / (sizes[j] + sizes[j + 1]));
+    return html`<div class="tl-gut" role="separator" aria-orientation="vertical" tabindex="0" aria-valuemin="15" aria-valuemax="85" aria-valuenow=${share}
+      aria-label=${`Width of ${tiles[j]} beside ${tiles[j + 1]}: arrows change it`} onPointerDown=${drag} onKeyDown=${key}></div>`;
+  };
+  return html`<section class="tl" aria-label="Open sessions">
+    <div class="tl-tabs">
+      <div class="tl-tablist" role="tablist" aria-label="Open sessions, by workflow">
+        ${groups.map((g) => html`<div class="tl-grp" role="presentation"><span class="tl-grp__label">${g.pinned ? "pinned · " : ""}${g.label}
+            <button type="button" class="tl-pinbtn" aria-pressed=${g.pinned ? "true" : "false"} aria-label=${`${g.pinned ? "Unpin" : "Pin"} the workflow of ${g.key}`} onClick=${() => pin(g.key)}>${g.pinned ? "unpin" : "pin"}</button></span>
+          <div class="tl-grp__tabs" role="presentation">${g.tabs.map((t) => {
+            const k = tiles.indexOf(t);
+            return html`<span role="tab" class="tl-tab" data-tab=${t} aria-selected=${t === st.focus ? "true" : "false"} tabindex=${t === st.focus || (!st.focus && t === flat[0]) ? 0 : -1}
+                title=${`${t}${k >= 0 ? ` · tile ${k + 1}` : " · not in a tile"}`} onClick=${() => pick(t)} onKeyDown=${tabKey}>
+              ${k >= 0 && html`<span class="tl-tab__n">${k + 1}</span>`}<span>${t}</span><span class="sn-live" data-live=${N[t].live}><span class="sr">${LIVE_WORD[N[t].live]}</span></span>
+              <span class="tl-tab__x" role="button" aria-label=${`Close ${t}`} onClick=${(e) => { e.stopPropagation(); setSt(closeTab(st, t)); }}>×</span></span>`;
+          })}</div></div>`)}</div>
+      <div class="tl-bar"><span class="eyebrow">Tiles</span><span class="tl-seg" role="group" aria-label="How many tiles side by side">
+        ${[1, 2, 3].map((k) => html`<button type="button" aria-pressed=${tiles.length === k ? "true" : "false"} disabled=${k > 1 && narrow} onClick=${() => setSt(tileCount(st, k))}>${k}</button>`)}</span></div></div>
+    <p class="tl-sync small">${tiles.length ? `Focused: ${st.focus || tiles[0]}. Ctrl+] and Ctrl+[ move between tiles, Ctrl+↑ opens the owner.${narrow && tiles.length > 1 ? " Too narrow for two: only the focused tile shows; the others are its tabs." : ""}` : "Choose a session in the tree to open it here."}</p>
+    <div class="tl-tiles" ref=${box}>
+      ${tiles.map((t, k) => html`${k > 0 && !narrow && gutter(k - 1)}<${SessionTile} key=${t} name=${t} tree=${tree} session=${sessions.find((s) => s.name === t)} asks=${asks}
+          focused=${t === (st.focus || tiles[0])} pinned=${st.pinned.includes(groupOf(t))} grow=${sizes[k]} narrow=${narrow} changed=${changed.has(t)}
+          focusRef=${(focusRefs.current[t] = focusRefs.current[t] || { current: null })}
+          onFocus=${onFocus} onOpen=${onOpen} onWorkflow=${onWorkflow} onClose=${(x) => setSt(closeTab(st, x))} onPin=${(x) => pin(groupOf(x))}
+          onEnded=${onEnded} onResume=${onResume} onDiscard=${onDiscard} />`)}
+      ${!tiles.length && html`<div class="tl-empty small soft">No session is open. Choose one in the tree, or "Open this workflow" on an owner.</div>`}</div></section>`;
+}
+
+// FR-030: on a phone the tree is a list that drills into an owner; a session opens alone, with switches to its owner, the
+// sessions under it and its siblings.
+function PhoneRunning({ tree, sessions, asks, view, setView, onEnded, onResume, onDiscard }) {
+  const N = tree.nodes || {};
+  const [at, setAt] = useState(null); // the owner drilled into
+  const [open, setOpen] = useState(null); // the session open alone
+  const under = (name) => ((N[name] && N[name].entries) || []).flatMap((e) => e.sessions).filter((k) => N[k]);
+  const chain = (name) => { const out = []; for (let k = N[name] && N[name].parent; k && N[k] && out.length < 32; k = N[k].parent) out.unshift(k); return out; };
+  const go = (name) => (under(name).length ? setAt(name) : setOpen(name));
+  const row = (name) => {
+    const n = N[name];
+    const kids = under(name).length;
+    return html`<button type="button" class="sp-row" key=${name} onClick=${() => go(name)} aria-label=${`${name}, ${LIVE_WORD[n.live]}${n.cards ? `, ${count(n.cards, "card")} for you` : ""}${kids ? `, ${count(kids, "session")} under it` : ""}`}>
+      <${PersonaBadge} persona=${n.persona} hidden />
+      <span class="sn-body"><span class="sn-line"><span class="sn-name">${name}</span><${LiveMark} live=${n.live} />${n.cards > 0 && html`<span class="sn-asks">${count(n.cards, "card")} for you</span>`}</span>
+        ${(n.machine || (n.items || []).length > 0) && html`<span class="sn-line"><${NodeChip} n=${n} />${(n.items || []).map((it) => html`<span class="sn-item" data-kind=${it.kind} data-state=${it.state || ""} data-checks=${it.checks || ""}><span class="sn-item__ref">${itemRef(it)}</span>${itemWords(it).map((w) => html`<span class="sn-item__st"><span class="sn-item__ck" data-ck=${w.ck}>${w.text}</span></span>`)}</span>`)}</span>`}
+        ${(nodeSub(n) || kids > 0) && html`<span class="sn-sub">${[nodeSub(n), kids ? `${count(kids, "session")} under it` : ""].filter(Boolean).join(" · ")}</span>`}</span>
+      <${Chevron} right /></button>`;
+  };
+  const shown = (name) => treeMatches(N[name], view) || under(name).some(shown);
+  if (open && N[open]) {
+    const n = N[open];
+    const owner = n.parent;
+    const siblings = owner ? under(owner).filter((k) => k !== open) : [];
+    const session = sessions.find((s) => s.name === open);
+    return html`<div class="sp">
+      <div class="sp-top"><button type="button" class="sp-back" onClick=${() => setOpen(null)} aria-label="Back to the list"><${Chevron} />List</button>
+        <strong class="sn-name" style="flex: 1">${open}</strong><${CardsMark} n=${n.cards} name=${open} /></div>
+      ${chain(open).length > 0 && html`<p class="sp-crumbs">under ${chain(open).join(" › ")}</p>`}
+      <nav class="sp-sw" aria-label="Switch within this workflow">
+        ${owner && html`<button type="button" onClick=${() => setOpen(owner)}>↑ ${owner}</button>`}
+        ${under(open).map((k) => html`<button type="button" onClick=${() => setOpen(k)}>↓ ${k}</button>`)}
+        ${siblings.map((k) => html`<button type="button" onClick=${() => setOpen(k)}>⇄ ${k}</button>`)}</nav>
+      ${session ? html`<${SessionView} key=${open} session=${session} mode="full" asks=${asks} onEnded=${onEnded} onGone=${() => setOpen(null)} onResume=${() => onResume(open)} />`
+        : html`<div class="tl-ended"><p><span class="eyebrow">${n.live === "stopped" ? "Stopped" : "Ended"}</span> ${n.returned ? `returned ${n.returned}` : ""} · read-only</p>
+          ${n.live === "stopped" && !n.parent && html`<div class="row"><button onClick=${() => onResume(open)}>Resume</button><button class="plain" onClick=${() => onDiscard(open)}>Discard…</button></div>`}</div>`}
+      <${TileStrip} n=${n} /></div>`;
+  }
+  const filters = html`<div class="sn-filters" role="group" aria-label="Show" style="padding: 8px 12px 0">${TREE_FILTERS.map(([id, label]) => html`<button type="button" class="sn-f" aria-pressed=${view.filter === id ? "true" : "false"} onClick=${() => setView({ ...view, filter: id })}>${label}</button>`)}</div>`;
+  if (at && N[at]) {
+    const n = N[at];
+    return html`<div class="sp">
+      <div class="sp-top"><button type="button" class="sp-back" onClick=${() => setAt(N[at].parent || null)} aria-label=${`Back to ${N[at].parent || "the list"}`}><${Chevron} />${N[at].parent || "List"}</button>
+        <strong class="sn-name" style="flex: 1">${at}</strong><${CardsMark} n=${n.cards} name=${at} /></div>
+      ${chain(at).length > 0 && html`<p class="sp-crumbs">under ${chain(at).join(" › ")}</p>`}
+      ${filters}
+      <section class="sp-sec" aria-label=${`${at} itself`}><button type="button" class="sp-row" onClick=${() => setOpen(at)}><${PersonaBadge} persona=${n.persona} hidden />
+        <span class="sn-body"><span class="sn-line"><span class="sn-name">Open ${at}</span><${LiveMark} live=${n.live} /></span></span><${Chevron} right /></button></section>
+      ${(n.entries || []).map((e) => html`<section class="sp-sec" aria-label=${`Entry ${e.name}`}>
+        <div class="sp-sec__h"><span class="sn-entry">${e.name}<span class="sn-entry__cfg">${entryWords(e)}</span>${!e.in_force && e.states.length > 0 && html`<span class="sn-entry__off">runs in ${e.states.join(", ")}</span>`}</span>
+          ${e.note && html`<span class="sn-note" style="flex-basis: 100%">${e.note}</span>`}</div>
+        ${e.sessions.filter((k) => N[k] && shown(k)).map(row)}
+        ${e.earlier.length > 0 && html`<p class="sn-fold" style="padding: 8px 12px">${e.earlier.length} earlier ${e.name}${e.earlier.length === 1 ? "" : "s"} · ${e.earlier.map((x) => x.returned || "nothing").join("; ")}</p>`}</section>`)}</div>`;
+  }
+  const roots = (tree.roots || []).filter((k) => N[k] && shown(k));
+  return html`<div class="sp">${filters}
+    ${roots.length > 0 && html`<section class="sp-sec" aria-label="Workflows">${roots.map(row)}</section>`}
+    ${(tree.quick || []).map(([key, names]) => names.filter((k) => N[k] && shown(k))).some((x) => x.length) && html`<section class="sp-sec" aria-label="Quick tasks">
+      <div class="sp-sec__h"><span class="sn-group">Quick tasks</span></div>${(tree.quick || []).flatMap(([, names]) => names.filter((k) => N[k] && shown(k))).map(row)}</section>`}
+    ${(tree.shells || []).some((k) => N[k]) && html`<section class="sp-sec" aria-label="Plain shells"><div class="sp-sec__h"><span class="sn-group">Plain shells</span></div>${(tree.shells || []).filter((k) => N[k]).map(row)}</section>`}
+    ${!roots.length && !(tree.shells || []).length && html`<p class="small soft" style="padding: 16px">No sessions running.</p>`}</div>`;
+}
+
+// 004 FR-012–FR-015, FR-024–FR-030: Running. The tree and the tiles share one selection: choosing a row focuses its tile, or
+// opens it in the focused tile's place (a pinned one keeps its place); focusing a tile selects its row and opens the rows
+// above it.
+function Running({ query, asks }) {
+  const phone = usePhone();
+  const { data, error, reload } = useLoad(() => api("sessions/tree"), [], SESSIONS_EVERY);
   const overview = useLoad(() => api("overview"), []);
-  const reloadAll = () => Promise.all([reload(), stopped.reload()]);
+  const tree = (data && data.tree) || { nodes: {}, roots: [], quick: [], shells: [] };
+  const sessions = (data && data.sessions) || [];
+  const N = tree.nodes;
+  const [view, setView] = useState({ filter: "all", query: "", repo: "", ended: false, exp: {} });
+  const [st, setStRaw] = useState(() => readTiles(null));
+  const setSt = (next) => setStRaw((cur) => { const v = typeof next === "function" ? next(cur) : next; writeTiles(v); return v; });
+  const [sel, setSel] = useState(query.name || null);
+  const [moved, seen] = useChanged(data ? N : null);
+  // The session you are on doesn't need telling that it changed.
+  const changed = sel && moved.has(sel) ? new Set([...moved].filter((k) => k !== sel)) : moved;
+  const [creating, setCreating] = useState(query.new === "1");
+  const [kept, setKept] = useState(null);
   const [discarding, setDiscarding] = useState(null);
   const [ignoring, setIgnoring] = useState(null);
-  const [open, setOpen] = useState(query.name || null);
-  const [creating, setCreating] = useState(query.new === "1");
-  const [badgesOnly, setBadgesOnlyState] = useState(readBadgesOnly);
-  const setBadgesOnly = (on) => { setBadgesOnlyState(on); try { localStorage.setItem("sessions-badges", on ? "1" : "0"); } catch { /* it only helps */ } };
-  const [confirm, dialog] = useConfirm();
-  const act = useAct(reloadAll);
-  const list = data || [];
-  const current = list.find((s) => s.name === open) || null;
-  // Closed first: the old terminal goes away with the old session, and would close the new one's view.
-  const resume = (name) => act.run(async () => {
-    setOpen(null);
-    await post("agents/resume", { name });
-    await reloadAll();
-    setOpen(name);
+  const act = useAct(reload);
+  const groupOf = (t) => tabGroup(N, t);
+  // The rows above a session open, so a focused tile's row is in view.
+  const reveal = (name) => setView((v) => {
+    const exp = { ...v.exp };
+    for (let k = name, i = 0; k && N[k] && N[k].parent && i < 32; k = N[k].parent, i++) { exp[`n:${N[k].parent}`] = true; exp[`e:${N[k].parent}:${N[k].entry}`] = true; }
+    return { ...v, exp };
   });
-  const waitingOn = (name) => asks.open.filter((x) => x.session === name).length;
-  // 004 FR-013: badge, state, what waits, where it came from, model and age, and the items it covers.
-  const item = (s) => {
-    const a = s.agent;
-    const words = sessionWords(s);
-    const waiting = waitingOn(s.name);
-    const covers = coversOf(a);
-    const chip = a ? chipOf(a.machine, a.ended) : null;
-    const label = `${s.name}: ${a ? `${a.persona_name || a.persona}, ` : ""}${words}${waiting ? `, ${waiting} waiting` : ""}${chip ? `, ${chip.said}` : ""}`;
-    if (badgesOnly) {
-      return html`<button class="sess-badge" aria-pressed=${open === s.name ? "true" : "false"} aria-label=${label} title=${label} onClick=${() => setOpen(s.name)}>
-        <${PersonaBadge} persona=${personaOf(a)} hidden />${waiting > 0 && html`<span class="dock-count">${waiting}</span>`}</button>`;
+  const select = (name) => { setSel(name); seen(name); };
+  const focusTile = (name) => { setSt((cur) => ({ ...cur, focus: name })); select(name); reveal(name); };
+  const open = (name, beside) => { setSt((cur) => placeTile(cur, name, groupOf, beside)); select(name); reveal(name); };
+  const workflow = (name) => { setSt((cur) => openWorkflow(cur, name, N)); select(name); };
+  useEffect(() => { if (data) setSt((cur) => pruneTiles(cur, new Set(Object.keys(N)))); }, [data]);
+  // The address names a session (a link from elsewhere, also while on this page): it opens once the tree has it.
+  const linked = useRef(null);
+  useEffect(() => { if (query.name && query.name !== linked.current && N[query.name]) { linked.current = query.name; open(query.name); } }, [data, query.name]);
+  // Ctrl+] and Ctrl+[ move between tiles, Ctrl+↑ opens the focused tile's owner (FR-027). Caught before the terminal sees them,
+  // so on this page these keys don't reach the session's terminal.
+  const keysRef = useRef(null);
+  keysRef.current = (e) => {
+    if (!e.ctrlKey || e.altKey || e.metaKey || phone || MODALS.length || !st.tiles.length) return;
+    // Another terminal on the page (the Steward's) keeps its keys.
+    if (e.target && e.target.closest && e.target.closest(".xterm") && !e.target.closest("[data-tile]")) return;
+    const step = e.code === "BracketRight" || e.key === "]" ? 1 : e.code === "BracketLeft" || e.key === "[" ? -1 : 0;
+    if (step) {
+      e.preventDefault(); e.stopPropagation();
+      const next = stepTile(st, step);
+      if (next.focus) { focusTile(next.focus); setTimeout(() => focusInto(next.focus)); }
+    } else if (e.key === "ArrowUp" && st.focus && N[st.focus] && N[st.focus].parent) {
+      e.preventDefault(); e.stopPropagation();
+      const owner = N[st.focus].parent;
+      open(owner);
+      setTimeout(() => focusInto(owner));
     }
-    return html`<button class="sess-item" aria-pressed=${open === s.name ? "true" : "false"} onClick=${() => setOpen(s.name)}>
-      <span class="h"><span class="row" style="gap: 8px; flex-wrap: nowrap; min-width: 0"><${PersonaBadge} persona=${personaOf(a)} /><b>${s.name}</b></span>
-        <span class="badge ${words === "Waiting for you" ? "mark" : a && a.ended ? "dim" : ""}">${words}</span></span>
-      ${chip && html`<span><${StateChip} machine=${a.machine} ended=${a.ended} /></span>`}
-      ${waiting > 0 && html`<span class="small" style="font-weight: 600">${waiting} waiting</span>`}
-      ${a ? html`<span class="soft" style="font-size: 13px; line-height: 1.4">${originWords(a)} · ${shortModel(a.model)}${a.created ? ` · ${whenAgo(a.created)}` : ""}</span>`
-        : html`<span class="soft mono" style="font-size: 12.5px; overflow-wrap: anywhere">${s.cwd}</span>`}
-      ${covers.length > 0 && html`<span class="row" style="gap: 6px"><${ItemPill} ...${covers[0]} plain />${covers.length > 1 && html`<span class="small soft">⇄ also on ${covers.slice(1).map(ref).join(", ")}</span>`}</span>`}</button>`;
   };
-  const steward = list.filter((s) => s.agent && s.agent.started_by);
-  const stewardWorking = steward.filter((s) => !s.agent.ended && !s.agent.idle).length;
-  return html`${dialog}<main class="page wide"><${SessionTabs} tab="all" asks=${asks} /><div class="columns near">
-    <nav class="sesslist" aria-labelledby="h-sessions">
-      <h1 id="h-sessions">Running</h1>
-      <span class="mono soft dotted" style="font-size: 12.5px">tmux -L glassine-hub</span>
-      <div class="row" style="gap: 6px"><button onClick=${() => setCreating(true)}>＋ Plain shell</button>
-        <a class="button plain" href=${hash("shells", { tab: "history" })}>Resume a past session</a></div>
-      ${creating && html`<${NewShell} initial=${query.name && query.new ? query.name : ""} groups=${overview.data ? overview.data.groups : []} onCancel=${() => setCreating(false)} onDone=${async (n) => { setCreating(false); await reload(); setOpen(n); }} />`}
-      <${Err} text=${error || act.error} />
-      ${kept && html`<div class="notice quiet"><span>That session had work that isn't on GitHub, so its checkout stays at <code>${kept}</code>.</span></div>`}
-      <${FamilyLegend} />
-      <label class="row small" style="gap: 8px"><input type="checkbox" checked=${badgesOnly} onChange=${(e) => setBadgesOnly(e.target.checked)} /> Badges only</label>
-      ${steward.length > 0 && html`<span class="small soft">Started by the Steward: ${stewardWorking} of 4 working.</span>`}
-      ${RUN_GROUPS.map(([id, title]) => {
-        const rows = list.filter((s) => runGroup(s) === id);
-        return html`<section class="stack" style="gap: 8px" aria-label=${title}><h2 class="eyebrow" style="margin-top: 8px">${title} · ${rows.length}</h2>
-          ${rows.length ? html`<div class=${badgesOnly ? "row" : "stack"} style="gap: ${badgesOnly ? 6 : 10}px">${rows.map(item)}</div>`
-            : html`<p class="small soft">${id === "plain" ? "None open." : "None."}</p>`}</section>`;
-      })}
-      ${!list.some((s) => s.agent) && html`<p class="small soft">Start one from an issue, pull request or run under Work, or with "＋ New work".</p>`}
-      ${(stopped.data || []).length > 0 && html`<h2 class="eyebrow" style="margin-top: 8px">Stopped</h2>
-        ${stopped.data.map((s) => html`<div class="stack" style="gap: 4px; padding: 8px 0; border-top: 1px dotted var(--ink)">
-          <span class="row" style="justify-content: space-between"><b class="mono" style="font-size: 13.5px; overflow-wrap: anywhere">${s.name}</b><span class="badge dim">stopped</span></span>
-          <span class="soft" style="font-size: 13px">${s.agent.title} · ${whereFrom(s.agent)}${s.agent.started_by ? ` · started by ${s.agent.started_by}` : ""}</span>
-          <span class="row" style="gap: 8px"><button disabled=${act.busy} onClick=${() => resume(s.name)}>Resume</button>
-            <button class="plain" disabled=${act.busy} onClick=${() => setDiscarding(s.name)}>Discard…</button></span></div>`)}`}
-    </nav>
-    ${current ? html`<${SessionView} key=${current.name} session=${current} mode="full" asks=${asks} onClose=${() => setOpen(null)}
-        onEnded=${(r) => { setKept(r && r.kept ? r.kept : null); setOpen(null); reloadAll(); }}
-        onView=${reloadAll} onGone=${() => { setOpen(null); reload(); }}
-        onResume=${() => confirm(
-          { title: "Resume this session?", text: "Its conversation continues in a new terminal. The shell open here closes, with anything running in it.", label: "Resume" },
-          () => resume(current.name),
-        )} />`
-      : html`<section class="termbox" aria-labelledby="h-term"><div class="empty" id="h-term">${list.length || (stopped.data || []).length ? "Choose a session." : "No sessions yet."}</div></section>`}
+  useEffect(() => {
+    const on = (e) => keysRef.current(e);
+    window.addEventListener("keydown", on, true);
+    return () => window.removeEventListener("keydown", on, true);
+  }, []);
+  const [confirm, dialog] = useConfirm();
+  // The old terminal goes with the old session: the tab closes first and opens again on the resumed one.
+  const resumeNow = (name) => act.run(async () => { setSt((cur) => closeTab(cur, name)); await post("agents/resume", { name }); await reload(); open(name); });
+  const resume = (name) => (sessions.some((s) => s.name === name)
+    ? confirm({ title: "Resume this session?", text: "Its conversation continues in a new terminal. The shell open here closes, with anything running in it.", label: "Resume" }, () => resumeNow(name))
+    : resumeNow(name));
+  const ended = (r) => { setKept(r && r.kept ? r.kept : null); reload(); };
+  const discard = (name) => setDiscarding(name);
+  const body = phone
+    ? html`<${PhoneRunning} tree=${tree} sessions=${sessions} asks=${asks} view=${view} setView=${setView} onEnded=${ended} onResume=${resume} onDiscard=${discard} />`
+    : html`<div class="running">
+        <aside class="running-tree"><${SessionTree} tree=${tree} view=${view} setView=${setView} sel=${sel} tiles=${st.tiles} focusTile=${st.focus} changed=${changed}
+          onPick=${(name) => open(name)} onOpen=${(name) => open(name)} onBeside=${(name) => open(name, true)} onWorkflow=${workflow} /></aside>
+        <div class="running-tiles"><${SessionTiles} tree=${tree} sessions=${sessions} st=${st} setSt=${setSt} asks=${asks} changed=${changed}
+          onFocus=${focusTile} onOpen=${(name) => open(name)} onWorkflow=${workflow} onEnded=${ended} onResume=${resume} onDiscard=${discard} /></div></div>`;
+  return html`${dialog}<main class="page wide running-page"><${SessionTabs} tab="all" asks=${asks} />
+    <div class="row" style="gap: 6px 12px; margin-bottom: 12px"><h1 id="h-sessions" style="font-size: 27px">Running</h1>
+      <button onClick=${() => setCreating(true)}>＋ Plain shell</button>
+      <a class="button plain" href=${hash("shells", { tab: "history" })}>Resume a past session</a>
+      <span class="mono soft small">tmux -L glassine-hub</span></div>
+    ${creating && html`<${NewShell} initial=${query.name && query.new ? query.name : ""} groups=${overview.data ? overview.data.groups : []} onCancel=${() => setCreating(false)} onDone=${async (n) => { setCreating(false); await reload(); open(n); }} />`}
+    <${Err} text=${error || act.error} />
+    ${kept && html`<div class="notice quiet"><span>That session had work that isn't on GitHub, so its checkout stays at <code>${kept}</code>.</span></div>`}
+    ${body}
     ${discarding && html`<${Confirm} title=${`Discard ${discarding}?`} danger label="Discard"
       text="It can't be resumed after this. Its worktree goes, with anything uncommitted in it. Commits stay on the branch."
       onNo=${() => setDiscarding(null)} onYes=${() => { const name = discarding; setDiscarding(null);
-        act.run(async () => { const r = await api(`shells/${encodeURIComponent(name)}?discard=1`, { method: "DELETE" }); if (r && r.ignored) setIgnoring({ name, ignored: r.ignored }); }); }} />`}
+        act.run(async () => { const r = await api(`shells/${encodeURIComponent(name)}?discard=1`, { method: "DELETE" }); if (r && r.ignored) setIgnoring({ name, ignored: r.ignored }); setSt((cur) => closeTab(cur, name)); }); }} />`}
     ${ignoring && html`<${DiscardIgnored} item=${ignoring} onNo=${() => setIgnoring(null)} onYes=${() => { const name = ignoring.name; setIgnoring(null);
-        act.run(() => api(`shells/${encodeURIComponent(name)}?discard=1&drop_ignored=1`, { method: "DELETE" })); }} />`}
-  </div></main>`;
+        act.run(() => api(`shells/${encodeURIComponent(name)}?discard=1&drop_ignored=1`, { method: "DELETE" })); }} />`}</main>`;
+}
+
+// Into a tile: its terminal if it has one, else the tile itself.
+function focusInto(name) {
+  const tile = document.querySelector(`[data-tile="${CSS.escape(name)}"]`);
+  if (!tile) return;
+  const area = tile.querySelector("textarea");
+  if (area) area.focus();
+  else { tile.setAttribute("tabindex", "-1"); tile.focus(); }
 }
 
 // --- frame --------------------------------------------------------------------------------------
