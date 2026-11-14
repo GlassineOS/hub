@@ -32,7 +32,8 @@ from .statusline import StatusLines
 from .managed import Managed, ManagedError, _marked
 from . import feed as feedlib
 from .designs import TICK as DESIGN_TICK, DesignError, Designs, Tools as DesignTools
-from .agents import _REPO_RE as _AGENT_REPO_RE, MAX_REPO_NAME, NO_REPO_OBJECTS
+from .agents import _REPO_RE as _AGENT_REPO_RE, MAX_REPO_NAME, NO_REPO_OBJECTS, _draws_nothing
+from .instances import MAX_ASKED
 from .machine import START_ON
 from .agents import MAX_ALSO, MAX_NOTES, NOTES_TOOL, PLANNER_MODELS, RESULTS as RESULTS_WORDS, SCREENS, AgentError, Agents, Library, _full, load_environment, screen_of, validate, with_also
 from .apps import AppError, Apps, Creation, is_write
@@ -444,12 +445,17 @@ class Hubd:
         scope = self.agents.scope(req.get("agent_token")) if self.agents else None
         if not scope or not scope.get("session"):
             return {"ok": False, "refused": True, "error": "not a session's token"}
-        if not self._lists(scope, "request_move"):
+        # listed for the whole workflow, held only in a state with an exit moved on request (012 FR-027)
+        if not self._lists(scope, "request_move") or not self.agents.holds_request_move(scope["session"]):
             return {"ok": False, "refused": True, "error": self.agents.request_move_refusal(scope["session"])}
         if self.machine_run is None:
             return {"ok": False, "error": "the workflows don't move on their own here"}
         if scope.get("instance") != self.agents.session_id_of(scope["session"]):
             return {"ok": False, "refused": True, "error": "that token is from an earlier conversation of this session"}
+        for key in ("reasons", "handover"):  # the session's words, shown in the log and to the sessions it hands over to
+            value = req.get(key)
+            if value is not None and (not isinstance(value, str) or len(value) > MAX_ASKED or any(_draws_nothing(c) for c in value)):
+                return {"ok": False, "error": f"{key} is text of up to {MAX_ASKED} characters, with no control or invisible characters"}
         return {"ok": True, **await self.machine_run.request(scope["session"], scope.get("instance"), req.get("to"),
                                                              reasons=req.get("reasons"), handover=req.get("handover"))}
 

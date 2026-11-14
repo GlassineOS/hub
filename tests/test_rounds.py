@@ -219,7 +219,10 @@ def test_request_move_is_held_only_where_an_exit_moves_on_request_and_keeps_its_
         await settle(h)
         # implement has no exit moved on request: the tool isn't held there, and a call says why
         assert state_of(a, name) == "implement"
-        assert "request_move" not in a.scope(token_of(a, name))["tools"] and "request_move" not in grant_of(a, name)["hub_tools"]
+        # listed for the whole workflow (Claude Code lists a server's tools once), held per state: the hook refuses it here
+        assert "request_move" in a.scope(token_of(a, name))["tools"] and "request_move" not in grant_of(a, name)["hub_tools"]
+        from hubd import grant_hook
+        assert "isn't granted in this session's current workflow state" in grant_hook.decide(grant_of(a, name), "mcp__glassine-hub__request_move")
         got = await ask_move(h, a, name, "fix", reasons="x")
         assert got["refused"] and "request_move isn't held in work › implement: none of its exits moves on request" in got["error"]
         [engineer] = children(h, a, name, "engineer")
@@ -277,7 +280,8 @@ def test_a_waiver_is_a_fact_logged_as_the_maintainers_and_lapses_after_the_round
         assert got["ok"] and got["changed"] and facts()["waived.qa"] is True
         view = a.machines.view(*a.machines.load(name))
         assert view["instance"]["waivers"]["qa"]["who"] == h.sessions.own_user() and view["facts"]["waived.qa"] is True
-        assert [(m["by"], m["to"]) for m in base.history(a, name)["moves"]][-1] == ("waive", "qa")
+        last = base.history(a, name)["moves"][-1]
+        assert (last["by"], last["from"], last["to"], last["change"]) == ("waive", "review", "review", {"waived": "qa"})
         assert (await waive(h, name, "qa", False))["changed"] and facts()["waived.qa"] is False
         assert (await waive(h, name, "qa"))["changed"]
         # it lapses when its state is entered after all: the round it was for has come
@@ -368,3 +372,26 @@ def test_a_machine_record_from_before_hand_overs_and_waivers_still_loads():
     # a stored definition whose grant lists request_move, as they did, still passes the checks
     old = text.replace('"submit_result", "mark_ready"]', '"submit_result", "request_move", "mark_ready"]', 1)
     assert old != text and not [f for f in instances.machine.check(instances.machine.parse(old)) if f.kind == "problem"]
+
+
+def test_a_proposed_start_is_carried_out_when_the_maintainer_approves_it(team):
+    h, a, gh, _apps, judge = team
+
+    async def go():
+        name, _engineer = await through_implement(h, a, gh, judge)
+        judge.yes = {"a person sees", "accepted design board"}
+        [reviewer] = children(h, a, name, "reviewer")
+        assert (await give(h, reviewer, verdict="pass", findings=[]))["ok"]
+        await base.turn_ends(h, a, name)
+        assert state_of(a, name) == "qa" and children(h, a, name, "designer") == []
+        sent = await report(h, a, name, {"type": "start", "entry": "designer"}, "Check it against the boards.")
+        assert sent["ok"] and sent["proposes"] == f"start {name}'s designer"
+        [card] = [c for c in h.decisions.open_approvals(name) if c["scope"].get("report") == sent["id"]]
+        got = await answer(h, card, "approve")
+        await settle(h)
+        assert got["ok"], got
+        [designer] = children(h, a, name, "designer")
+        assert f"What report {sent['id']} proposed is carried out: {name}'s designer started." in told(a, name)
+        assert h.decisions._get(card["id"])["why_ended"] == f"approved: {name}'s designer started."
+        assert designer
+    asyncio.run(go())

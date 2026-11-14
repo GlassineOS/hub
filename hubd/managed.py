@@ -1521,7 +1521,8 @@ class Managed:
                                  f"{name}'s workflow can move it from {frm} to {to}: every requirement holds ({held or 'none'}).",
                                  f"Approve the move from {frm} to {to}.", [name],
                                  action={"type": "exit", "session": name, "session_id": wait["session_id"], "state": wait["state"],
-                                         "version": wait["version"], "wait": {k: wait[k] for k in ("session_id", "state", "version", "exit", "to")}})
+                                         "version": wait["version"], "wait": {k: wait[k] for k in ("session_id", "state", "version", "exit", "to", "asked")
+                                                                              if k in wait}})
         self._deliver(report)
         return True
 
@@ -1824,14 +1825,19 @@ class Managed:
         if not report or report["state"] != "open":
             self.decisions.settle(record["id"], False, "it was answered another way")
             raise DecisionError("that report isn't waiting any more")
+        done = None
         if accept and (report.get("action") or {}).get("type") in PROPOSED:
             done = await self._carry_out_proposal(report, who)
-            words = f"{words}\n\n{done}" if words else done
         try:
             self._settle(report, "approve" if accept else "deny", words, who or "you")
         except ManagedError as e:
             raise DecisionError(str(e)) from None
-        return self.decisions.settle(record["id"], accept, "approved" if accept else f"you said no: {words}" if words else "you said no", words)
+        if done:  # the hub's words for what was carried out, apart from the maintainer's own
+            for r in self._thread(report):
+                if r["kind"] != "approval":
+                    self.agents.tell(r["from_name"], f"{LABEL} What report {r['id']} proposed is carried out: {done}")
+        return self.decisions.settle(record["id"], accept, f"approved: {done}" if done else "approved" if accept
+                                     else f"you said no: {words}" if words else "you said no", words)
 
     def _answer_withdrawn(self, record: dict, report: dict, accept: bool, who: str | None, words: str | None) -> dict:
         """An answer that reached a report just after it was withdrawn: nothing is carried out, but the answer isn't lost.
