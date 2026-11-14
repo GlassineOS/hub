@@ -1609,7 +1609,8 @@ def test_every_claude_session_is_a_chat():
     # Both draw it through the SessionView, which has the field for every Claude session.
     assert "<${MessageField} key=${name} name=${name} where=${where}" in _component(script, "SessionView")
     assert '<${SessionView} session=${session} mode="compact"' in _component(script, "StewardSession")
-    assert '<${SessionView} key=${current.name} session=${current} mode="full"' in _component(script, "Shells")
+    assert '<${SessionView} key=${name} session=${session} mode="tile"' in _component(script, "SessionTile")
+    assert '<${SessionView} key=${open} session=${session} mode="full"' in _component(script, "PhoneRunning")
 
 
 def test_the_work_item_has_its_black_github_button_and_its_sections():
@@ -1716,8 +1717,7 @@ def test_the_sessions_list_polls_quickly():
     """A static check only (the JS isn't run): a session started elsewhere shows within seconds, not after the 15 s poll or a reload."""
     script = _app_js()
     assert re.search(r"^const SESSIONS_EVERY = (\d+);", script, re.M) and int(re.search(r"^const SESSIONS_EVERY = (\d+);", script, re.M).group(1)) <= 5000
-    shells = _component(script, "Shells")
-    assert 'useLoad(() => api("shells"), [], SESSIONS_EVERY)' in shells and "SESSIONS_EVERY)" in shells.split("const stopped")[1]
+    assert 'useLoad(() => api("sessions/tree"), [], SESSIONS_EVERY)' in _component(script, "Running")
 
 
 def test_the_terminal_keeps_your_place():
@@ -1862,16 +1862,22 @@ def test_every_result_type_has_its_view_in_launch_and_in_needs_you():
     assert "rows=${suggester ? 8 : 2}" in brief and "reach the planner and the session as yours" in brief
 
 
-def test_sessions_running_groups_badges_and_history_filters():
-    """A static check (004 FR-012–FR-019, FR-022): the page isn't run here."""
+def test_sessions_running_tree_tiles_and_history_filters():
+    """A static check (004 FR-012–FR-030, FR-016–FR-022): the page isn't run here; its pure parts run in test_app_js."""
     script = _app_js()
-    groups = re.search(r"const RUN_GROUPS = \[(.*?)\];", script)[1]
-    assert re.findall(r'\["(\w+)", "[^"]+"\]', groups) == ["embedded", "background", "finished", "plain"]
-    shells = _component(script, "Shells")
+    running = _component(script, "Running")
     # A session started elsewhere shows without a reload: polled every SESSIONS_EVERY (test_the_sessions_list_polls_quickly).
-    assert 'useLoad(() => api("shells"), [], SESSIONS_EVERY)' in shells
-    assert "Badges only" in shells and "<${FamilyLegend} />" in shells and "waiting" in shells and "⇄ also on" in shells
-    assert "originWords(a)" in shells and "Resume a past session" in shells and "<${NewShell} " in shells
+    assert 'useLoad(() => api("sessions/tree"), [], SESSIONS_EVERY)' in running
+    assert "Resume a past session" in running and "<${NewShell} " in running and 'post("agents/resume", { name })' in running
+    assert "<${PhoneRunning} " in running and "<${SessionTree} " in running and "<${SessionTiles} " in running
+    # Ctrl+] and Ctrl+[ are Esc's neighbours in a terminal: caught on the window before the terminal sees them.
+    assert 'window.addEventListener("keydown", on, true)' in running
+    tree = _component(script, "SessionTree")
+    assert 'role="tree"' in tree and "<${FamilyLegend} />" in tree and "Clear the filters" in tree and "Expand all" in tree
+    row = _component(script, "TreeRow")
+    assert 'role: "treeitem"' in row and '"aria-level": r.level' in row and "Open this workflow" in row
+    tiles = _component(script, "SessionTiles")
+    assert 'role="tablist"' in tiles and 'role="separator"' in tiles and "ResizeObserver" in tiles
     assert 'post("agents/worktrees", { repo })' in _component(script, "NewShell") and "<${RepoPicker} " in _component(script, "NewShell")
     # #36 review, 4: no Start in the last repository's folder while the next one's list loads.
     new_shell = _component(script, "NewShell")
@@ -2865,6 +2871,8 @@ def test_yellow_marks_only_what_waits_for_the_maintainer():
         ".needs-open[data-waits], .needs-open[data-waits]:hover:not(:disabled)",
         ".il-btn.wfwaits",  # "Show the workflow" while its machine waits for your confirm, below
         '.wf-dg .wf-dg-ed[data-at="pending"] .wf-dg-lab rect',  # the diagram's exit whose move waits for your confirm
+        ".sn-asks",  # Sessions › Running: "N cards for you" on a tree row or tile
+        '.sn-live[data-live="waits"]::before',  # the mark of a session that waits for you, beside its words
     ]), yellow
     assert 'chip && chip.kind === "waits" && !machineOpen ? " wfwaits" : ""' in script
     for calm in (".ask.steward .ask-head", ".ask.done .ask-head", ".ask.calm .ask-head"):
