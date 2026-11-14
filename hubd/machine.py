@@ -73,10 +73,11 @@ READ_HUB_TOOLS = frozenset({
     "request_repository", "roadmap", "run_history", "submit_result", "work_search", "work_status"})
 QUIET_HUB_TOOLS = READ_HUB_TOOLS | {"submit_drafts", "request_move", "draft_workflow", "read_draft", "read_workflow"}
 # FR-104: what lets a grant build on an item, so that an instance of its workflow holds it: pushing to a branch, or opening or
-# updating a pull request, by GitHub capability, by a checkout on a branch it pushes, by a hub tool, or by full access.
-BUILD_GITHUB = ("push", "pr.write")
+# updating a pull request (marking it ready, merging or closing it too), by GitHub capability, by a checkout on a branch it
+# pushes, by a hub tool, or by full access. Reading, commenting, labelling, acting on runs and handing in don't build.
+BUILD_GITHUB = ("push", "pr.write", "merge")
 BUILD_CHECKOUTS = ("pr-branch", "new-branch")
-BUILD_HUB_TOOLS = frozenset({"mark_ready"})
+BUILD_HUB_TOOLS = frozenset({"mark_ready", "merge_pr", "close_pr"})
 _NAMED_TOOL = re.compile(r"`([a-z][a-z0-9_]{0,63})`")  # a tool named in a state's instructions
 
 
@@ -944,8 +945,8 @@ def writes_on_item(grant: Grant) -> list[str]:
 
 def builds_on_item(grant: Grant) -> list[str]:
     """What in an effective grant can build on the item (FR-104), in words; empty if nothing can: a GitHub capability that
-    pushes or writes a pull request, a checkout on a branch the session pushes, a hub tool that updates a pull request (listed
-    or asked first), or full access, the maintainer's own rights."""
+    pushes, writes or merges a pull request, a checkout on a branch the session pushes, a hub tool that changes a pull request
+    (listed or asked first), or full access, the maintainer's own rights."""
     out = []
     if grant.access == "full":
         out.append("full access")
