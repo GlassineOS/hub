@@ -285,6 +285,15 @@ class Runner:
         finally:
             self._tasks.pop(name, None)
 
+    def running(self, name: str) -> asyncio.Task | None:
+        """The pass waiting or running for one instance, if any: what a wake for the same signal waits for (managed.py)."""
+        return self._tasks.get(name)
+
+    def facts_known(self, name: str, record: dict, inst) -> dict:
+        """The facts as the hub knows them now, without looking anything up: for the stall check and the facts a report
+        named (managed.py), which run on a tick and mustn't call GitHub."""
+        return {**inst.facts(self.machines.clock()), **self._facts_of(name, record)}
+
     async def idle(self) -> None:
         """Until no pass is waiting or running."""
         while self._tasks:

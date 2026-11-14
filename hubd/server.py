@@ -72,7 +72,7 @@ RENEW_EVERY = 120  # seconds: well inside apps.RENEW_BEFORE, so a session's GitH
 SWEEP_EVERY = 30  # seconds between looks for managed sessions whose owner has ended (012 FR-044)
 # The chain of owners' tools (012 FR-040 to FR-053), by a session's own token and conversation, each on its tool list
 CHAIN_OPS = {"managed.start": "start_managed", "managed.return": "return_result", "managed.report": "report_up", "managed.answer": "answer_report",
-             "managed.status": "managed_status"}
+             "managed.status": "managed_status", "managed.withdraw": "withdraw_report"}
 PING_FIRST, PING_EVERY = 60, 30  # seconds: how often to look; the interval of a ping is its own setting
 PUBLIC_KNOWN, PUBLIC_UNSURE = 600, 60  # seconds a repository's visibility is kept, when GitHub said and when it didn't
 COPIES_EVERY = 1800  # seconds between refreshes of the repository copies
@@ -181,6 +181,7 @@ class Hubd:
         self.managed = Managed(agents, machine_run, decision_store) if self.effects is not None else None
         if self.effects is not None:
             self.effects.managed = self.managed
+            self.managed.relaunching = self.effects.relaunching
         # 012 FR-025: a workflow with `status = true` posts each move to its session's pull request or issue
         self.status_lines = StatusLines(agents, gh, apps) if self.effects is not None else None
         # 012 FR-060: the saved versions of the workflows, the editor and the workflow.change card. A login only.
@@ -419,7 +420,7 @@ class Hubd:
             return {"ok": False, "error": str(e)}
 
     async def chain_tool(self, op: str, req: dict) -> dict:
-        """start_managed, return_result, report_up, answer_report and managed_status: by a session's own token, from its current conversation,
+        """start_managed, return_result, report_up, withdraw_report, answer_report and managed_status: by a session's own token, from its current conversation,
         with the tool on its list. What each may touch is decided in managed.py from the session's own record."""
         scope = self.agents.scope(req.get("agent_token")) if self.agents else None
         tool = CHAIN_OPS[op]
@@ -440,6 +441,8 @@ class Hubd:
                 return {"ok": True, **await self.managed.status(scope)}
             if op == "managed.report":
                 return {"ok": True, **self.managed.report_up(scope, req.get("kind"), req.get("evidence"), req.get("proposal"), req.get("forward"))}
+            if op == "managed.withdraw":
+                return {"ok": True, **self.managed.withdraw(scope, req.get("id"), req.get("why"))}
             return {"ok": True, **self.managed.answer(scope, req.get("id"), req.get("decision"), req.get("note"))}
         except ManagedError as e:
             return {"ok": False, "error": str(e)}
@@ -1386,11 +1389,14 @@ class Hubd:
 
     def _note_pr_results(self, sessions: list[dict]) -> None:
         """005 FR-016: a session that ends in a pull request has it as its result. On an issue, once its branch has one; on a
-        pull request, which it covers from the start, once Claude has ended there."""
+        pull request, which it covers from the start, once Claude has ended there. Not a managed session's: what it made is
+        its owner's, which had the hand-back."""
         if not self.results:
             return
         for session in sessions:
             agent = session.get("agent")
+            if agent and self.agents.owner_record(session["name"]) is not None:
+                continue
             action = self.agents.library.actions.get(agent["action"]) if agent else None
             if not action or action["result"] != "pr" or not agent.get("prs") or (agent.get("object") == "pr" and not agent.get("ended")):
                 continue
@@ -1905,6 +1911,10 @@ async def _sweep(hubd: Hubd) -> None:
             await hubd.managed.sweep()
         except Exception:  # the next round may go better
             log.exception("managed sessions weren't swept")
+        try:  # stalled workflows, and reports whose named facts changed
+            await hubd.managed.watch()
+        except Exception:
+            log.exception("the workflows weren't looked at for stalls")
         await asyncio.sleep(SWEEP_EVERY)
 
 

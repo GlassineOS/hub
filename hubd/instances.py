@@ -571,6 +571,7 @@ class Machines:
         self._log: Log | None = None
         self._watchers: list = []
         self.children_of = None  # (name, session_id) -> the managed sessions it runs, for the machine panel (managed.py)
+        self.stalled_of = None  # (name, session_id) -> how long it has sat stalled and why, or None (managed.py)
 
     def on_move(self, callback) -> None:
         """callback(name, result) after each move, confirm and roll-back that was saved, by hand or by the machine: one
@@ -742,7 +743,7 @@ class Machines:
                 "path": list(reversed(machine.ancestors(d, inst.state))), "initial": d.initial,
                 "states": [_state_json(s) for s in d.states.values()],
                 "sensitive": {"github": machine.SENSITIVE, "hub_tools": machine.SENSITIVE_HUB_TOOLS},
-                "facts": facts, "newer": newer, "managed": self._children(record),
+                "facts": facts, "newer": newer, "managed": self._children(record), "stalled": self._stalled(record),
                 "returns": {entry: dict(kept["returns"]) for entry, kept in inst.managed.items() if kept["returns"]}}
 
     def _children(self, record: dict) -> list[dict]:
@@ -753,6 +754,15 @@ class Machines:
         except Exception:  # noqa: BLE001: the panel shows the machine without them
             log.exception("%s: its managed sessions couldn't be listed", record.get("name"))
             return []
+
+    def _stalled(self, record: dict) -> dict | None:
+        if self.stalled_of is None:
+            return None
+        try:
+            return self.stalled_of(record.get("name"), record.get("session_id"))
+        except Exception:  # noqa: BLE001: the panel shows the machine without it
+            log.exception("%s: whether it stalled couldn't be read", record.get("name"))
+            return None
 
     def summary(self, name: str) -> dict | None:
         """What a state chip shows, for the session lists: read from the file only, so it creates and writes nothing

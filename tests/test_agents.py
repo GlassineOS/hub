@@ -1140,6 +1140,10 @@ def test_a_session_reports_when_it_waits(tmp_path, remote):
     assert a.describe(name)["waiting"] is True
     subprocess.run(hooks["PreToolUse"][0]["hooks"][0]["command"], shell=True, check=True)
     assert a.describe(name)["waiting"] is False
+    # at its prompt (an owner after a hand-back from one it manages, say), Claude Code's idle notification isn't a wait for you
+    subprocess.run(hooks["Stop"][0]["hooks"][0]["command"], shell=True, check=True)
+    subprocess.run(hooks["Notification"][0]["hooks"][0]["command"], shell=True, check=True)
+    assert a.describe(name)["waiting"] is False and a.describe(name)["idle"] is True
 
 
 def test_the_first_turn_waits_for_the_tool_server(tmp_path, remote):
